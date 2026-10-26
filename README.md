@@ -23,18 +23,33 @@ npm run student
 
 Use `PORT=...` to change the Tutor's port and `TUTOR_URL=http://127.0.0.1:...` to point the Student elsewhere.
 
+### Browser monitor
+
 ```bash
-npm test   # starts the Tutor as a child process, runs all checks, stops it
+# terminal 1 — Agent B
+npm run tutor
+
+# terminal 2 — UI server (hosts the Student Agent), binds to 127.0.0.1:3000
+npm run ui
+```
+
+Then open **http://127.0.0.1:3000**. Use `UI_PORT=...` to change the UI port; `TUTOR_URL` works here too.
+
+```bash
+npm test   # starts the Tutor (and UI server) as child processes, runs all checks, stops them
 ```
 
 ## Files
 
 | File | What it is |
 | --- | --- |
-| `src/tutor-agent.js` | **Agent B, the Tutor Agent.** An Express server that serves the Agent Card at `/.well-known/agent-card.json` and the A2A JSON-RPC endpoint at `/a2a/jsonrpc`. `tutorExecutor` holds its logic: log the incoming message, publish a fixed reply. |
-| `src/student-agent.js` | **Agent A, the Student Agent.** Fetches the Tutor's Agent Card, builds an SDK client from it, sends one message and prints the reply. `askTutor()` is exported so the test can call the same code. |
-| `test/a2a.test.js` | Starts the Tutor as a real separate process on a free port. Checks the Agent Card, the exact reply through the SDK client, a full Student-process ↔ Tutor-process run (matching message IDs in both logs), and a clear failure when the Tutor is down. |
-| `package.json` / `package-lock.json` | Pinned dependencies and the `tutor` / `student` / `test` scripts. |
+| `src/tutor-agent.js` | **Agent B, the Tutor Agent.** An Express server that serves the Agent Card at `/.well-known/agent-card.json` and the A2A JSON-RPC endpoint at `/a2a/jsonrpc`. `tutorExecutor` holds its logic: log the incoming message, publish a fixed reply. It also serves `/viz/events`, a read-only feed of its own receive and publish events for the monitor. |
+| `src/student-agent.js` | **Agent A, the Student Agent.** Fetches the Tutor's Agent Card, builds an SDK client from it, sends one message and prints the reply. `askTutor(url, text, { runId, onEvent })` is exported so the UI server and the tests can call the same code. |
+| `src/ui-server.js` | **UI backend.** Serves the page, starts a run on `POST /api/runs` by calling `askTutor()`, relays the Tutor's feed, and streams every event to the browser on `GET /api/events`. It decides the run state and rejects a second submission while one is in flight. |
+| `public/` | The browser page: `index.html`, `styles.css` and `app.js`. It shows only events the server sent, and renders all text with `textContent`. |
+| `test/a2a.test.js` | The original A2A tests: the Agent Card, the exact reply, traceable process ↔ process logs, and a clear failure when the Tutor is down. |
+| `test/ui.test.js` | Runs the Tutor and UI server as real processes. Covers the typed-message round trip, run-ID correlation across runs, the double-submit guard, no resend on reconnect, the unavailable-Tutor case, and input validation. |
+| `package.json` / `package-lock.json` | Pinned dependencies and the `tutor` / `student` / `ui` / `test` scripts. |
 
 ## How a message gets there and back
 
@@ -58,7 +73,33 @@ The raw request and response on the wire:
    "parts":[{"text":"Hello Student Agent. Yes, I can help you with calculus.","mediaType":"text/plain"}]}}}
 ```
 
+## The browser monitor: two kinds of connection
+
+```
+ Browser ──POST /api/runs──▶  UI server (hosts Student Agent)  ══ A2A JSON-RPC ══▶  Tutor Agent process
+   ▲                           │                                                  │
+   └──SSE /api/events◀─────────┴◀────────── SSE /viz/events (read-only) ──────────┘
+```
+
+- **A2A connection (double line):** the real agent-to-agent communication. It is the same `askTutor()` → `SendMessage` path as the CLI. Messages and replies travel only here.
+- **Visualization connection (single lines):** reports of what each agent observed. The Tutor emits `message_received` and `reply_published` from inside its executor. The Student emits `request_sent`, `reply_received` or `request_failed` from inside `askTutor()`. The UI server relays these to the browser. No agent message travels on this connection, and the browser can't send anything over it.
+
+What happens when you click **Send**:
+
+1. The browser sends `POST /api/runs` with the typed text. The server creates a `runId` and publishes `run_started` and state `sending`.
+2. The UI server calls `askTutor(text, { runId })`. The Student fetches the Agent Card and emits `request_sent` just before calling `sendMessage`. This means the send has started; it does not confirm delivery.
+3. The A2A message carries `metadata: { runId }`.
+4. The Tutor's executor receives the message, reads the `runId` from that message, and emits `message_received`. When the UI server sees this, it sets state `waiting`. This is the only confirmation of receipt, and it comes from the Tutor process itself.
+5. The Tutor publishes its reply, which also carries the `runId` in its metadata, and emits `reply_published`.
+6. `sendMessage` returns the reply. The Student emits `reply_received`, and the server sets state `completed`. On any error it emits `request_failed` and sets state `failed`.
+
+Notes on reading the monitor:
+
+- **`waiting` is often skipped.** On localhost the whole exchange takes a few milliseconds. The A2A reply often arrives before the Tutor's `message_received` event has come through its separate feed. The server never moves a finished run backwards, and the Tutor's steps still appear on the timeline with the Tutor's own timestamps.
+- **With the Tutor stopped,** the run fails at Agent Card discovery, so even "Request sent" is marked *not observed*. That's accurate: `sendMessage` was never called.
+- **Reloading the page** replays the server's event history over `GET /api/events`. Only `POST /api/runs` can start an A2A request, so a reconnect can never send anything to the Tutor.
+
 ## Deliberately not included
 
 Streaming, Tasks and their lifecycle, push notifications, a reverse server,
-multi-turn chat, auth, routing and UI. This is one request and one response.
+multi-turn chat, auth, routing, a Hub and a database. Each click is one A2A request and one response.

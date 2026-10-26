@@ -10,13 +10,26 @@ const log = (...args) => console.log('[Student Agent]', ...args);
 const textOf = (message) =>
   message.parts.filter((p) => p.content?.$case === 'text').map((p) => p.content.value).join('');
 
-export async function askTutor(baseUrl, text = STUDENT_MESSAGE) {
+// `runId` travels to the Tutor in A2A Message.metadata so both sides' events can be
+// correlated. `onEvent(type, data)` is a visualization hook called where each step happens.
+export async function askTutor(baseUrl, text = STUDENT_MESSAGE, { runId, onEvent = () => {} } = {}) {
+  try {
+    return await exchange(baseUrl, text, runId, onEvent);
+  } catch (err) {
+    onEvent('request_failed', { error: err.message, code: err.cause?.code ?? null });
+    throw err;
+  }
+}
+
+async function exchange(baseUrl, text, runId, onEvent) {
   // 1. Discovery: GET <baseUrl>/.well-known/agent-card.json
   const card = await new DefaultAgentCardResolver().resolve(baseUrl);
-  log('discovered Agent Card', {
+  const discovered = {
     name: card.name,
     interfaces: card.supportedInterfaces.map((i) => `${i.protocolBinding} ${i.protocolVersion} ${i.url}`),
-  });
+  };
+  log('discovered Agent Card', discovered);
+  onEvent('card_discovered', discovered);
 
   // 2. The factory picks a transport from the card's supportedInterfaces.
   const client = await new ClientFactory().createFromAgentCard(card);
@@ -27,11 +40,13 @@ export async function askTutor(baseUrl, text = STUDENT_MESSAGE) {
     taskId: '',
     role: Role.ROLE_USER,
     parts: [{ content: { $case: 'text', value: text }, metadata: undefined, filename: '', mediaType: 'text/plain' }],
-    metadata: undefined,
+    metadata: runId ? { runId } : undefined,
     extensions: [],
     referenceTaskIds: [],
   };
   log('sending message', { messageId: message.messageId, text });
+  // "Send started" only: receipt is confirmed separately by the Tutor's own event.
+  onEvent('request_sent', { messageId: message.messageId, text });
 
   // 3. SendMessage over the A2A JSON-RPC binding.
   const result = await client.sendMessage({ tenant: '', message, configuration: undefined, metadata: undefined });
@@ -42,6 +57,7 @@ export async function askTutor(baseUrl, text = STUDENT_MESSAGE) {
   }
   const reply = { messageId: result.messageId, contextId: result.contextId, taskId: result.taskId, text: textOf(result) };
   log('received reply', reply);
+  onEvent('reply_received', { ...reply, runId: result.metadata?.runId ?? null });
   return reply;
 }
 

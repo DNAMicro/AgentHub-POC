@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A2A Spike Monitor</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>A2A Spike Monitor</h1>
+      <p class="subtitle">Student Agent ↔ Tutor Agent over A2A v1.0 JSON-RPC</p>
+    </div>
+    <div class="badges">
+      <span class="badge" id="browser-feed" data-ok="false">Browser stream: connecting</span>
+      <span class="badge" id="tutor-feed" data-ok="false">Tutor feed: unknown</span>
+      <span class="state" id="state" data-state="idle">idle</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="panels">
+      <section class="panel" aria-labelledby="student-title">
+        <h2 id="student-title">Student Agent <span class="role">A2A client</span></h2>
+        <ol class="log" id="student-log" aria-live="polite"></ol>
+        <form id="send-form" class="composer">
+          <label for="message" class="visually-hidden">Message to Tutor Agent</label>
+          <textarea id="message" rows="2" maxlength="2000" required>Hello Tutor Agent. Can you help me with calculus?</textarea>
+          <button type="submit" id="send">Send</button>
+        </form>
+        <p class="form-error" id="form-error" role="alert"></p>
+      </section>
+
+      <section class="panel" aria-labelledby="tutor-title">
+        <h2 id="tutor-title">Tutor Agent <span class="role">A2A server</span></h2>
+        <ol class="log" id="tutor-log" aria-live="polite"></ol>
+      </section>
+    </div>
+
+    <section class="timeline-panel" aria-labelledby="timeline-title">
+      <h2 id="timeline-title">Activity timeline <span class="run-id" id="run-id">no run yet</span></h2>
+      <ol class="timeline" id="timeline">
+        <li data-step="request_sent"><span class="step-label">Request sent</span><span class="step-note">send started by Student</span><time></time></li>
+        <li data-step="message_received"><span class="step-label">Tutor Agent received</span><span class="step-note">confirmed by Tutor process</span><time></time></li>
+        <li data-step="reply_published"><span class="step-label">Response sent</span><span class="step-note">published by Tutor</span><time></time></li>
+        <li data-step="reply_received"><span class="step-label">Student Agent received</span><span class="step-note">A2A result returned</span><time></time></li>
+      </ol>
+      <p class="timeline-error" id="timeline-error" role="alert"></p>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
