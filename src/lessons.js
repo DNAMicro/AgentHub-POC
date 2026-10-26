@@ -22,6 +22,11 @@ export const HUB_LESSON_MEDIA_TYPES = new Set([LESSON_PUBLISH_MEDIA_TYPE, LESSON
 export const STUDENT_INBOUND_MEDIA_TYPES = new Set([LESSON_DELIVERY_MEDIA_TYPE, LESSON_QUERY_MEDIA_TYPE, COURSE_AVAILABLE_MEDIA_TYPE, SESSION_CHALLENGE_MEDIA_TYPE]);
 
 export const LIMITS = { title: 120, text: 4000 };
+// A post is a LESSON (something to learn, with Start lesson) or a MESSAGE (a course announcement such as
+// “Homework is late”). Its audience is one enrolled student or 'all' — every student enrolled in the
+// course, resolved by the Hub from its own enrollment data (never from a list the professor supplies).
+export const POST_KINDS = ['lesson', 'message'];
+export const AUDIENCE = /^(all|[a-z][a-z0-9-]{1,40})$/;
 export const ID = /^[\w-]{6,80}$/;
 
 // HMAC over a list of fields (joined with |). Keys are per-process, in memory, never logged.
@@ -32,18 +37,20 @@ export function verify(key, fields, signature) {
   const given = Buffer.from(signature);
   return given.length === expected.length && timingSafeEqual(given, expected);
 }
-export const contentHash = (title, text) => createHash('sha256').update(JSON.stringify([title ?? '', text ?? ''])).digest('hex').slice(0, 32);
+// Covers the kind too, so a signed lesson can't be re-labelled as a message (or the reverse).
+export const contentHash = (title, text, kind = 'lesson') => createHash('sha256').update(JSON.stringify([title ?? '', text ?? '', kind])).digest('hex').slice(0, 32);
 
-// The professor's draft, checked the same way by the Professor agent and the Hub. The text is lesson
-// CONTENT: it is stored and shown as written, never interpreted as instructions.
-export function validateLesson({ title, text }) {
+// The professor's draft, checked the same way by the Professor agent and the Hub. The text is CONTENT:
+// it is stored and shown as written, never interpreted as instructions.
+export function validateLesson({ kind = 'lesson', title, text }) {
   const errors = {};
   const t = typeof title === 'string' ? title.trim() : '';
   const body = typeof text === 'string' ? text.trim() : '';
+  if (!POST_KINDS.includes(kind)) errors.kind = 'Choose Lesson or Message.';
   if (t.length > LIMITS.title) errors.title = `Keep the title under ${LIMITS.title} characters.`;
-  if (!body) errors.text = 'Write what you would like your student to learn.';
-  else if (body.length > LIMITS.text) errors.text = `Keep the lesson under ${LIMITS.text} characters.`;
-  return Object.keys(errors).length ? { ok: false, errors } : { ok: true, values: { title: t, text: body } };
+  if (!body) errors.text = kind === 'message' ? 'Write what you would like to tell your students.' : 'Write what you would like your student to learn.';
+  else if (body.length > LIMITS.text) errors.text = `Keep it under ${LIMITS.text} characters.`;
+  return Object.keys(errors).length ? { ok: false, errors } : { ok: true, values: { kind, title: t, text: body } };
 }
 
 // One delivery per lesson revision and recipient: a stable id, so a repeat can never make a second one.

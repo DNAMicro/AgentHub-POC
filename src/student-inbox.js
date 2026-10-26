@@ -54,16 +54,17 @@ export function createStudentInbox({ studentId, hubUrl, file = process.env.STUDE
     }
     if (part.mediaType === LESSON_DELIVERY_MEDIA_TYPE) {
       if (!verify(callKey, ['delivery', studentId, v.deliveryId, v.lessonId, v.revision, v.contentHash], sig)) return { status: 'rejected', reason: 'bad_signature' };
-      if (v.contentHash !== contentHash(v.title, v.text)) return { status: 'rejected', reason: 'content_mismatch' };
+      if (!['lesson', 'message'].includes(v.kind ?? 'lesson')) return { status: 'rejected', reason: 'unknown_kind' };
+      if (v.contentHash !== contentHash(v.title, v.text, v.kind ?? 'lesson')) return { status: 'rejected', reason: 'content_mismatch' };
       const existing = store.get().lessons[v.deliveryId];
       if (existing) return existing.contentHash === v.contentHash ? { status: 'delivered', inboxId: existing.inboxId, duplicate: true } : { status: 'rejected', reason: 'conflict' };
       const entry = {
-        inboxId: `in-${randomUUID().slice(0, 12)}`, deliveryId: v.deliveryId, lessonId: v.lessonId, revision: v.revision, courseId: v.courseId, courseTitle: v.courseTitle,
+        inboxId: `in-${randomUUID().slice(0, 12)}`, deliveryId: v.deliveryId, lessonId: v.lessonId, revision: v.revision, kind: v.kind ?? 'lesson', toAll: Boolean(v.toAll), courseId: v.courseId, courseTitle: v.courseTitle,
         professorId: v.professorId, professorName: v.professorName, title: v.title, text: v.text, postedAt: v.postedAt, contentHash: v.contentHash,
         receivedAt: new Date().toISOString(), openedAt: null, savedAt: null,
       };
       store.update((s) => { s.lessons[v.deliveryId] = entry; }); // committed to disk before we say "delivered"
-      emit('lesson_received', { deliveryId: v.deliveryId, lessonId: v.lessonId, revision: v.revision, inboxId: entry.inboxId, courseTitle: v.courseTitle, title: v.title });
+      emit('lesson_received', { deliveryId: v.deliveryId, lessonId: v.lessonId, revision: v.revision, kind: entry.kind, inboxId: entry.inboxId, courseTitle: v.courseTitle, professorName: v.professorName, title: v.title });
       return { status: 'delivered', inboxId: entry.inboxId };
     }
     if (part.mediaType === LESSON_QUERY_MEDIA_TYPE) {
@@ -132,8 +133,14 @@ export function createStudentInbox({ studentId, hubUrl, file = process.env.STUDE
     return store.get().notices[noticeId];
   }
 
+  // Demo reset (New conversation): every lesson, message and notice goes; the professor sends again.
+  function reset() {
+    store.update((s) => { s.lessons = {}; s.notices = {}; s.pendingReceipts = []; });
+    emit('inbox_reset', {});
+  }
+
   return {
-    executor, register, signer, markOpened, markSaved, markNoticeSeen,
+    executor, register, signer, markOpened, markSaved, markNoticeSeen, reset,
     session: () => ({ ...session }),
     lesson: (deliveryId) => store.get().lessons[deliveryId] ?? null,
     view: () => ({

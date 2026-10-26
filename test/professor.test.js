@@ -9,10 +9,11 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
-import { startStack, startUi, startProfessor, signedStudent, openStream, chatVia, post, waitFor, find, findAll, forRun, stateOf } from './support/harness.js';
+import { startStack, startHub, startUi, startProfessor, signedStudent, openStream, chatVia, post, waitFor, find, findAll, forRun, stateOf } from './support/harness.js';
 import { askTutor } from '../src/student-agent.js';
+import { startFakeAnthropic, messageReply } from './support/fake-anthropic.js';
 import { sendData } from '../src/a2a-data.js';
-import { LESSON_DELIVERY_MEDIA_TYPE, LESSON_PUBLISH_MEDIA_TYPE } from '../src/lessons.js';
+import { LESSON_DELIVERY_MEDIA_TYPE, LESSON_PUBLISH_MEDIA_TYPE, STUDENT_SESSION_MEDIA_TYPE } from '../src/lessons.js';
 
 const MOCK = { hubEnv: { ROUTER_MODE: 'mock', HUB_TELEMETRY_SHOW_CONTENT: '1', HUB_STUDENTS: 'student-alex,student-sam' }, tutorEnv: { TUTOR_MODE: 'mock', TUTOR_SCOPE_ENFORCEMENT: 'off' } };
 const dir = () => mkdtempSync(join(tmpdir(), 'a2a-prof-'));
@@ -37,7 +38,7 @@ async function classroom({ hubEnv = {}, uiEnv = {}, professorEnv = {} } = {}) {
   streams.push(stream);
   return { s, stream };
 }
-const postLesson = (s, body) => post(`${s.ui.url}/api/professor/lessons`, { operationId: `op-${randomUUID()}`, recipient: 'student-alex', title: 'Customer value', text: 'Customer value is what the customer gets minus what it costs them. Think of the café breakfast.', ...body });
+const postLesson = (s, body) => post(`${s.ui.url}/api/professor/lessons`, { operationId: `op-${randomUUID()}`, audience: 'student-alex', title: 'Customer value', text: 'Customer value is what the customer gets minus what it costs them. Think of the café breakfast.', ...body });
 const inbox = async (s) => (await fetch(`${s.ui.url}/api/inbox`)).json();
 const professorState = async (s) => (await fetch(`${s.ui.url}/api/professor/state`)).json();
 const hubEvents = (stream, type) => findAll(stream.events, 'hub', type);
@@ -152,11 +153,11 @@ test('wrong professor, unknown course, unenrolled recipient and forged publishes
   };
   assert.deepEqual(await reason({ courseId: 'calc-150' }), { status: 422, reason: 'not_course_professor' });
   assert.deepEqual(await reason({ courseId: 'hist-999' }), { status: 422, reason: 'unknown_course' });
-  assert.deepEqual(await reason({ recipient: 'student-sam' }), { status: 422, reason: 'recipient_not_enrolled' });
+  assert.deepEqual(await reason({ audience: 'student-sam' }), { status: 422, reason: 'recipient_not_enrolled' });
   // Someone who isn't the registered Professor instance (no key) claiming to be it.
   const forged = await sendData(s.hub.url, {
     mediaType: LESSON_PUBLISH_MEDIA_TYPE,
-    value: { type: 'lesson_publish', professorId: 'professor', instanceId: randomUUID(), signature: 'x'.repeat(43), operationId: `op-${randomUUID()}`, lessonId: 'ls-forged-1', revision: 1, courseId: 'mkt-101', recipient: 'student-alex', title: 'Forged', text: 'Click here.' },
+    value: { type: 'lesson_publish', professorId: 'professor', instanceId: randomUUID(), signature: 'x'.repeat(43), operationId: `op-${randomUUID()}`, lessonId: 'ls-forged-1', revision: 1, courseId: 'mkt-101', kind: 'lesson', audience: 'student-alex', title: 'Forged', text: 'Click here.' },
   });
   assert.equal(forged.value.status, 'rejected');
   assert.equal(forged.value.reason, 'unknown_professor');
@@ -190,15 +191,15 @@ test('Student agent offline: the lesson queues at the Hub and arrives when it re
   const { s, stream } = await classroom();
   await stop(s.ui);
   // The Student's UI (which also hosts the Professor view in this demo) is down: use the Professor's API.
-  const res = await (await post(`${s.professor.url}/author/lessons`, { operationId: `op-${randomUUID()}`, recipient: 'student-alex', title: 'While you were away', text: 'Positioning is the place a brand holds in a customer’s mind.' })).json();
+  const res = await (await post(`${s.professor.url}/author/lessons`, { operationId: `op-${randomUUID()}`, audience: 'student-alex', title: 'While you were away', text: 'Positioning is the place a brand holds in a customer’s mind.' })).json();
   assert.equal(res.ack.status, 'queued', 'queued at the Hub — not “delivered”');
   const direct = await (await fetch(`${s.professor.url}/author/state`)).json();
-  assert.equal(direct.lessons[0].delivery.state, 'queued');
+  assert.equal(direct.lessons[0].deliveries[0].state, 'queued');
   // The refused connection marks the session unreachable: shown offline, and no retries against it.
   assert.equal(direct.roster.enrolled[0].online, false);
-  const attempts = direct.lessons[0].delivery.attempts;
+  const attempts = direct.lessons[0].deliveries[0].attempts;
   await new Promise((r) => setTimeout(r, 1500)); // three Hub pump cycles in tests
-  assert.equal((await (await fetch(`${s.professor.url}/author/state`)).json()).lessons[0].delivery.attempts, attempts);
+  assert.equal((await (await fetch(`${s.professor.url}/author/state`)).json()).lessons[0].deliveries[0].attempts, attempts);
   await restartUi(s);
   await waitFor(async () => (await inbox(s)).lessons.length === 1, { what: 'queued lesson delivered', timeout: 8000 });
   // A later browser (a fresh page load after another restart) still sees it: it's on disk, not in a stream.
@@ -226,13 +227,13 @@ test('a notification does not mark a lesson opened; only the student’s own act
   await new Promise((r) => setTimeout(r, 600));
   const [l] = (await inbox(s)).lessons;
   assert.equal(l.openedAt, null);
-  assert.equal((await professorState(s)).lessons[0].delivery.opened, false, 'the professor sees delivered, not opened');
+  assert.equal((await professorState(s)).lessons[0].deliveries[0].opened, false, 'the professor sees delivered, not opened');
   assert.equal(findAll(stream.events, 'hub', 'lesson_opened').length, 0);
   // "Save for later" is not "opened" either.
   await post(`${s.ui.url}/api/inbox/${l.deliveryId}/save`, {});
-  assert.equal((await professorState(s)).lessons[0].delivery.opened, false);
+  assert.equal((await professorState(s)).lessons[0].deliveries[0].opened, false);
   await post(`${s.ui.url}/api/inbox/${l.deliveryId}/open`, {});
-  await waitFor(async () => (await professorState(s)).lessons[0].delivery.opened, { what: 'opened receipt' });
+  await waitFor(async () => (await professorState(s)).lessons[0].deliveries[0].opened, { what: 'opened receipt' });
 });
 
 test('malicious lesson text is only content: it triggers no actions, forms or requests', async () => {
@@ -258,4 +259,147 @@ test('malicious lesson text is only content: it triggers no actions, forms or re
   const chat = await askTutor(s.ui.url, 'Please book me a room').catch((e) => ({ error: e.message }));
   assert.ok(chat.error || !chat.form, 'plain chat to the Student endpoint does nothing');
   assert.equal((await inbox(s)).lessons.length, 1);
+});
+
+test('a course message to all students: one delivery each — delivered to a connected student, queued for one without a student agent', async () => {
+  const { s, stream } = await classroom();
+  const res = await postLesson(s, { kind: 'message', audience: 'all', title: 'Homework is late', text: 'The segmentation homework is now due one week later than planned.' });
+  assert.equal(res.status, 200);
+  const { ack } = await res.json();
+  assert.equal(ack.accepted, true);
+  assert.deepEqual(ack.deliveries.map((d) => [d.studentId, d.state]).sort(), [['student-alex', 'delivered'], ['student-sam', 'queued']], 'the Hub expanded “all” from its enrollment');
+  assert.equal(ack.deliveries.find((d) => d.studentId === 'student-sam').reason, 'student_offline');
+  const [m] = (await inbox(s)).lessons;
+  assert.equal(m.kind, 'message');
+  assert.equal(m.toAll, true);
+  const st = await professorState(s);
+  assert.equal(st.lessons[0].kind, 'message');
+  assert.equal(st.lessons[0].deliveries.length, 2);
+  // Asking about it goes to its professor, as a message.
+  const r = await post(`${s.ui.url}/api/runs`, { text: 'Why is it later?', lessonDeliveryId: m.deliveryId });
+  const { runId } = await r.json();
+  await waitFor(() => find(forRun(stream.events, runId), 'professor', 'reply_published'), { what: 'professor reply' });
+  assert.match(find(forRun(stream.events, runId), 'professor', 'reply_published').data.text, /About the message “Homework is late”/);
+  // A single-student audience must be enrolled; the kind must be known.
+  assert.equal((await postLesson(s, { audience: 'student-kim' })).status, 422);
+  assert.equal((await postLesson(s, { kind: 'memo' })).status, 400);
+});
+
+test('nobody can register as an enrolled student who has no Student agent endpoint (outside tests)', async () => {
+  const hub = await startHub({ HUB_TEST_STUDENTS_WITHOUT_ENDPOINT: '0' });
+  try {
+    const r = await sendData(hub.url, { mediaType: STUDENT_SESSION_MEDIA_TYPE, value: { type: 'student_session', studentId: 'student-sam', instanceId: randomUUID(), endpoint: null, callKey: 'k'.repeat(43) } });
+    assert.deepEqual(r.value, { status: 'rejected', reason: 'no_student_endpoint' });
+  } finally {
+    hub.proc.kill();
+  }
+});
+
+test('New conversation clears every student’s lessons and messages — inbox, Hub and the Professor’s list — and the professor sends again', async () => {
+  const { s, stream } = await classroom();
+  await waitFor(async () => (await inbox(s)).notices.length === 1, { what: 'availability notice' });
+  await postLesson(s, { title: 'Before the reset' });
+  await postLesson(s, { kind: 'message', audience: 'all', title: 'Homework is late', text: 'Due next week.' });
+  assert.equal((await inbox(s)).lessons.length, 2);
+  assert.equal((await professorState(s)).lessons.length, 2);
+
+  const res = await post(`${s.ui.url}/api/conversation/new`, {});
+  assert.equal(res.status, 202);
+  assert.equal((await res.json()).classroom, 'reset');
+  const box = await inbox(s);
+  assert.equal(box.lessons.length, 0, 'the student’s inbox is empty');
+  assert.equal(box.unread, 0);
+  const st = await professorState(s);
+  assert.equal(st.lessons.length, 0, 'the professor’s posted list is empty');
+  await waitFor(() => find(stream.events, 'hub', 'classroom_reset'), { what: 'Hub reset event' });
+  await waitFor(() => find(stream.events, 'professor', 'lessons_reset'), { what: 'Professor reset event' });
+  // Starting again: the course is announced once more, and a lesson can be sent again (one delivery).
+  await waitFor(async () => (await inbox(s)).notices.length === 1, { what: 'availability notice again' });
+  const again = await (await postLesson(s, { title: 'Before the reset' })).json();
+  assert.equal(again.ack.status, 'delivered');
+  assert.equal((await inbox(s)).lessons.length, 1);
+  assert.equal(find(stream.events, 'system', 'classroom_reset').data.classroom, 'reset');
+  assert.ok(stream.events.findIndex((e) => e.type === 'conversation_reset') < stream.events.findIndex((e) => e.source === 'hub' && e.type === 'classroom_reset'), 'the screen clears before the agents report their reset');
+});
+
+// ---- the professor's chat (Professor view) ------------------------------------------------------------------
+const say = async (s, text, operationId = `op-${randomUUID()}`) => (await post(`${s.ui.url}/api/professor/chat`, { operationId, text })).json();
+
+test('professor chat (mock interpreter, labelled): tags pick one student, “everyone” the class, a course lesson by name; questions are answered; vague requests get a question; repeats send once', async () => {
+  const { s } = await classroom();
+  const sam = await say(s, '@sam the quiz moved to Thursday.');
+  assert.equal(sam.action, 'post');
+  let st = await professorState(s);
+  const toSam = st.lessons.find((l) => l.key === sam.post.key);
+  assert.equal(toSam.audience, 'student-sam');
+  assert.equal(toSam.kind, 'message');
+  assert.equal(toSam.text, 'the quiz moved to Thursday.', 'the professor’s own words, without the tag');
+  assert.equal(toSam.verbatim, true);
+
+  const all = await say(s, 'Everyone, read the pricing chapter before class.');
+  st = await professorState(s);
+  const toAll = st.lessons.find((l) => l.key === all.post.key);
+  assert.equal(toAll.audience, 'all');
+  assert.deepEqual(toAll.deliveries.map((d) => d.studentId).sort(), ['student-alex', 'student-sam']);
+
+  const lesson = await say(s, 'Send the Evidence before assumptions lesson to the class');
+  st = await professorState(s);
+  const seed = st.lessons.find((l) => l.key === lesson.post.key);
+  assert.equal(seed.kind, 'lesson');
+  assert.equal(seed.title, 'Evidence before assumptions');
+  assert.match(seed.text, /Check your understanding:/);
+
+  const vague = await say(s, 'Send it to him');
+  assert.equal(vague.action, 'clarify');
+  assert.equal(vague.post, null);
+  const two = await say(s, '@alex @sam bring your drafts');
+  assert.equal(two.action, 'clarify', 'two tags: one student or the class?');
+
+  const asked = await say(s, 'Who has opened my last message?');
+  assert.equal(asked.action, 'answer');
+  assert.match(asked.reply, /Evidence before assumptions/);
+
+  const before = (await professorState(s)).lessons.length;
+  const op = `op-${randomUUID()}`;
+  const [a, b] = await Promise.all([say(s, 'Everyone: office hours are cancelled today.', op), say(s, 'Everyone: office hours are cancelled today.', op)].map((p) => p.catch((e) => ({ error: e.message }))));
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal((await professorState(s)).lessons.length, before + 1, 'one post for one message, however often it is sent');
+  assert.ok([a, b].some((x) => x.duplicate || x.error) || a.post?.key === b.post?.key);
+  const chat = (await professorState(s)).chat;
+  assert.ok(chat.some((m) => m.role === 'professor' && m.text === '@sam the quiz moved to Thursday.'), 'the chat is kept');
+});
+
+test('professor chat (live mode, scripted model): code overrides an untagged recipient, refuses an invented date, labels rewritten text, and follows the professor’s tag', async () => {
+  const stub = await startFakeAnthropic();
+  const decide = (d) => messageReply(JSON.stringify({ action: 'post', reply: 'Sending it.', kind: 'message', audience: 'all', title: 'Note', content: '', content_is_verbatim: false, seed_id: '', ...d }));
+  const queue = [];
+  stub.respondWith(() => queue.shift());
+  const { s } = await classroom({ professorEnv: { PROFESSOR_MODE: 'live', ANTHROPIC_API_KEY: `sk-ant-test-${randomUUID()}`, ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0' } });
+  try {
+    // The model picks Sam, but the professor never tagged or named Sam → a question, nothing sent.
+    queue.push(decide({ audience: 'student-sam', content: 'Please resend your draft.', content_is_verbatim: true }));
+    const r1 = await say(s, 'Please resend your draft.');
+    assert.equal(r1.action, 'clarify');
+    assert.equal((await professorState(s)).lessons.length, 0);
+    // The model adds a due date the professor never gave → refused.
+    queue.push(decide({ content: 'The homework is now due Nov 20.' }));
+    const r2 = await say(s, 'Tell everyone the homework is late');
+    assert.equal(r2.action, 'clarify');
+    assert.match(r2.reply, /date you didn’t give/);
+    assert.equal((await professorState(s)).lessons.length, 0);
+    // Rewritten from an instruction but claimed verbatim → sent, labelled as written from the instruction.
+    queue.push(decide({ content: 'Heads up: the homework will be a little late this week.', content_is_verbatim: true }));
+    const r3 = await say(s, 'Tell everyone the homework is late');
+    assert.equal(r3.action, 'post');
+    const p3 = (await professorState(s)).lessons.find((l) => l.key === r3.post.key);
+    assert.equal(p3.verbatim, false);
+    // The professor tagged Alex; the model said “all” → the tag wins.
+    queue.push(decide({ content: 'Great work on the quiz!', content_is_verbatim: true }));
+    const r4 = await say(s, '@alex Great work on the quiz!');
+    const p4 = (await professorState(s)).lessons.find((l) => l.key === r4.post.key);
+    assert.equal(p4.audience, 'student-alex');
+    assert.match(r4.reply, /whom you tagged/);
+  } finally {
+    await stub.close();
+  }
 });

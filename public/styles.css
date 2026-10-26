@@ -125,7 +125,7 @@ h1 { margin: 0; font-size: 1.2rem; font-weight: 700; letter-spacing: -0.01em; }
 .view-conversation { display: grid; grid-template-rows: minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); max-width: 1080px; width: 100%; margin: 0 auto; }
 .view-conversation .timeline-panel { margin: 0; }
 .view-activity { display: grid; grid-template-columns: repeat(5, minmax(220px, 1fr)); }
-.view-professor { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); max-width: 1180px; width: 100%; margin: 0 auto; align-items: start; }
+.view-professor { display: grid; grid-template-rows: minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); max-width: 1080px; width: 100%; margin: 0 auto; }
 .view-topology { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); }
 .panel {
   display: flex; flex-direction: column; min-height: 0; min-width: 0;
@@ -388,7 +388,7 @@ h2 { margin: 0; font-size: 1.07rem; font-weight: 700; color: var(--agent, var(--
   .view-activity > .console { height: 56dvh; }
   .view-topology { grid-template-columns: 1fr; }
   .topo-side { max-height: none; }
-  .view-professor { grid-template-columns: 1fr; }
+  .view-professor > .chat { height: min(80dvh, 860px); }
 }
 @media (max-width: 720px) {
   .topbar { padding: 10px 16px; }
@@ -597,7 +597,7 @@ dialog#skills-dialog::backdrop { background: rgb(0 0 0 / 0.5); }
 .course-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 8px 12px; border-radius: 8px; border-left: 3px solid var(--professor); background: var(--surface); }
 .course-notice[hidden] { display: none; }
 .course-notice p { margin: 0; flex: 1 1 280px; font-size: 0.9rem; }
-.course-notice button, .toast button, .lesson-dialog footer button, .author-actions button {
+.course-notice button, .toast button, .lesson-dialog footer button {
   font: inherit; font-weight: 600; font-size: 0.86rem; padding: 5px 12px; border-radius: 8px; cursor: pointer;
   border: 1px solid var(--professor); background: var(--professor); color: var(--surface);
 }
@@ -637,41 +637,37 @@ dialog#skills-dialog::backdrop { background: rgb(0 0 0 / 0.5); }
 .toast-actions { display: flex; gap: 8px; }
 @keyframes toast-in { from { transform: translateY(8px); opacity: 0; } }
 
-.view-professor .panel { overflow: hidden; }
-.author-form { display: grid; gap: 6px; padding: 14px 16px 16px; }
-.author-form label { font-size: 0.86rem; font-weight: 600; margin-top: 6px; }
-.author-form .optional { font-weight: 400; color: var(--muted); }
-.author-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
-.author-meta label { margin: 0; }
-.author-form :is(input, textarea, select) { font: inherit; color: var(--text); background: var(--field); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; min-width: 0; }
-.author-form textarea { resize: vertical; line-height: 1.5; min-height: 10em; }
-.author-form :is(input, textarea, select):focus { outline: 2px solid var(--professor); outline-offset: 0; border-color: var(--professor); }
 .presence { font-size: 0.8rem; color: var(--muted); }
 .presence::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--border-strong); }
 .presence[data-online="true"]::before { background: var(--ok); }
-.author-seeds { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; font-size: 0.82rem; color: var(--muted); }
-.seed { font: inherit; font-size: 0.82rem; color: var(--text); background: none; border: 1px dashed var(--border-strong); border-radius: 999px; padding: 3px 10px; cursor: pointer; }
-.seed:hover { border-color: var(--professor); color: var(--professor); }
-.author-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 8px; }
-.author-actions button { padding: 8px 18px; font-size: 0.95rem; }
-.author-actions button:disabled { opacity: 0.5; cursor: progress; }
-.author-status { margin: 0; font-size: 0.88rem; }
-.author-status[data-tone="ok"] { color: var(--ok); }
-.author-status[data-tone="bad"] { color: var(--bad); }
-.author-status[data-tone="busy"] { color: var(--muted); }
-.posted-list { list-style: none; margin: 0; padding: 4px 16px 12px; display: grid; }
-.posted-list:empty::before { content: "Nothing posted yet. Lessons you post appear here with their delivery state."; display: block; padding: 12px 0; color: var(--muted); font-size: 0.88rem; }
-.posted-item { display: grid; gap: 3px; padding: 10px 0; border-top: 1px solid var(--border); }
-.posted-item:first-child { border-top: 0; }
-.posted-title { font-weight: 600; }
-.posted-meta, .posted-detail { font-size: 0.78rem; color: var(--muted); }
-.delivery-chip { justify-self: start; font-size: 0.78rem; font-weight: 600; padding: 1px 8px; border-radius: 999px; }
-.delivery-chip[data-tone="ok"] { color: var(--ok); background: var(--ok-bg); }
-.delivery-chip[data-tone="busy"] { color: var(--muted); background: var(--field); }
-.delivery-chip[data-tone="warn"] { color: var(--warn); background: var(--warn-bg); }
-.delivery-chip[data-tone="bad"] { color: var(--bad); background: var(--bad-bg); }
 :is(.inbox-toggle, .unread, .inbox, .course-notice, .about-chip)[hidden] { display: none; }
 @media (max-width: 720px) {
   .inbox-toggle { grid-column: 1 / -1; grid-row: 3; justify-self: start; margin-top: 6px; }
 }
-.author-status[data-tone="draft"] { color: var(--muted); font-style: italic; }
+/* Part 9 follow-up: lessons and messages, to one student or the whole class */
+.kind-tag { display: inline-block; margin-right: 2px; padding: 0 6px; border-radius: 4px; font-size: 0.72rem; font-weight: 700; vertical-align: 2px; color: var(--professor); background: color-mix(in srgb, var(--professor) 12%, var(--surface)); }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.per-student { list-style: none; margin: 2px 0 0; padding: 0; display: grid; gap: 2px; font-size: 0.8rem; }
+.per-student li { display: grid; grid-template-columns: minmax(90px, auto) 1fr; gap: 8px; color: var(--muted); }
+.per-student .who { color: var(--text); font-weight: 600; }
+.per-student li[data-tone="ok"] .what { color: var(--ok); }
+.per-student li[data-tone="bad"] .what { color: var(--bad); }
+.per-student li[data-tone="warn"] .what { color: var(--warn); }
+
+/* Part 9: the professor's chat — same shape as the student's conversation */
+.prof-chat .panel-head { grid-template-columns: auto 1fr auto; }
+.class-roster { grid-column: 3; grid-row: 1; display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.class-roster .presence { color: var(--text); font-size: 0.82rem; }
+.prof-log:empty::before { content: "Write to your class as you would in a chat: “Everyone, the homework is now due next Friday”, “@sam could you resend your draft?”, “Send the evidence-before-assumptions lesson to the class”, or ask “Who has opened my last message?”."; max-width: 52ch; }
+.chat-log .post-card { max-width: min(88%, 640px); border-left: 3px solid var(--professor); background: color-mix(in srgb, var(--professor) 4%, var(--surface)); }
+.post-card .msg-dir { color: var(--text); font-weight: 700; }
+.post-card .post-text { white-space: pre-wrap; max-height: 16em; overflow-y: auto; }
+.post-origin { margin: 6px 0 2px; font-size: 0.78rem; color: var(--muted); }
+.post-origin[data-verbatim="false"] { color: var(--warn); }
+.mention-list { list-style: none; margin: 0; padding: 4px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: 0 4px 14px rgb(0 0 0 / 0.12); max-width: 320px; }
+.mention-list[hidden] { display: none; }
+.mention-list li { padding: 5px 8px; border-radius: 6px; cursor: pointer; font-size: 0.88rem; }
+.mention-list li[aria-selected="true"] { background: color-mix(in srgb, var(--professor) 14%, var(--surface)); color: var(--professor); }
+.prof-chat .composer button { background: var(--professor); }
+@media (max-width: 720px) { .class-roster { grid-column: 1 / -1; grid-row: 3; justify-content: flex-start; } }
+.post-card[data-kind="message"] .kind-tag, .lesson-item[data-kind="message"] .kind-tag { color: var(--hub); background: color-mix(in srgb, var(--hub) 14%, var(--surface)); }

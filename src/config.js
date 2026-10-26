@@ -144,11 +144,14 @@ export function loadHubConfig() {
         examples: ['What is the difference between segmentation and targeting?', 'Can you explain the lesson about customer value?'],
       },
     },
-    students: ['student-alex'],
+    students: ['student-alex', 'student-sam'],
+    // Part 9: display names (fictional), so a professor can tag “@alex” or write “Sam” in chat.
+    studentNames: { 'student-alex': 'Alex Student', 'student-sam': 'Sam Student' },
     // Part 9 (trusted data): where the Hub may deliver to each student's own agent (its inbound A2A
     // endpoint, served by the UI server), and who teaches and is enrolled in each course.
     studentEndpoints: { 'student-alex': 'http://127.0.0.1:3000' },
-    courses: { 'mkt-101': { title: 'Marketing 101', professor: 'professor', enrolled: ['student-alex'] } },
+    // Sam Student (fictional) is enrolled but has no Student agent in this demo: posts to "all" queue for them.
+    courses: { 'mkt-101': { title: 'Marketing 101', professor: 'professor', enrolled: ['student-alex', 'student-sam'] } },
     heartbeatExpiryMs: 10000,
     timeouts: { dispatchMs: 60000, formActionMs: 8000, cardFetchMs: 3000 },
     model: DEFAULT_MODEL_CFG,

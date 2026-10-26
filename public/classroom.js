@@ -13,6 +13,8 @@ const el = (tag, { dataset = {}, ...props } = {}, ...children) => {
   node.append(...children.filter((c) => c !== null && c !== undefined));
   return node;
 };
+const isMessage = (x) => x?.kind === 'message';
+const untitled = (x) => x?.title || (isMessage(x) ? 'Untitled message' : 'Untitled lesson');
 const when = (iso) => (iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
 const store = {
   get(key) { try { return JSON.parse(localStorage.getItem(key) ?? 'null'); } catch { return null; } },
@@ -24,7 +26,7 @@ async function api(path, { method = 'GET', body } = {}) {
   return { ok: res.ok, status: res.status, json };
 }
 
-export function createClassroom({ sendChat, showConversation, focusComposer }) {
+export function createClassroom({ sendChat, showConversation, focusComposer, followLog, onInboxChange = () => {} }) {
   const els = {
     toggle: $('inbox-toggle'), unread: $('inbox-unread'), inbox: $('inbox'), list: $('lesson-list'),
     notice: $('course-notice'), noticeTitle: $('course-notice-title'), noticeText: $('course-notice-text'), noticeOk: $('course-notice-ok'), noticeAsk: $('course-notice-ask'),
@@ -43,6 +45,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer }) {
     if (!r?.ok) return;
     inbox = r.json;
     renderInbox();
+    onInboxChange();
   }
   const stateOf = (l) => (l.openedAt ? 'opened' : 'new');
   function renderInbox() {
@@ -61,11 +64,11 @@ export function createClassroom({ sendChat, showConversation, focusComposer }) {
       els.notice.dataset.course = notice.courseTitle;
     }
     els.inbox.hidden = !(notice || (has && els.toggle.getAttribute('aria-expanded') === 'true'));
-    els.list.replaceChildren(...inbox.lessons.map((l) => el('li', { className: 'lesson-item', dataset: { state: stateOf(l), saved: String(Boolean(l.savedAt)) } },
+    els.list.replaceChildren(...inbox.lessons.map((l) => el('li', { className: 'lesson-item', dataset: { state: stateOf(l), saved: String(Boolean(l.savedAt)), kind: l.kind ?? 'lesson' } },
       el('span', { className: 'lesson-flag', textContent: l.openedAt ? 'Opened' : 'New' }),
-      el('span', { className: 'lesson-name', textContent: l.title || 'Untitled lesson' }),
-      el('span', { className: 'lesson-meta', textContent: `${l.courseTitle} · ${when(l.receivedAt)}${l.savedAt ? ' · saved for later' : ''}` }),
-      el('button', { type: 'button', className: 'inline-action', textContent: 'View lesson', onclick: () => openLesson(l.deliveryId) }))));
+      el('span', { className: 'lesson-name' }, el('span', { className: 'kind-tag', textContent: isMessage(l) ? 'Message' : 'Lesson' }), ` ${untitled(l)}`),
+      el('span', { className: 'lesson-meta', textContent: `${l.courseTitle}${l.toAll ? ' · to the whole class' : ''} · ${when(l.receivedAt)}${l.savedAt ? ' · saved for later' : ''}` }),
+      el('button', { type: 'button', className: 'inline-action', textContent: isMessage(l) ? 'View message' : 'View lesson', onclick: () => openLesson(l.deliveryId) }))));
   }
   els.toggle.addEventListener('click', () => {
     const open = els.toggle.getAttribute('aria-expanded') !== 'true';
@@ -90,8 +93,11 @@ export function createClassroom({ sendChat, showConversation, focusComposer }) {
     const r = await api(`/api/inbox/${encodeURIComponent(deliveryId)}/open`, { method: 'POST' });
     if (!r.ok) return;
     showing = r.json;
-    els.dCourse.textContent = `${showing.courseTitle} · from ${showing.professorName ?? 'the professor'} · ${when(showing.postedAt)}`;
-    els.dTitle.textContent = showing.title || 'Untitled lesson';
+    els.dCourse.textContent = `${isMessage(showing) ? 'Message' : 'Lesson'} · ${showing.courseTitle} · from ${showing.professorName ?? 'the professor'}${showing.toAll ? ' to the whole class' : ''} · ${when(showing.postedAt)}`;
+    els.dTitle.textContent = untitled(showing);
+    // A message has nothing to "start"; both can be asked about and saved.
+    els.start.hidden = isMessage(showing);
+    els.ask.textContent = isMessage(showing) ? 'Ask about this message' : 'Ask about this lesson';
     els.dText.textContent = showing.text;
     els.save.disabled = Boolean(showing.savedAt);
     els.save.textContent = showing.savedAt ? 'Saved' : 'Save for later';
@@ -100,7 +106,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer }) {
     refreshInbox();
   }
   function setAbout(target) {
-    about = !target ? null : target.capability ? { capability: target.capability, title: target.title } : { deliveryId: target.deliveryId, title: target.title || 'Untitled lesson' };
+    about = !target ? null : target.capability ? { capability: target.capability, title: target.title } : { deliveryId: target.deliveryId, title: untitled(target) };
     els.chip.hidden = !about;
     els.chipTitle.textContent = about?.title ?? '';
   }
@@ -109,7 +115,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer }) {
     const lesson = showing;
     els.dialog.close();
     setAbout(lesson);
-    sendChat(`I’m starting the lesson “${lesson.title || 'Untitled lesson'}”.`, { lessonDeliveryId: lesson.deliveryId });
+    sendChat(`I’m starting the lesson “${untitled(lesson)}”.`, { lessonDeliveryId: lesson.deliveryId });
   });
   els.ask.addEventListener('click', () => {
     setAbout(showing);
@@ -126,10 +132,10 @@ export function createClassroom({ sendChat, showConversation, focusComposer }) {
   // ---- toast: announces a delivery; never opens it, never takes focus -------------------------------------
   function toast(data) {
     const item = el('div', { className: 'toast', dataset: { delivery: data.deliveryId } },
-      el('p', { className: 'toast-title', textContent: `New ${data.courseTitle ?? 'course'} lesson` }),
-      el('p', { className: 'toast-text', textContent: data.title || 'Untitled lesson' }),
+      el('p', { className: 'toast-title', textContent: isMessage(data) ? `New message from ${data.professorName ?? 'your professor'}` : `New ${data.courseTitle ?? 'course'} lesson` }),
+      el('p', { className: 'toast-text', textContent: untitled(data) }),
       el('div', { className: 'toast-actions' },
-        el('button', { type: 'button', textContent: 'View lesson', onclick: () => openLesson(data.deliveryId) }),
+        el('button', { type: 'button', textContent: isMessage(data) ? 'View message' : 'View lesson', onclick: () => openLesson(data.deliveryId) }),
         el('button', { type: 'button', className: 'quiet', textContent: 'Dismiss', onclick: () => item.remove() })));
     els.toasts.append(item);
     // Leaves on its own after a while unless the pointer or keyboard is on it.
@@ -139,132 +145,162 @@ export function createClassroom({ sendChat, showConversation, focusComposer }) {
     for (const t of els.toasts.querySelectorAll('.toast')) if (t.dataset.delivery === deliveryId) t.remove();
   }
 
-  // ---- Professor view ----------------------------------------------------------------------------------
+  // ---- Professor view: a chat ---------------------------------------------------------------------------
+  // The professor writes naturally; the Professor agent's model decides whether that is a post (a lesson
+  // or a message, for the whole class or a tagged student), a question about the class, or needs one
+  // question back — and code checks it before anything is sent. Each post appears in the chat with exactly
+  // what was sent, to whom, and each student's delivery state (from the Hub).
   const pv = {
-    view: $('view-professor'), form: $('author-form'), student: $('author-student'), presence: $('author-presence'), title: $('author-title-input'),
-    text: $('author-text'), seeds: $('author-seeds'), post: $('author-post'), status: $('author-status'), list: $('posted-list'), course: $('author-course'), hub: $('posted-hub'),
+    view: $('view-professor'), log: $('prof-log'), form: $('prof-form'), input: $('prof-message'), send: $('prof-send'), error: $('prof-error'),
+    roster: $('prof-roster'), course: $('author-course'), mentions: $('mention-list'),
   };
-  const DRAFT_KEY = 'a2a-spike:lesson-draft';
+  const follow = followLog(pv.log);
+  const DRAFT_KEY = 'a2a-spike:professor-draft';
   let roster = [];
-  let posting = false;
-  // A retry of the same content after a failure reuses its operation id, so the Hub never makes two.
-  let attempt = store.get(`${DRAFT_KEY}:attempt`); // { operationId, key }
-  const draft = store.get(DRAFT_KEY);
-  if (draft) { pv.title.value = draft.title ?? ''; pv.text.value = draft.text ?? ''; }
-  const saveDraft = () => store.set(DRAFT_KEY, { title: pv.title.value, text: pv.text.value });
-  // "Draft": unposted text in the box (kept in this browser only). Typing never posts anything.
-  const showDraft = () => {
-    if (posting) return;
-    const has = Boolean(pv.title.value.trim() || pv.text.value.trim());
-    if (has) { pv.status.dataset.tone = 'draft'; pv.status.textContent = 'Draft — not posted yet.'; } else if (pv.status.dataset.tone === 'draft') { pv.status.textContent = ''; delete pv.status.dataset.tone; }
-  };
-  for (const input of [pv.title, pv.text]) input.addEventListener('input', () => { saveDraft(); showDraft(); });
-  showDraft();
-  let seedsShown = false;
+  let posts = new Map(); // key → post with deliveries
+  let chat = [];
+  let pending = null; // { text, operationId } while a message is being worked on
+  let lastRendered = '';
+  let attempt = store.get(`${DRAFT_KEY}:attempt`); // a retry of the same text reuses its operation id
+  pv.input.value = store.get(DRAFT_KEY) ?? '';
+  const firstName = (st) => (st.name ?? st.studentId).split(' ')[0];
 
   const DELIVERY = {
-    sending: ['Sending to the Hub…', 'busy'],
-    queued: ['Queued at Hub', 'busy'],
-    delivered: ['Delivered', 'ok'],
-    opened: ['Opened by the student', 'ok'],
-    uncertain: ['Delivery uncertain — the Hub is checking with the student', 'warn'],
-    failed: ['Failed', 'bad'],
-    rejected: ['Refused by the Hub', 'bad'],
-    unconfirmed: ['Not confirmed by the Hub — will retry', 'warn'],
+    queued: ['Queued at Hub', 'busy'], delivered: ['Delivered', 'ok'], opened: ['Opened', 'ok'],
+    uncertain: ['Being confirmed', 'warn'], failed: ['Failed', 'bad'], sending: ['Sending…', 'busy'],
   };
-  function deliveryState(l) {
-    if (l.hubStatus === 'rejected') return ['rejected', l.hubReason];
-    const d = l.delivery;
-    if (!d) return l.hubStatus === 'sending' ? ['sending'] : l.hubAccepted ? [l.hubStatus, l.hubReason] : ['unconfirmed', l.hubReason];
+  function studentState(d) {
     if (d.opened) return ['opened', when(d.openedAt)];
-    if (d.state === 'queued') return ['queued', d.lastError === 'student_offline' || /refused/.test(d.lastError ?? '') ? 'the student’s agent is offline; it will be delivered when it returns' : d.lastError];
+    if (d.state === 'queued') return ['queued', d.lastError === 'student_offline' || /refused/.test(d.lastError ?? '') ? 'their student agent isn’t connected; delivered when it is' : d.lastError];
     if (d.state === 'delivered') return ['delivered', when(d.deliveredAt)];
     return [d.state, d.lastError];
   }
+  const nameOf = (id) => roster.find((x) => x.studentId === id)?.name ?? id;
 
-  async function refreshProfessor() {
-    const r = await api('/api/professor/state').catch(() => null);
-    if (!r?.ok) {
-      pv.hub.textContent = r?.json?.error ?? 'The Professor agent isn’t reachable right now.';
-      return;
-    }
-    const s = r.json;
-    pv.course.textContent = `${s.course.title} — ${s.course.note}`;
-    pv.hub.textContent = s.hubReachable ? 'Delivery state from the university Hub' : 'The Hub isn’t answering — states below may be out of date.';
-    roster = s.roster?.enrolled ?? [];
-    const chosen = pv.student.value;
-    pv.student.replaceChildren(...roster.map((st) => el('option', { value: st.studentId, textContent: st.studentId })));
-    if (roster.some((st) => st.studentId === chosen)) pv.student.value = chosen;
-    renderPresence();
-    if (!seedsShown) {
-      seedsShown = true;
-      for (const seed of s.seeds ?? []) {
-        pv.seeds.append(el('button', { type: 'button', className: 'seed', textContent: seed.title, onclick: () => {
-          pv.title.value = seed.title;
-          pv.text.value = [seed.objective, seed.explanation, seed.example, seed.check ? `Check your understanding: ${seed.check}` : null].filter(Boolean).join('\n\n');
-          saveDraft();
-          showDraft();
-          pv.text.focus();
-        } }));
+  function bubble({ dir, speaker, label, at, text }) {
+    return el('li', { className: 'msg', dataset: { dir, speaker } },
+      el('div', { className: 'msg-head' }, el('span', { className: 'msg-dir', textContent: label }), el('time', { dateTime: at ?? '', textContent: at ? new Date(at).toLocaleTimeString([], { hour12: false }) : '' })),
+      el('p', { className: 'msg-text', textContent: text }));
+  }
+  // What was sent, to whom, whose words, and each student's state.
+  function postCard(p) {
+    const isMsg = p.kind === 'message';
+    const origin = p.seedId ? 'Course lesson, as written in the course pack' : p.source !== 'chat' ? 'Sent from the course API' : p.verbatim ? 'Your words' : 'Written from your instruction — read it before students do';
+    return el('li', { className: 'msg post-card', dataset: { dir: 'received', speaker: 'professor', kind: p.kind } },
+      el('div', { className: 'msg-head' },
+        el('span', { className: 'msg-dir' }, el('span', { className: 'kind-tag', textContent: isMsg ? 'Message' : 'Lesson' }), ` ${p.title || (isMsg ? 'Message' : 'Lesson')}`),
+        el('time', { textContent: `to ${p.audience === 'all' ? `the whole class (${p.deliveries.length || '…'})` : nameOf(p.audience)}` })),
+      el('p', { className: 'msg-text post-text', textContent: p.text }),
+      el('p', { className: 'post-origin', dataset: { verbatim: String(p.verbatim !== false) }, textContent: origin }),
+      p.hubStatus === 'rejected' ? el('p', { className: 'post-origin', dataset: { verbatim: 'false' }, textContent: `Refused by the Hub: ${p.hubReason}` })
+        : !p.deliveries.length ? el('p', { className: 'post-origin', textContent: p.hubAccepted ? 'Sent to the Hub…' : 'Not confirmed by the Hub yet — it will be retried.' })
+          : el('ul', { className: 'per-student' }, ...p.deliveries.map((d) => {
+            const [k, detail] = studentState(d);
+            const [label, tone] = DELIVERY[k] ?? [k, 'warn'];
+            return el('li', { dataset: { tone } }, el('span', { className: 'who', textContent: nameOf(d.studentId) }), el('span', { className: 'what', textContent: `${label}${detail ? ` — ${detail}` : ''}` }));
+          })));
+  }
+  function renderProfessor() {
+    const items = [];
+    for (const m of chat) {
+      if (m.role === 'professor') items.push(bubble({ dir: 'sent', speaker: 'student', label: 'You', at: m.at, text: m.text }));
+      else {
+        items.push(bubble({ dir: m.action === 'error' || m.action === 'clarify' ? 'info' : 'received', speaker: 'professor', label: m.model && m.model !== 'mock heuristic' ? `Course assistant · ${m.model}` : 'Course assistant', at: m.at, text: m.text }));
+        if (m.postKey && posts.get(m.postKey)) items.push(postCard(posts.get(m.postKey)));
       }
     }
-    pv.list.replaceChildren(...s.lessons.map((l) => {
-      const [key, detail] = deliveryState(l);
-      const [label, tone] = DELIVERY[key] ?? [key, 'warn'];
-      return el('li', { className: 'posted-item' },
-        el('span', { className: 'posted-title', textContent: l.title || 'Untitled lesson' }),
-        el('span', { className: 'posted-meta', textContent: `to ${l.recipient} · ${when(l.createdAt)} · revision ${l.revision}` }),
-        el('span', { className: 'delivery-chip', dataset: { tone }, textContent: label }),
-        detail ? el('span', { className: 'posted-detail', textContent: detail }) : null);
-    }));
+    if (pending) {
+      items.push(bubble({ dir: 'sent', speaker: 'student', label: 'You', at: new Date().toISOString(), text: pending.text }));
+      items.push(el('li', { className: 'chat-pending' }, el('span', { className: 'spinner', ariaHidden: 'true' }), 'Working out what you’d like…'));
+    }
+    const signature = JSON.stringify([chat.length, pending?.text, [...posts.values()].map((p) => [p.key, p.hubStatus, p.deliveries])]);
+    if (signature === lastRendered) return;
+    lastRendered = signature;
+    pv.log.replaceChildren(...items);
   }
-  function renderPresence() {
-    const st = roster.find((x) => x.studentId === pv.student.value);
-    pv.presence.textContent = st ? (st.online ? 'Student agent online' : 'Student agent offline — lessons will queue at the Hub') : 'No enrolled students';
-    pv.presence.dataset.online = String(Boolean(st?.online));
+  async function refreshProfessor() {
+    const r = await api('/api/professor/state').catch(() => null);
+    if (!r?.ok) { pv.error.textContent = r?.json?.error ?? 'The Professor agent isn’t reachable right now.'; return; }
+    pv.error.textContent = '';
+    const s = r.json;
+    pv.course.textContent = `${s.course.title} — ${s.course.note}`;
+    roster = (s.roster?.enrolled ?? []).map((x) => ({ ...x, name: x.name ?? x.studentId }));
+    pv.roster.replaceChildren(...roster.map((x) => el('span', { className: 'presence', dataset: { online: String(Boolean(x.online)) }, textContent: x.name, title: x.online ? 'Student agent online' : 'Student agent not connected — posts queue at the Hub' })));
+    posts = new Map(s.lessons.map((p) => [p.key, p]));
+    chat = s.chat ?? [];
+    const first = !lastRendered;
+    renderProfessor();
+    if (first) follow.pin(); // open on the newest message, like the student's chat
   }
-  pv.student.addEventListener('change', renderPresence);
+
+  // @-tagging: suggestions from the class roster.
+  let mentionAt = -1;
+  let mentionIndex = 0;
+  function mentionMatches() {
+    const before = pv.input.value.slice(0, pv.input.selectionStart);
+    const m = before.match(/@([\w-]*)$/);
+    if (!m) return null;
+    mentionAt = before.length - m[0].length;
+    // By first name (the tag itself): ids all start with "student-" and the demo surnames are all "Student".
+    return roster.filter((x) => firstName(x).toLowerCase().startsWith(m[1].toLowerCase()));
+  }
+  function showMentions() {
+    const list = mentionMatches();
+    if (!list?.length) { pv.mentions.hidden = true; return; }
+    mentionIndex = Math.min(mentionIndex, list.length - 1);
+    pv.mentions.replaceChildren(...list.map((x, i) => el('li', { role: 'option', ariaSelected: String(i === mentionIndex), textContent: `@${firstName(x).toLowerCase()} — ${x.name}`, onmousedown: (e) => { e.preventDefault(); pickMention(x); } })));
+    pv.mentions.hidden = false;
+  }
+  function pickMention(x) {
+    const caret = pv.input.selectionStart;
+    const tag = `@${firstName(x).toLowerCase()} `;
+    pv.input.value = pv.input.value.slice(0, mentionAt) + tag + pv.input.value.slice(caret);
+    pv.input.selectionStart = pv.input.selectionEnd = mentionAt + tag.length;
+    pv.mentions.hidden = true;
+    store.set(DRAFT_KEY, pv.input.value);
+  }
+  pv.input.addEventListener('input', () => { mentionIndex = 0; showMentions(); store.set(DRAFT_KEY, pv.input.value); });
+  pv.input.addEventListener('blur', () => { pv.mentions.hidden = true; });
+  pv.input.addEventListener('keydown', (e) => {
+    const list = pv.mentions.hidden ? null : mentionMatches();
+    if (list?.length) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); mentionIndex = (mentionIndex + (e.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length; showMentions(); return; }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickMention(list[mentionIndex]); return; }
+      if (e.key === 'Escape') { pv.mentions.hidden = true; return; }
+    }
+    // Enter sends; Shift+Enter is a new line (and an input-method composition is left alone).
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); pv.form.requestSubmit(); }
+  });
 
   pv.form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    if (posting) return; // one press, one post
-    const title = pv.title.value.trim();
-    const text = pv.text.value.trim();
-    if (!text) { pv.status.textContent = 'Write what you’d like your student to learn first.'; pv.text.focus(); return; }
-    if (!pv.student.value) { pv.status.textContent = 'There is no enrolled student to post to.'; return; }
-    const key = JSON.stringify([title, text, pv.student.value]);
-    if (attempt?.key !== key) attempt = { operationId: `op-${crypto.randomUUID()}`, key };
+    const text = pv.input.value.trim();
+    if (!text || pending) return; // one message at a time
+    if (attempt?.text !== text) attempt = { operationId: `op-${crypto.randomUUID()}`, text };
     store.set(`${DRAFT_KEY}:attempt`, attempt);
-    posting = true;
-    pv.post.disabled = true;
-    pv.status.dataset.tone = 'busy';
-    pv.status.textContent = 'Posting…';
-    const r = await api('/api/professor/lessons', { method: 'POST', body: { operationId: attempt.operationId, title, text, recipient: pv.student.value } }).catch(() => null);
-    posting = false;
-    pv.post.disabled = false;
-    const status = r?.json?.ack?.status ?? (r?.json?.duplicate ? r.json.lesson?.hubStatus : null);
-    const accepted = r?.ok && (r.json.ack?.accepted || (r.json.duplicate && r.json.lesson?.hubAccepted));
-    if (accepted) {
-      // Posted: the Hub accepted it (delivered, or queued for an offline student). Clear the draft.
-      pv.status.dataset.tone = 'ok';
-      pv.status.textContent = status === 'delivered' ? `Posted — delivered to ${pv.student.value}’s inbox.` : status === 'queued' ? 'Posted — queued at the Hub until the student’s agent is back.' : status === 'uncertain' ? 'Posted — the Hub is confirming delivery with the student’s agent.' : status === 'failed' ? `Posted, but the student’s agent refused it (${r.json.ack?.reason ?? 'no reason given'}).` : `Posted (${status}).`;
-      pv.title.value = '';
-      pv.text.value = '';
-      saveDraft();
+    pending = { text, operationId: attempt.operationId };
+    pv.input.value = '';
+    pv.send.disabled = true;
+    pv.error.textContent = '';
+    follow.pin();
+    renderProfessor();
+    const r = await api('/api/professor/chat', { method: 'POST', body: { operationId: attempt.operationId, text } }).catch(() => null);
+    pending = null;
+    pv.send.disabled = false;
+    if (r?.ok) {
       attempt = null;
       store.set(`${DRAFT_KEY}:attempt`, null);
+      store.set(DRAFT_KEY, '');
     } else {
-      // Not posted, or not confirmed: keep the draft (and the operation id, so a retry can't duplicate).
-      pv.status.dataset.tone = 'bad';
-      const reason = r?.json?.ack?.reason ?? Object.values(r?.json?.errors ?? {})[0] ?? r?.json?.error ?? 'no answer';
-      pv.status.textContent = status === 'uncertain' || status === 'not_delivered'
-        ? `Not confirmed by the Hub (${reason}). Your draft is kept — press Post lesson again to retry the same post.`
-        : `Not posted: ${reason}. Your draft is kept.`;
-      if (r?.status === 422 || r?.status === 400) { attempt = null; store.set(`${DRAFT_KEY}:attempt`, null); }
+      // Not processed (or unknown): give the text back; sending it again reuses the same operation id.
+      if (!pv.input.value) pv.input.value = text;
+      pv.error.textContent = `Not sent: ${r?.json?.error ?? 'no answer from the Professor agent'}. Your text is back in the box; send it again to retry.`;
     }
-    refreshProfessor();
+    lastRendered = '';
+    await refreshProfessor();
+    follow.pin();
   });
-  setInterval(() => { if (!pv.view.hidden) refreshProfessor(); }, 4000);
+  setInterval(() => { if (!pv.view.hidden) refreshProfessor(); }, 3000);
 
   // ---- events ------------------------------------------------------------------------------------------
   refreshInbox();
@@ -272,10 +308,21 @@ export function createClassroom({ sendChat, showConversation, focusComposer }) {
   return {
     event({ source, type, data }, { live }) {
       if (source === 'student' && ['lesson_received', 'lesson_opened', 'course_available'].includes(type)) refreshInbox();
-      if (source === 'student' && type === 'lesson_received' && live) toast(data);
-      if (source === 'system' && type === 'conversation_reset') setAbout(null);
+      // A toast is for the student; while this browser shows the Professor view, the inbox and the
+      // Conversation tab's unread dot carry it instead.
+      if (source === 'student' && type === 'lesson_received' && live && pv.view.hidden) toast(data);
+      if (source === 'system' && (type === 'conversation_reset' || type === 'classroom_reset')) {
+        // The classroom was reset too: nothing to open, announce or ask about any more.
+        setAbout(null);
+        if (els.dialog.open) els.dialog.close();
+        for (const t of els.toasts.querySelectorAll('.toast')) t.remove();
+        refreshInbox();
+        refreshProfessor();
+      }
+      if (source === 'student' && type === 'inbox_reset') refreshInbox();
       if (/^lesson_|^course_available/.test(type) && !pv.view.hidden) refreshProfessor();
     },
+    hasInboxItems: () => inbox.lessons.length > 0 || inbox.notices.length > 0,
     composerContext: () => (about?.deliveryId ? { lessonDeliveryId: about.deliveryId } : about?.capability ? { capability: about.capability } : {}),
     professorShown: () => refreshProfessor(),
   };

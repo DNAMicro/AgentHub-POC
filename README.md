@@ -67,6 +67,7 @@ Then open **http://127.0.0.1:3000**. Start order doesn't matter: specialists kee
 | `STUDENT_URL` | Part 9: the Hub's trusted inbound endpoint for the (first) student's agent (default `http://127.0.0.1:3000`) |
 | `HUB_LESSON_FILE`, `STUDENT_INBOX_FILE`, `PROFESSOR_OUTBOX_FILE` | Part 9: where the Hub's lesson deliveries, the Student's inbox and the Professor's outbox are saved (defaults under the git-ignored `data/`; delete them to reset the classroom) |
 | `HUB_DELIVER_TIMEOUT_MS`, `HUB_DELIVER_RETRY_MS` | Part 9: how long the Hub waits for the Student to confirm a delivery (5000) and how often it retries queued or uncertain ones (3000) |
+| `HUB_TEST_STUDENTS_WITHOUT_ENDPOINT=1` | Tests only: lets a student with no configured endpoint register with the Hub (normally refused, because it can't be challenged) |
 | `PROFESSOR_MODE` | Part 9: the Professor's answers, `mock` (default, labelled) or `live` |
 | `HEARTBEAT_INTERVAL_MS`, `HEARTBEAT_EXPIRY_MS` | Specialist heartbeat period; how long the Hub waits before marking one stale |
 | `SPECIALIST_ENABLED=0` | Register a specialist as disabled (no requests are routed to it) |
@@ -107,7 +108,7 @@ npm test   # starts the Tutor (and UI server) as child processes, runs all check
 | `src/hub-lessons.js` | Part 9: the Hub's lesson service — Student sessions (challenge at the configured endpoint), verified publishes (professor, course, enrollment), persisted deliveries with queueing, reconciliation and receipts, the once-per-course availability notice, and the trusted lesson association for follow-ups. |
 | `src/student-inbox.js` | Part 9: the Student agent's inbound A2A side (signed Hub messages only) and its persisted course inbox. |
 | `src/lessons.js`, `src/a2a-data.js`, `src/json-store.js` | Part 9: the typed lesson messages and HMAC signing; sending one typed data part over `message/send` with honest delivery outcomes; an atomic JSON-file store. |
-| `public/classroom.js` | Part 9: the inbox, availability notice, toast, lesson dialog and “About:” chip (Conversation) and the Professor view. |
+| `public/classroom.js` | Part 9: the inbox, availability notice, toast, lesson dialog and “About:” chip (Conversation) and the Professor view's chat (post cards, @-tag suggestions). |
 | `test/professor.test.js` | Part 9: both routes, idle delivery, the once-only notice, opening and follow-ups, rejected publishes, one delivery across double-clicks/restarts/replays, offline queueing, a lost acknowledgment, toasts not opening, and hostile lesson text (mock Professor and router). |
 | `src/router.js` | Part 5: the routing decision, run by the Hub since Part 7. Live mode uses Haiku with structured output, mock mode a labelled heuristic, and code validates every decision against the registry. |
 | `src/hub-agent.js` | Part 7: the **University Hub** — public card, control messages, routing, forwarding, form references, operation dedupe, telemetry relay (redacted) and the developer settings proxy. |
@@ -731,21 +732,22 @@ Up to **2 renewals** per loan. A renewal moves the due date to a date **you choo
 Until now every exchange started with you. Part 9 adds one **Marketing 101 Professor** (a fictional introductory course, not an official CSUF course) behind the Hub, and it works both ways:
 
 - **You ask:** Student → Hub → Professor → Hub → Student, like the Tutor and Library. The Hub's public card now offers a “Marketing 101” capability.
-- **The professor posts a lesson:** Professor → Hub → Student. This is a **new A2A interaction that the Professor starts**, delivered to an inbound endpoint the Student agent now has. It is not a task-status push for some earlier task.
+- **The professor posts a lesson or a message** (“Homework is late”) **to one student or the whole class:** Professor → Hub → Student. This is a **new A2A interaction that the Professor starts**, delivered to an inbound endpoint the Student agent now has. It is not a task-status push for some earlier task.
 
 ### The walkthrough
 
 1. Start everything (`npm run demo:live`) and open the **Conversation** tab. “**Marketing 101 is now available.**” appears once, with *Ask a question* and *Got it*.
 2. Ask “In marketing, what is the difference between segmentation and targeting?”. The Hub routes it to the Professor, which answers from its course pack.
-3. Open **Professor view**. Pick the student, add a title if you like, write what you'd like your student to learn (or start from one of the three course lessons), and press **Post lesson**. The posted lesson shows **Delivered**.
+3. Open **Professor view** — a chat, like yours. Write as a professor would: “Hi everyone! The segmentation homework is now due next Friday”, “@alex please send me your positioning draft”, “Send the one product, different needs lesson to the class”, or ask “Who has opened the homework message?”. The Professor's model works out whether it's a lesson or a message, who it's for (@tags, names or “everyone”) and a title; code checks that before anything is sent (a named student must be tagged or named by you, your own words are sent as written, no dates you didn't give). Each post appears in the chat with exactly what was sent and every student's state: the demo class has Alex (your Student agent) and **Sam**, who has no Student agent running, so a post to everyone shows Alex **Delivered** and Sam **Queued at Hub**. If it's unclear (“tell him…”), it asks you instead of guessing.
 4. Back on **Conversation** (you haven't said anything since): a small notice “New Marketing 101 lesson” appears top-right without taking your focus, and the **Lessons** button shows an unread count.
 5. **View lesson** opens that exact lesson (course, professor, time, title, your professor's original text). The Professor view now shows **Opened by the student**.
-6. **Ask about this lesson**, then type a follow-up. The chip “About: <lesson>” stays until you remove it, so later questions keep the lesson context.
+6. **Ask about this lesson**, then type a follow-up.
+7. To start again, press **New conversation**: it clears every student's lessons and messages (your inbox, the Hub's records and the professor's posted list), and the professor sends them again. The chip “About: <lesson>” stays until you remove it, so later questions keep the lesson context.
 
 ### How a lesson travels
 
 1. **Professor → Hub.** Pressing *Post lesson* calls the Professor's authoring API (through the UI server and the Hub's developer proxy; plain HTTP, like skill settings). The Professor saves it in its outbox, then sends the Hub one A2A `message/send` with a typed `lesson-publish` data part: operation, lesson and revision ids, course, recipient, title and text, **signed** with the key the Professor gave the Hub when it registered.
-2. **The Hub checks everything from its own configuration:** a valid signature from the registered Professor instance, a course that exists and that this professor teaches, an enrolled recipient, valid content, and that the operation id isn't reused with other content. It records the lesson and a **delivery** (`dl-…`, one per lesson revision and student) in `data/hub-lessons.json`.
+2. **The Hub checks everything from its own configuration** (for “all students” it expands the class from its own enrollment and makes one delivery per student): a valid signature from the registered Professor instance, a course that exists and that this professor teaches, an enrolled recipient, valid content, and that the operation id isn't reused with other content. It records the lesson and a **delivery** (`dl-…`, one per lesson revision and student) in `data/hub-lessons.json`.
 3. **Hub → Student.** The Hub sends a signed `lesson-delivery` to the Student agent's configured endpoint (`http://127.0.0.1:3000/a2a/jsonrpc`). The Student checks the signature and content hash, **writes the lesson to its inbox file first**, and only then replies “delivered”. That reply is the only thing that makes a delivery *Delivered*.
 4. **Opened** happens only when you open the lesson. The Student then sends a signed receipt to the Hub, which the Professor reads back as its delivery state.
 5. **Follow-ups** carry the lesson's delivery id. The Hub looks it up in its own records for *your* student and routes to that lesson's professor (`decidedBy: lesson`), whatever words you used. Each hop uses its own A2A message and context IDs; the Hub's delivery record links them.

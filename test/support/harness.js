@@ -42,7 +42,7 @@ export async function startUi(hubUrl, env = {}) {
 
 export const HUB_READY = /\[Hub\] listening on (http:\/\/127\.0\.0\.1:\d+)/;
 export async function startHub(env = {}) {
-  const hub = startProcess('src/hub-agent.js', { PORT: '0', HUB_LESSON_FILE: tempFile('hub-lessons.json'), ...env }, HUB_READY);
+  const hub = startProcess('src/hub-agent.js', { PORT: '0', HUB_LESSON_FILE: tempFile('hub-lessons.json'), HUB_TEST_STUDENTS_WITHOUT_ENDPOINT: '1', ...env }, HUB_READY);
   hub.url = await hub.ready;
   return hub;
 }

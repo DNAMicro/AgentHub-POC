@@ -40,7 +40,7 @@ const PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url));
 const SHARED_FORM_MODULE = fileURLToPath(new URL('./forms.js', import.meta.url));
 const ACTION_KEYS = ['name', 'surfaceId', 'sourceComponentId', 'timestamp', 'context'];
 const CONTEXT_ID_PATTERN = /^[\w-]{8,100}$/;
-const CONFIG_EVENTS = new Set(['skills_saved', 'card_notification', 'hub_registration', 'lesson_posted', 'lesson_publish_result']); // + Part 9: the Professor's own lesson events // specialist events not tied to a run
+const CONFIG_EVENTS = new Set(['skills_saved', 'card_notification', 'hub_registration', 'lesson_posted', 'lesson_publish_result', 'lessons_reset']); // + Part 9: the Professor's own lesson events // specialist events not tied to a run
 const EPHEMERAL = new Set(['heartbeat']); // shown live (if the viewer wants them) but not kept in history
 
 // Allowed forward transitions per run kind. Late events can never move a run backwards.
@@ -481,13 +481,28 @@ export async function startUiServer({ port = 3000 } = {}) {
 
   // "New conversation": a visualization-only marker. Browsers clear their panels when they see it,
   // including on replay after a reload. No A2A traffic; the next chat simply gets a new contextId.
-  apiPost.post('/conversation/new', (req, res) => {
+  apiPost.post('/conversation/new', async (req, res) => {
     const busy = [...forms.values()].some((f) => f.inFlight || f.state === 'submitting');
     if (activeRunId || busy) return res.status(409).json({ error: 'Wait for the current request to finish.' });
     // Open forms of the old conversation are closed (UI only — no handler is called, records are kept).
     for (const f of forms.values()) if (f.state === 'editing' || f.state === 'rejected') setLifecycle(f.formId, 'cancelled', { reason: 'new_conversation' });
+    // The screen clears first, so the agents' reset events below stay visible in their consoles.
     publish({ source: 'system', type: 'conversation_reset', runId: null, data: {} });
-    res.status(202).json({});
+    // Part 9 (demo reset): every student's lessons and messages are cleared — this Student's inbox here,
+    // the Hub's records for everyone, and the Professor's posted list (asked by the Hub). The professor
+    // sends again.
+    inbox.reset();
+    let classroom = 'reset';
+    try {
+      const r = await fetch(`${hub.devUrl}/classroom/reset`, { method: 'POST', signal: AbortSignal.timeout(8000) });
+      const body = await r.json();
+      if (!r.ok) classroom = 'hub_error';
+      else if (Object.values(body.professors ?? {}).some((v) => v !== 'reset')) classroom = 'professor_unreachable';
+    } catch {
+      classroom = 'hub_unreachable';
+    }
+    publish({ source: 'system', type: 'classroom_reset', runId: null, data: { classroom } });
+    res.status(202).json({ classroom });
   });
 
   // ---- Part 9: the course inbox (lessons the Hub delivered; persisted by the Student agent) ----------
@@ -552,7 +567,7 @@ export async function startUiServer({ port = 3000 } = {}) {
     try {
       const upstream = await fetch(`${hub.devUrl}/agents/professor/author${path}`, {
         method, headers: method === 'GET' ? {} : { 'Content-Type': 'application/json' },
-        body: method === 'GET' ? undefined : JSON.stringify(req.body ?? {}), signal: AbortSignal.timeout(20000),
+        body: method === 'GET' ? undefined : JSON.stringify(req.body ?? {}), signal: AbortSignal.timeout(65000),
       });
       res.status(upstream.status).json(await upstream.json());
     } catch {
@@ -561,6 +576,7 @@ export async function startUiServer({ port = 3000 } = {}) {
   }
   app.get('/api/professor/state', (req, res) => proxyAuthor(req, res, '/state', 'GET'));
   apiPost.post('/professor/lessons', (req, res) => proxyAuthor(req, res, '/lessons', 'POST'));
+  apiPost.post('/professor/chat', (req, res) => proxyAuthor(req, res, '/chat', 'POST'));
   apiPost.post('/agents/:agentId/skills/preview', (req, res) => proxySettings(req, res, '/preview', 'POST'));
   apiPost.put('/agents/:agentId/skills', (req, res) => proxySettings(req, res, '', 'PUT'));
 

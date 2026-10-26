@@ -76,7 +76,7 @@ const SAFE_FIELDS = new Set([
   'agentId', 'skillId', 'actionName', 'policyRevision', 'revision', 'status', 'outcome', 'verdict', 'stage', 'decision', 'mode', 'model',
   'purpose', 'by', 'code', 'kind', 'final', 'lookup', 'duplicate', 'repeat', 'acknowledged', 'unavailable', 'truncated', 'stopReason',
   'taskState', 'resumedTask', 'violates', 'handler', 'reviewer', 'latencyMs', 'earlierMessages', 'chars', 'fallback', 'operation', 'loanId', 'ok', 'generated', 'revision',
-  'lessonId', 'deliveryId', 'inboxId', 'noticeId', 'courseId', 'attempt', 'found',
+  'lessonId', 'deliveryId', 'inboxId', 'noticeId', 'courseId', 'attempt', 'found', 'kind', 'audience', 'recipients',
   'usage', 'inputTokens', 'outputTokens', 'cacheReadInputTokens', 'cacheCreationInputTokens', 'tutor', 'library',
 ]);
 // Lists of field NAMES (never values) that may pass, e.g. which fields a form prefilled.
@@ -523,14 +523,32 @@ export function startHubServer({ port } = {}) {
         const peer = registry.peer(req.params.agentId);
         if (!peer) return res.status(404).json({ error: 'Unknown agent.' });
         try {
-          const upstream = await fetch(`${peer.baseUrl}/author${path}`, { method, headers: method === 'GET' ? {} : { 'Content-Type': 'application/json' }, body: method === 'GET' ? undefined : JSON.stringify(req.body ?? {}), signal: AbortSignal.timeout(15000) });
+          const upstream = await fetch(`${peer.baseUrl}/author${path}`, { method, headers: method === 'GET' ? {} : { 'Content-Type': 'application/json' }, body: method === 'GET' ? undefined : JSON.stringify(req.body ?? {}), signal: AbortSignal.timeout(60000) }); // a chat turn includes a model call
           res.status(upstream.status).json(await upstream.json());
         } catch {
           res.status(502).json({ error: `${peer.displayName} is not reachable.` });
         }
       };
+      // Demo reset of every student's lessons and messages (the Student UI's New conversation). The Hub
+      // clears its records, then asks each course's professor to clear its posted list.
+      dev.post('/dev/classroom/reset', async (req, res) => {
+        lessons.reset();
+        const professors = [...new Set(Object.values(cfg.courses ?? {}).map((c) => c.professor))];
+        const results = {};
+        for (const id of professors) {
+          const peer = registry.peer(id);
+          try {
+            const r = await fetch(`${peer.baseUrl}/author/reset`, { method: 'POST', signal: AbortSignal.timeout(5000) });
+            results[id] = r.ok ? 'reset' : `HTTP ${r.status}`;
+          } catch {
+            results[id] = 'unreachable';
+          }
+        }
+        res.json({ status: 'reset', professors: results });
+      });
       dev.get('/dev/agents/:agentId/author/state', author('/state', 'GET'));
       dev.post('/dev/agents/:agentId/author/lessons', author('/lessons', 'POST'));
+      dev.post('/dev/agents/:agentId/author/chat', author('/chat', 'POST'));
       // Manual "Refresh skills": re-fetch every specialist card from its configured URL (no model calls).
       dev.post('/dev/registry/refresh', (req, res) => {
         for (const peer of cfg.peers) registry.refresh(peer.agentId, 'manual');

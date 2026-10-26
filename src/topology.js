@@ -42,9 +42,10 @@ const STUDENT = {
   clarification_asked: () => inside('student', 'request', 'completed', 'Student asked you a clarifying question'),
   // Part 9: the Student's inbound side (lessons the Hub delivered) and its session with the Hub.
   student_session: (d) => hop('student', 'hub', 'registration', d.status === 'registered' ? 'completed' : 'failed', d.status === 'registered' ? 'Student session confirmed' : `Student session not registered (${d.reason ?? d.status})`),
-  lesson_received: () => inside('student', 'lesson', 'completed', 'Lesson saved in the Student’s inbox'),
+  lesson_received: (d) => inside('student', 'lesson', 'completed', `${d.kind === 'message' ? 'Message' : 'Lesson'} saved in the Student’s inbox`),
   lesson_opened: () => inside('student', 'lesson', 'completed', 'Student opened the lesson'),
   course_available: () => inside('student', 'lesson', 'completed', 'Course available notice received'),
+  inbox_reset: () => inside('student', 'lesson', 'completed', 'Inbox cleared (New conversation)'),
   request_declined: () => inside('student', 'request', 'completed', 'Student answered you itself (not offered by the university)'),
   // Only a real discovery (it carries a reason); the per-request reuse of the known card is not a hop.
   card_discovered: (d) => (d.reason ? hop('hub', 'student', 'card', 'completed', 'Student read the university’s public card') : null),
@@ -64,10 +65,10 @@ const HUB = {
   model_call_failed: (d) => MODEL_CALLS.model_call_failed('hub', d),
   message_received: () => hop('student', 'hub', 'request', 'accepted', 'Hub received the question'),
   request_repeat: () => inside('hub', 'request', 'processing', 'Repeat request — earlier result reused'),
-  route_decided: (d) => inside('hub', 'routing', d.decision === 'route' ? 'processing' : 'completed', d.decision === 'route' ? `Routed to ${d.destination}${{ student: ' (Student’s choice)', lesson: ' (lesson record)' }[d.decidedBy] ?? ''}` : `Not routed: ${d.decision}`),
+  route_decided: (d) => inside('hub', 'routing', d.decision === 'route' ? 'processing' : 'completed', d.decision === 'route' ? `Routed to ${d.destination}${{ student: ' (Student’s choice)', lesson: ' (inbox item record)' }[d.decidedBy] ?? ''}` : `Not routed: ${d.decision}`),
   capability_rejected: () => inside('hub', 'routing', 'failed', 'Unknown capability ignored — Hub routed itself'),
   // Part 9: the reverse route, Professor → Hub → Student, and the student's receipts.
-  lesson_publish_received: (d) => hop(d.agentId, 'hub', 'lesson', 'accepted', 'Lesson received from the Professor (verified)'),
+  lesson_publish_received: (d) => hop(d.agentId, 'hub', 'lesson', 'accepted', `${d.kind === 'message' ? 'Message' : 'Lesson'} received from the Professor (verified${d.audience === 'all' ? `, for all ${d.recipients} students` : ''})`),
   lesson_rejected: (d) => (SPECIALISTS.has(d.agentId) ? hop(d.agentId, 'hub', 'lesson', 'failed', `Lesson refused (${d.reason})`) : inside('hub', 'lesson', 'failed', `Lesson refused (${d.reason})`)),
   lesson_delivery_attempted: (d) => hop('hub', 'student', 'lesson', 'attempted', d.attempt > 1 ? `Lesson sent to the Student (attempt ${d.attempt})` : 'Lesson sent to the Student'),
   lesson_delivered: (d) => hop('student', 'hub', 'lesson', 'completed', d.duplicate ? 'Already in the Student’s inbox (no duplicate)' : 'Saved in the Student’s inbox'),
@@ -78,6 +79,7 @@ const HUB = {
   lesson_opened: () => hop('student', 'hub', 'lesson', 'completed', 'Student opened the lesson'),
   course_available_sent: () => hop('hub', 'student', 'lesson', 'completed', 'Course available notice delivered'),
   student_session: (d) => hop('student', 'hub', 'registration', d.status === 'registered' ? 'accepted' : 'failed', d.status === 'registered' ? 'Student session confirmed (challenge answered)' : `Student session refused (${d.reason})`),
+  classroom_reset: () => inside('hub', 'lesson', 'completed', 'Classroom reset — every lesson and message forgotten'),
   lesson_route_rejected: () => inside('hub', 'routing', 'failed', 'Lesson question refused — not this student’s lesson'),
   route_failed: () => inside('hub', 'routing', 'failed', 'Routing failed'),
   forward_attempted: (d) => hop('hub', d.agentId, 'request', 'attempted', `Forwarded to ${NODE_NAMES[d.agentId] ?? d.agentId}`),
@@ -117,7 +119,7 @@ const SPECIALIST = {
   loan_operation: (a, d) => inside(a, 'form', d.ok ? 'completed' : 'failed', d.ok ? `Loan service renewed ${d.loanId}${d.duplicate ? ' (stored result)' : ''}` : `Loan service refused (${d.code})`),
   hub_registration: (a, d) => hop(a, 'hub', 'registration', d.status === 'registered' ? 'completed' : 'failed', d.status === 'registered' ? 'Registered with the Hub' : d.status === 'not_delivered' ? 'Hub not reachable for registration' : 'Registration refused'),
   skills_saved: (a) => inside(a, 'card', 'processing', 'Skills saved'),
-  lesson_posted: (a) => inside(a, 'lesson', 'processing', 'Professor posted a lesson'),
+  lesson_posted: (a, d) => inside(a, 'lesson', 'processing', `Professor posted a ${d.kind === 'message' ? 'message' : 'lesson'}${d.audience === 'all' ? ' to all students' : ''}`),
   lesson_publish_result: (a, d) => hop('hub', a, 'lesson', d.status === 'rejected' ? 'failed' : ['not_delivered', 'uncertain'].includes(d.status) ? 'unknown' : 'completed', `Hub: lesson ${d.status}${d.duplicate ? ' (stored result)' : ''}`),
   card_notification: (a, d) => hop(a, 'hub', 'card', d.outcome === 'delivered' ? 'completed' : d.outcome === 'pending' ? 'unknown' : 'failed', `Card-change notice ${d.outcome}`),
 };

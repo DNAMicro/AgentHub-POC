@@ -20,7 +20,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { createJsonStore } from './json-store.js';
 import { sendData } from './a2a-data.js';
 import {
-  COURSE_AVAILABLE_MEDIA_TYPE, ID, LESSON_DELIVERY_MEDIA_TYPE, LESSON_QUERY_MEDIA_TYPE, SESSION_CHALLENGE_MEDIA_TYPE,
+  AUDIENCE, COURSE_AVAILABLE_MEDIA_TYPE, ID, LESSON_DELIVERY_MEDIA_TYPE, LESSON_QUERY_MEDIA_TYPE, SESSION_CHALLENGE_MEDIA_TYPE,
   contentHash, deliveryIdFor, sign, validateLesson, verify,
 } from './lessons.js';
 
@@ -39,6 +39,9 @@ export function createLessonService({ cfg, registry, emit = () => {}, file = pro
     if (typeof msg.instanceId !== 'string' || !ID.test(msg.instanceId) || typeof msg.callKey !== 'string' || !/^[\w-]{40,64}$/.test(msg.callKey)) return { status: 'rejected', reason: 'malformed' };
     const endpoint = endpointOf(studentId);
     if (msg.endpoint !== (endpoint ?? null)) return { status: 'rejected', reason: 'unexpected_endpoint' };
+    // A student with no configured endpoint can't be challenged, so nobody may register as them — except
+    // in tests that drive the Hub directly as a student (HUB_TEST_STUDENTS_WITHOUT_ENDPOINT=1).
+    if (!endpoint && process.env.HUB_TEST_STUDENTS_WITHOUT_ENDPOINT !== '1') return { status: 'rejected', reason: 'no_student_endpoint' };
     if (endpoint) {
       // Prove the registrant serves the configured endpoint: it must answer a fresh challenge with the key.
       const nonce = randomBytes(16).toString('base64url');
@@ -66,42 +69,51 @@ export function createLessonService({ cfg, registry, emit = () => {}, file = pro
     if (!e || !e.registered || e.instanceId !== msg.instanceId || !e.callKey) return 'unregistered';
     return verify(e.callKey, [msg.professorId, msg.instanceId, ...fields], msg.signature) ? 'ok' : 'bad_signature';
   }
+  // A post goes to one enrolled student or to 'all' — every student enrolled in the course, from the
+  // Hub's own configuration. Each recipient gets their own delivery (own id, state and receipt).
+  const summaryOf = (ds) => (ds.every((d) => d.state === 'delivered') ? 'delivered' : ['uncertain', 'queued', 'failed'].find((st) => ds.some((d) => d.state === st)) ?? 'queued');
+  const deliveryView = (d) => ({ studentId: d.studentId, deliveryId: d.deliveryId, state: d.state, reason: d.lastError, opened: Boolean(d.openedAt) });
   async function publish(msg) {
     const reject = (reason, detail = null) => {
       emit('lesson_rejected', { agentId: msg?.professorId ?? null, reason, lessonId: msg?.lessonId ?? null });
       return { status: 'rejected', reason, detail };
     };
-    const hash = contentHash(msg?.title, msg?.text);
-    const fields = ['publish', msg?.operationId, msg?.lessonId, msg?.revision, msg?.courseId, msg?.recipient, hash];
+    const kind = msg?.kind ?? 'lesson';
+    const hash = contentHash(msg?.title, msg?.text, kind);
+    const fields = ['publish', msg?.operationId, msg?.lessonId, msg?.revision, msg?.courseId, kind, msg?.audience, hash];
     const who = verifyProfessor(msg, fields);
     if (who !== 'ok') return reject(who === 'unregistered' ? 'unknown_professor' : 'bad_signature');
-    if (!ID.test(msg.operationId ?? '') || !ID.test(msg.lessonId ?? '') || !Number.isInteger(msg.revision) || msg.revision < 1) return reject('malformed');
+    if (!ID.test(msg.operationId ?? '') || !ID.test(msg.lessonId ?? '') || !Number.isInteger(msg.revision) || msg.revision < 1 || !AUDIENCE.test(msg.audience ?? '')) return reject('malformed');
     const course = cfg.courses?.[msg.courseId];
     if (!course) return reject('unknown_course');
     if (course.professor !== msg.professorId) return reject('not_course_professor');
-    if (!course.enrolled.includes(msg.recipient)) return reject('recipient_not_enrolled');
-    const v = validateLesson(msg);
+    if (msg.audience !== 'all' && !course.enrolled.includes(msg.audience)) return reject('recipient_not_enrolled');
+    const recipients = msg.audience === 'all' ? [...course.enrolled] : [msg.audience];
+    if (!recipients.length) return reject('no_students_enrolled');
+    const v = validateLesson({ kind, title: msg.title, text: msg.text });
     if (!v.ok) return reject('invalid_content', v.errors);
     // Dedupe: the same operation returns its stored outcome; the same id with different content is refused.
     const prior = store.get().operations[msg.operationId];
     if (prior) {
-      if (prior.hash !== hash || prior.lessonId !== msg.lessonId || prior.revision !== msg.revision || prior.recipient !== msg.recipient) return reject('operation_reused');
-      const d = store.get().deliveries[prior.deliveryId];
-      return { status: d.state, duplicate: true, lessonId: d.lessonId, revision: d.revision, deliveryId: d.deliveryId };
+      if (prior.hash !== hash || prior.lessonId !== msg.lessonId || prior.revision !== msg.revision || prior.audience !== msg.audience) return reject('operation_reused');
+      const ds = prior.deliveryIds.map((id) => store.get().deliveries[id]);
+      return { status: summaryOf(ds), duplicate: true, lessonId: msg.lessonId, revision: msg.revision, deliveries: ds.map(deliveryView) };
     }
     const key = `${msg.lessonId}#${msg.revision}`;
     const existing = store.get().lessons[key];
     if (existing && existing.hash !== hash) return reject('revision_conflict'); // a revision is immutable
-    const deliveryId = deliveryIdFor(msg.lessonId, msg.revision, msg.recipient);
+    const deliveryIds = recipients.map((sid) => deliveryIdFor(msg.lessonId, msg.revision, sid));
     store.update((s) => {
-      s.lessons[key] ??= { lessonId: msg.lessonId, revision: msg.revision, courseId: msg.courseId, professorId: msg.professorId, title: v.values.title, text: v.values.text, hash, postedAt: new Date().toISOString() };
-      s.operations[msg.operationId] = { hash, lessonId: msg.lessonId, revision: msg.revision, recipient: msg.recipient, deliveryId };
-      s.deliveries[deliveryId] ??= { deliveryId, lessonId: msg.lessonId, revision: msg.revision, studentId: msg.recipient, courseId: msg.courseId, professorId: msg.professorId, state: 'queued', attempts: 0, lastError: null, deliveredAt: null, openedAt: null, inboxId: null };
+      s.lessons[key] ??= { lessonId: msg.lessonId, revision: msg.revision, courseId: msg.courseId, professorId: msg.professorId, kind, audience: msg.audience, title: v.values.title, text: v.values.text, hash, postedAt: new Date().toISOString() };
+      s.operations[msg.operationId] = { hash, lessonId: msg.lessonId, revision: msg.revision, audience: msg.audience, deliveryIds };
+      recipients.forEach((studentId, i) => {
+        s.deliveries[deliveryIds[i]] ??= { deliveryId: deliveryIds[i], lessonId: msg.lessonId, revision: msg.revision, studentId, courseId: msg.courseId, professorId: msg.professorId, state: 'queued', attempts: 0, lastError: null, deliveredAt: null, openedAt: null, inboxId: null };
+      });
     });
-    emit('lesson_publish_received', { agentId: msg.professorId, lessonId: msg.lessonId, revision: msg.revision, courseId: msg.courseId, deliveryId });
-    await deliver(deliveryId);
-    const d = store.get().deliveries[deliveryId];
-    return { status: d.state, lessonId: d.lessonId, revision: d.revision, deliveryId, reason: d.lastError };
+    emit('lesson_publish_received', { agentId: msg.professorId, lessonId: msg.lessonId, revision: msg.revision, courseId: msg.courseId, kind, audience: msg.audience === 'all' ? 'all' : 'one', recipients: recipients.length });
+    await Promise.all(deliveryIds.map((id) => deliver(id)));
+    const ds = deliveryIds.map((id) => store.get().deliveries[id]);
+    return { status: summaryOf(ds), lessonId: msg.lessonId, revision: msg.revision, deliveries: ds.map(deliveryView) };
   }
 
   // ---- delivery (Hub → Student) ---------------------------------------------------------------------
@@ -129,13 +141,14 @@ export function createLessonService({ cfg, registry, emit = () => {}, file = pro
       }
       const lesson = store.get().lessons[`${d.lessonId}#${d.revision}`];
       const value = {
-        type: 'lesson_delivery', deliveryId, lessonId: d.lessonId, revision: d.revision, courseId: d.courseId,
+        type: 'lesson_delivery', deliveryId, lessonId: d.lessonId, revision: d.revision, courseId: d.courseId, kind: lesson.kind ?? 'lesson', toAll: lesson.audience === 'all',
         courseTitle: cfg.courses[d.courseId]?.title ?? d.courseId, professorId: d.professorId, professorName: nameOf(d.professorId),
         title: lesson.title, text: lesson.text, postedAt: lesson.postedAt, contentHash: lesson.hash,
       };
       store.update((s) => { s.deliveries[deliveryId].attempts += 1; });
       emit('lesson_delivery_attempted', { deliveryId, lessonId: d.lessonId, attempt: store.get().deliveries[deliveryId].attempts });
       const r = await sendData(endpoint, { mediaType: LESSON_DELIVERY_MEDIA_TYPE, value, metadata: { hubSignature: sign(session.callKey, ['delivery', d.studentId, deliveryId, d.lessonId, d.revision, lesson.hash]) }, timeoutMs: deliverTimeoutMs });
+      if (!store.get().deliveries[deliveryId]) return; // the classroom was reset while this was in flight
       if (r.ok && r.value?.status === 'delivered') return markDelivered(deliveryId, r.value.inboxId, Boolean(r.value.duplicate));
       if (r.ok) {
         store.update((s) => { Object.assign(s.deliveries[deliveryId], { state: 'failed', lastError: r.value?.reason ?? 'refused' }); });
@@ -151,6 +164,7 @@ export function createLessonService({ cfg, registry, emit = () => {}, file = pro
     }
   }
   function markDelivered(deliveryId, inboxId, duplicate) {
+    if (!store.get().deliveries[deliveryId]) return; // reset while it was in flight
     store.update((s) => { Object.assign(s.deliveries[deliveryId], { state: 'delivered', inboxId: inboxId ?? null, deliveredAt: new Date().toISOString(), lastError: null }); });
     const d = store.get().deliveries[deliveryId];
     emit('lesson_delivered', { deliveryId, lessonId: d.lessonId, revision: d.revision, duplicate });
@@ -179,7 +193,7 @@ export function createLessonService({ cfg, registry, emit = () => {}, file = pro
   function status(msg) {
     const who = verifyProfessor(msg, ['status', msg?.nonce]);
     if (who !== 'ok') return { status: 'rejected', reason: who };
-    const courses = coursesOf(msg.professorId).map(([courseId, c]) => ({ courseId, title: c.title, enrolled: c.enrolled.map((sid) => ({ studentId: sid, online: sessions.has(sid) && !sessions.get(sid).unreachable })) }));
+    const courses = coursesOf(msg.professorId).map(([courseId, c]) => ({ courseId, title: c.title, enrolled: c.enrolled.map((sid) => ({ studentId: sid, name: cfg.studentNames?.[sid] ?? sid, online: sessions.has(sid) && !sessions.get(sid).unreachable })) }));
     const deliveries = Object.values(store.get().deliveries).filter((d) => d.professorId === msg.professorId)
       .map(({ deliveryId, lessonId, revision, studentId, state, attempts, lastError, deliveredAt, openedAt }) => ({ deliveryId, lessonId, revision, studentId, state, attempts, lastError, deliveredAt, openedAt }));
     return { status: 'ok', courses, deliveries };
@@ -221,8 +235,17 @@ export function createLessonService({ cfg, registry, emit = () => {}, file = pro
     return { professorId: d.professorId, lessonId: d.lessonId, revision: d.revision, courseId: d.courseId, title: lesson?.title ?? '' };
   }
 
+  // Demo reset (the Student's New conversation, via the Hub's developer endpoint): every lesson, message,
+  // delivery and availability notice is forgotten for every student; the professor posts again. Student
+  // sessions stay. The course is announced again (once) to students who are connected.
+  function reset() {
+    store.update((s) => { s.lessons = {}; s.operations = {}; s.deliveries = {}; s.notices = {}; });
+    emit('classroom_reset', {});
+    setTimeout(() => announceCourses(), 300);
+  }
+
   return {
-    registerStudent, verifyStudent, publish, receipt, status, lessonRoute, announceCourses, flush,
+    registerStudent, verifyStudent, publish, receipt, status, lessonRoute, announceCourses, flush, reset,
     sessionOf: (studentId) => (sessions.has(studentId) ? { since: sessions.get(studentId).since } : null),
     snapshot: () => ({ sessions: [...sessions.keys()], deliveries: Object.values(store.get().deliveries).map(({ deliveryId, lessonId, revision, studentId, state, openedAt }) => ({ deliveryId, lessonId, revision, studentId, state, opened: Boolean(openedAt) })) }),
     stop: () => clearInterval(pump),

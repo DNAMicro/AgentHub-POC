@@ -40,7 +40,7 @@
         <h2 id="student-title">Conversation with the university</h2>
         <span class="role" id="student-role">Student agent “student-alex” · connects only to the university</span>
         <span class="conversation" id="conversation">New conversation</span>
-        <button type="button" class="inbox-toggle" id="inbox-toggle" aria-controls="inbox" aria-expanded="false" hidden>Lessons <span class="unread" id="inbox-unread" hidden></span></button>
+        <button type="button" class="inbox-toggle" id="inbox-toggle" aria-controls="inbox" aria-expanded="false" hidden>Inbox <span class="unread" id="inbox-unread" hidden></span></button>
       </header>
       <!-- Part 9: course notices and lessons the university delivered to this Student agent (persisted by it). -->
       <section class="inbox" id="inbox" aria-label="Course inbox" hidden>
@@ -56,11 +56,11 @@
         <p class="about-chip" id="about-chip" hidden><span>About: <strong id="about-title"></strong></span> <button type="button" id="about-clear" aria-label="Stop asking about this lesson">×</button></p>
         <form id="send-form" class="composer">
           <label for="message" class="visually-hidden">Your message</label>
-          <textarea id="message" rows="2" maxlength="2000" required aria-keyshortcuts="Enter" aria-description="Enter sends; Shift+Enter starts a new line." placeholder="Ask about calculus, the library, Marketing 101, or book a study room…">Explain the derivative of x squared</textarea>
+          <textarea id="message" rows="2" maxlength="2000" required aria-keyshortcuts="Enter" aria-description="Enter sends; Shift+Enter starts a new line." placeholder="Ask anything…"></textarea>
           <button type="submit" id="send">Send</button>
         </form>
         <div class="actions">
-          <button type="button" id="new-conversation" hidden>New conversation</button>
+          <button type="button" id="new-conversation" hidden title="Starts a new conversation and clears every student’s lessons and messages — the professor sends them again">New conversation</button>
           <button type="button" id="refresh-skills" title="The Hub re-fetches its services’ Agent Cards (conditional, no model calls)">Refresh skills</button>
           <p class="form-error" id="form-error" role="alert"></p>
         </div>
@@ -130,34 +130,22 @@
 
   <!-- Part 9: the professor's own console (a separate role in this demo; proxied to the Professor agent) -->
   <section class="view view-professor" id="view-professor" role="tabpanel" aria-labelledby="tab-professor" hidden>
-    <section class="panel author" aria-labelledby="author-title" data-agent="professor">
+    <section class="panel chat prof-chat" aria-labelledby="author-title" data-agent="professor">
       <header class="panel-head">
         <h2 id="author-title">Marketing 101 — Professor</h2>
         <span class="role" id="author-course">Marketing 101</span>
+        <span class="class-roster" id="prof-roster" aria-label="Your class"></span>
       </header>
-      <form class="author-form" id="author-form" novalidate>
-        <div class="author-meta">
-          <label for="author-student">Student</label>
-          <select id="author-student" required></select>
-          <span class="presence" id="author-presence"></span>
-        </div>
-        <label for="author-title-input">Title <span class="optional">(optional)</span></label>
-        <input id="author-title-input" maxlength="120" autocomplete="off">
-        <label for="author-text">What would you like your student to learn?</label>
-        <textarea id="author-text" rows="9" maxlength="4000" required></textarea>
-        <div class="author-seeds" id="author-seeds"><span>Start from a course lesson:</span></div>
-        <div class="author-actions">
-          <button type="submit" id="author-post">Post lesson</button>
-          <p class="author-status" id="author-status" role="status"></p>
-        </div>
-      </form>
-    </section>
-    <section class="panel posted" aria-labelledby="posted-title" data-agent="professor">
-      <header class="panel-head">
-        <h2 id="posted-title">Posted lessons</h2>
-        <span class="role" id="posted-hub">Delivery state from the university Hub</span>
-      </header>
-      <ol class="posted-list" id="posted-list"></ol>
+      <ol class="log chat-log prof-log" id="prof-log" aria-live="polite"></ol>
+      <div class="dock">
+        <ul class="mention-list" id="mention-list" role="listbox" aria-label="Students to tag" hidden></ul>
+        <form id="prof-form" class="composer">
+          <label for="prof-message" class="visually-hidden">Message</label>
+          <textarea id="prof-message" rows="2" maxlength="4000" aria-keyshortcuts="Enter" aria-description="Enter sends; Shift+Enter starts a new line. Type @ to tag a student." placeholder="Write to your class, tag a student with @, or ask who has read what…"></textarea>
+          <button type="submit" id="prof-send">Send</button>
+        </form>
+        <p class="form-error" id="prof-error" role="alert"></p>
+      </div>
     </section>
   </section>
 

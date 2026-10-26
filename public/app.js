@@ -67,6 +67,8 @@ const classroom = createClassroom({
   sendChat: (text, extra) => { chatFollow.pin(); return startRun('/api/runs', { text, contextId: currentContextId, ...extra }); },
   showConversation: () => { if ($('view-conversation').hidden) showTab(tabs[0], { history: 'push' }); },
   focusComposer: () => { showTab(tabs[0], { history: 'push' }); els.message.focus(); },
+  onInboxChange: () => renderState(),
+  followLog: (log) => followBottom(log), // the professor's chat scrolls like the student's
 });
 
 const STATE_LABELS = {
@@ -360,7 +362,7 @@ function flowStep(source, type, data, at) {
     case 'hub:route_decided':
       if (data.decision === 'route') {
         setSpecialist(data.agentId);
-        markStep(key, at, { note: `→ ${data.destination}${{ student: ' (Student’s choice)', lesson: ' (lesson you received)' }[data.decidedBy] ?? ''}` });
+        markStep(key, at, { note: `→ ${data.destination}${{ student: ' (Student’s choice)', lesson: ' (from your inbox)' }[data.decidedBy] ?? ''}` });
         for (const k of ['specialist:message_received', 'specialist:reply_published']) {
           const li = [...els.timeline.children].find((x) => x.dataset.step === k);
           if (li && li.dataset.state === 'pending') li.querySelector('.step-note').textContent = name(data.agentId);
@@ -428,7 +430,7 @@ function renderState() {
   els.send.disabled = busy;
   topology.studentBusy(BUSY.has(currentState));
   // Offered whenever there's something on screen to clear; unavailable mid-request.
-  els.newConversation.hidden = !currentContextId && ![els.studentLog, els.tutorLog, els.libraryLog, els.hubLog, els.studentConsole].some((log) => log.children.length);
+  els.newConversation.hidden = !currentContextId && !classroom.hasInboxItems() && ![els.studentLog, els.tutorLog, els.libraryLog, els.hubLog, els.studentConsole].some((log) => log.children.length);
   els.newConversation.disabled = busy || formsUi.busy;
   updateActiveStep();
   updatePending();
@@ -818,6 +820,13 @@ function handle(event, { live = true } = {}) {
     } else if (type === 'conversation_reset') {
       // Replayed in order on reload too, so a cleared screen stays cleared.
       clearScreen();
+    } else if (type === 'classroom_reset') {
+      // Part 9: New conversation also cleared every student's lessons and messages (here, at the Hub and
+      // at the Professor); say so, and say if a part of it couldn't be reached.
+      if (data.classroom) {
+        const note = { reset: 'Every student’s lessons and messages were cleared; the professor sends them again.', hub_unreachable: 'Your inbox was cleared, but the university Hub couldn’t be reached, so other students’ lessons and the professor’s list were not reset.', hub_error: 'Your inbox was cleared, but the Hub refused the reset.', professor_unreachable: 'Lessons were cleared at the Hub and here, but the professor’s posted list couldn’t be reached.' }[data.classroom] ?? data.classroom;
+        student({ dir: data.classroom === 'reset' ? 'info' : 'error', label: 'New conversation', text: note, ids: {} });
+      }
     } else if (type === 'agent_status') {
       topology.agentMode(data.agentId, { mode: data.mode, model: data.model, keyConfigured: data.keyConfigured });
       if (data.agentId === 'tutor') renderMode(data);
@@ -876,7 +885,7 @@ function handle(event, { live = true } = {}) {
         studentConsole({ dir: data.status === 'registered' ? 'received' : 'error', label: data.status === 'registered' ? 'Session with the university' : 'Session not registered', text: data.status === 'registered' ? 'Registered its inbound endpoint and answered the Hub’s challenge; its requests are now signed.' : `The Hub didn’t accept the session (${data.reason ?? data.status}); retrying.`, ids: {} });
         break;
       case 'lesson_received':
-        studentConsole({ dir: 'received', label: 'Lesson delivered', text: `“${data.title || 'Untitled lesson'}” (${data.courseTitle}) — saved in the inbox before confirming to the Hub.`, ids: { delivery: data.deliveryId, lesson: data.lessonId, revision: data.revision } });
+        studentConsole({ dir: 'received', label: data.kind === 'message' ? 'Message delivered' : 'Lesson delivered', text: `“${data.title || 'Untitled'}” (${data.courseTitle}) — saved in the inbox before confirming to the Hub.`, ids: { delivery: data.deliveryId, lesson: data.lessonId, revision: data.revision } });
         break;
       case 'lesson_opened':
         studentConsole({ dir: 'sent', label: 'Lesson opened', text: 'You opened it; a signed receipt goes to the Hub.', ids: { delivery: data.deliveryId } });
@@ -1010,10 +1019,10 @@ function handle(event, { live = true } = {}) {
         professor({ dir: 'error', label: 'Model error', text: data.message, ids: { code: data.code, run } });
         break;
       case 'lesson_posted':
-        professor({ dir: 'sent', label: 'Lesson posted', text: 'Sent to the university Hub over A2A (a new interaction, signed).', ids: { lesson: data.lessonId, revision: data.revision, operation: data.operationId } });
+        professor({ dir: 'sent', label: data.kind === 'message' ? 'Message sent' : 'Lesson posted', text: `Sent to the university Hub over A2A (a new interaction, signed), for ${data.audience === 'all' ? 'all enrolled students' : 'one student'}.`, ids: { lesson: data.lessonId, revision: data.revision, operation: data.operationId } });
         break;
       case 'lesson_publish_result':
-        professor({ dir: data.status === 'rejected' ? 'error' : 'received', label: 'Hub answered', text: `Lesson ${data.status}${data.reason ? ` (${data.reason})` : ''}${data.duplicate ? ' — stored result, nothing sent twice' : ''}.`, ids: { lesson: data.lessonId, revision: data.revision } });
+        professor({ dir: data.status === 'rejected' ? 'error' : 'received', label: 'Hub answered', text: `${data.status}${data.reason ? ` (${data.reason})` : ''}${data.recipients > 1 ? ` — ${data.recipients} deliveries` : ''}${data.duplicate ? ' — stored result, nothing sent twice' : ''}.`, ids: { lesson: data.lessonId, revision: data.revision } });
         break;
       case 'skills_saved':
         agents.professor.saved = { ...data, at };
@@ -1022,6 +1031,9 @@ function handle(event, { live = true } = {}) {
       case 'card_notification':
         agents.professor.notification = data;
         renderSkillsBox('professor');
+        break;
+      case 'lessons_reset':
+        professor({ dir: 'info', label: 'Posted list cleared', text: 'Reset with the classroom (New conversation); nothing posted remains.', ids: {} });
         break;
       default:
         break;
@@ -1081,11 +1093,11 @@ function hubEvent(panel, type, data, run) {
       panel({ dir: 'info', label: 'Repeat request', text: data.note, ids: { messageId: data.messageId, run } });
       break;
     case 'route_decided':
-      panel({ dir: data.decision === 'route' ? 'sent' : 'info', label: data.decision === 'route' ? `Routed → ${data.destination}${{ student: ' (Student’s choice)', lesson: ' (lesson you received)' }[data.decidedBy] ?? ''}` : `Not routed: ${data.decision}`, text: data.decision === 'clarify' ? `Asks: ${data.clarificationQuestion}` : data.reason, ids: { decidedBy: data.decidedBy === 'student' ? 'the Student (capability checked by the Hub; no Hub router call)' : null, worker: data.agentId ? name(data.agentId) : null, skill: data.skillId, router: data.model, routerUsage: data.usage ? `${data.usage.inputTokens} in / ${data.usage.outputTokens} out tokens` : null, invalidChoice: data.invalid ? 'model choice refused by code' : null, operation: data.operationId, run } });
+      panel({ dir: data.decision === 'route' ? 'sent' : 'info', label: data.decision === 'route' ? `Routed → ${data.destination}${{ student: ' (Student’s choice)', lesson: ' (from your inbox)' }[data.decidedBy] ?? ''}` : `Not routed: ${data.decision}`, text: data.decision === 'clarify' ? `Asks: ${data.clarificationQuestion}` : data.reason, ids: { decidedBy: data.decidedBy === 'student' ? 'the Student (capability checked by the Hub; no Hub router call)' : null, worker: data.agentId ? name(data.agentId) : null, skill: data.skillId, router: data.model, routerUsage: data.usage ? `${data.usage.inputTokens} in / ${data.usage.outputTokens} out tokens` : null, invalidChoice: data.invalid ? 'model choice refused by code' : null, operation: data.operationId, run } });
       break;
     // Part 9: lessons (Professor → Hub → Student), student sessions and course notices.
     case 'lesson_publish_received':
-      panel({ dir: 'received', label: 'Lesson from the Professor', text: 'Signature, course, professor and enrollment checked; delivering to the student.', ids: { lesson: data.lessonId, revision: data.revision, delivery: data.deliveryId } });
+      panel({ dir: 'received', label: `${data.kind === 'message' ? 'Message' : 'Lesson'} from the Professor`, text: `Signature, course, professor and enrollment checked; delivering to ${data.audience === 'all' ? `all ${data.recipients} enrolled students (one delivery each)` : 'the student'}.`, ids: { lesson: data.lessonId, revision: data.revision } });
       break;
     case 'lesson_rejected':
       panel({ dir: 'error', label: 'Lesson refused', text: data.reason, ids: { from: data.agentId, lesson: data.lessonId } });
@@ -1110,6 +1122,9 @@ function hubEvent(panel, type, data, run) {
       break;
     case 'lesson_opened':
       panel({ dir: 'received', label: 'Lesson opened', text: 'Signed receipt from the Student; the Professor will see it.', ids: { delivery: data.deliveryId } });
+      break;
+    case 'classroom_reset':
+      panel({ dir: 'info', label: 'Classroom reset', text: 'Every lesson, message, delivery and notice was forgotten for every student (New conversation).', ids: {} });
       break;
     case 'lesson_route_rejected':
       panel({ dir: 'error', label: 'Lesson question refused', text: 'That lesson wasn’t delivered to this student.', ids: { run } });
