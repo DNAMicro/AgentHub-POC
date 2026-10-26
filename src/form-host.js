@@ -114,37 +114,53 @@ export function createFormHost({ agentId, workflows, isEnabled, emitViz, log, lo
     const correlated = resuming ? ctx.task.id === form.taskId : incoming.referenceTaskIds.includes(form.taskId) && ctx.contextId === form.contextId;
     if (!correlated) return reject({ _form: 'This action isn’t correlated with that form’s task and conversation.' });
 
-    const previous = operations.get(operationId);
-    if (previous) {
-      if (previous.formId !== formId || previous.name !== name || previous.raw !== JSON.stringify(actionMsg.action.context ?? {})) {
-        return reject({ _form: 'This operation ID was already used with different values.' });
-      }
-      // Identical retry: the stored result, nothing re-executed.
-      log('duplicate operation — returning the stored result', ids);
-      emitViz('form_action_result', runId, { ...ids, status: previous.result.body.status, duplicate: true, receipt: previous.result.body.receipt ?? null });
-      respond({ ...previous.result.body, duplicate: true }, { a2ui: previous.result.a2ui, closed: previous.result.closed });
-      return;
+    // One action per form at a time. A concurrent action waits for the one in progress (which may be
+    // in a model call) and then runs the checks below against the updated state — so two submissions
+    // with different operation IDs can't both pass the state check and both record. (Rejecting it
+    // instead would be wrong: both requests resume the same A2A task, so its reply reaches both clients.)
+    while (form.inProgress) await form.inProgress;
+    let release;
+    form.inProgress = new Promise((resolve) => { release = () => { form.inProgress = null; resolve(); }; });
+    try {
+      await processAction();
+    } finally {
+      release();
     }
+    return;
 
-    if (form.state !== 'awaiting_input') return reject({ _form: `This form is ${form.state === 'accepted' ? 'already submitted' : form.state}.` });
-    // Checked against the CURRENT skills, not those in force when the form was issued.
-    if (!isEnabled(form.workflowId)) return reject({ _form: 'This workflow is no longer offered (its skill is disabled).' });
-    const checked = checkAction(actionMsg, { workflowId: form.workflowId, surfaceId: formId });
-    if (!checked.ok) return reject({ _form: checked.error });
+    async function processAction() {
+      const previous = operations.get(operationId);
+      if (previous) {
+        if (previous.formId !== formId || previous.name !== name || previous.raw !== JSON.stringify(actionMsg.action.context ?? {})) {
+          return reject({ _form: 'This operation ID was already used with different values.' });
+        }
+        // Identical retry: the stored result, nothing re-executed.
+        log('duplicate operation — returning the stored result', ids);
+        emitViz('form_action_result', runId, { ...ids, status: previous.result.body.status, duplicate: true, receipt: previous.result.body.receipt ?? null });
+        respond({ ...previous.result.body, duplicate: true }, { a2ui: previous.result.a2ui, closed: previous.result.closed });
+        return;
+      }
 
-    const handler = workflows[form.workflowId].actions[checked.name];
-    const result = await handler(form, checked.context, { formId, runId, reviewAcknowledged: incoming.metadata?.reviewAcknowledged === true, emit: (type, data) => emitViz(type, runId, { formId, ...data }) });
-    if (checked.spec.final && result.status === 'accepted') form.state = 'accepted';
-    if (checked.spec.cancel) form.state = 'cancelled';
-    const closed = form.state !== 'awaiting_input';
-    const body = { status: result.status, formId, operationId, workflowId: form.workflowId, message: result.message, ...(result.errors ? { errors: result.errors } : {}), ...(result.flags ? { flags: result.flags } : {}), ...(result.receipt ? { receipt: result.receipt } : {}) };
-    const a2ui = [...(result.a2ui ?? []), ...(closed ? buildDelete(formId) : [])];
-    operations.set(operationId, { formId, name: checked.name, raw: JSON.stringify(checked.context), result: { body, a2ui, closed } });
-    trim(operations);
-    log('form action result', { ...ids, status: result.status, receiptId: result.receipt?.requestId ?? result.receipt?.bookingId ?? null });
-    // The handler's outcome first, then the reply that carries it back over A2A.
-    emitViz('form_action_result', runId, { ...ids, workflowId: form.workflowId, status: result.status, errors: result.errors ?? null, flags: result.flags ?? null, receipt: result.receipt ?? null, values: result.values ?? null });
-    respond(body, { a2ui, closed });
+      if (form.state !== 'awaiting_input') return reject({ _form: `This form is ${form.state === 'accepted' ? 'already submitted' : form.state}.` });
+      // Checked against the CURRENT skills, not those in force when the form was issued.
+      if (!isEnabled(form.workflowId)) return reject({ _form: 'This workflow is no longer offered (its skill is disabled).' });
+      const checked = checkAction(actionMsg, { workflowId: form.workflowId, surfaceId: formId });
+      if (!checked.ok) return reject({ _form: checked.error });
+
+      const handler = workflows[form.workflowId].actions[checked.name];
+      const result = await handler(form, checked.context, { formId, runId, reviewAcknowledged: incoming.metadata?.reviewAcknowledged === true, emit: (type, data) => emitViz(type, runId, { formId, ...data }) });
+      if (checked.spec.final && result.status === 'accepted') form.state = 'accepted';
+      if (checked.spec.cancel) form.state = 'cancelled';
+      const closed = form.state !== 'awaiting_input';
+      const body = { status: result.status, formId, operationId, workflowId: form.workflowId, message: result.message, ...(result.errors ? { errors: result.errors } : {}), ...(result.flags ? { flags: result.flags } : {}), ...(result.receipt ? { receipt: result.receipt } : {}) };
+      const a2ui = [...(result.a2ui ?? []), ...(closed ? buildDelete(formId) : [])];
+      operations.set(operationId, { formId, name: checked.name, raw: JSON.stringify(checked.context), result: { body, a2ui, closed } });
+      trim(operations);
+      log('form action result', { ...ids, status: result.status, receiptId: result.receipt?.requestId ?? result.receipt?.bookingId ?? null });
+      // The handler's outcome first, then the reply that carries it back over A2A.
+      emitViz('form_action_result', runId, { ...ids, workflowId: form.workflowId, status: result.status, errors: result.errors ?? null, flags: result.flags ?? null, receipt: result.receipt ?? null, values: result.values ?? null });
+      respond(body, { a2ui, closed });
+    }
   }
 
   // The form an earlier attempt of this same chat request produced (null if none).

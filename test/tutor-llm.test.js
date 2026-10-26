@@ -7,7 +7,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { startTutor, startUi, waitFor, openStream, post, forRun, find, findAll, stateOf, formVia, formAction, waitLifecycle } from './support/harness.js';
 import { addDays, todayIn } from '../src/forms.js';
 import { startFakeAnthropic, messageReply } from './support/fake-anthropic.js';
-import { askTutor } from '../src/student-agent.js';
+import { askTutor, sendFormAction } from '../src/student-agent.js';
 import { SYSTEM_PROMPT, MODEL } from '../src/tutor-model.js';
 
 // A placeholder that must never appear anywhere except the request to the (fake) provider.
@@ -327,6 +327,23 @@ test('live form review backstop: an “email doesn’t match the name” flag is
   stub.respondWith(() => messageReply(JSON.stringify({ flags: [{ field: 'email', message: 'The email address jo@example.com does not appear to match the name Alex Student.' }] })));
   await formAction(liveUi, form.formId, 'submitTutoringRequest', 'submit_button', { firstName: 'Alex', lastName: 'Student', email: 'jo@example.com', preferredDate: date, period: ['morning'], specificTime: '', notes: 'Limits.' });
   await waitLifecycle(stream, form.formId, ['accepted']);
+});
+
+test('two concurrent submissions of one form (different operation IDs) cannot both be recorded', async () => {
+  stub.reset();
+  const { form } = await askTutor(live.url, 'I want to arrange in-person help with calculus', {});
+  const recordedBefore = (live.output().match(/recorded tutoring request/g) ?? []).length;
+  const date = (() => { for (let n = 2; ; n++) { const d = addDays(todayIn(), n); if (![0, 6].includes(new Date(`${d}T12:00:00Z`).getUTCDay())) return d; } })();
+  // The review (a model call) takes 400 ms, so the second submission arrives while the first is in it.
+  stub.respondWith(() => ({ ...messageReply(JSON.stringify({ flags: [] })), delayMs: 400 }));
+  const send = () => sendFormAction(live.url, { form, operationId: randomUUID(), action: { name: 'submitTutoringRequest', surfaceId: form.formId, sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context: { firstName: 'Alex', lastName: 'Student', email: 'alex@example.com', preferredDate: date, period: ['morning'], specificTime: '', notes: 'Limits.' } } });
+  const results = await Promise.all([send(), send()]);
+  // Exactly one request is recorded. Both clients resume the same A2A task, so both may see the
+  // accepted reply; neither is told "rejected" while its form was in fact recorded.
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal((live.output().match(/recorded tutoring request/g) ?? []).length - recordedBefore, 1, 'recorded once');
+  assert.ok(results.some((r) => r.body.status === 'accepted'));
+  for (const r of results) assert.ok(r.body.status === 'accepted' || /already submitted/.test(JSON.stringify(r.body.errors)), JSON.stringify(r.body));
 });
 
 test('the API key never appears in frontend assets, browser events, status, or logs', async () => {
