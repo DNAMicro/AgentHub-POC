@@ -129,24 +129,57 @@ export function validateAction(message, expectedSurfaceId) {
 // ---- Student side: allowlist for received A2UI payloads -------------------
 
 const ALLOWED_COMPONENTS = new Set(['Column', 'Text', 'TextField', 'Button']);
-const ALLOWED_MESSAGE_KEYS = new Set(['createSurface', 'updateComponents', 'updateDataModel', 'deleteSurface']);
+const ALLOWED_MESSAGE_KEYS = new Set(['createSurface', 'updateComponents', 'updateDataModel']);
+// Pure, side-effect-free catalog functions a form needs. Anything else (openUrl, formatters, …) is refused.
+const ALLOWED_FUNCTIONS = new Set(['required', 'regex', 'length', 'email', 'and', 'or', 'not']);
 
-// Rejects anything beyond what a plain form needs: other components (Image, Video, …),
-// local function-call actions (e.g. openUrl), other catalogs, or oversized payloads.
+// Walk every value in the payload: function calls may appear in checks, bound values, or action
+// contexts, not just at component level.
+function findForbidden(value, path) {
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      const found = findForbidden(value[i], `${path}[${i}]`);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (value === null || typeof value !== 'object') return null;
+  if ('functionCall' in value) return `Local function call at ${path} is not allowed.`;
+  if ('call' in value && !ALLOWED_FUNCTIONS.has(value.call)) return `Function "${value.call}" at ${path} is not allowed.`;
+  if ('action' in value) {
+    const keys = value.action && typeof value.action === 'object' ? Object.keys(value.action) : [];
+    if (keys.length !== 1 || keys[0] !== 'event') return `Action at ${path} must be a server event only.`;
+  }
+  for (const [key, child] of Object.entries(value)) {
+    const found = findForbidden(child, `${path}.${key}`);
+    if (found) return found;
+  }
+  return null;
+}
+
+// Rejects anything beyond what a plain form needs: other components (Image, Video, …), any
+// non-allowlisted function call anywhere (e.g. openUrl), non-event actions, other catalogs,
+// more than one surface, or oversized payloads. Returns an error string, or null if acceptable.
 export function checkFormPayloadPolicy(messages) {
   if (!Array.isArray(messages) || messages.length === 0) return 'A2UI payload must be a non-empty array of messages.';
   if (JSON.stringify(messages).length > MAX_A2UI_PAYLOAD_BYTES) return 'A2UI payload is too large.';
+
+  const creates = messages.filter((m) => m?.createSurface);
+  if (creates.length !== 1 || messages[0] !== creates[0]) return 'Payload must start with exactly one createSurface.';
+  const surfaceId = creates[0].createSurface.surfaceId;
+  if (typeof surfaceId !== 'string' || !/^[\w-]{1,100}$/.test(surfaceId)) return 'Malformed surfaceId.';
+
   for (const m of messages) {
     if (m?.version !== A2UI_VERSION) return `Unsupported A2UI version "${m?.version}".`;
     const keys = Object.keys(m).filter((k) => k !== 'version');
     if (keys.length !== 1 || !ALLOWED_MESSAGE_KEYS.has(keys[0])) return `Unsupported A2UI message: ${keys.join(', ')}.`;
+    if (m[keys[0]].surfaceId !== surfaceId) return 'All messages must target the same surface.';
     if (m.createSurface && m.createSurface.catalogId !== BASIC_CATALOG_ID) return 'Only the basic catalog is accepted.';
     for (const c of m.updateComponents?.components ?? []) {
       if (!ALLOWED_COMPONENTS.has(c.component)) return `Component "${c.component}" is not allowed.`;
-      if (c.action && !c.action.event) return 'Only server event actions are allowed (no local function calls).';
     }
   }
-  return null;
+  return findForbidden(messages, 'payload');
 }
 
 export const isA2uiPart = (part) => part?.content?.$case === 'data' && (part.mediaType === A2UI_MIME_TYPE || part.metadata?.mimeType === A2UI_MIME_TYPE);
