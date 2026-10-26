@@ -1149,16 +1149,30 @@ async function startRun(path, body) {
     // The run may already have left its busy state (its events can arrive before this response).
     const finished = reply.runId === currentRunId && !BUSY.has(currentState);
     awaitingRunId = finished ? null : reply.runId;
+    renderState();
+    return true;
   } catch (err) {
     awaitingRunId = null;
     els.formError.textContent = `Could not start request: ${err.message}`;
+    renderState();
+    return false;
   }
-  renderState();
 }
 
-els.form.addEventListener('submit', (e) => {
+// Enter sends; Shift+Enter starts a new line. Enter that confirms an input-method composition
+// (e.g. accented or CJK text) is left alone.
+els.message.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || e.shiftKey || e.isComposing || e.keyCode === 229) return;
   e.preventDefault();
-  if (!els.send.disabled) startRun('/api/runs', { text: els.message.value, contextId: currentContextId });
+  els.form.requestSubmit();
+});
+els.form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const text = els.message.value;
+  if (els.send.disabled || !text.trim()) return;
+  els.message.value = ''; // cleared on send…
+  const started = await startRun('/api/runs', { text, contextId: currentContextId });
+  if (!started && !els.message.value) els.message.value = text; // …and given back if the request never started
 });
 els.newConversation.addEventListener('click', async () => {
   if (els.newConversation.disabled) return;
