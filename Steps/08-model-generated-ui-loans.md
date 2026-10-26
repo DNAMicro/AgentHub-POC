@@ -26,7 +26,7 @@ The Library owns loan reasoning, loan-data operations, generated UI, and renewal
 If a necessary Part 7 dependency is missing, explain it and make the smallest repair. Do not bypass the Hub to make the demonstration appear successful.
 
 **Concrete specification**
-- The smallest repair needed: the Hub now passes the conversation's **verified student** downstream, **signed** so no other local process can claim it.
+- The smallest repair needed: the Hub now passes the conversation's student downstream, **signed**, so no other local process can claim a student identity by calling the Library directly. (The Student → Hub leg itself is still self-declared on localhost, as Part 7 documents: the Hub checks the student against its allowlist, not a credential — see “Open decisions” below.)
   - Each specialist's hub link makes a random in-memory key (`randomBytes(32)`, base64url) per process and sends it as `callKey` in its registration. It goes only to the Hub URL in its own config.
   - The registry stores it (never in snapshots, events or logs) and `signFor(agentId, …)` computes `hubSignature = HMAC-SHA256(key, "studentId|downstream contextId|hubOperationId")`.
   - The Hub sends `studentId`, `hubOperationId` and `hubSignature` on the chat leg and on forwarded form actions.
@@ -173,7 +173,7 @@ Allow bounded repair of invalid generated UI using validation errors. If repair 
 6. Dates: every calendar date mentioned anywhere (ISO, “Nov 14”, “14 November”; compared as month-day) must be today, a loan's due/checkout date, **any day inside an eligible loan's permitted range** (so “due date + two weeks” is fine — the range is authoritative and a chosen date is range-checked again), or a date in the student's own messages (`allowedDatesFrom`, `datesIn`). The same check applies to answer and clarify text. No Markdown (`**`, leading `#`).
 - **Repair:** up to 2 repairs. The model sees its previous output and the exact error list and must return the same shape, or answer in text if UI can't satisfy the rules.
 - **Fallback** after failed repairs: the UI case says “I tried to build an interactive view for this, but it didn't pass the library's checks, so nothing can be submitted from it.” plus the model's text if its dates check out; a failed answer is withheld with an honest sentence. Never a canned form.
-- **At submission** (`renewLoan` handler): shape check (`validateLoanRenewal`: `L-\d{4}` and a date), `trusted.studentId === form.data.borrowerId`, the loan must be one this surface bound a renew action to (`form.data.renewable`, captured with its version at generation), then `loans.renewLoan(...)` with that `expectedVersion` and the action's operationId. Range/date failures map to the `returnDate` field, others to `_form`.
+- **At submission** (`renewLoan` handler): shape check (`validateLoanRenewal`: `L-\d{4}` and a date), `hubLink.verifiedStudent(trusted, form.contextId) === form.data.borrowerId` (the Hub-signed student, never a bare metadata field), the loan must be one this surface bound a renew action to (`form.data.renewable`, captured with its version at generation), then `loans.renewLoan(...)` with that `expectedVersion` and the action's operationId. Range/date failures map to the `returnDate` field, others to `_form`.
 - **Generated buttons:** `checkAction(message, { workflowId, surfaceId, buttons: surfaceButtons(messages) })`: the action must come from a Button that exists in **that surface** and sends the operation that button declares. It's enforced in the Library's form host (stored payload) and the Student's UI server (received payload). The browser routes actions by operation name.
 
 ## 7. Preserve the form lifecycle
@@ -265,6 +265,16 @@ Success means the model intelligently composes useful interfaces from a real sup
 
 **Concrete specification** — README “Part 8” section (flow, catalog, validation rules, demo policy, safety, inspector, tests and what they prove, limits), the `LOAN_STORE_FILE` env row and three files-table rows; CLAUDE.md “Part 8 notes” and the scope line (“model-generated code/HTML” stays out; model-generated UI only here, only from the validated catalog).
 
+**Known limits (state them in the README):**
+- Live judgment is probabilistic: the checks block unsafe or misleading output, but the model can still choose a less helpful layout or wording.
+- Values typed into a surface that a newer one replaces aren't carried over (the Library never sees unsent input).
+- Mock mode (`LIBRARY_MODE=mock`) answers loan questions in labelled text and never generates UI.
+- The loan store is a JSON file for one process; it isn't a database and has no locking across processes.
+
+**Open decisions (raised by an automated security review; not yet decided — settle these before or at the start of Part 9):**
+1. **Student → Hub identity is not authenticated.** Any local process can send the Hub a request as `student-alex` (it's on the allowlist), and the Hub will sign that identity for the Library. Options: (a) keep it and say so plainly (current docs do); (b) authenticate the Student to the Hub, e.g. a shared secret checked by the Hub — which is new credential setup, so it needs the user's explicit go-ahead.
+2. **The inspector relays the model's full output unredacted** (`ui_generated.inspector`, exempted by type and field). It can repeat things the student said. Options: (a) keep the full payload (the Part 8 brief asks for it; the data is synthetic); (b) by default relay only structure (component types, ids, bindings, validation, loan ids) and show full text only with `HUB_TELEMETRY_SHOW_CONTENT=1`.
+
 ## Avoid these known problems (found while building this step)
 
 - **Ask before reading a cut-off message as an instruction.** The prompt arrived ending in “did you”; it was clarified first (start Part 8? which budget rule applies?).
@@ -296,6 +306,9 @@ Success means the model intelligently composes useful interfaces from a real sup
   - The inspector exemption is per event type and field.
 - **Signed student identity** (automated security review after implementation): per-process HMAC key from registration; the Hub signs, the Library verifies; spoofing refused in a test and in a live direct call; the key appears in no log, snapshot or event stream.
 - **Full e2e run with playwright-cli, live** (your request): Parts 1–8 plus new phrasings — routing (Tutor, Student decline, Student clarify, “I don't know”, Library, mixed request), tutoring form submitted (TR receipt), room booking (availability → review → BK receipt), Library outage (“Not registered” → unavailable, specialist steps skipped) and recovery, all loan scenarios, a double-click renew (one renewal in the store), changing the request (old surface superseded), “until Christmas” (honest no), “renew everything” (one bounded picker and button per eligible loan), prompt injection, a claimed return, a course reserve, a reload, phone width + dark mode. Fixes from it: the date-range validator rule, the Read-only badge, and (Part 7) the clarify relation and redacted review flags.
+- **Follow-ups after the Part 8 commit:**
+  - The e2e fixes above (commit `7347f41`).
+  - Reliable chat scrolling (commit `5508964`, specified in Step 7): the chat and consoles follow the bottom while the reader is there (any item growing, including generated surfaces that render after insertion), stop when the reader scrolls up, and resume on scroll-down or send. It has a repeatable browser check, `scripts/browser-checks/chat-scroll.js` (old code 8/12, fix 12/12 in 3 runs).
 - **Fixes to Part 7 found here:** the Hub passes the verified student downstream; the router rule for own borrowed items; field-name lists pass the redaction (the `prefilled` crash).
 - **Live verification (Haiku 5.5, all four agents live):** see section 9. About 11 Library loan replies at roughly 9.6k input / 1.4k output tokens each for UI replies (less for text), plus classification, Hub and Student calls — about **3 cents** in total.
-- **Final state:** 129 tests passing; live stack handed over; committed as “Add Part 8”.
+- **Final state:** 129 tests passing (`npm test`); the live stack is handed over (`env -u ANTHROPIC_BASE_URL npm run demo:live`); committed as “Add Part 8” (`48b2fa6`), then `7347f41` (e2e fixes) and `5508964` (chat scrolling). The live e2e run cost about 5 cents. The two open decisions above are still to be made.

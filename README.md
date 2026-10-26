@@ -697,7 +697,7 @@ Up to **2 renewals** per loan. A renewal moves the due date to a date **you choo
 - A record that changed after the form was made (for example someone placed a hold) is refused as **stale**; nothing is renewed.
 - A new interface in the same conversation replaces the open one (never two active), with a new **revision**. Actions on a replaced surface are refused.
 - Hidden fields and model instructions are not security: every rule above is enforced in code at submission.
-- **The borrower is signed by the Hub.** Each specialist gives the Hub a random signing key when it registers (in memory only; a restart makes a new one). The Hub signs the student it forwards, and the Library ignores any `studentId` without a valid signature. Another program on your machine calling the Library directly can't claim to be you.
+- **The borrower is signed by the Hub.** Each specialist gives the Hub a random signing key when it registers (in memory only; a restart makes a new one). The Hub signs the student it forwards, and the Library ignores any `studentId` without a valid signature. Another program on your machine calling the Library directly can't claim to be you. **But** the Student → Hub step is still self-declared (as in Part 7): a program that talks to the Hub as `student-alex` would be treated as you. Authenticating that step would need a shared secret (new credential setup), so it's left as an open decision.
 
 ### Watching it: the Generated UI inspector
 
