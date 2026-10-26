@@ -77,17 +77,15 @@ function buildAgentCard(port) {
   };
 }
 
-// What this Tutor can actually do. A skill must name one of these handlers.
-const TUTOR_HANDLERS = {
-  'llm-tutoring': { label: 'Tutoring answered by the model, limited to this skill’s scope', multiple: true },
-  'a2ui-student-form': { label: 'A2UI student-details form (Part 3)' },
-};
+// Tutoring skills are answered by the model within their scope; their answer content is optional
+// reference notes. The student-details form is a built-in skill handled by code.
+const TUTOR_RULES = { answer: { knowledge: 'optional' }, form: { id: 'student-details-form' } };
 
 // Initial skills. Edited through the gear dialog; in memory only (a restart restores these).
 export const TUTOR_DEFAULT_SKILLS = {
   skills: [
     {
-      id: 'calculus-tutoring', handler: 'llm-tutoring', enabled: true,
+      id: 'calculus-tutoring', kind: 'answer', enabled: true,
       name: 'Calculus tutoring',
       description: 'Explains calculus concepts and works through calculus exercises: limits, derivatives, and integrals.',
       tags: ['calculus', 'limits', 'derivatives', 'integrals', 'exercises'],
@@ -96,14 +94,16 @@ export const TUTOR_DEFAULT_SKILLS = {
         allowed: ['limits and continuity', 'derivatives and differentiation rules', 'integrals and integration', 'calculus exercises and worked examples', 'algebra steps needed inside a calculus explanation'],
         excluded: ['standalone physics lessons (Newton’s laws, mechanics, electrical circuits)', 'standalone math outside calculus', 'non-academic topics such as home repair or plumbing', 'library services such as borrowing or renewals'],
       },
+      knowledge: '', // optional reference notes for the model; the subject itself comes from the model
     },
     {
-      id: 'student-details-form', handler: 'a2ui-student-form', enabled: true,
+      id: 'student-details-form', kind: 'form', enabled: true,
       name: 'Student details form',
       description: `Sends an A2UI form for first name, last name, email, and notes (request with metadata.request="${FORM_REQUEST}"), then validates and acknowledges the submission.`,
       tags: ['a2ui', 'form'],
       examples: [],
       scope: { allowed: ['collect and acknowledge first name, last name, email, and optional notes'], excluded: [] },
+      knowledge: '',
     },
   ],
 };
@@ -112,9 +112,9 @@ let skillService = null; // set when the server starts
 // The tutoring part of the current policy: enabled skills served by the model.
 const tutoringPolicy = () => {
   const policy = skillService.policy();
-  return { revision: policy.revision, skills: policy.skills.filter((s) => s.handler === 'llm-tutoring') };
+  return { revision: policy.revision, skills: policy.skills.filter((s) => s.kind === 'answer') };
 };
-const formEnabled = () => skillService.policy().handlers.has('a2ui-student-form');
+const formEnabled = () => skillService.policy().kinds.has('form');
 
 // ---- message construction ---------------------------------------------------
 
@@ -330,7 +330,7 @@ export function startTutorServer({ port = 41241 } = {}) {
       const card = buildAgentCard(actualPort);
       // The skill service writes the saved configuration into this live card object.
       skillService = createSkillService({
-        agentId: 'tutor', agentName: card.name, defaults: TUTOR_DEFAULT_SKILLS, handlers: TUTOR_HANDLERS, card,
+        agentId: 'tutor', agentName: card.name, defaults: TUTOR_DEFAULT_SKILLS, rules: TUTOR_RULES, card,
         emit: (type, data) => emitViz(type, null, data), log, studentUrl: STUDENT_A2A_URL,
       });
       const requestHandler = new DefaultRequestHandler(card, new InMemoryTaskStore(), tutorExecutor);

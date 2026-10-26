@@ -50,10 +50,12 @@ test('settings API: read, preview, invalid input, unimplemented capability, stal
   bad.skills[0].name = '';
   assert.equal((await put(`${trio.ui.url}/api/agents/library/skills`, { config: bad, baseRevision: 1 })).status, 400);
   const unimplemented = structuredClone(s.config);
-  unimplemented.skills.push({ id: 'room-booking', handler: 'room-booking', enabled: true, name: 'Room booking', description: 'Books study rooms.', tags: [], examples: [], scope: { allowed: ['study room bookings'], excluded: [] } });
+  // A Library skill with nothing to answer from can't be enabled.
+  unimplemented.skills.push({ id: 'room-booking', kind: 'answer', enabled: true, name: 'Room booking', description: 'Study rooms.', tags: [], examples: [], scope: { allowed: ['study room bookings'], excluded: [] }, knowledge: '' });
   const res = await put(`${trio.ui.url}/api/agents/library/skills`, { config: unimplemented, baseRevision: 1 });
   assert.equal(res.status, 400);
-  assert.match(JSON.stringify(await res.json()), /not implemented by this agent/);
+  assert.match(JSON.stringify(await res.json()), /Add the answer content/);
+  assert.equal(s.rules.knowledge, 'required');
   assert.equal((await put(`${trio.ui.url}/api/agents/library/skills`, { config: s.config, baseRevision: 0 })).status, 409, 'stale editor');
   assert.equal((await skillsVia(trio.ui, 'library')).revision, 1, 'nothing was saved ("Cancel" never calls the API at all)');
 });
@@ -92,8 +94,8 @@ test('save → new ETag → A2A notification → Student re-fetch → routing ch
   // And the Library itself rejects the removed skill even when called directly.
   const { askTutor } = await import('../src/student-agent.js');
   const direct = await askTutor(trio.library.url, question, {});
-  assert.equal(direct.library.outcome, 'skill_disabled');
-  assert.doesNotMatch(direct.text, /sample catalog/, 'no catalog content served');
+  assert.notEqual(direct.library.skillId, 'find-resources');
+  assert.doesNotMatch(direct.text, /QA303/, 'catalog content of the disabled skill not served');
 });
 
 test('duplicate and delayed notifications: deduplicated, and the CURRENT card is fetched', async () => {

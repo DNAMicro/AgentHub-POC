@@ -16,8 +16,8 @@ import {
 
 const NOTIFY_TIMEOUT_MS = 3000;
 
-export function createSkillService({ agentId, agentName, defaults, handlers, card, emit, log, studentUrl }) {
-  const initial = validateSkillConfig(defaults, handlers);
+export function createSkillService({ agentId, agentName, defaults, rules, card, emit, log, studentUrl }) {
+  const initial = validateSkillConfig(defaults, rules);
   if (!initial.ok) throw new Error(`Invalid default skills for ${agentId}: ${JSON.stringify(initial.errors)}`);
   const testedHash = configHash(initial.config); // the defaults are what the automated tests cover
 
@@ -81,7 +81,8 @@ export function createSkillService({ agentId, agentName, defaults, handlers, car
 
   const describe = () => ({
     agentId, agentName, revision, etag, config,
-    handlers: Object.entries(handlers).map(([id, h]) => ({ id, label: h.label, multiple: Boolean(h.multiple) })),
+    // What the editor needs to know: is answer content required, and which skill is the built-in form.
+    rules: { knowledge: rules.answer.knowledge, builtInFormId: rules.form?.id ?? null },
     matchesTestedDefault: configHash(config) === testedHash,
     lastNotification,
     note: 'Local developer controls. Edits skills only — not identity, endpoints, security, or protocol settings.',
@@ -99,7 +100,7 @@ export function createSkillService({ agentId, agentName, defaults, handlers, car
     r.use((req, res, next) => (req.method === 'GET' ? next() : sameOriginGuard(port)(req, res, next)));
     r.get('/settings/skills', (req, res) => res.json(describe()));
     r.post('/settings/skills/preview', (req, res) => {
-      const result = validateSkillConfig(req.body?.config, handlers);
+      const result = validateSkillConfig(req.body?.config, rules);
       if (!result.ok) return res.status(400).json({ errors: result.errors });
       res.json({ card: previewCard(result.config, revision + 1), matchesTestedDefault: configHash(result.config) === testedHash });
     });
@@ -107,7 +108,7 @@ export function createSkillService({ agentId, agentName, defaults, handlers, car
       if (req.body?.baseRevision !== revision) {
         return res.status(409).json({ error: `The skills changed since you opened them (now revision ${revision}). Reload and try again.`, revision });
       }
-      const result = validateSkillConfig(req.body?.config, handlers);
+      const result = validateSkillConfig(req.body?.config, rules);
       if (!result.ok) return res.status(400).json({ errors: result.errors });
       // Atomic swap: configuration, runtime policy, and served card change together.
       revision += 1;

@@ -42,6 +42,7 @@ const els = {
   addSkill: $('add-skill'),
   skillsSave: $('skills-save'),
   skillsCancel: $('skills-cancel'),
+  skillsDirty: $('skills-dirty'),
 };
 
 const STATE_LABELS = {
@@ -431,113 +432,215 @@ function renderSkillsBox(agentId) {
 
 // ---- Part 5: skills settings dialog -------------------------------------------
 
-let editing = null; // { agentId, revision, handlers }
+let editing = null; // { agentId, revision, rules: { knowledge, builtInFormId }, dirty }
+let fieldSeq = 0;
 
 const lines = (v) => v.split('\n').map((s) => s.trim()).filter(Boolean);
+const slug = (s) => s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 49);
 
-function skillFieldset(skill, handlers, isNew) {
-  const id = el('input', { type: 'text', value: skill.id, readOnly: !isNew, name: 'id' });
-  const handler = el('select', { name: 'handler' }, ...handlers.map((h) => el('option', { value: h.id, textContent: `${h.id} — ${h.label}`, selected: h.id === skill.handler })));
-  const field = (label, control) => el('label', {}, label, control);
-  const area = (name, value) => el('textarea', { name, value, rows: 2 });
-  const fs = el('fieldset', { className: 'skill-fieldset' },
-    el('legend', { textContent: skill.name || 'New skill' }),
-    el('label', { className: 'inline' }, el('input', { type: 'checkbox', name: 'enabled', checked: skill.enabled }), 'Enabled (advertised and permitted)'),
-    el('div', { className: 'skill-grid' },
-      field('Skill ID (stable)', id),
-      field('Implemented by (handler)', handler),
-      field('Name', el('input', { type: 'text', name: 'name', value: skill.name })),
-      field('Tags (comma separated)', el('input', { type: 'text', name: 'tags', value: skill.tags.join(', ') })),
-    ),
-    field('Description', area('description', skill.description)),
-    el('div', { className: 'skill-grid' },
-      field('Example questions (one per line)', area('examples', skill.examples.join('\n'))),
-      field('Allowed scope (one per line)', area('allowed', skill.scope.allowed.join('\n'))),
-    ),
-    field('Exclusions (one per line)', area('excluded', skill.scope.excluded.join('\n'))),
+// One labelled control with a hint and a slot for its own error message.
+function field({ label, control, hint, errorKey, required }) {
+  const id = `skill-field-${++fieldSeq}`;
+  control.id = id;
+  const error = el('p', { className: 'field-error', id: `${id}-error`, role: 'alert' });
+  error.dataset.errorFor = errorKey;
+  control.setAttribute('aria-describedby', `${id}-hint ${id}-error`);
+  return el('div', { className: 'field' },
+    el('label', { htmlFor: id, textContent: label }, required ? el('span', { className: 'req', textContent: ' *', ariaHidden: 'true' }) : null),
+    control,
+    hint ? el('p', { className: 'hint', id: `${id}-hint`, textContent: hint }) : null,
+    error);
+}
+
+function markDirty() {
+  if (!editing) return;
+  editing.dirty = true;
+  els.skillsDirty.hidden = false;
+}
+
+function skillCard(skill, { isNew }) {
+  const isForm = skill.kind === 'form';
+  const required = editing.rules.knowledge === 'required';
+  const input = (name, value, extra = {}) => el('input', { type: 'text', name, value, ...extra });
+  const area = (name, value, rows, extra = {}) => el('textarea', { name, value, rows, ...extra });
+
+  const enabled = el('input', { type: 'checkbox', name: 'enabled', checked: skill.enabled });
+  const title = el('span', { className: 'skill-title', textContent: skill.name || 'New skill' });
+  const meta = el('span', { className: 'skill-meta' });
+  const toggle = el('button', { type: 'button', className: 'skill-toggle' }, title, meta, el('span', { className: 'chevron', ariaHidden: 'true', textContent: '▾' }));
+  const nameInput = input('name', skill.name, { maxLength: 80, placeholder: 'e.g. Borrowing a book' });
+  const idInput = input('id', skill.id, { readOnly: !isNew, maxLength: 49, placeholder: 'generated from the name', spellcheck: false });
+  const body = el('div', { className: 'skill-body' });
+  const card = el('section', { className: 'skill-card', dataset: { kind: skill.kind, open: String(isNew), enabled: String(skill.enabled) } },
+    el('header', { className: 'skill-head' },
+      el('label', { className: 'switch', title: 'Enabled skills are advertised on the Agent Card and permitted at runtime' }, enabled, el('span', { className: 'switch-track', ariaHidden: 'true' }), el('span', { className: 'visually-hidden', textContent: 'Enabled' })),
+      toggle),
+    body);
+
+  const updateHead = () => {
+    title.textContent = nameInput.value.trim() || 'New skill';
+    meta.textContent = [idInput.value || '(no ID yet)', isForm ? 'built-in form' : null, enabled.checked ? null : 'disabled'].filter(Boolean).join(' · ');
+    card.dataset.enabled = String(enabled.checked);
+    toggle.setAttribute('aria-expanded', card.dataset.open);
+  };
+  toggle.addEventListener('click', () => {
+    card.dataset.open = String(card.dataset.open !== 'true');
+    updateHead();
+  });
+
+  const section = (heading, intro, ...children) => el('div', { className: 'skill-section' }, el('h4', { textContent: heading }), intro ? el('p', { className: 'hint', textContent: intro }) : null, ...children);
+  body.append(
+    section('Basics', null,
+      field({ label: 'Name', control: nameInput, errorKey: 'name', required: true }),
+      field({ label: 'Description', control: area('description', skill.description, 2, { maxLength: 500, placeholder: 'What this skill helps with, in one or two sentences.' }), errorKey: 'description', required: true, hint: 'The Student’s router reads this to decide which questions to send here.' }),
+      field({ label: 'Skill ID', control: idInput, errorKey: 'id', hint: isNew ? 'Generated from the name; you can edit it before saving. It can’t change after saving.' : 'Stable ID — fixed once saved.' })),
+    isForm
+      ? section('How it answers', null, el('p', { className: 'note', textContent: 'Built-in A2UI form (Part 3), handled by code. You can rename, re-describe, or turn it off; it has no answer content.' }))
+      : section('Answer content', required
+        ? 'The facts this skill answers from. The agent reads it for each question and replies with just the relevant part — for example one day from a weekly schedule. It won’t answer beyond what’s written here.'
+        : 'Optional reference notes the Tutor uses when answering. The Tutor also uses its own subject knowledge, within the boundaries below.',
+        field({ label: required ? 'Answer content' : 'Reference notes (optional)', errorKey: 'knowledge', required,
+          control: area('knowledge', skill.knowledge ?? '', 8, { maxLength: 6000, placeholder: required ? 'Monday: 8:00–22:00\nTuesday: 8:00–22:00\n…' : 'e.g. Prefer the limit definition before the shortcut rules.' }) })),
+    section('Boundaries', 'What questions belong to this skill, and what doesn’t. Used by the scope checks.',
+      field({ label: 'Covers (one per line)', control: area('allowed', skill.scope.allowed.join('\n'), 2, { placeholder: 'e.g. loan periods and due dates' }), errorKey: 'scope.allowed', required: true }),
+      field({ label: 'Does not cover (one per line)', control: area('excluded', skill.scope.excluded.join('\n'), 2, { placeholder: 'e.g. tutoring or explaining topics in a book' }), errorKey: 'scope.excluded' })),
+    section('Routing hints', 'Help the Student’s router recognise questions for this skill.',
+      el('div', { className: 'two-col' },
+        field({ label: 'Tags', control: input('tags', skill.tags.join(', '), { placeholder: 'library, loans, due date' }), errorKey: 'tags', hint: 'Comma separated.' }),
+        field({ label: 'Example questions (one per line)', control: area('examples', skill.examples.join('\n'), 2, { placeholder: 'When is my book due?' }), errorKey: 'examples' }))),
   );
-  const remove = el('button', { type: 'button', className: 'remove', textContent: 'Remove skill' });
-  remove.addEventListener('click', () => {
-    fs.remove();
+  if (!isForm) {
+    const remove = el('button', { type: 'button', className: 'remove', textContent: 'Remove this skill' });
+    remove.addEventListener('click', () => {
+      card.remove();
+      markDirty();
+      schedulePreview();
+    });
+    body.append(remove);
+  }
+
+  let idTouched = !isNew;
+  idInput.addEventListener('input', () => { idTouched = true; });
+  card.addEventListener('input', (e) => {
+    if (isNew && !idTouched && e.target === nameInput) idInput.value = slug(nameInput.value);
+    const err = e.target.closest('.field')?.querySelector('.field-error');
+    if (err) {
+      err.textContent = '';
+      e.target.removeAttribute('aria-invalid');
+    }
+    updateHead();
+    markDirty();
     schedulePreview();
   });
-  fs.append(remove);
-  fs.addEventListener('input', schedulePreview);
-  return fs;
+  updateHead();
+  return card;
 }
 
 function collectConfig() {
   return {
-    skills: [...els.skillsEditor.querySelectorAll('fieldset')].map((fs) => {
-      const v = (name) => fs.querySelector(`[name="${name}"]`);
+    skills: [...els.skillsEditor.querySelectorAll('.skill-card')].map((card) => {
+      const v = (name) => card.querySelector(`[name="${name}"]`);
       return {
-        id: v('id').value.trim(), handler: v('handler').value, enabled: v('enabled').checked,
+        id: v('id').value.trim(), kind: card.dataset.kind, enabled: v('enabled').checked,
         name: v('name').value, description: v('description').value,
         tags: v('tags').value.split(',').map((t) => t.trim()).filter(Boolean),
         examples: lines(v('examples').value),
         scope: { allowed: lines(v('allowed').value), excluded: lines(v('excluded').value) },
+        knowledge: v('knowledge')?.value ?? '',
       };
     }),
   };
 }
 
+// Put each server error next to its field (skills[i].field); others go in the summary.
 function showErrors(errors) {
+  for (const e of els.skillsEditor.querySelectorAll('.field-error')) e.textContent = '';
+  for (const c of els.skillsEditor.querySelectorAll('[aria-invalid]')) c.removeAttribute('aria-invalid');
   if (!errors?.length) {
     els.skillsErrors.replaceChildren();
     return;
   }
-  els.skillsErrors.replaceChildren(el('ul', {}, ...errors.map((e) => el('li', { textContent: e.path ? `${e.path}: ${e.message}` : e.message }))));
+  const cards = [...els.skillsEditor.querySelectorAll('.skill-card')];
+  const general = [];
+  let first = null;
+  for (const e of errors) {
+    const m = /^skills\[(\d+)\]\.?(.*)$/.exec(e.path ?? '');
+    const slot = m && cards[Number(m[1])]?.querySelector(`.field-error[data-error-for="${m[2]}"]`);
+    if (slot) {
+      slot.textContent = e.message;
+      slot.closest('.field').querySelector('input, textarea')?.setAttribute('aria-invalid', 'true');
+      const card = slot.closest('.skill-card');
+      card.dataset.open = 'true';
+      card.querySelector('.skill-toggle').setAttribute('aria-expanded', 'true');
+      first ??= slot;
+    } else {
+      general.push(m && cards[Number(m[1])] ? `${cards[Number(m[1])].querySelector('.skill-title').textContent}: ${e.message}` : e.message);
+    }
+  }
+  const summary = [el('p', { textContent: `Please fix ${errors.length} problem${errors.length === 1 ? '' : 's'} before saving.` })];
+  if (general.length) summary.push(el('ul', {}, ...general.map((g) => el('li', { textContent: g }))));
+  els.skillsErrors.replaceChildren(...summary);
+  (first?.closest('.field') ?? els.skillsErrors).scrollIntoView({ block: 'center', behavior: 'smooth' });
 }
 
 let previewTimer = null;
 function schedulePreview() {
   clearTimeout(previewTimer);
-  previewTimer = setTimeout(preview, 350);
+  previewTimer = setTimeout(preview, 400);
 }
 
 async function preview() {
-  if (!editing) return;
+  if (!editing || !els.cardPreviewBox.open) return;
   const res = await fetch(`/api/agents/${editing.agentId}/skills/preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config: collectConfig() }) });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    showErrors(body.errors ?? [{ path: '', message: body.error ?? `HTTP ${res.status}` }]);
-    els.cardPreview.textContent = '(fix the errors above to preview)';
+    els.cardPreview.textContent = '(fix the problems above to see the preview)';
     return;
   }
-  showErrors([]);
   const { name, skills, capabilities } = body.card;
   els.cardPreview.textContent = JSON.stringify({ name, skills, 'capabilities.extensions': capabilities.extensions }, null, 2);
 }
 
 async function openSkills(agentId) {
-  els.skillsErrors.replaceChildren();
   const res = await fetch(`/api/agents/${agentId}/skills`);
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     els.formError.textContent = body.error ?? `Could not load ${AGENT_NAMES[agentId]} skills.`;
     return;
   }
-  editing = { agentId, revision: body.revision, handlers: body.handlers };
-  els.dialogTitle.textContent = `Edit agent skills — ${AGENT_NAMES[agentId]}`;
-  els.dialogIdentity.textContent = `Agent: ${body.agentName} · stable ID: ${body.agentId} · revision ${body.revision}${body.matchesTestedDefault ? ' · matches the tested default' : ' · changed since tests (not verified)'}`;
-  els.skillsEditor.replaceChildren(...body.config.skills.map((s) => skillFieldset(s, body.handlers, false)));
-  els.cardPreview.textContent = '(open to preview)';
+  editing = { agentId, revision: body.revision, rules: body.rules, dirty: false };
+  els.skillsErrors.replaceChildren();
+  els.skillsDirty.hidden = true;
+  els.dialogTitle.textContent = `Edit skills — ${AGENT_NAMES[agentId]}`;
+  els.dialogIdentity.textContent = `${body.agentName} · ID “${body.agentId}” · revision ${body.revision} · ${body.matchesTestedDefault ? 'matches the tested default' : 'changed since tests (not verified)'}`;
+  els.skillsEditor.replaceChildren(...body.config.skills.map((s) => skillCard(s, { isNew: false })));
+  els.cardPreviewBox.open = false;
+  els.cardPreview.textContent = '';
   els.skillsSave.disabled = false;
   els.dialog.showModal();
-  preview();
 }
 
-els.cardPreviewBox.addEventListener('toggle', () => els.cardPreviewBox.open && preview());
-els.addSkill.addEventListener('click', () => {
-  if (!editing) return;
-  const fs = skillFieldset({ id: '', handler: editing.handlers[0].id, enabled: true, name: '', description: '', tags: [], examples: [], scope: { allowed: [], excluded: [] } }, editing.handlers, true);
-  els.skillsEditor.append(fs);
-  fs.querySelector('[name="id"]').focus();
-});
-els.skillsCancel.addEventListener('click', () => {
-  // Cancel discards local edits; nothing is sent.
+function closeSkills({ confirmDiscard }) {
+  if (confirmDiscard && editing?.dirty && !window.confirm('Discard your unsaved changes?')) return false;
   editing = null;
   els.dialog.close();
+  return true;
+}
+
+els.cardPreviewBox.addEventListener('toggle', preview);
+els.addSkill.addEventListener('click', () => {
+  if (!editing) return;
+  const card = skillCard({ id: '', kind: 'answer', enabled: true, name: '', description: '', tags: [], examples: [], scope: { allowed: [], excluded: [] }, knowledge: '' }, { isNew: true });
+  els.skillsEditor.append(card);
+  markDirty();
+  card.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  card.querySelector('[name="name"]').focus({ preventScroll: true });
+});
+// Cancel / Esc discard local edits (after confirming if there are any); nothing is sent.
+els.skillsCancel.addEventListener('click', () => closeSkills({ confirmDiscard: true }));
+els.dialog.addEventListener('cancel', (e) => {
+  e.preventDefault();
+  closeSkills({ confirmDiscard: true });
 });
 els.skillsSave.addEventListener('click', async () => {
   if (!editing) return;
@@ -550,8 +653,7 @@ els.skillsSave.addEventListener('click', async () => {
     return;
   }
   // Saved on the agent. Notification and Student refresh are shown separately as they happen.
-  editing = null;
-  els.dialog.close();
+  closeSkills({ confirmDiscard: false });
 });
 for (const gear of document.querySelectorAll('.gear')) gear.addEventListener('click', () => openSkills(gear.dataset.agent));
 els.refreshSkills.addEventListener('click', async () => {
@@ -587,6 +689,9 @@ function handle(event) {
     } else if (type === 'tutor_status') {
       renderMode(data);
     } else if (type === 'agent_status') {
+      if (data.agentId === 'library') {
+        document.getElementById('library-role').textContent = `A2A server · answers from saved content · ${data.mode === 'live' ? `LIVE ${data.model}` : 'mock (no model)'}`;
+      }
       if (agents[data.agentId] && data.skills) {
         agents[data.agentId].advertised = data.skills;
         renderSkillsBox(data.agentId);

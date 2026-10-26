@@ -13,7 +13,8 @@ npm run tutor      # server on 127.0.0.1:41241 (override with PORT=...), fixed r
 npm run tutor:mock # deterministic fake model, no network
 npm run tutor:live # Claude Haiku 5.5; key from env or .env (TUTOR_ENV_FILE to override) — PAID
 npm run smoke:live # paid live smoke test; refuses unless LIVE_SMOKE_MAX_USD is set
-npm run library    # Library Agent on 127.0.0.1:41242 (deterministic, sample fixture)
+npm run library    # Library Agent on 127.0.0.1:41242 (LIBRARY_MODE=mock: line extraction from saved content)
+npm run library:live  # Library answers via Haiku 5.5 with code-verified evidence (paid)
 npm run student    # CLI client; target with TUTOR_URL=http://127.0.0.1:...
 npm run ui         # builds bundle, then UI :3000 + Student A2A endpoint :41240 with the MOCK router
 npm run ui:live    # same with the live Haiku router — PAID
@@ -26,6 +27,12 @@ node --test test/form.test.js                       # run one file
 ```
 
 Plain ESM JavaScript (`"type": "module"`), no lint/TypeScript. The only build step is the renderer bundle for the browser.
+
+## Stopping test processes (macOS)
+
+- Prefer killing by PID or port: `kill $(lsof -tiTCP:<port> -sTCP:LISTEN)`, or save `$!` when backgrounding and `kill` that.
+- If you must use `pkill`/`pgrep`, **all options go before the pattern**: `pkill -U "$(id -u)" -f 'src/ui-server\.js'`. BSD `pkill` stops option parsing at the first non-option, so `pkill -f "src/ui-server.js" -U $(id -u)` treats `-U` and `501` as extra patterns — on 2026-10-26 that SIGTERMed ~70 unrelated processes (Chrome/Claude/Codex GPU helpers, system extensions) and blanked every window.
+- Never use short or generic `-f` patterns (`node`, `501`, `-U`). Dry-run with `pgrep -lf '<pattern>'` first and confirm only your own test processes match.
 
 ## Architecture notes
 
@@ -53,7 +60,7 @@ Plain ESM JavaScript (`"type": "module"`), no lint/TypeScript. The only build st
 ## Part 5 (routing, skills, notifications, scope) notes
 
 - Modes are read **at import time**: `TUTOR_MODE` (tutor-model), `ROUTER_MODE` (router; code default `direct` so Part 2–4 tests that spawn `src/ui-server.js` without env keep their behaviour), `TUTOR_SCOPE_ENFORCEMENT` (default on; Part 4 plumbing tests set `off` because scope checks add model calls).
-- **Single source of truth**: a skill config → `buildCardSkills` (card), `buildScopeExtension` (`urn:a2a-spike:skill-scope:v1`, our documented extension — don't invent standard A2A fields), `policyFromConfig` (runtime). Save swaps all three atomically by mutating the live card object the SDK serves. Every skill must name an implemented `handler`; unknown handlers are rejected (advertising ≠ capability).
+- **Single source of truth**: a skill config → `buildCardSkills` (card), `buildScopeExtension` (`urn:a2a-spike:skill-scope:v1`, our documented extension — don't invent standard A2A fields), `policyFromConfig` (runtime). Save swaps all three atomically by mutating the live card object the SDK serves. Skills have no handlers: each has `kind` (`answer`, or `form` only for the reserved Tutor id `student-details-form`) and private `knowledge` ("answer content", never on the card). Per-agent `rules` decide whether knowledge is required (Library) or optional reference notes (Tutor). The Library answers only from that content (`src/library-model.js`): mock extracts lines; live must return evidence lines that code verifies verbatim before release.
 - **Trust boundaries**: destinations come only from `trustedPeers()`. Router output is validated by `validateDecision` (agent+skill must be in the live registry view); fetched cards by `validateCard` (name, single JSON-RPC 1.0 URL equal to the registered one, no security changes). Notification contents are hints only — never apply skills/URLs from them.
 - Cards are fetched with `node:http`, not `fetch`: undici adds `Cache-Control: no-cache` to conditional requests, which makes Express return 200 instead of 304.
 - **Express 5** calls the `app.listen` callback with the error (e.g. EADDRINUSE) — always check `err` first. The Student endpoint falls back to an ephemeral port if 41240 is taken.
@@ -82,4 +89,4 @@ The SDK's v1.0 types are protobuf-generated and differ from v0.3 examples found 
 
 ## Scope constraints
 
-Do not add token streaming, push notifications, multi-agent fan-out, a Hub/mailboxes, database, auth/accounts, real email sending, frontend frameworks, model tools, model-generated UI/code, or deployment unless explicitly asked. Only the Tutor (answers, scope checks) and the Student router call the LLM; the Library and form validation stay deterministic. All servers must stay bound to `127.0.0.1`. Records are in-memory by design. Keep dependency versions pinned exactly. Use fictional sample data only (e.g. Alex Student, alex@example.com).
+Do not add token streaming, push notifications, multi-agent fan-out, a Hub/mailboxes, database, auth/accounts, real email sending, frontend frameworks, model tools, model-generated UI/code, or deployment unless explicitly asked. Only the Tutor (answers, scope checks), the Student router, and the Library in `LIBRARY_MODE=live` call the LLM; form validation stays deterministic. All servers must stay bound to `127.0.0.1`. Records are in-memory by design. Keep dependency versions pinned exactly. Use fictional sample data only (e.g. Alex Student, alex@example.com).

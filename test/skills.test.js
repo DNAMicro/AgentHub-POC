@@ -1,44 +1,51 @@
-// Part 5 deterministic unit tests: skill configuration, single source of truth, capability
-// limits, router-decision validation, and trusted card validation. No processes, no network.
+// Part 5 deterministic unit tests: skill configuration, single source of truth, answer-content
+// rules, router-decision validation, and trusted card validation. No processes, no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { validateSkillConfig, buildCardSkills, buildScopeExtension, policyFromConfig, SCOPE_EXTENSION_URI } from '../src/skills.js';
 import { TUTOR_DEFAULT_SKILLS } from '../src/tutor-agent.js';
-import { LIBRARY_DEFAULT_SKILLS } from '../src/library-agent.js';
+import { LIBRARY_DEFAULT_SKILLS } from '../src/library-fixture.js';
 import { validateDecision } from '../src/router.js';
 import { validateCard, trustedPeers } from '../src/student-registry.js';
 
-const TUTOR_HANDLERS = { 'llm-tutoring': { multiple: true }, 'a2ui-student-form': {} };
-const LIBRARY_HANDLERS = Object.fromEntries(LIBRARY_DEFAULT_SKILLS.skills.map((s) => [s.handler, {}]));
+const TUTOR_RULES = { answer: { knowledge: 'optional' }, form: { id: 'student-details-form' } };
+const LIBRARY_RULES = { answer: { knowledge: 'required' } };
 const clone = (v) => structuredClone(v);
+const newSkill = (extra = {}) => ({ id: 'opening-events', kind: 'answer', enabled: true, name: 'Events', description: 'Library events.', tags: [], examples: [], scope: { allowed: ['library events'], excluded: [] }, knowledge: 'Book club: first Monday, 18:00.', ...extra });
 
 test('invalid skill configurations are rejected with field-level errors', () => {
   const cases = [
-    [(c) => { c.skills[1].id = c.skills[0].id; }, /Duplicate skill ID/],
+    [(c) => { c.skills[1].id = c.skills[0].id; }, /already uses the ID/],
     [(c) => { c.skills[0].id = 'Bad ID!'; }, /Skill ID must be/],
     [(c) => { c.skills[0].name = ''; }, /Name is required/],
     [(c) => { c.skills[0].description = 'x'.repeat(501); }, /Description is required/],
-    [(c) => { c.skills[0].scope.allowed = []; }, /needs at least one allowed-scope item/],
+    [(c) => { c.skills[0].scope.allowed = []; }, /at least one line describing what this skill covers/],
     [(c) => { c.skills[0].enabled = 'yes'; }, /enabled must be true or false/],
     [(c) => { c.skills[0].endpointUrl = 'http://evil.example'; }, /Unexpected field/],
+    [(c) => { c.skills[0].handler = 'llm-tutoring'; }, /Unexpected field\(s\): handler/],
     [(c) => { c.securitySchemes = {}; }, /Only skills can be edited/],
-    [(c) => { c.skills[1].handler = 'a2ui-student-form'; c.skills.push({ ...c.skills[1], id: 'second-form' }); }, /Only one skill can use/],
+    [(c) => { c.skills.push({ ...c.skills[1], id: 'second-form' }); }, /Only the built-in "student-details-form" skill can be a form/],
+    [(c) => { c.skills[0].id = 'student-details-form'; c.skills[1].id = 'x-form'; c.skills[1].kind = 'answer'; }, /reserved for the built-in form/],
+    [(c) => { c.skills[0].kind = 'robot'; }, /Unknown skill kind/],
+    [(c) => { c.skills[0].knowledge = 'x'.repeat(6001); }, /limited to 6000 characters/],
   ];
   for (const [mutate, message] of cases) {
     const cfg = clone(TUTOR_DEFAULT_SKILLS);
     mutate(cfg);
-    const result = validateSkillConfig(cfg, TUTOR_HANDLERS);
+    const result = validateSkillConfig(cfg, TUTOR_RULES);
     assert.equal(result.ok, false, String(message));
     assert.match(result.errors.map((e) => e.message).join(' | '), message);
   }
-  assert.equal(validateSkillConfig(TUTOR_DEFAULT_SKILLS, TUTOR_HANDLERS).ok, true);
+  assert.equal(validateSkillConfig(TUTOR_DEFAULT_SKILLS, TUTOR_RULES).ok, true);
+  assert.equal(validateSkillConfig(LIBRARY_DEFAULT_SKILLS, LIBRARY_RULES).ok, true);
 });
 
 test('card skills, scope extension, and runtime policy all derive from the same saved configuration', () => {
   const cfg = clone(TUTOR_DEFAULT_SKILLS);
   cfg.skills[0].description = 'Edited description';
+  cfg.skills[0].knowledge = 'Private reference note: use the limit definition first.';
   cfg.skills[1].enabled = false;
-  const { config } = validateSkillConfig(cfg, TUTOR_HANDLERS);
+  const { config } = validateSkillConfig(cfg, TUTOR_RULES);
   const card = buildCardSkills(config);
   const ext = buildScopeExtension(config, 7);
   const policy = policyFromConfig(config, 7);
@@ -50,23 +57,35 @@ test('card skills, scope extension, and runtime policy all derive from the same 
   assert.equal(card[0].description, 'Edited description');
   assert.equal(policy.skills[0].description, 'Edited description');
   assert.deepEqual(ext.params.skills['calculus-tutoring'].excluded, policy.skills[0].excluded);
-  assert.equal(policy.handlers.has('a2ui-student-form'), false);
+  assert.equal(policy.kinds.has('form'), false);
   assert.equal(ext.uri, SCOPE_EXTENSION_URI);
   assert.equal(ext.required, false);
-  // Standard AgentSkill fields only; scope lives in the documented extension.
+  // Answer content reaches the runtime policy but never the advertised card or extension.
+  assert.match(policy.skills[0].knowledge, /Private reference note/);
+  assert.doesNotMatch(JSON.stringify({ card, ext }), /Private reference note/);
   assert.deepEqual(Object.keys(card[0]).sort(), ['description', 'examples', 'id', 'inputModes', 'name', 'outputModes', 'securityRequirements', 'tags']);
 });
 
-test('the Library cannot advertise a capability its fixture does not implement', () => {
+test('Library skills must carry the answer content they answer from; any number of them is allowed', () => {
   const cfg = clone(LIBRARY_DEFAULT_SKILLS);
-  cfg.skills.push({ id: 'interlibrary-loan', handler: 'interlibrary-loan', enabled: true, name: 'Interlibrary loans', description: 'Requests books from other libraries.', tags: [], examples: [], scope: { allowed: ['interlibrary loan requests'], excluded: [] } });
-  const result = validateSkillConfig(cfg, LIBRARY_HANDLERS);
-  assert.equal(result.ok, false);
-  assert.match(result.errors[0].message, /not implemented by this agent/);
-  // Re-describing an implemented handler is fine (configured scope ≠ new capability).
-  const edited = clone(LIBRARY_DEFAULT_SKILLS);
-  edited.skills[2].description = 'Renewal guidance, now with more detail.';
-  assert.equal(validateSkillConfig(edited, LIBRARY_HANDLERS).ok, true);
+  cfg.skills.push(newSkill({ knowledge: '' }));
+  const empty = validateSkillConfig(cfg, LIBRARY_RULES);
+  assert.equal(empty.ok, false);
+  assert.match(empty.errors[0].message, /Add the answer content/);
+  assert.equal(empty.errors[0].path, 'skills[5].knowledge', 'error points at the field');
+
+  // With content it's accepted — two skills about borrowing are fine (no handler limit any more).
+  const two = clone(LIBRARY_DEFAULT_SKILLS);
+  two.skills.push(newSkill({ id: 'borrowing-book', name: 'Borrowing a book', knowledge: 'Loans last 21 days.' }));
+  assert.equal(validateSkillConfig(two, LIBRARY_RULES).ok, true);
+  // A disabled skill may be saved without content (a draft).
+  const draft = clone(LIBRARY_DEFAULT_SKILLS);
+  draft.skills.push(newSkill({ enabled: false, knowledge: '' }));
+  assert.equal(validateSkillConfig(draft, LIBRARY_RULES).ok, true);
+  // The Library has no built-in form.
+  const form = clone(LIBRARY_DEFAULT_SKILLS);
+  form.skills[0].kind = 'form';
+  assert.match(validateSkillConfig(form, LIBRARY_RULES).errors[0].message, /no built-in form/);
 });
 
 test('router decisions are validated against the live registry view; anything else sends nothing', () => {

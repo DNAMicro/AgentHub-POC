@@ -1,8 +1,6 @@
-// Library Agent — a separate A2A service. Deterministic: answers come from the fictional
-// sample fixture (src/library-fixture.js) through fixed handlers; no model is called.
-//
-// Scope enforcement is code-level: a question is served only by a handler whose skill is
-// currently enabled. Anything else gets a short scope reply listing what it does offer.
+// Library Agent — a separate A2A service. Answers ONLY from the saved "answer content" of its
+// enabled skills (src/library-model.js): mock mode extracts matching lines deterministically;
+// live mode uses Claude Haiku 5.5 with code-verified evidence. It performs no transactions.
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import express from 'express';
@@ -11,36 +9,48 @@ import { AgentEvent, DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sd
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
 import { hostGuard } from './local-guard.js';
 import { createSkillService } from './agent-settings.js';
-import { LIBRARY_HANDLER_IMPLS, SAMPLE_NOTE, matchHandlers } from './library-fixture.js';
+import { LlmError } from './llm.js';
+import { LIBRARY_DEFAULT_SKILLS } from './library-fixture.js';
+import { LIBRARY_MODE, answerFromKnowledge, libraryStatus } from './library-model.js';
+
+export { LIBRARY_DEFAULT_SKILLS };
 
 const HOST = '127.0.0.1';
 const JSONRPC_PATH = '/a2a/jsonrpc';
 const VIZ_PATH = '/viz/events';
 const STUDENT_A2A_URL = process.env.STUDENT_A2A_URL ?? 'http://127.0.0.1:41240';
+const MAX_LEDGER = 500;
 
 const log = (...args) => console.log('[Library Agent]', ...args);
 const vizEvents = new EventEmitter();
 const emitViz = (type, runId, data) => vizEvents.emit('event', { source: 'library', type, runId, at: new Date().toISOString(), data });
 const textOf = (message) => message.parts.filter((p) => p.content?.$case === 'text').map((p) => p.content.value).join('');
 
-// A skill can only use a handler implemented above. That's how the Library refuses to
-// advertise a capability its fixture can't actually provide.
-const LIBRARY_HANDLERS = Object.fromEntries(Object.entries(LIBRARY_HANDLER_IMPLS).map(([id, h]) => [id, { label: h.label }]));
-
-const skill = (id, handler, name, description, tags, examples, allowed, excluded = ['tutoring or explaining subjects such as calculus', 'real account actions (no renewals or holds are performed)']) =>
-  ({ id, handler, enabled: true, name, description, tags, examples, scope: { allowed, excluded } });
-
-export const LIBRARY_DEFAULT_SKILLS = {
-  skills: [
-    skill('library-hours', 'library-hours', 'Library hours', 'Opening hours of the (fictional) sample library.', ['library', 'hours', 'opening times'], ['When is the library open on Sunday?'], ['opening and closing hours']),
-    skill('borrowing', 'borrowing-guidance', 'Borrowing', 'How borrowing works: library card, loan periods, item limits.', ['library', 'borrowing', 'loans', 'checkout'], ['How long can I borrow a book?'], ['how to borrow items', 'loan periods and limits']),
-    skill('renewals', 'renewal-guidance', 'Renewals guidance', 'How to renew borrowed items yourself. Guidance only; it cannot renew items.', ['library', 'renewals', 'renew'], ['How do I renew a borrowed book?'], ['how renewals work and how to do them yourself']),
-    skill('returns', 'returns-guidance', 'Returns guidance', 'Where and how to return items, and overdue fees.', ['library', 'returns', 'overdue'], ['Where do I return a book after hours?'], ['how and where to return items', 'overdue fees']),
-    skill('find-resources', 'resource-finding', 'Finding library resources', 'Searches a small sample catalog for books and resources by subject, with call numbers and locations.', ['library', 'catalog', 'books', 'textbooks', 'find resources'], ['Where can I find a calculus textbook?'], ['finding books and resources in the sample catalog']),
-  ],
-};
+// Every Library skill is answered from its own saved content, so that content is required.
+const LIBRARY_RULES = { answer: { knowledge: 'required' } };
+const LOG_CONTENT = process.env.LIBRARY_LOG_CONTENT !== undefined ? process.env.LIBRARY_LOG_CONTENT === '1' : LIBRARY_MODE !== 'live';
 
 let skillService = null;
+const ledger = new Map(); // `${contextId}|${messageId}` → Promise<result>; a repeat request reuses it (no second paid call)
+
+async function answerOnce(ctx, question, runId) {
+  const key = `${ctx.contextId}|${ctx.userMessage.messageId}`;
+  if (ledger.has(key)) {
+    emitViz('model_call_reused', runId, { contextId: ctx.contextId, messageId: ctx.userMessage.messageId });
+    return { ...(await ledger.get(key)), duplicate: true };
+  }
+  const promise = (async () => {
+    const policy = skillService.policy();
+    const result = await answerFromKnowledge({ question, policy, emit: (type, data) => emitViz(type, runId, data) });
+    // Release check: skills changed while answering → don't release under the old policy.
+    if (skillService.revision() !== policy.revision) return { ...result, verdict: 'changed', text: 'The Library Agent’s skills changed while your question was being answered, so that answer wasn’t released. Please ask again.', policyRevision: skillService.revision() };
+    return { ...result, policyRevision: policy.revision };
+  })();
+  ledger.set(key, promise);
+  promise.catch(() => {});
+  if (ledger.size > MAX_LEDGER) ledger.delete(ledger.keys().next().value);
+  return promise;
+}
 
 const reply = (ctx, text, metadata) => ({
   messageId: randomUUID(), contextId: ctx.contextId, taskId: '', role: Role.ROLE_AGENT,
@@ -48,39 +58,30 @@ const reply = (ctx, text, metadata) => ({
   metadata, extensions: [], referenceTaskIds: [],
 });
 
-// Decide from the current policy and the fixture handlers. Returns { verdict, handler?, text }.
-function decide(question) {
-  const policy = skillService.policy();
-  if (!policy.skills.length) return { verdict: 'disabled', text: 'The Library Agent has no skills enabled right now, so it isn’t answering questions.' };
-  const offered = policy.skills.map((s) => s.name).join(', ');
-  const found = matchHandlers(question);
-  if (found.length > 1) {
-    const names = found.map((h) => policy.skills.find((s) => s.handler === h)?.name ?? h);
-    return { verdict: 'needs_clarification', text: `Which would you like first: ${names.join(' or ')}?` };
-  }
-  if (!found.length) return { verdict: 'out_of_scope', text: `That’s outside what the Library Agent offers. I can help with: ${offered}.` };
-  const handler = found[0];
-  const enabled = policy.skills.find((s) => s.handler === handler);
-  if (!enabled) return { verdict: 'skill_disabled', handler, text: `That service isn’t offered right now. I can help with: ${offered}.` };
-  return { verdict: 'in_scope', handler, skillId: enabled.id, text: `${LIBRARY_HANDLER_IMPLS[handler].respond(question.toLowerCase())}\n\n(${SAMPLE_NOTE})` };
-}
-
 const libraryExecutor = {
   async execute(ctx, bus) {
     const incoming = ctx.userMessage;
     const runId = incoming.metadata?.runId ?? null;
     const question = textOf(incoming).slice(0, 2000);
     const received = { messageId: incoming.messageId, contextId: ctx.contextId, taskId: ctx.taskId, text: question };
-    log('received message', received);
+    log('received message', LOG_CONTENT ? received : { ...received, text: `[${question.length} chars, content not logged]` });
     emitViz('message_received', runId, received);
 
-    const policyRevision = skillService.revision();
-    const decision = decide(question);
-    emitViz('scope_checked', runId, { stage: 'request', verdict: decision.verdict, handler: decision.handler ?? null, policyRevision });
-    const metadata = { ...(runId ? { runId } : {}), agentId: 'library', library: { outcome: decision.verdict, handler: decision.handler ?? null, skillId: decision.skillId ?? null, policyRevision } };
-    const message = reply(ctx, decision.text, metadata);
-    const sent = { messageId: message.messageId, contextId: message.contextId, inReplyTo: incoming.messageId, text: decision.text, library: metadata.library };
-    log('sending reply', sent);
+    const metadata = { ...(runId ? { runId } : {}), agentId: 'library' };
+    let text;
+    try {
+      const r = await answerOnce(ctx, question, runId);
+      emitViz('scope_checked', runId, { stage: 'request', verdict: r.verdict, skillId: r.skillId ?? null, policyRevision: r.policyRevision, evidenceLines: r.evidence.length });
+      text = r.verdict === 'answered' ? `${r.text}\n\n(From the Library Agent’s saved information.)` : r.text;
+      metadata.library = { outcome: r.verdict, skillId: r.skillId ?? null, policyRevision: r.policyRevision, mode: LIBRARY_MODE, model: r.model, usage: r.usage, requestId: r.requestId ?? null, evidence: r.evidence, duplicate: Boolean(r.duplicate) };
+    } catch (err) {
+      const failure = err instanceof LlmError ? err : new LlmError('internal_error');
+      text = `The Library Agent could not answer: ${failure.message}`;
+      metadata.serviceError = { code: failure.code, message: failure.message, requestId: failure.requestId };
+    }
+    const message = reply(ctx, text, metadata);
+    const sent = { messageId: message.messageId, contextId: message.contextId, inReplyTo: incoming.messageId, text, library: metadata.library, serviceError: metadata.serviceError };
+    log('sending reply', LOG_CONTENT ? sent : { ...sent, text: `[${text.length} chars, content not logged]` });
     bus.publish(AgentEvent.message(message));
     bus.finished();
     emitViz('reply_published', runId, sent);
@@ -90,7 +91,7 @@ const libraryExecutor = {
 
 function serveVizEvents(req, res) {
   res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
-  res.write(`data: ${JSON.stringify({ source: 'library', type: 'status', runId: null, at: new Date().toISOString(), data: { mode: 'deterministic', model: null, skills: skillService?.describe() ?? null } })}\n\n`);
+  res.write(`data: ${JSON.stringify({ source: 'library', type: 'status', runId: null, at: new Date().toISOString(), data: { ...libraryStatus(), skills: skillService?.describe() ?? null } })}\n\n`);
   const forward = (event) => res.write(`data: ${JSON.stringify(event)}\n\n`);
   vizEvents.on('event', forward);
   req.on('close', () => vizEvents.off('event', forward));
@@ -99,7 +100,7 @@ function serveVizEvents(req, res) {
 function buildAgentCard(port) {
   return {
     name: 'Library Agent',
-    description: 'Library help from a fictional sample fixture: hours, borrowing, renewal and return guidance, and finding resources. Guidance only — no real transactions.',
+    description: 'Library help from its saved information (fictional sample data by default): hours, borrowing, renewal and return guidance, and finding resources. Guidance only — no real transactions.',
     version: '0.1.0',
     supportedInterfaces: [{ url: `http://${HOST}:${port}${JSONRPC_PATH}`, protocolBinding: 'JSONRPC', protocolVersion: A2A_PROTOCOL_VERSION, tenant: '' }],
     provider: undefined,
@@ -122,7 +123,7 @@ export function startLibraryServer({ port = 41242 } = {}) {
       const baseUrl = `http://${HOST}:${actualPort}`;
       const card = buildAgentCard(actualPort);
       skillService = createSkillService({
-        agentId: 'library', agentName: card.name, defaults: LIBRARY_DEFAULT_SKILLS, handlers: LIBRARY_HANDLERS, card,
+        agentId: 'library', agentName: card.name, defaults: LIBRARY_DEFAULT_SKILLS, rules: LIBRARY_RULES, card,
         emit: (type, data) => emitViz(type, null, data), log, studentUrl: STUDENT_A2A_URL,
       });
       const requestHandler = new DefaultRequestHandler(card, new InMemoryTaskStore(), libraryExecutor);
@@ -143,5 +144,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const { baseUrl } = await startLibraryServer({ port });
   log(`listening on ${baseUrl}`);
   log(`Agent Card: ${baseUrl}/${AGENT_CARD_PATH}`);
-  log('mode: deterministic (fictional sample fixture, no model)');
+  const s = libraryStatus();
+  log(`mode: ${s.mode} (${s.model})${s.mode === 'live' ? `, API key: ${s.keyConfigured ? 'configured' : 'NOT SET'}` : ''}, answers only from saved skill content`);
 }

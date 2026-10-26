@@ -75,7 +75,8 @@ async function exchange(baseUrl, text, { runId, contextId, messageId, timeoutMs,
     throw new Error(`Expected an agent Message, got: ${JSON.stringify(result)}`);
   }
   const ids = { messageId: result.messageId, contextId: result.contextId, taskId: result.taskId, inReplyTo: messageId };
-  const tutorError = result.metadata?.tutorError;
+  // A service-reported failure (Tutor: tutorError; Library: serviceError) — A2A itself worked.
+  const tutorError = result.metadata?.tutorError ?? result.metadata?.serviceError;
   if (tutorError) {
     // The A2A exchange succeeded, but the Tutor couldn't produce an answer (e.g. provider failure).
     log('Tutor reported an error', { ...ids, code: tutorError.code });

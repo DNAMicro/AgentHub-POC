@@ -1,9 +1,13 @@
 // One skill configuration per agent is the single source for three things:
 //   1. the advertised Agent Card skills (standard A2A AgentSkill fields only),
 //   2. the routing metadata Student reads from that card (incl. the scope extension below),
-//   3. the agent's runtime scope policy.
-// Every skill names a `handler` the agent actually implements. Advertising a skill never
-// creates an implementation: a handler the agent doesn't have is rejected at save time.
+//   3. the agent's runtime policy (scope + private answer content).
+//
+// Skill kinds:
+//   answer — answered by the agent's model from the skill's saved "answer content" (and, for the
+//            Tutor, its own subject knowledge). The content is private: it never goes on the card.
+//   form   — the Tutor's built-in A2UI student-details form, handled by code. Reserved ID; it can
+//            be enabled/disabled and re-described, but not added twice or given to another agent.
 import { createHash } from 'node:crypto';
 
 // Scope boundaries aren't A2A AgentSkill fields, so they travel in a documented, non-required
@@ -12,16 +16,17 @@ export const SCOPE_EXTENSION_URI = 'urn:a2a-spike:skill-scope:v1';
 // Media type of our application-level "agent card changed" notification (also not part of A2A).
 export const CARD_CHANGED_MEDIA_TYPE = 'application/vnd.a2a-spike.agent-card-changed+json';
 
-const SKILL_KEYS = ['id', 'handler', 'enabled', 'name', 'description', 'tags', 'examples', 'scope'];
+const SKILL_KEYS = ['id', 'kind', 'enabled', 'name', 'description', 'tags', 'examples', 'scope', 'knowledge'];
 const SKILL_ID = /^[a-z0-9][a-z0-9-]{1,48}$/;
-export const SKILL_LIMITS = { skills: 8, name: 80, description: 500, tags: 10, tag: 30, examples: 6, example: 200, scopeItems: 12, scopeItem: 160 };
+export const SKILL_LIMITS = { skills: 12, name: 80, description: 500, tags: 10, tag: 30, examples: 6, example: 200, scopeItems: 12, scopeItem: 160, knowledge: 6000 };
 
 const isStringList = (v) => Array.isArray(v) && v.every((s) => typeof s === 'string');
 const cleanList = (v) => v.map((s) => s.trim()).filter(Boolean);
 
-// handlers: { [handlerId]: { label, multiple?: boolean } } — what this agent can really do.
+// rules: what this agent supports.
+//   { answer: { knowledge: 'required' | 'optional' }, form?: { id: 'student-details-form' } }
 // Returns { ok: true, config } (normalized) or { ok: false, errors: [{ path, message }] }.
-export function validateSkillConfig(input, handlers) {
+export function validateSkillConfig(input, rules) {
   const errors = [];
   const err = (path, message) => errors.push({ path, message });
   if (!input || typeof input !== 'object' || Array.isArray(input)) return { ok: false, errors: [{ path: '', message: 'Configuration must be an object.' }] };
@@ -31,7 +36,6 @@ export function validateSkillConfig(input, handlers) {
   if (input.skills.length > SKILL_LIMITS.skills) err('skills', `At most ${SKILL_LIMITS.skills} skills.`);
 
   const seenIds = new Set();
-  const handlerUse = new Map();
   const skills = input.skills.map((raw, i) => {
     const p = `skills[${i}]`;
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -42,13 +46,17 @@ export function validateSkillConfig(input, handlers) {
     if (extra.length) err(p, `Unexpected field(s): ${extra.join(', ')}.`);
     const id = typeof raw.id === 'string' ? raw.id.trim() : '';
     if (!SKILL_ID.test(id)) err(`${p}.id`, 'Skill ID must be 2–49 lowercase letters, digits, or dashes.');
-    else if (seenIds.has(id)) err(`${p}.id`, `Duplicate skill ID "${id}".`);
+    else if (seenIds.has(id)) err(`${p}.id`, `Another skill already uses the ID "${id}".`);
     seenIds.add(id);
-    if (!Object.hasOwn(handlers, raw.handler)) {
-      err(`${p}.handler`, `"${raw.handler}" is not implemented by this agent. Advertising a skill does not create its implementation.`);
-    } else {
-      handlerUse.set(raw.handler, (handlerUse.get(raw.handler) ?? 0) + 1);
-      if (!handlers[raw.handler].multiple && handlerUse.get(raw.handler) > 1) err(`${p}.handler`, `Only one skill can use the "${raw.handler}" handler.`);
+
+    const kind = raw.kind ?? 'answer';
+    if (kind === 'form') {
+      if (!rules.form) err(`${p}.kind`, 'This agent has no built-in form.');
+      else if (id !== rules.form.id) err(`${p}.kind`, `Only the built-in "${rules.form.id}" skill can be a form.`);
+    } else if (kind !== 'answer') {
+      err(`${p}.kind`, 'Unknown skill kind.');
+    } else if (rules.form && id === rules.form.id) {
+      err(`${p}.id`, `"${id}" is reserved for the built-in form.`);
     }
     if (typeof raw.enabled !== 'boolean') err(`${p}.enabled`, 'enabled must be true or false.');
     const name = typeof raw.name === 'string' ? raw.name.trim() : '';
@@ -61,8 +69,8 @@ export function validateSkillConfig(input, handlers) {
         return [];
       }
       const items = cleanList(value);
-      if (items.length > max) err(`${p}.${key}`, `At most ${max} ${key}.`);
-      if (items.some((s) => s.length > maxLen)) err(`${p}.${key}`, `Each item in ${key} is limited to ${maxLen} characters.`);
+      if (items.length > max) err(`${p}.${key}`, `At most ${max} items.`);
+      if (items.some((s) => s.length > maxLen)) err(`${p}.${key}`, `Each item is limited to ${maxLen} characters.`);
       return items;
     };
     const tags = list('tags', SKILL_LIMITS.tags, SKILL_LIMITS.tag, raw.tags ?? []);
@@ -71,15 +79,23 @@ export function validateSkillConfig(input, handlers) {
     if (typeof scope !== 'object' || Array.isArray(scope) || Object.keys(scope).some((k) => k !== 'allowed' && k !== 'excluded')) err(`${p}.scope`, 'scope must have only "allowed" and "excluded" lists.');
     const allowed = list('scope.allowed', SKILL_LIMITS.scopeItems, SKILL_LIMITS.scopeItem, scope.allowed ?? []);
     const excluded = list('scope.excluded', SKILL_LIMITS.scopeItems, SKILL_LIMITS.scopeItem, scope.excluded ?? []);
-    if (raw.enabled && !allowed.length) err(`${p}.scope.allowed`, 'An enabled skill needs at least one allowed-scope item.');
-    return { id, handler: raw.handler, enabled: raw.enabled, name, description, tags, examples, scope: { allowed, excluded } };
+    if (raw.enabled && !allowed.length) err(`${p}.scope.allowed`, 'Add at least one line describing what this skill covers.');
+
+    const knowledge = typeof raw.knowledge === 'string' ? raw.knowledge.trim() : raw.knowledge == null ? '' : null;
+    if (knowledge === null) err(`${p}.knowledge`, 'Answer content must be text.');
+    else if (knowledge.length > SKILL_LIMITS.knowledge) err(`${p}.knowledge`, `Answer content is limited to ${SKILL_LIMITS.knowledge} characters.`);
+    else if (kind === 'answer' && raw.enabled && rules.answer.knowledge === 'required' && !knowledge) {
+      err(`${p}.knowledge`, 'Add the answer content this skill answers from — the agent has no other source.');
+    } else if (kind === 'form' && knowledge) err(`${p}.knowledge`, 'The built-in form has no answer content.');
+    return { id, kind, enabled: raw.enabled, name, description, tags, examples, scope: { allowed, excluded }, knowledge: knowledge ?? '' };
   });
+  if (rules.form && skills.filter((s) => s?.kind === 'form').length > 1) err('skills', 'The built-in form can appear only once.');
   return errors.length ? { ok: false, errors } : { ok: true, config: { skills } };
 }
 
 export const configHash = (config) => createHash('sha256').update(JSON.stringify(config)).digest('hex').slice(0, 16);
 
-// (1) Agent Card skills — standard AgentSkill fields only, enabled skills only.
+// (1) Agent Card skills — standard AgentSkill fields only, enabled skills only. No answer content.
 export const buildCardSkills = (config) =>
   config.skills.filter((s) => s.enabled).map((s) => ({
     id: s.id, name: s.name, description: s.description, tags: s.tags, examples: s.examples,
@@ -102,8 +118,8 @@ export function policyFromConfig(config, revision) {
   const enabled = config.skills.filter((s) => s.enabled);
   return Object.freeze({
     revision,
-    skills: enabled.map((s) => ({ id: s.id, handler: s.handler, name: s.name, description: s.description, tags: s.tags, allowed: s.scope.allowed, excluded: s.scope.excluded })),
-    handlers: new Set(enabled.map((s) => s.handler)),
+    skills: enabled.map((s) => ({ id: s.id, kind: s.kind, name: s.name, description: s.description, tags: s.tags, allowed: s.scope.allowed, excluded: s.scope.excluded, knowledge: s.knowledge })),
+    kinds: new Set(enabled.map((s) => s.kind)),
   });
 }
 
@@ -114,4 +130,9 @@ export function scopeText(skills) {
     `  Allowed: ${s.allowed.join('; ') || '(none)'}`,
     `  Excluded: ${s.excluded.join('; ') || '(none listed)'}`,
   ].join('\n')).join('\n');
+}
+
+// Saved answer content, per skill, for model instructions (only skills that have some).
+export function knowledgeText(skills) {
+  return skills.filter((s) => s.knowledge).map((s) => `### ${s.name} (skill ${s.id})\n${s.knowledge}`).join('\n\n');
 }

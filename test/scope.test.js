@@ -130,21 +130,79 @@ test('live path: scope check first, answer instructions carry the scope, one ans
   }
 });
 
-test('Library enforces its handlers: no tutoring, no invented services, disabled skills declined', async () => {
+test('Library (mock) answers only from saved answer content — just the relevant part', async () => {
   const lib = await startLibrary({ STUDENT_A2A_URL: deadStudent });
   try {
+    const monday = await askTutor(lib.url, 'What are the hours of the library on Mondays?', {});
+    assert.equal(monday.library.skillId, 'library-hours');
+    assert.match(monday.text, /^Monday: 8:00–22:00/);
+    assert.doesNotMatch(monday.text, /Saturday|Sunday|Friday/, 'only the relevant line, not the whole table');
+    assert.deepEqual(monday.library.evidence, ['Monday: 8:00–22:00']);
+
     const tutoring = await askTutor(lib.url, 'Explain the derivative of x squared', {});
     assert.equal(tutoring.library.outcome, 'out_of_scope');
     const renew = await askTutor(lib.url, 'How do I renew a borrowed book?', {});
-    assert.equal(renew.library.handler, 'renewal-guidance');
-    assert.match(renew.text, /can’t see your account or renew anything for you/);
-    assert.match(renew.text, /Sample data/);
+    assert.equal(renew.library.skillId, 'renewals');
+    assert.match(renew.text, /can’t see accounts or renew anything/);
+
+    // A new skill answers from whatever content is saved with it.
+    assert.equal((await save(lib, (c) => c.skills.push({
+      id: 'study-rooms', kind: 'answer', enabled: true, name: 'Study rooms', description: 'Group study rooms and how to reserve them.',
+      tags: ['study rooms', 'rooms'], examples: [], scope: { allowed: ['study room availability and reservations'], excluded: [] },
+      knowledge: 'Group study rooms are on Floor 3.\nReserve rooms at the front desk, up to 2 hours per day.',
+    }))).status, 200);
+    const rooms = await askTutor(lib.url, 'Where are the study rooms?', {});
+    assert.equal(rooms.library.skillId, 'study-rooms');
+    assert.match(rooms.text, /Floor 3/);
+
+    // Disabled skill: its content is no longer used.
     await save(lib, (c) => { c.skills.find((s) => s.id === 'renewals').enabled = false; });
     const after = await askTutor(lib.url, 'How do I renew a borrowed book?', {});
-    assert.equal(after.library.outcome, 'skill_disabled');
+    assert.notEqual(after.library.skillId, 'renewals');
     assert.doesNotMatch(after.text, /renew an item up to 2 times/);
   } finally {
     lib.proc.kill();
+  }
+});
+
+test('Library (live path): an answer is released only if its evidence is in the saved content', async () => {
+  const stub = await startFakeAnthropic();
+  const lib = await startLibrary({ LIBRARY_MODE: 'live', ANTHROPIC_API_KEY: 'sk-ant-test-library-placeholder', ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0', STUDENT_A2A_URL: deadStudent });
+  const decide = (o) => messageReply(JSON.stringify({ verdict: 'answered', skill_id: 'library-hours', answer: '', evidence: [], clarification_question: '', ...o }));
+  try {
+    stub.respondWith(() => decide({ answer: 'On Mondays the library is open 8:00–22:00.', evidence: ['Monday: 8:00–22:00'] }));
+    const ok = await askTutor(lib.url, 'What are the hours on Mondays?', {});
+    assert.equal(ok.library.outcome, 'answered');
+    assert.match(ok.text, /On Mondays the library is open 8:00–22:00/);
+    const req = stub.requests[0].body;
+    assert.equal(req.output_config.format.type, 'json_schema');
+    assert.match(req.messages[0].content, /Answer content:\nSample Library \(fictional\) opening hours:\nMonday: 8:00–22:00/);
+    assert.equal(stub.requests.length, 1, 'one call per question');
+    assert.match(req.messages[0].content, new RegExp(`Today's date: ${new Date().toISOString().slice(0, 10)}`), 'model can resolve a missing year');
+
+    // Evidence that isn't in the saved content (a made-up line) → withheld, model prose not released.
+    stub.respondWith(() => decide({ answer: 'Open 24 hours on Mondays!', evidence: ['Monday: open 24 hours'] }));
+    const fake = await askTutor(lib.url, 'Is the library open all night on Monday?', {});
+    assert.equal(fake.library.outcome, 'withheld');
+    assert.doesNotMatch(fake.text, /24 hours/);
+
+    // No evidence at all → withheld too.
+    stub.respondWith(() => decide({ answer: 'Probably 9 to 5.', evidence: [] }));
+    assert.equal((await askTutor(lib.url, 'Hours on Tuesday?', {})).library.outcome, 'withheld');
+
+    // Not covered → a fixed server reply, not the model's guess.
+    stub.respondWith(() => decide({ verdict: 'not_in_knowledge', answer: 'Holiday hours are 10-4.', evidence: [] }));
+    const holiday = await askTutor(lib.url, 'Are you open on Christmas?', {});
+    assert.equal(holiday.library.outcome, 'not_in_knowledge');
+    assert.doesNotMatch(holiday.text, /10-4/);
+    assert.match(holiday.text, /doesn’t cover that question/);
+
+    // A skill ID that isn't enabled can't be used as a source.
+    stub.respondWith(() => decide({ skill_id: 'secret-skill', answer: 'x', evidence: ['Monday: 8:00–22:00'] }));
+    assert.equal((await askTutor(lib.url, 'Monday hours?', {})).library.outcome, 'withheld');
+  } finally {
+    lib.proc.kill();
+    await stub.close();
   }
 });
 

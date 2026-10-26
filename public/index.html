@@ -53,7 +53,7 @@
       </section>
 
       <section class="panel" aria-labelledby="library-title" data-agent="library">
-        <h2 id="library-title">Library Agent <span class="role">A2A server · sample data</span>
+        <h2 id="library-title">Library Agent <span class="role" id="library-role">A2A server</span>
           <button type="button" class="gear" data-agent="library" aria-label="Edit agent skills — Library Agent" title="Edit agent skills">⚙</button>
         </h2>
         <div class="skills-box" id="library-skills"></div>
@@ -70,20 +70,25 @@
 
   <dialog id="skills-dialog" aria-labelledby="skills-dialog-title">
     <form method="dialog" id="skills-form" novalidate>
-      <h2 id="skills-dialog-title">Edit agent skills</h2>
-      <p class="dialog-note" id="skills-identity"></p>
-      <p class="dialog-note warn">Local developer controls. These edit skills only — not identity, endpoints, credentials, security, or protocol settings. Saving changes what this agent advertises and permits; it does not add new capabilities.</p>
-      <div id="skills-editor"></div>
-      <button type="button" id="add-skill" class="secondary">Add skill</button>
-      <div class="dialog-errors" id="skills-errors" role="alert"></div>
-      <details id="card-preview-box">
-        <summary>Preview the resulting Agent Card</summary>
-        <pre id="card-preview">(make a change or open to preview)</pre>
-      </details>
-      <div class="dialog-actions">
+      <header class="dialog-head">
+        <h2 id="skills-dialog-title">Edit skills</h2>
+        <p class="dialog-note" id="skills-identity"></p>
+        <p class="dialog-note warn">Local developer control. Edits skills only — not identity, endpoints, credentials, or security. Saving updates what this agent advertises and permits.</p>
+      </header>
+      <div class="dialog-scroll">
+        <div class="dialog-errors" id="skills-errors" role="alert"></div>
+        <div id="skills-editor"></div>
+        <button type="button" id="add-skill" class="add-skill">+ Add a skill</button>
+        <details id="card-preview-box">
+          <summary>Preview the resulting Agent Card</summary>
+          <pre id="card-preview"></pre>
+        </details>
+      </div>
+      <footer class="dialog-actions">
+        <span class="dirty" id="skills-dirty" hidden>Unsaved changes</span>
         <button type="button" id="skills-cancel">Cancel</button>
         <button type="button" id="skills-save" class="primary">Save</button>
-      </div>
+      </footer>
     </form>
   </dialog>
 

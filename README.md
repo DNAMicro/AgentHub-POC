@@ -34,7 +34,8 @@ Use `PORT=...` to change the Tutor's port and `TUTOR_URL=http://127.0.0.1:...` t
 
 ```bash
 npm run tutor:mock    # terminal 1 — Calculus Tutor on 127.0.0.1:41241 (mock model; or tutor:live, or tutor = Part 1 fixed reply)
-npm run library       # terminal 2 — Library Agent on 127.0.0.1:41242 (deterministic, sample data)
+npm run library       # terminal 2 — Library Agent on 127.0.0.1:41242 (mock: answers from saved skill content, no model)
+                      #   or: npm run library:live — Haiku 5.5 reads the saved content (paid; uses the same .env key)
 npm run ui            # terminal 3 — UI + Student Agent on 127.0.0.1:3000, Student's A2A endpoint on 127.0.0.1:41240
 ```
 
@@ -70,7 +71,7 @@ npm test   # starts the Tutor (and UI server) as child processes, runs all check
 | `src/llm.js` | Shared Anthropic access: explicit key, no retries, `effort: low`, optional JSON-schema structured output, and the mapping from SDK errors to sanitized codes. |
 | `src/skills.js` | Part 5: the single skill configuration, its validation, and everything derived from it. That's the Agent Card skills, the documented scope extension and the runtime policy. |
 | `src/agent-settings.js` | Part 5: one agent's skill settings. Holds the live configuration (swapped atomically on save), the local settings API (read, preview, save) and the `agent_card_changed` A2A notification to the Student. |
-| `src/library-agent.js`, `src/library-fixture.js` | Part 5: the **Library Agent**. A deterministic A2A service with five handlers over clearly labelled fictional sample data; it performs no transactions. |
+| `src/library-agent.js`, `src/library-model.js`, `src/library-fixture.js` | Part 5: the **Library Agent**. Answers only from the saved **answer content** of its enabled skills (defaults are fictional sample data in the fixture). `LIBRARY_MODE=mock` (default) extracts the matching lines; `live` asks Haiku 5.5 and releases the answer only if its quoted evidence is found in that content. It performs no transactions. |
 | `src/student-registry.js` | Part 5: the Student's **trusted registry**. A fixed allowlist of agents, conditional card fetches, strict card validation, and refreshes that merge when they overlap. |
 | `src/router.js` | Part 5: the routing decision. Live mode uses Haiku with structured output, mock mode a labelled heuristic, and code validates every decision against the registry. |
 | `src/student-endpoint.js` | Part 5: the Student's **A2A receiving endpoint**. Accepts only `agent_card_changed` notices and handles them in code. |
@@ -88,7 +89,7 @@ npm test   # starts the Tutor (and UI server) as child processes, runs all check
 | `test/payload-policy.test.js` | The Student's allowlist for received A2UI payloads. |
 | `test/skills.test.js` | Part 5 unit tests: skill validation, a single source for the card and policy, Library capability limits, router decision validation and trusted card validation. |
 | `test/routing.test.js` | Part 5 routing with real processes: every example's **actual A2A destination**, no calls for clarify or unsupported, malicious choices failing closed, separate contexts per service, follow-ups, reconnects, an offline service, router errors, and the mock heuristic. |
-| `test/scope.test.js` | Part 5 scope enforcement through **direct** A2A calls: physics, plumbing, mixed and override requests; topic switches; disabled skills; changes mid-request; the live check, answer and answer-check structure; the Library's handlers; and forms staying with their agent. |
+| `test/scope.test.js` | Part 5 scope enforcement through **direct** A2A calls: physics, plumbing, mixed and override requests; topic switches; disabled skills; changes mid-request; the live check, answer and answer-check structure; the Library answering only from saved content (mock line extraction, live evidence check); and forms staying with their agent. |
 | `test/card-refresh.test.js` | Part 5 reverse path: the settings API, save → ETag → A2A notification → re-fetch → routing change, duplicate and late notices, spoofed senders and notice URLs, an offline Student, and failed refresh with recovery. |
 | `test/form.test.js` | Part 3 end to end with real processes: the valid round trip with exact values, invalid data refused by the UI server and by the Tutor on its own, unexpected fields and actions, duplicate submissions, reconnect without resubmitting, an unavailable Tutor, uncertain delivery with retry, and the localhost guards. |
 | `package.json` / `package-lock.json` | Pinned dependencies and the `tutor` / `student` / `ui` / `build:ui` / `test` scripts. |
@@ -340,7 +341,7 @@ It checks that `claude-haiku-5-5` is available to your account. That check uses 
 ```
 Browser ─▶ UI server :3000 ── hosts ──▶ Student Agent (router + trusted registry)
                                          ├── A2A client ══▶ Calculus Tutor :41241 (scope-checked; mock/live model)
-                                         ├── A2A client ══▶ Library Agent  :41242 (deterministic sample fixture)
+                                         ├── A2A client ══▶ Library Agent  :41242 (answers from saved skill content)
                                          └── A2A server :41240 ◀══ agent_card_changed notices from Tutor / Library
 ```
 
@@ -382,14 +383,14 @@ A2A provides discovery (Agent Cards) and messaging. **It doesn't route by skill 
 - **Routing metadata:** the Student reads it from that card. Scope boundaries aren't standard A2A fields, so they travel in a documented, non-required extension, `urn:a2a-spike:skill-scope:v1` (under `capabilities.extensions`), along with the configuration's **revision**.
 - **The runtime policy** the agent enforces.
 
-Every skill names a **handler** the agent actually implements:
+Each skill also has **answer content** — a text box in the dialog holding the facts that skill answers from. It is private: it goes into the runtime policy, never onto the Agent Card.
 
-| Agent | Handlers |
-| --- | --- |
-| Tutor | `llm-tutoring`, `a2ui-student-form` |
-| Library | `library-hours`, `borrowing-guidance`, `renewal-guidance`, `returns-guidance`, `resource-finding` |
+| Agent | Answer content | Built-in |
+| --- | --- | --- |
+| Library | **Required** for enabled skills. The Library answers *only* from it, replying with just the relevant part (asking "hours on Mondays?" returns the Monday line, not the whole week). | — |
+| Tutor | Optional reference notes added to the model's instructions; the Tutor also uses its own subject knowledge within the skill's scope. | `student-details-form` (the Part 3 A2UI form, handled by code; can be renamed or disabled, not duplicated) |
 
-Saving a skill whose handler doesn't exist is rejected with *"not implemented by this agent. Advertising a skill does not create its implementation."* So the Library can't advertise interlibrary loans or room booking.
+So you can add any number of skills — e.g. a "Study rooms" skill with its rules pasted in — and the agent can answer from them straight away. Saving an enabled Library skill with empty answer content is rejected: the agent would have nothing to answer from.
 
 Editing a description or scope changes what's **declared and permitted**, not what's **proven**. The settings dialog and panels say whether a configuration "matches the tested default" or is "changed since tests — not verified".
 
@@ -444,11 +445,14 @@ Each service checks **its own current policy** on every request, including **dir
 
 How "calculus" is bounded: limits, derivatives, integrals, calculus exercises, and the **algebra steps needed inside a calculus explanation** are in scope. Standalone physics (Newton's laws, mechanics, circuits), standalone non-calculus math, home repair or plumbing, and library services are out.
 
-**Library Agent:** enforcement is in code. A question is answered only by a fixture handler whose skill is enabled, and the answers come only from the sample data. A question matching two handlers gets "Which first?". The Library never claims a renewal or any other transaction.
+**Library Agent:** answers come only from the saved answer content of enabled skills.
+- *Mock* (default): picks the best-matching skill by name/tags/description and returns the lines of its content that mention the question's specific words (e.g. "Monday"); a tie asks which one you mean. No calculation (it won't work out a due date).
+- *Live*: one structured Haiku call returns `{verdict, skill_id, answer, evidence[]}`. Code releases the answer only if `skill_id` is an enabled skill and **every evidence line appears verbatim in that skill's content**; otherwise it's withheld. "Not covered" gets a fixed server reply instead of the model's guess. This catches invented facts, but the model's wording around verified lines (e.g. a computed due date) is still model output.
+- It never claims a renewal or any other transaction.
 
 **Limitations, honestly.**
 
-- **Different strengths of guarantee.** Code-level checks (handlers, actions, schemas, enabled skills, the release check) are deterministic. The topic judgments (the scope check, answer check and router) come from a model and are **probabilistic**: they reduce off-topic answers but don't guarantee there are none.
+- **Different strengths of guarantee.** Code-level checks (the Library evidence check, actions, schemas, enabled skills, the release check) are deterministic. The topic judgments (the scope check, answer check and router) come from a model and are **probabilistic**: they reduce off-topic answers but don't guarantee there are none.
 - **Mock and test results.** The mock heuristic and the scripted fake-API tests prove the plumbing and the order of the layers, not the model's accuracy.
 - **Live spot check.** `npm run eval:live` runs the routing examples and scope cases against real Haiku and reports mismatches. A few examples aren't a measurement.
 - **Cost.** Live mode costs up to 3 model calls per in-scope answer (check, answer, answer check), plus 1 for routing in `ui:live`. Each has a 400–800-token output cap.

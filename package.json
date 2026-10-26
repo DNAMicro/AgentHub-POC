@@ -12,6 +12,7 @@
     "tutor:live": "TUTOR_MODE=live node src/tutor-agent.js",
     "smoke:live": "node scripts/live-smoke.js",
     "library": "node src/library-agent.js",
+    "library:live": "LIBRARY_MODE=live node src/library-agent.js",
     "ui:live": "npm run build:ui && ROUTER_MODE=live node src/ui-server.js",
     "ui:direct": "npm run build:ui && node src/ui-server.js",
     "eval:live": "node scripts/live-eval.js"
