@@ -102,6 +102,7 @@ const stepKey = (source, type) => {
 let bootId = null;
 let seen = new Set(); // event seq numbers already rendered (history is replayed on reconnect)
 let currentRunId = null;
+let currentRunKind = null;
 let currentState = 'idle';
 let awaitingRunId = null; // set between clicking Send and that run leaving a busy state
 const formsUi = createFormsUi({ log: els.studentLog, agentName: (id) => viaUniversity(id), onChange: () => renderState() });
@@ -179,7 +180,42 @@ function messageItem({ dir, label, at, text, values, ids, speaker, kind }) {
 
 function appendTo(log, item) {
   log.append(item);
+  if (pending.el && log === els.studentLog && item !== pending.el) log.append(pending.el); // the indicator stays last
   log.scrollTop = log.scrollHeight;
+}
+
+// "Waiting for an answer…": a small in-chat spinner when a chat question has been in flight for more than
+// a second. It goes away as soon as anything answers the question (reply, form, clarifying question,
+// the Student's own answer, an error) and is never shown for fast answers.
+const PENDING_AFTER_MS = 1000;
+let pending = { runId: null, timer: null, el: null };
+function showPending() {
+  const li = document.createElement('li');
+  li.className = 'chat-pending';
+  li.setAttribute('role', 'status');
+  const spin = document.createElement('span');
+  spin.className = 'spinner';
+  spin.setAttribute('aria-hidden', 'true');
+  const label = document.createElement('span');
+  label.textContent = 'Waiting for an answer…';
+  li.append(spin, label);
+  pending.el = li;
+  appendTo(els.studentLog, li);
+}
+function answerArrived(runId) {
+  if (pending.runId !== runId) return;
+  clearTimeout(pending.timer);
+  pending.el?.remove();
+  pending.timer = null;
+  pending.el = null; // runId kept: this question is answered, so no indicator again
+}
+function updatePending() {
+  const waiting = currentRunKind === 'chat' && currentRunId !== null && BUSY.has(currentState);
+  if (waiting && pending.runId === currentRunId) return;
+  clearTimeout(pending.timer);
+  pending.el?.remove();
+  pending = { runId: null, timer: null, el: null };
+  if (waiting) pending = { runId: currentRunId, timer: setTimeout(showPending, PENDING_AFTER_MS), el: null };
 }
 
 function resetTimeline(runId, kind) {
@@ -342,6 +378,7 @@ function renderState() {
   els.newConversation.hidden = !currentContextId && ![els.studentLog, els.tutorLog, els.libraryLog, els.hubLog, els.studentConsole].some((log) => log.children.length);
   els.newConversation.disabled = busy || formsUi.busy;
   updateActiveStep();
+  updatePending();
 }
 
 // Empty every conversation panel and forget the current conversation (not the event
@@ -734,6 +771,7 @@ function handle(event, { live = true } = {}) {
       }
     } else if (type === 'run_started') {
       currentRunId = runId;
+      currentRunKind = data.kind ?? 'chat';
       topology.runStarted(runId, data);
       resetTimeline(runId, data.kind ?? 'chat');
       if (data.kind === 'chat') {
@@ -753,6 +791,7 @@ function handle(event, { live = true } = {}) {
       student({ dir: 'info', label: 'Form', text: data.text, ids: { form: data.formId, run } });
     }
   } else if (source === 'student') {
+    if (['reply_received', 'tutor_error', 'request_failed', 'form_received', 'clarification_asked', 'request_declined'].includes(type)) answerArrived(runId);
     switch (type) {
       case 'card_discovered':
         topology.studentCard(true);

@@ -307,6 +307,11 @@ h2 { margin: 0; font-size: 1.07rem; font-weight: 700; color: var(--agent, var(--
 .notice button { margin-top: 6px; }
 
 /* ---- activity timeline: a real sequence, so numbered ---- */
+/* in-chat "Waiting for an answer…" (shown after 1 s; reduced motion keeps the ring still) */
+.chat-pending { list-style: none; align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font-size: 0.86rem; animation: pending-in 0.25s ease-out; }
+.chat-pending .spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--border-strong); border-top-color: var(--hub); animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pending-in { from { opacity: 0; } }
 .timeline-panel { margin: 0 12px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0 16px; }
 .timeline-panel > summary { display: flex; align-items: baseline; gap: 10px; padding: 10px 0; cursor: pointer; list-style: none; }
 .timeline-panel > summary::-webkit-details-marker { display: none; }
