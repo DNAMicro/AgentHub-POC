@@ -37,6 +37,11 @@ test('calculus-only Tutor declines physics, plumbing, and rule-override requests
   assert.equal(ok.tutor.outcome, 'answer');
 });
 
+test('mock scope check tolerates small typos, but not different words', async () => {
+  for (const q of ['what is a derivitive', 'how do I compute an integrel?']) assert.equal((await ask(tutor, q)).tutor.outcome, 'answer', q);
+  assert.equal((await ask(tutor, 'Explain Newton’s laws of motion')).tutor.outcome, 'out_of_scope');
+});
+
 test('mixed requests ask for clarification instead of answering; vague ones too', async () => {
   const mixed = await ask(tutor, 'Differentiate x^2 and explain the underlying mechanics');
   assert.equal(mixed.tutor.outcome, 'clarify');

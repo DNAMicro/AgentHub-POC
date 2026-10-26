@@ -8,6 +8,7 @@
 //                    in that skill's saved content before the answer is released. Unverifiable
 //                    answers are withheld; questions the content doesn't cover get a fixed reply.
 import { LlmError, MODEL, callModel, keyConfigured, loadDotenvOnce, toLlmError } from './llm.js';
+import { nearWord } from './text-match.js';
 
 export const LIBRARY_MODE = process.env.LIBRARY_MODE ?? 'mock';
 if (!['mock', 'live'].includes(LIBRARY_MODE)) throw new Error(`Unknown LIBRARY_MODE "${LIBRARY_MODE}" (use mock or live).`);
@@ -52,12 +53,7 @@ export const REPLIES = {
 
 const STOP = new Set('what when where which who how does do did can could would will is are the a an and or of to in on at for with my me i you your about this that it its library please tell need know'.split(' '));
 const words = (s) => s.toLowerCase().replace(/[’']/g, '').split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !STOP.has(w));
-const prefix = (a, b) => {
-  let i = 0;
-  while (i < a.length && i < b.length && a[i] === b[i]) i++;
-  return i;
-};
-const near = (w, t) => w === t || prefix(w, t) >= Math.max(4, Math.min(w.length, t.length) - 1);
+const near = (w, t) => nearWord(w, t, (a, b) => Math.max(4, Math.min(a.length, b.length) - 1));
 
 function mockDecide(question, policy) {
   const tokens = words(question);

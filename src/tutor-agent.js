@@ -15,6 +15,7 @@ import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/serve
 import { hostGuard } from './local-guard.js';
 import { createSkillService } from './agent-settings.js';
 import { LOG_CONTENT, MODE, TutorError, answer, status as tutorStatus } from './tutor-model.js';
+import { apiHost } from './llm.js';
 import {
   A2UI_EXTENSION_URI, A2UI_MIME_TYPE, A2UI_VERSION, BASIC_CATALOG_ID, FORM_REQUEST,
   buildStudentDetailsForm, isA2uiPart, validateAction,
@@ -164,6 +165,7 @@ async function handleChat(ctx, bus, runId) {
       const failure = err instanceof TutorError ? err : new TutorError('internal_error');
       text = `The Tutor Agent could not answer: ${failure.message}`;
       metadata.tutorError = { code: failure.code, message: failure.message, requestId: failure.requestId };
+      if (failure.rateLimit) log('rate limit details', failure.rateLimit);
     }
   }
 
@@ -353,5 +355,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   log(`listening on ${baseUrl}`);
   log(`Agent Card: ${baseUrl}/${AGENT_CARD_PATH}`);
   const s = tutorStatus();
-  log(`mode: ${s.mode}${s.model ? ` (model: ${s.model})` : ''}${s.mode === 'live' ? `, API key: ${s.keyConfigured ? 'configured' : 'NOT SET'}` : ''}, message contents in logs: ${s.logContent ? 'on' : 'off'}`);
+  log(`mode: ${s.mode}${s.model ? ` (model: ${s.model})` : ''}${s.mode === 'live' ? `, API key: ${s.keyConfigured ? 'configured' : 'NOT SET'}, API host: ${apiHost()}` : ''}, message contents in logs: ${s.logContent ? 'on' : 'off'}`);
 }

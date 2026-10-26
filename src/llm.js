@@ -19,6 +19,15 @@ export function loadDotenvOnce() {
 }
 
 export const keyConfigured = () => Boolean(process.env.ANTHROPIC_API_KEY?.trim());
+// Where model calls go: the SDK honours ANTHROPIC_BASE_URL, which a parent environment (e.g. a
+// local proxy) can set without you noticing. Shown at startup as host only.
+export const apiHost = () => {
+  try {
+    return process.env.ANTHROPIC_BASE_URL ? `${new URL(process.env.ANTHROPIC_BASE_URL).host} (ANTHROPIC_BASE_URL override)` : 'api.anthropic.com';
+  } catch {
+    return 'invalid ANTHROPIC_BASE_URL';
+  }
+};
 
 const ERROR_MESSAGES = {
   missing_credentials: 'Live mode is on, but ANTHROPIC_API_KEY is not set in this agent’s environment.',
@@ -40,11 +49,25 @@ const ERROR_MESSAGES = {
 };
 
 export class LlmError extends Error {
-  constructor(code, { requestId = null } = {}) {
+  constructor(code, { requestId = null, rateLimit = null } = {}) {
     super(ERROR_MESSAGES[code] ?? ERROR_MESSAGES.internal_error);
     this.code = code;
     this.requestId = requestId; // Anthropic's request ID, safe to show and useful for support
+    this.rateLimit = rateLimit; // numbers from the 429's anthropic-ratelimit-* headers (no secrets)
   }
+}
+
+// Which limit a 429 hit, from Anthropic's response headers. Kept to numbers/timestamps only.
+function rateLimitInfo(err) {
+  const h = (name) => err?.headers?.get?.(name) ?? null;
+  const info = { retryAfterSeconds: h('retry-after') };
+  for (const kind of ['requests', 'tokens', 'input-tokens', 'output-tokens']) {
+    const limit = h(`anthropic-ratelimit-${kind}-limit`);
+    if (limit !== null) info[kind] = { limit, remaining: h(`anthropic-ratelimit-${kind}-remaining`), reset: h(`anthropic-ratelimit-${kind}-reset`) };
+  }
+  // Anthropic's own explanation (e.g. which per-minute limit) — server log only, never sent to the browser.
+  info.providerMessage = typeof err?.error?.error?.message === 'string' ? err.error.error.message.slice(0, 300) : null;
+  return info;
 }
 
 // Map SDK errors to sanitized codes, most specific first. Raw provider messages are not passed on.
@@ -56,7 +79,7 @@ export function toLlmError(err) {
   if (err instanceof Anthropic.AuthenticationError) return new LlmError('authentication_failed', { requestId });
   if (err instanceof Anthropic.PermissionDeniedError) return new LlmError('permission_denied', { requestId });
   if (err instanceof Anthropic.NotFoundError) return new LlmError('model_unavailable', { requestId });
-  if (err instanceof Anthropic.RateLimitError) return new LlmError('rate_limited', { requestId });
+  if (err instanceof Anthropic.RateLimitError) return new LlmError('rate_limited', { requestId, rateLimit: rateLimitInfo(err) });
   if (err instanceof Anthropic.BadRequestError) return new LlmError('bad_request', { requestId });
   if (err instanceof Anthropic.InternalServerError) return new LlmError('provider_unavailable', { requestId });
   if (err instanceof Anthropic.APIError) return new LlmError('provider_error', { requestId });

@@ -9,7 +9,7 @@ import { AgentEvent, DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sd
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
 import { hostGuard } from './local-guard.js';
 import { createSkillService } from './agent-settings.js';
-import { LlmError } from './llm.js';
+import { LlmError, apiHost } from './llm.js';
 import { LIBRARY_DEFAULT_SKILLS } from './library-fixture.js';
 import { LIBRARY_MODE, answerFromKnowledge, libraryStatus } from './library-model.js';
 
@@ -78,6 +78,7 @@ const libraryExecutor = {
       const failure = err instanceof LlmError ? err : new LlmError('internal_error');
       text = `The Library Agent could not answer: ${failure.message}`;
       metadata.serviceError = { code: failure.code, message: failure.message, requestId: failure.requestId };
+      if (failure.rateLimit) log('rate limit details', failure.rateLimit);
     }
     const message = reply(ctx, text, metadata);
     const sent = { messageId: message.messageId, contextId: message.contextId, inReplyTo: incoming.messageId, text, library: metadata.library, serviceError: metadata.serviceError };
@@ -145,5 +146,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   log(`listening on ${baseUrl}`);
   log(`Agent Card: ${baseUrl}/${AGENT_CARD_PATH}`);
   const s = libraryStatus();
-  log(`mode: ${s.mode} (${s.model})${s.mode === 'live' ? `, API key: ${s.keyConfigured ? 'configured' : 'NOT SET'}` : ''}, answers only from saved skill content`);
+  log(`mode: ${s.mode} (${s.model})${s.mode === 'live' ? `, API key: ${s.keyConfigured ? 'configured' : 'NOT SET'}, API host: ${apiHost()}` : ''}, answers only from saved skill content`);
 }

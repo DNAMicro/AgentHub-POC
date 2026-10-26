@@ -50,7 +50,9 @@ Plain ESM JavaScript (`"type": "module"`), no lint/TypeScript. The only build st
 ## Part 4 (model) notes
 
 - `src/tutor-model.js` reads `TUTOR_MODE` **at import time** (module constant). Set env before importing it (see `scripts/live-smoke.js`). Tests that need live behavior run a live-mode Tutor process against `test/support/fake-anthropic.js` via `ANTHROPIC_BASE_URL`, with a placeholder key and `TUTOR_LOAD_DOTENV=0` — never a real key, never real network.
-- Never run paid calls (`smoke:live`, `tutor:live` with a real key) without the user's explicit spending approval. Never read, print, or log the key or the user's key files (`.env`, `.temp`); only report presence as a boolean.
+- **Ready = live.** When handing the running app to the user ("it's ready", "restart the servers"), run it in usage mode: `tutor:live`, `library:live`, `ui:live`. Mock/fixed modes are for automated tests only; never leave the user on placeholder answers. Paid calls for normal use and verification don't need a pre-approved budget (the `smoke:live`/`eval:live` scripts still take their `*_MAX_USD` env gate).
+- Start live servers with `env -u ANTHROPIC_BASE_URL` when launching from Claude Code: its shell sets that variable to a local proxy that answers with fake 429s. The startup line must say `API host: api.anthropic.com`.
+- Never read, print, or log the key or the user's key files (`.env`, `.temp`); only report presence as a boolean.
 - No hidden retries: `maxRetries: 0`, no fallback model, no canned answers on failure. Errors are mapped to sanitized codes (`toTutorError`); don't pass raw provider messages through.
 - Duplicate-call protection is keyed by `(contextId, messageId)` in the Tutor's ledger; the Student reuses the same `messageId` only for reconciling an uncertain outcome. One in-flight model call per `contextId` (`busy` otherwise).
 - History is per A2A `contextId`, text-only (no thinking blocks are replayed), append-only per completed exchange, bounded to 10 messages / 12,000 chars. Form data is never sent to the model.
