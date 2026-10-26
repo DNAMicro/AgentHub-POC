@@ -44,9 +44,11 @@ const trim = (map) => { if (map.size > MAX_RECORDS) map.delete(map.keys().next()
 // later is masked until someone decides it is safe. Run events keep only IDs, statuses, codes, modes,
 // timings and token counts; message text, form values, review flags, errors, model-written reasons
 // and anything unknown are masked. A receipt is reduced to its ID and status (the student's own
-// conversation still shows the full receipt, which arrives over A2A). Events not tied to a question
-// (status, saved skills, registration, card notices) carry operator configuration, not student
-// content, and pass unchanged. HUB_TELEMETRY_SHOW_CONTENT=1 turns redaction off for debugging.
+// conversation still shows the full receipt, which arrives over A2A). Only the named configuration
+// event types (status, saved skills, registration, card notices) pass unchanged — they carry operator
+// configuration, not student content. Whether an event has a runId decides nothing: a request sent
+// without one must not get its content relayed. HUB_TELEMETRY_SHOW_CONTENT=1 turns redaction off.
+const CONFIG_EVENT_TYPES = new Set(['status', 'skills_saved', 'card_notification', 'hub_registration']);
 const SAFE_FIELDS = new Set([
   'runId', 'operationId', 'hubOperationId', 'formId', 'formRef', 'workflowId', 'taskId', 'contextId', 'messageId', 'inReplyTo', 'requestId',
   'agentId', 'skillId', 'actionName', 'policyRevision', 'revision', 'status', 'outcome', 'verdict', 'stage', 'decision', 'mode', 'model',
@@ -67,7 +69,7 @@ function redactFields(data, depth = 0) {
   return out;
 }
 export function redactTelemetry(event) {
-  if (process.env.HUB_TELEMETRY_SHOW_CONTENT === '1' || event.runId == null || !event.data || typeof event.data !== 'object') return event.data;
+  if (process.env.HUB_TELEMETRY_SHOW_CONTENT === '1' || CONFIG_EVENT_TYPES.has(event.type) || !event.data || typeof event.data !== 'object') return event.data;
   return redactFields(event.data);
 }
 
