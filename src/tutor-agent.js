@@ -1,8 +1,9 @@
 // Agent B — "Tutor Agent". An A2A server: publishes an Agent Card and answers
-// `SendMessage` over the JSON-RPC binding. Replies are deterministic (no LLM).
+// `SendMessage` over the JSON-RPC binding.
 //
 // It handles three kinds of incoming message:
-//   * plain text                      → the fixed chat reply (Part 1)
+//   * plain text                      → a tutoring answer: the fixed Part 1 reply, or (Part 4)
+//                                        a mock or live Claude answer, depending on TUTOR_MODE
 //   * metadata.request = form request → a Task in INPUT_REQUIRED carrying an A2UI v0.9 form (Part 3)
 //   * an A2UI `action` DataPart        → a form submission: validate, dedupe, record, acknowledge
 import { randomUUID } from 'node:crypto';
@@ -12,6 +13,7 @@ import { Role, TaskState, AGENT_CARD_PATH, A2A_PROTOCOL_VERSION } from '@a2a-js/
 import { AgentEvent, DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
 import { hostGuard } from './local-guard.js';
+import { LOG_CONTENT, MODE, TutorError, answer, status as tutorStatus } from './tutor-model.js';
 import {
   A2UI_EXTENSION_URI, A2UI_MIME_TYPE, A2UI_VERSION, BASIC_CATALOG_ID, FORM_REQUEST,
   buildStudentDetailsForm, isA2uiPart, validateAction,
@@ -108,15 +110,36 @@ const status = (state, message) => ({ state, message, timestamp: new Date().toIS
 
 // ---- handlers -----------------------------------------------------------------
 
-function handleChat(ctx, bus, runId) {
+async function handleChat(ctx, bus, runId) {
   const incoming = ctx.userMessage;
-  const received = { messageId: incoming.messageId, contextId: ctx.contextId, taskId: ctx.taskId, text: textOf(incoming) };
-  log('received message', received);
+  const question = textOf(incoming);
+  const received = { messageId: incoming.messageId, contextId: ctx.contextId, taskId: ctx.taskId, text: question };
+  log('received message', LOG_CONTENT ? received : { ...received, text: `[${question.length} chars, content not logged]` });
   emitViz('message_received', runId, received);
 
-  const reply = agentMessage(ctx, [textPart(TUTOR_REPLY)], { metadata: runId ? { runId } : undefined });
-  const sent = { messageId: reply.messageId, contextId: reply.contextId, inReplyTo: incoming.messageId, text: TUTOR_REPLY };
-  log('sending reply', sent);
+  let text = TUTOR_REPLY;
+  const metadata = { ...(runId ? { runId } : {}), tutorMode: MODE };
+  if (MODE !== 'fixed') {
+    try {
+      const result = await answer({
+        contextId: ctx.contextId,
+        messageId: incoming.messageId,
+        question,
+        emit: (type, data) => emitViz(type, runId, data),
+      });
+      text = result.text;
+      metadata.tutor = { model: result.model, latencyMs: result.latencyMs, usage: result.usage, stopReason: result.stopReason, truncated: result.truncated, requestId: result.requestId, duplicate: result.duplicate };
+    } catch (err) {
+      // Sanitized error only — never the provider's raw message, never a canned "success".
+      const failure = err instanceof TutorError ? err : new TutorError('internal_error');
+      text = `The Tutor Agent could not answer: ${failure.message}`;
+      metadata.tutorError = { code: failure.code, message: failure.message, requestId: failure.requestId };
+    }
+  }
+
+  const reply = agentMessage(ctx, [textPart(text)], { metadata });
+  const sent = { messageId: reply.messageId, contextId: reply.contextId, inReplyTo: incoming.messageId, text, tutor: metadata.tutor, tutorError: metadata.tutorError };
+  log('sending reply', LOG_CONTENT ? sent : { ...sent, text: `[${text.length} chars, content not logged]` });
   bus.publish(AgentEvent.message(reply));
   bus.finished();
   // The SDK now returns `reply` as the JSON-RPC result; delivery is confirmed by the Student, not here.
@@ -163,7 +186,7 @@ function handleSubmission(ctx, bus, runId, part) {
   const form = forms.get(formId);
   const ids = { messageId: incoming.messageId, contextId: ctx.contextId, taskId: ctx.taskId, formId, submissionId, resumedTask: resuming };
 
-  log('received submission', { ...ids, context: action?.action?.context });
+  log('received submission', { ...ids, context: LOG_CONTENT ? action?.action?.context : '[values not logged]' });
   emitViz('submission_received', runId, { ...ids, receivedValues: action?.action?.context ?? null, actionName: action?.action?.name ?? null });
 
   // Reply on the same task when resuming (keeping it open on rejection), or as a direct Message otherwise.
@@ -213,7 +236,7 @@ function handleSubmission(ctx, bus, runId, part) {
   };
   submissions.set(submissionId, { formId, values: result.values, raw: action.action.context, ack });
   form.state = 'accepted';
-  log('recorded submission', { ...ids, values: result.values });
+  log('recorded submission', { ...ids, values: LOG_CONTENT ? result.values : '[values not logged]' });
   respond(TaskState.TASK_STATE_COMPLETED, [textPart(ack.message), jsonPart(ack)], { runId, formId, submissionId });
   emitViz('submission_accepted', runId, { ...ids, values: result.values, ackId: ack.ackId });
 }
@@ -247,6 +270,8 @@ const tutorExecutor = {
 function serveVizEvents(req, res) {
   res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
   res.write(': connected\n\n');
+  // Mode and whether a key is present (yes/no only) — never the key itself.
+  res.write(`data: ${JSON.stringify({ source: 'tutor', type: 'status', runId: null, at: new Date().toISOString(), data: tutorStatus() })}\n\n`);
   const forward = (event) => res.write(`data: ${JSON.stringify(event)}\n\n`);
   vizEvents.on('event', forward);
   req.on('close', () => vizEvents.off('event', forward));
@@ -275,4 +300,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const { baseUrl } = await startTutorServer({ port });
   log(`listening on ${baseUrl}`);
   log(`Agent Card: ${baseUrl}/${AGENT_CARD_PATH}`);
+  const s = tutorStatus();
+  log(`mode: ${s.mode}${s.model ? ` (model: ${s.model})` : ''}${s.mode === 'live' ? `, API key: ${s.keyConfigured ? 'configured' : 'NOT SET'}` : ''}, message contents in logs: ${s.logContent ? 'on' : 'off'}`);
 }

@@ -22,19 +22,26 @@ const PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url));
 const SHARED_FORM_MODULE = fileURLToPath(new URL('./student-form.js', import.meta.url));
 const ACTION_KEYS = ['name', 'surfaceId', 'sourceComponentId', 'timestamp', 'context'];
 
+const CONTEXT_ID_PATTERN = /^[\w-]{8,100}$/;
+
 // Allowed forward transitions per run kind. Late events can never move a run backwards.
 const NEXT_STATES = {
-  // chat run (Part 1/2)
-  sending: ['waiting', 'completed', 'failed'],
-  waiting: ['completed', 'failed'],
-  completed: [],
-  // form run (Part 3)
-  requesting: ['awaiting_input', 'failed'],
-  awaiting_input: ['submitting'],
-  submitting: ['accepted', 'awaiting_input', 'uncertain'],
-  uncertain: ['submitting'],
-  accepted: [],
-  failed: [],
+  chat: {
+    sending: ['waiting', 'completed', 'failed', 'uncertain'],
+    waiting: ['completed', 'failed', 'uncertain'],
+    // A timeout leaves the outcome unknown; "check for answer" re-sends the same request ID.
+    uncertain: ['sending'],
+    completed: [],
+    failed: [],
+  },
+  form: {
+    requesting: ['awaiting_input', 'failed'],
+    awaiting_input: ['submitting'],
+    submitting: ['accepted', 'awaiting_input', 'uncertain'],
+    uncertain: ['submitting'],
+    accepted: [],
+    failed: [],
+  },
 };
 
 export function startUiServer({ port = 3000, tutorUrl = 'http://127.0.0.1:41241' } = {}) {
@@ -46,6 +53,7 @@ export function startUiServer({ port = 3000, tutorUrl = 'http://127.0.0.1:41241'
   let activeRunId = null; // a chat run or form request in flight (one at a time)
   let seq = 0;
   let tutorFeedConnected = false;
+  let tutorStatus = null;
 
   function publish(event) {
     const stamped = { seq: ++seq, at: new Date().toISOString(), ...event };
@@ -56,7 +64,7 @@ export function startUiServer({ port = 3000, tutorUrl = 'http://127.0.0.1:41241'
 
   function setState(runId, state, data = {}) {
     const run = runs.get(runId);
-    if (!run || !NEXT_STATES[run.state].includes(state)) return false;
+    if (!run || !NEXT_STATES[run.kind][run.state].includes(state)) return false;
     run.state = state;
     publish({ source: 'system', type: 'state', runId, data: { state, ...data } });
     return true;
@@ -96,6 +104,12 @@ export function startUiServer({ port = 3000, tutorUrl = 'http://127.0.0.1:41241'
   })();
 
   function relayTutorEvent(event) {
+    if (event.type === 'status') {
+      // Tutor mode / model / whether a key is present (boolean). Sent once per feed connection.
+      tutorStatus = event.data;
+      publish({ source: 'system', type: 'tutor_status', runId: null, data: tutorStatus });
+      return;
+    }
     if (!runs.has(event.runId)) return; // only runs started from this UI (CLI runs have no runId)
     // Keep the Tutor's own timestamp: it records when the Tutor observed the event.
     publish({ source: 'tutor', type: event.type, runId: event.runId, data: event.data, at: event.at });
@@ -120,34 +134,69 @@ export function startUiServer({ port = 3000, tutorUrl = 'http://127.0.0.1:41241'
   app.use(express.static(PUBLIC_DIR));
 
   app.get('/api/status', (req, res) => {
-    res.json({ tutorUrl, tutorFeedConnected, activeRunId });
+    res.json({ tutorUrl, tutorFeedConnected, activeRunId, tutorStatus });
   });
 
   const apiPost = express.Router();
   apiPost.use((req, res, next) => guardOrigin(req, res, next));
 
-  // Chat run (Part 1/2). Only POSTs start A2A requests; reconnecting browsers use GET /api/events.
+  // Send one chat request over A2A. `run` holds the conversation (contextId) and request ID
+  // (messageId); a reconcile re-sends the same ones so the Tutor returns its stored result.
+  function sendChat(runId, run) {
+    activeRunId = runId;
+    askTutor(tutorUrl, run.text, {
+      runId,
+      contextId: run.contextId,
+      messageId: run.messageId,
+      onEvent: (type, data) => publish({ source: 'student', type, runId, data }),
+    })
+      .then(() => setState(runId, 'completed'))
+      .catch((err) => setState(runId, err.outcome === 'uncertain' ? 'uncertain' : 'failed', err.tutorError ? { tutorError: err.tutorError.code } : {}))
+      .finally(() => {
+        if (activeRunId === runId) activeRunId = null;
+      });
+  }
+
+  // Chat run. Only POSTs start A2A requests; reconnecting browsers use GET /api/events.
   apiPost.post('/runs', (req, res) => {
     const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
     if (!text) return res.status(400).json({ error: 'Message text is required.' });
     if (text.length > MAX_TEXT_LENGTH) return res.status(400).json({ error: `Message exceeds ${MAX_TEXT_LENGTH} characters.` });
+    const requestedContext = req.body?.contextId;
+    if (requestedContext !== undefined && requestedContext !== null && (typeof requestedContext !== 'string' || !CONTEXT_ID_PATTERN.test(requestedContext))) {
+      return res.status(400).json({ error: 'Malformed contextId.' });
+    }
     if (activeRunId) return res.status(409).json({ error: 'A request is already in progress.', activeRunId });
 
-    const runId = startRun('chat', 'sending');
-    activeRunId = runId;
-    publish({ source: 'system', type: 'run_started', runId, data: { kind: 'chat', text } });
+    // No contextId → a new conversation. The ID travels as the A2A contextId; the Tutor keys history by it.
+    const run = { kind: 'chat', state: 'sending', text, contextId: requestedContext ?? randomUUID(), messageId: randomUUID() };
+    const runId = randomUUID();
+    runs.set(runId, run);
+    publish({ source: 'system', type: 'run_started', runId, data: { kind: 'chat', text, contextId: run.contextId, newConversation: !requestedContext, messageId: run.messageId, tutorMode: tutorStatus?.mode ?? null } });
     publish({ source: 'system', type: 'state', runId, data: { state: 'sending' } });
-    res.status(202).json({ runId });
+    res.status(202).json({ runId, contextId: run.contextId });
+    sendChat(runId, run);
+  });
 
-    askTutor(tutorUrl, text, {
-      runId,
-      onEvent: (type, data) => publish({ source: 'student', type, runId, data }),
-    })
-      .then(() => setState(runId, 'completed'))
-      .catch(() => setState(runId, 'failed'))
-      .finally(() => {
-        if (activeRunId === runId) activeRunId = null;
-      });
+  // "New conversation": a visualization-only marker. Browsers clear their panels when they see it,
+  // including on replay after a reload. No A2A traffic; the next chat simply gets a new contextId.
+  apiPost.post('/conversation/new', (req, res) => {
+    const submitting = [...runs.values()].some((r) => r.form?.inFlight);
+    if (activeRunId || submitting) return res.status(409).json({ error: 'Wait for the current request to finish.' });
+    publish({ source: 'system', type: 'conversation_reset', runId: null, data: {} });
+    res.status(202).json({});
+  });
+
+  // After an uncertain outcome: ask again for the result of the *same* request (same messageId).
+  // The Tutor returns its stored or in-flight answer instead of making a new model call.
+  apiPost.post('/runs/:runId/reconcile', (req, res) => {
+    const run = runs.get(req.params.runId);
+    if (!run || run.kind !== 'chat') return res.status(404).json({ error: 'Unknown chat run.' });
+    if (run.state !== 'uncertain') return res.status(409).json({ error: `Nothing to reconcile: the run is ${run.state}.` });
+    if (activeRunId) return res.status(409).json({ error: 'A request is already in progress.', activeRunId });
+    setState(req.params.runId, 'sending', { reconcile: true, messageId: run.messageId });
+    res.status(202).json({ runId: req.params.runId, messageId: run.messageId });
+    sendChat(req.params.runId, run);
   });
 
   // Form run (Part 3), step 1: ask the Tutor for the A2UI form over A2A.
@@ -234,7 +283,7 @@ export function startUiServer({ port = 3000, tutorUrl = 'http://127.0.0.1:41241'
 
   app.get('/api/events', (req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
-    res.write(`event: hello\ndata: ${JSON.stringify({ bootId, tutorFeedConnected, activeRunId })}\n\n`);
+    res.write(`event: hello\ndata: ${JSON.stringify({ bootId, tutorFeedConnected, activeRunId, tutorStatus })}\n\n`);
     for (const event of history) writeEvent(res, event);
     clients.add(res);
     req.on('close', () => clients.delete(res));
@@ -264,6 +313,7 @@ function writeEvent(res, event) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const port = process.env.UI_PORT === undefined ? 3000 : Number(process.env.UI_PORT);
   const tutorUrl = process.env.TUTOR_URL ?? 'http://127.0.0.1:41241';
+  process.env.STUDENT_LOG_CONTENT ??= '0'; // keep chat text out of this server's logs by default
   const { baseUrl } = await startUiServer({ port, tutorUrl });
   console.log(`[UI] listening on ${baseUrl}`);
   console.log(`[UI] Student Agent will contact Tutor Agent at ${tutorUrl}`);

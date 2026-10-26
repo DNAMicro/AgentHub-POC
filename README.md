@@ -7,6 +7,7 @@ Tutor's reply is a fixed string.
 - SDK: [`@a2a-js/sdk`](https://www.npmjs.com/package/@a2a-js/sdk) **1.3.0** (pinned exactly)
 - Protocol: **A2A v1.0** ([spec](https://a2a-protocol.org/v1.0.0/specification/)), JSON-RPC binding
 - Express **5.3.0** (peer dependency of the SDK's server adapter)
+- Tutoring (Part 4): **Claude Haiku 5.5** (`claude-haiku-5-5`) via `@anthropic-ai/sdk` **1.3.0**, in live mode only. See [Part 4](#part-4-real-tutoring-answers-from-claude-haiku-55).
 - Forms (Part 3): **A2UI v0.9** with the official renderer `@a2ui/lit` **0.14.0** and `@a2ui/web_core` **0.14.0**, plus `lit` **3.3.3**. See [the version choice](#a2ui-version-choice).
 - Dev only: `esbuild` 0.28.2 (bundles the renderer for the browser), `jsdom` 30.1.2 (renders the form in tests), `ajv` 8.20.0 (checks payloads against the official A2UI JSON Schemas)
 - Node.js 20+ (verified on 26.11.1)
@@ -50,6 +51,9 @@ npm test   # starts the Tutor (and UI server) as child processes, runs all check
 | `src/tutor-agent.js` | **Agent B, the Tutor Agent.** An Express server that serves the Agent Card at `/.well-known/agent-card.json` and the A2A JSON-RPC endpoint at `/a2a/jsonrpc`. Its executor routes each message to one of three handlers: chat (fixed reply), form request (builds the A2UI form), or form submission (validate, de-duplicate, record, acknowledge). It also serves `/viz/events`, a read-only feed of its own events for the monitor. |
 | `src/student-agent.js` | **Agent A, the Student Agent.** Three functions: `askTutor()` (chat), `requestForm()` (gets the A2UI form over A2A and checks it against an allowlist) and `submitForm()` (sends the renderer's submit action back over A2A). The UI server and the tests call these directly. |
 | `src/student-form.js` | The form definition, in one place: the A2UI v0.9 messages the Tutor builds, the validation rules (run separately by the browser, the UI server and the Tutor), and the allowlist the Student applies to any A2UI payload it receives. It has no dependencies, so the browser loads it too, from `/shared/student-form.js`. |
+| `src/tutor-model.js` | The Tutor's tutoring logic (Part 4): the mode switch, the system prompt, per-conversation history, the request ledger (no duplicate paid calls), the one-at-a-time rule, the Anthropic call, and the mapping from SDK errors to sanitized codes. |
+| `scripts/live-smoke.js` | The paid live smoke test, off unless `LIVE_SMOKE_MAX_USD` is set. |
+| `.env.example` | Placeholder for your local `.env` (git-ignored). |
 | `src/local-guard.js` | Host and Origin checks for both servers. They block DNS rebinding and cross-site POSTs to the localhost services. |
 | `src/ui-server.js` | **UI backend.** Serves the page and hosts the Student Agent. `POST /api/runs` runs a chat exchange. `POST /api/forms` requests a form, and `POST /api/forms/:formId/submissions` forwards a submission. It relays the Tutor's feed, streams events to the browser on `GET /api/events`, and decides each run's state. |
 | `src/browser/a2ui-entry.js` | Entry point for the renderer bundle that esbuild writes to `public/vendor/a2ui.js` (generated, not committed). |
@@ -57,6 +61,8 @@ npm test   # starts the Tutor (and UI server) as child processes, runs all check
 | `test/a2a.test.js` | The original A2A tests: the Agent Card, the exact reply, traceable process ↔ process logs, and a clear failure when the Tutor is down. |
 | `test/ui.test.js` | Part 2 browser-event tests: the typed-message round trip, run-ID correlation, the double-submit guard, no resend on reconnect, the unavailable Tutor, and input validation. |
 | `test/a2ui-render.test.js` | Gets the form from a real Tutor over A2A and validates it against the official A2UI v0.9 JSON Schemas. Then renders it with the real Lit renderer in jsdom, and checks that the rendering follows the description, that typing sends nothing, that Submit emits a schema-valid action, and that inline errors and locking work. |
+| `test/tutor-llm.test.js` | Part 4: the live SDK path against a local fake Anthropic API, plus mock mode. No paid calls. |
+| `test/payload-policy.test.js` | The Student's allowlist for received A2UI payloads. |
 | `test/form.test.js` | Part 3 end to end with real processes: the valid round trip with exact values, invalid data refused by the UI server and by the Tutor on its own, unexpected fields and actions, duplicate submissions, reconnect without resubmitting, an unavailable Tutor, uncertain delivery with retry, and the localhost guards. |
 | `package.json` / `package-lock.json` | Pinned dependencies and the `tutor` / `student` / `ui` / `build:ui` / `test` scripts. |
 
@@ -152,10 +158,12 @@ Browser            UI server / Student Agent                        Tutor Agent
    - `updateComponents`: the four TextFields bound to `/form/firstName`, `/form/lastName`, `/form/email` and `/form/notes`, plus a Submit button whose `action.event` sends those four paths
    - `updateDataModel`: empty values, plus local UI flags
 3. **Form sent.** The Tutor creates an A2A **Task** in state `INPUT_REQUIRED`. The task's status message holds a `DataPart` (`application/a2ui+json`) containing the three messages. The task stays open waiting for the student.
-4. **Student received form.** The Student checks the payload against an allowlist:
-   - only `Column`, `Text`, `TextField` and `Button`
-   - only server-event actions (no `openUrl` or other local function calls)
+4. **Student received form.** The Student checks the whole payload against an allowlist:
+   - exactly one `createSurface`, sent first, and every message must target that same surface
    - only the basic catalog
+   - only `Column`, `Text`, `TextField` and `Button`
+   - only these functions, wherever they appear (checks, bound values, action contexts): `required`, `regex`, `length`, `email`, `and`, `or`, `not`
+   - no `functionCall` anywhere, and every `action` must be exactly `{event}`, so no `openUrl` and no other local calls
    - at most 64 KB
 
    The UI server then hands it to the browser over SSE.
@@ -195,6 +203,110 @@ Test hooks, off unless set: `TUTOR_TEST_DELAY_FIRST_SUBMISSION_MS` makes the Tut
 - **Markdown off:** the renderer's `Text` component would render Markdown if `@a2ui/markdown-it` were installed. It isn't, so text shows as plain text and the console logs one warning about it. This also means no Markdown in a payload ever becomes HTML.
 - **Custom regex checks:** a regex in an A2UI check that the renderer's ReDoS detector considers unsafe is reported as a failing check. That's why the form uses the catalog's built-in `email` function for the email check.
 - **`npm audit`** reports a high-severity zod advisory (memory exhaustion when validating oversized collections). `@a2ui/web_core` and `@a2ui/lit` depend on the affected zod 3.x, and there's no fixed version of them yet. Exposure here is limited: zod runs only in the browser renderer, its only input is the A2UI payload from the local Tutor, and the Student rejects any payload over 64 KB before it reaches the browser. The Node servers don't use zod.
+
+## Part 4: real tutoring answers from Claude Haiku 5.5
+
+The Tutor Agent can now answer chat questions with **Anthropic Claude Haiku 5.5** (`claude-haiku-5-5`), called through the official SDK `@anthropic-ai/sdk` **1.3.0** (pinned). That SDK line defaults to API version `2026-10-21`. Only the Tutor calls the model. The Student is still a deterministic A2A client, and forms are still checked by deterministic code (no model involved).
+
+### Modes
+
+| `TUTOR_MODE` | Start with | What answers chat | Network |
+| --- | --- | --- | --- |
+| `fixed` (default) | `npm run tutor` | The Part 1 fixed reply | none |
+| `mock` | `npm run tutor:mock` | A deterministic fake model that repeats your question and the earlier one, to show history working | none |
+| `live` | `npm run tutor:live` | Claude Haiku 5.5 | Anthropic API |
+
+The browser header shows the active mode. In live mode, a notice under the chat box says what is sent to Anthropic.
+
+### Your API key (you do this yourself, locally)
+
+Never paste the key into a chat, an issue or source code. Only the Tutor process reads it.
+
+1. Create your local env file and add the key in a text editor:
+   ```bash
+   cp .env.example .env
+   # edit .env: ANTHROPIC_API_KEY=<your key>
+   ```
+   `.env` and `.temp` are git-ignored. If you already keep the key in another file, in the same `ANTHROPIC_API_KEY=...` format, point to it instead: `TUTOR_ENV_FILE=.temp npm run tutor:live`. An `ANTHROPIC_API_KEY` already exported in your shell takes precedence over the file.
+2. Start it:
+   ```bash
+   npm run tutor:live     # terminal 1 — logs "API key: configured" or "NOT SET" (never the value)
+   npm run ui             # terminal 2 → http://127.0.0.1:3000
+   ```
+
+The key is read only from the Tutor's environment. It is passed explicitly to the SDK, which then ignores any other credential source. It is never written into A2A messages, browser events, logs or error messages, and the tests check this (see below).
+
+### Where A2A ends and the Anthropic call begins
+
+```
+Browser ─POST─▶ UI server / Student ══A2A SendMessage══▶ Tutor A2A executor ─HTTPS─▶ api.anthropic.com
+                                     (contextId, messageId)      │   messages.create(claude-haiku-5-5)
+Browser ◀─SSE── UI server / Student ◀═A2A reply (Message)═══ Tutor ◀─ complete response (no streaming)
+```
+
+1. You type a question. The browser POSTs it to the UI server, together with the current conversation ID.
+2. The Student sends it to the Tutor as an A2A `SendMessage`. The conversation ID travels as the A2A `contextId`, and a fresh `messageId` serves as the request ID. **This is where A2A ends.**
+3. The Tutor's executor looks up that conversation's earlier messages and calls `client.messages.create`. The call uses the server-side system prompt, at most the last 10 messages (12,000 characters) of history plus the new question, `max_tokens: 800`, `effort: "low"`, a 45 s timeout and no retries. **This is the Anthropic call.** It's ordinary HTTPS from the Tutor process and has nothing to do with A2A.
+4. Haiku returns the complete response. The Tutor checks `stop_reason`: a refusal, or an output cap used up before any answer text, becomes a clear error instead of an answer.
+5. The Tutor puts the text into an A2A reply `Message`. Its metadata holds the model name, latency, token usage and Anthropic's request ID. Or, on failure, a sanitized `tutorError` with a code and a message.
+6. The Student receives it, and the browser shows the actual response along with the model and usage details.
+
+The timeline shows real milestones: request sent → Tutor received → model call started → model response received → response sent → A2A response received. A failure shows up as a "Model error" with its code.
+
+### What is, and isn't, sent to Anthropic
+
+- **Sent:** the system prompt, your chat questions, and that conversation's earlier questions and answers.
+- **Not sent:** form names, emails, notes, other conversations, or anything from another student's history.
+- History is kept **in memory**, per conversation ID, so **restarting the Tutor clears it**. Click **New conversation** to start fresh.
+- The system prompt tells the model to treat student messages and form notes as untrusted content, not as instructions.
+
+### Cost and failure controls
+
+- **Limits:** 800 output tokens per answer, 2,000-character questions, and bounded history.
+- **One question at a time per conversation.** A second question while one is in progress gets a "busy" error and costs nothing.
+- **No duplicate paid calls.** If the same `(contextId, messageId)` arrives again, from a retry or a race, the Tutor returns the stored or in-flight result. If the Student times out (`CHAT_TIMEOUT_MS`, default 60 s), the run becomes **uncertain**. **Check for answer** resends the *same* request ID, which collects the result without calling the model again. Reloading the page only replays events.
+- **No hidden retries or fallbacks.** SDK retries are off (`maxRetries: 0`), there's no other model, and no canned answer stands in for a failure.
+- **Sanitized errors:**
+
+  | Code | When |
+  | --- | --- |
+  | `missing_credentials` | no key set; no request is attempted |
+  | `authentication_failed` | 401 |
+  | `permission_denied` | 403 |
+  | `model_unavailable` | 404; no other model is substituted |
+  | `rate_limited` | 429 |
+  | `provider_unavailable` | 5xx or 529 |
+  | `timeout` | the model call timed out |
+  | `connection_failed` | couldn't reach Anthropic |
+  | `refusal` | the model declined |
+  | `truncated_no_text` | the output cap was used up before any answer text |
+
+  Anthropic's request ID is shown when there is one. Raw provider messages are never passed on.
+- **Logs:** model, latency, token counts, stop reason and request ID. Message contents stay out of logs in live mode, and the UI server never logs them. Fixed and mock modes still log content because the earlier tests read it. `TUTOR_LOG_CONTENT=0|1` overrides this.
+
+### Tests (no paid calls)
+
+`test/tutor-llm.test.js` runs a **live-mode Tutor against a local fake Anthropic Messages API** (`ANTHROPIC_BASE_URL`) with a placeholder key, plus a mock-mode Tutor. It covers:
+
+- the exact request (model, cap, effort, system prompt, no sampling parameters, key only in the auth header)
+- contextual follow-up, and isolation between conversations
+- usage reporting, and logs without message contents
+- every error code above, each with exactly one provider call
+- the missing key (no call at all)
+- duplicate, concurrent and busy requests
+- uncertain-outcome reconciliation and reconnects
+- mock mode
+- Part 3 in live mode, with no form value reaching the model
+- **the key never appearing** in frontend assets, browser events, `/api/status`, the Agent Card, or either server's logs
+
+### Live smoke test (paid, off by default)
+
+```bash
+npm run smoke:live                          # prints the plan and pricing, then stops
+LIVE_SMOKE_MAX_USD=0.01 npm run smoke:live  # runs, within your limit
+```
+
+It checks that `claude-haiku-5-5` is available to your account. That check uses the Models API, which isn't a billed generation, and the script stops if the model isn't available. It then asks one short calculus question and one follow-up in the same conversation, through the real Student → A2A → Tutor → Anthropic path, and prints both answers with token usage, latency, request IDs and estimated cost. Pricing comes from the [official pricing page](https://platform.claude.com/docs/en/about-claude/pricing), checked 2026-10-25: $0.10/MTok input and $0.50/MTok output for prompts up to 100K tokens. The worst case, estimated pessimistically, is about $0.0023 for both calls.
 
 ## Deliberately not included
 

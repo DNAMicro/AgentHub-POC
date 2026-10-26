@@ -18,6 +18,10 @@ const els = {
   message: $('message'),
   send: $('send'),
   requestForm: $('request-form'),
+  tutorMode: $('tutor-mode'),
+  privacyNote: $('privacy-note'),
+  conversation: $('conversation'),
+  newConversation: $('new-conversation'),
   formError: $('form-error'),
   formArea: $('form-area'),
   runId: $('run-id'),
@@ -40,6 +44,15 @@ const STEPS = {
     ['reply_published', 'Response sent', 'published by Tutor'],
     ['reply_received', 'Student Agent received', 'A2A result returned'],
   ],
+  // Chat when the Tutor uses a model (mock or live): the model call shows as its own steps.
+  chatModel: [
+    ['request_sent', 'Request sent', 'send started by Student'],
+    ['message_received', 'Tutor Agent received', 'confirmed by Tutor process'],
+    ['model_call_started', 'Model call started', 'Tutor → model provider'],
+    ['model_response_received', 'Model response received', 'reported by Tutor'],
+    ['reply_published', 'Response sent', 'published by Tutor over A2A'],
+    ['reply_received', 'A2A response received', 'by Student Agent'],
+  ],
   form: [
     ['form_requested', 'Form requested', 'A2A request started'],
     ['form_request_received', 'Tutor received request', 'confirmed by Tutor process'],
@@ -58,6 +71,29 @@ let currentRunId = null;
 let currentState = 'idle';
 let awaitingRunId = null; // set between clicking Send/Request form and that run leaving a busy state
 const formsById = new Map(); // formId → rendered form state
+let currentContextId = null; // the chat conversation follow-up questions belong to (null → start a new one)
+
+const MODE_TEXT = {
+  live: (s) => `Tutor: LIVE · ${s.model}`,
+  mock: () => 'Tutor: mock model (no external calls)',
+  fixed: () => 'Tutor: fixed reply (no model)',
+};
+
+function renderMode(status) {
+  if (!status) return;
+  els.tutorMode.dataset.mode = status.mode;
+  els.tutorMode.textContent = MODE_TEXT[status.mode]?.(status) ?? `Tutor: ${status.mode}`;
+  els.privacyNote.hidden = status.mode !== 'live';
+  els.privacyNote.textContent = status.mode !== 'live' ? '' :
+    `Live tutoring: your chat questions, and this conversation’s earlier questions and answers, are sent to Anthropic (${status.model}). ` +
+    'Form names, emails and notes are not sent.' + (status.keyConfigured ? '' : ' The Tutor has no API key set, so answers will fail until you add one.');
+}
+
+function renderConversation() {
+  els.conversation.textContent = currentContextId ? `Conversation ${currentContextId} — follow-ups use its history` : 'New conversation — your next message starts fresh';
+}
+
+const fmtUsage = (t) => (t ? `${t.model} · ${(t.latencyMs / 1000).toFixed(1)} s · ${t.usage?.inputTokens ?? '?'} in / ${t.usage?.outputTokens ?? '?'} out tokens${t.truncated ? ' · cut off at output cap' : ''}${t.duplicate ? ' · repeat request (no new model call)' : ''}` : null);
 
 // ---- rendering helpers --------------------------------------------------
 
@@ -150,10 +186,13 @@ function renderState() {
   const busy = awaitingRunId !== null || BUSY.has(currentState);
   els.send.disabled = busy;
   els.requestForm.disabled = busy;
+  // Offered whenever there's something on screen to clear; unavailable mid-request.
+  els.newConversation.hidden = !currentContextId && !els.studentLog.children.length && !els.tutorLog.children.length;
+  els.newConversation.disabled = busy || [...formsById.values()].some((f) => f.pending);
 }
 
-function resetAll() {
-  seen = new Set();
+// Empty every panel and forget the current conversation (not the event bookkeeping).
+function clearScreen() {
   currentRunId = null;
   currentState = 'idle';
   formsById.clear();
@@ -164,7 +203,31 @@ function resetAll() {
   els.runId.textContent = 'no run yet';
   els.timeline.replaceChildren();
   els.timelineError.textContent = '';
+  currentContextId = null;
+  renderConversation();
   renderState();
+}
+
+function resetAll() {
+  seen = new Set();
+  clearScreen();
+}
+
+function reconcileButton(runId) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'inline-action';
+  button.textContent = 'Check for answer';
+  button.title = 'Re-sends the same request ID; the Tutor returns its earlier result instead of calling the model again.';
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/reconcile`, { method: 'POST' });
+    if (!res.ok) {
+      button.disabled = false;
+      els.formError.textContent = `Could not check: ${(await res.json().catch(() => ({}))).error ?? res.status}`;
+    }
+  });
+  return button;
 }
 
 const errorText = (errors) => Object.entries(errors ?? {}).map(([field, msg]) => (field === '_form' ? msg : `${field}: ${msg}`)).join(' ');
@@ -288,9 +351,19 @@ function handle(event) {
   if (source === 'system') {
     if (type === 'tutor_feed') {
       setBadge(els.tutorFeed, data.connected, data.connected ? 'Tutor feed: connected' : 'Tutor feed: offline');
+    } else if (type === 'conversation_reset') {
+      // Replayed in order on reload too, so a cleared screen stays cleared.
+      clearScreen();
+    } else if (type === 'tutor_status') {
+      renderMode(data);
     } else if (type === 'run_started') {
       currentRunId = runId;
-      resetTimeline(runId, data.kind ?? 'chat');
+      const kind = data.kind === 'chat' && data.tutorMode && data.tutorMode !== 'fixed' ? 'chatModel' : data.kind ?? 'chat';
+      resetTimeline(runId, kind);
+      if (data.kind === 'chat') {
+        currentContextId = data.contextId;
+        renderConversation();
+      }
     } else if (type === 'state') {
       if (isCurrent) currentState = data.state;
       if (runId === awaitingRunId && !BUSY.has(data.state)) awaitingRunId = null;
@@ -304,12 +377,23 @@ function handle(event) {
         student({ dir: 'sent', label: 'Sent', text: data.text, ids: { messageId: data.messageId, run } });
         break;
       case 'reply_received':
-        student({ dir: 'received', label: 'Received', text: data.text, ids: { messageId: data.messageId, contextId: data.contextId, taskId: data.taskId || '(none — direct Message reply)', run } });
+        student({ dir: 'received', label: 'Received', text: data.text, ids: { model: fmtUsage(data.tutor), messageId: data.messageId, inReplyTo: data.inReplyTo, contextId: data.contextId, taskId: data.taskId || '(none — direct Message reply)', anthropicRequest: data.tutor?.requestId, run } });
+        break;
+      case 'tutor_error':
+        student({ dir: 'error', label: 'Tutor error', text: data.message, ids: { code: data.code, anthropicRequest: data.requestId, messageId: data.messageId, contextId: data.contextId, run } });
+        if (isCurrent) els.timelineError.textContent = `The Tutor could not answer: ${data.message}`;
         break;
       case 'request_failed': {
         const detail = data.code ? `${data.error} (${data.code})` : data.error;
-        student({ dir: 'error', label: 'Failed', text: detail, ids: { run } });
-        if (isCurrent) els.timelineError.textContent = `Request failed: ${detail}`;
+        if (data.outcome === 'uncertain') {
+          const item = messageItem({ at, dir: 'error', label: 'Uncertain', text: `No reply in time — the Tutor may still be answering. ${detail}`, ids: { request: data.messageId, run } });
+          item.insertBefore(reconcileButton(runId), item.querySelector('details'));
+          appendTo(els.studentLog, item);
+          if (isCurrent) els.timelineError.textContent = 'Outcome uncertain: use “Check for answer” to fetch the result of the same request (no new model call).';
+        } else {
+          student({ dir: 'error', label: 'Failed', text: detail, ids: { run } });
+          if (isCurrent) els.timelineError.textContent = `Request failed: ${detail}`;
+        }
         break;
       }
       // form
@@ -343,7 +427,8 @@ function handle(event) {
         if (isCurrent) els.timelineError.textContent = data.outcome === 'uncertain' ? 'Submission delivery uncertain.' : `Submission not delivered: ${data.error}`;
         break;
     }
-    if (isCurrent && type !== 'submission_failed') markStep(type, at);
+    // A Tutor-reported error still arrived as an A2A response.
+    if (isCurrent && type !== 'submission_failed') markStep(type === 'tutor_error' ? 'reply_received' : type, at);
   } else if (source === 'tutor') {
     switch (type) {
       // chat
@@ -351,7 +436,19 @@ function handle(event) {
         tutor({ dir: 'received', label: 'Received', text: data.text, ids: { messageId: data.messageId, contextId: data.contextId, taskId: data.taskId, run } });
         break;
       case 'reply_published':
-        tutor({ dir: 'sent', label: 'Sent', text: data.text, ids: { messageId: data.messageId, contextId: data.contextId, inReplyTo: data.inReplyTo, run } });
+        tutor({ dir: data.tutorError ? 'error' : 'sent', label: data.tutorError ? 'Sent (error)' : 'Sent', text: data.text, ids: { model: fmtUsage(data.tutor), messageId: data.messageId, contextId: data.contextId, inReplyTo: data.inReplyTo, run } });
+        break;
+      case 'model_call_started':
+        tutor({ dir: 'sent', label: 'Model call', text: `Calling ${data.model} with ${data.earlierMessages} earlier message${data.earlierMessages === 1 ? '' : 's'} from this conversation.`, ids: { mode: data.mode, contextId: data.contextId, messageId: data.messageId, run } });
+        break;
+      case 'model_response_received':
+        tutor({ dir: 'received', label: 'Model reply', text: `${data.model} responded in ${(data.latencyMs / 1000).toFixed(1)} s (${data.usage?.inputTokens ?? '?'} input / ${data.usage?.outputTokens ?? '?'} output tokens, stop: ${data.stopReason}${data.truncated ? ', cut off at the output cap' : ''}).`, ids: { anthropicRequest: data.requestId, contextId: data.contextId, messageId: data.messageId, run } });
+        break;
+      case 'model_call_failed':
+        tutor({ dir: 'error', label: 'Model error', text: data.message, ids: { code: data.code, anthropicRequest: data.requestId, latency: `${data.latencyMs} ms`, run } });
+        break;
+      case 'model_call_reused':
+        tutor({ dir: 'sent', label: 'Repeat request', text: 'Same request ID as before — returning the earlier result; no new model call.', ids: { contextId: data.contextId, messageId: data.messageId, run } });
         break;
       // form
       case 'form_request_received':
@@ -393,6 +490,7 @@ stream.addEventListener('hello', (e) => {
   if (bootId !== null && hello.bootId !== bootId) resetAll(); // UI server restarted: seq numbers restart too
   bootId = hello.bootId;
   setBadge(els.tutorFeed, hello.tutorFeedConnected, hello.tutorFeedConnected ? 'Tutor feed: connected' : 'Tutor feed: offline');
+  renderMode(hello.tutorStatus);
 });
 stream.addEventListener('message', (e) => {
   const event = JSON.parse(e.data);
@@ -421,10 +519,18 @@ async function startRun(path, body) {
 
 els.form.addEventListener('submit', (e) => {
   e.preventDefault();
-  if (!els.send.disabled) startRun('/api/runs', { text: els.message.value });
+  if (!els.send.disabled) startRun('/api/runs', { text: els.message.value, contextId: currentContextId });
+});
+els.newConversation.addEventListener('click', async () => {
+  if (els.newConversation.disabled) return;
+  els.formError.textContent = '';
+  // The server records the reset; the screen clears when that event arrives (here and in other tabs).
+  const res = await fetch('/api/conversation/new', { method: 'POST' });
+  if (!res.ok) els.formError.textContent = (await res.json().catch(() => ({}))).error ?? `Could not start a new conversation (HTTP ${res.status}).`;
 });
 els.requestForm.addEventListener('click', () => {
   if (!els.requestForm.disabled) startRun('/api/forms', {});
 });
 
+renderConversation();
 renderState();

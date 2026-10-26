@@ -14,18 +14,30 @@ const log = (...args) => console.log('[Student Agent]', ...args);
 const textOf = (message) =>
   message.parts.filter((p) => p.content?.$case === 'text').map((p) => p.content.value).join('');
 
+const CHAT_TIMEOUT_MS = Number(process.env.CHAT_TIMEOUT_MS ?? 60000);
+// The UI server turns this off so question/answer text stays out of its logs; the CLI keeps it.
+const logContent = () => process.env.STUDENT_LOG_CONTENT !== '0';
+const shown = (text) => (logContent() ? text : `[${text.length} chars, content not logged]`);
+
 // `runId` travels to the Tutor in A2A Message.metadata so both sides' events can be
 // correlated. `onEvent(type, data)` is a visualization hook called where each step happens.
-export async function askTutor(baseUrl, text = STUDENT_MESSAGE, { runId, onEvent = () => {} } = {}) {
+//
+// `contextId` names the conversation (the Tutor keeps history per contextId); empty lets the
+// server start a new one. `messageId` is the request ID: re-sending the same one asks the Tutor
+// for the result of that request again instead of a new answer (no second model call).
+export async function askTutor(baseUrl, text = STUDENT_MESSAGE, { runId, contextId = '', messageId = randomUUID(), timeoutMs = CHAT_TIMEOUT_MS, onEvent = () => {} } = {}) {
+  let sendStarted = false;
   try {
-    return await exchange(baseUrl, text, runId, onEvent);
+    return await exchange(baseUrl, text, { runId, contextId, messageId, timeoutMs }, onEvent, () => (sendStarted = true));
   } catch (err) {
-    onEvent('request_failed', { error: err.message, code: err.cause?.code ?? null });
-    throw err;
+    if (err.tutorError) throw err; // A2A worked; the Tutor reported its own failure (already emitted)
+    const outcome = deliveryOutcome(err, sendStarted);
+    onEvent('request_failed', { error: err.message, code: err.cause?.code ?? null, outcome, messageId });
+    throw Object.assign(err, { outcome });
   }
 }
 
-async function exchange(baseUrl, text, runId, onEvent) {
+async function exchange(baseUrl, text, { runId, contextId, messageId, timeoutMs }, onEvent, markSendStarted) {
   // 1. Discovery: GET <baseUrl>/.well-known/agent-card.json
   const card = await new DefaultAgentCardResolver().resolve(baseUrl);
   const discovered = {
@@ -39,8 +51,8 @@ async function exchange(baseUrl, text, runId, onEvent) {
   const client = await new ClientFactory().createFromAgentCard(card);
 
   const message = {
-    messageId: randomUUID(),
-    contextId: '', // empty: let the server start a new context
+    messageId,
+    contextId, // empty: let the server start a new context
     taskId: '',
     role: Role.ROLE_USER,
     parts: [{ content: { $case: 'text', value: text }, metadata: undefined, filename: '', mediaType: 'text/plain' }],
@@ -48,19 +60,28 @@ async function exchange(baseUrl, text, runId, onEvent) {
     extensions: [],
     referenceTaskIds: [],
   };
-  log('sending message', { messageId: message.messageId, text });
+  log('sending message', { messageId: message.messageId, contextId: contextId || '(new)', text: shown(text) });
   // "Send started" only: receipt is confirmed separately by the Tutor's own event.
-  onEvent('request_sent', { messageId: message.messageId, text });
+  onEvent('request_sent', { messageId: message.messageId, contextId: contextId || null, text });
 
   // 3. SendMessage over the A2A JSON-RPC binding.
-  const result = await client.sendMessage({ tenant: '', message, configuration: undefined, metadata: undefined });
+  markSendStarted();
+  const result = await client.sendMessage({ tenant: '', message, configuration: undefined, metadata: undefined }, { signal: AbortSignal.timeout(timeoutMs) });
 
   // A SendMessage result is either a Message or a Task; the Tutor always replies with a Message.
   if (!('messageId' in result) || result.role !== Role.ROLE_AGENT) {
     throw new Error(`Expected an agent Message, got: ${JSON.stringify(result)}`);
   }
-  const reply = { messageId: result.messageId, contextId: result.contextId, taskId: result.taskId, text: textOf(result) };
-  log('received reply', reply);
+  const ids = { messageId: result.messageId, contextId: result.contextId, taskId: result.taskId, inReplyTo: messageId };
+  const tutorError = result.metadata?.tutorError;
+  if (tutorError) {
+    // The A2A exchange succeeded, but the Tutor couldn't produce an answer (e.g. provider failure).
+    log('Tutor reported an error', { ...ids, code: tutorError.code });
+    onEvent('tutor_error', { ...ids, ...tutorError, tutorMode: result.metadata?.tutorMode ?? null });
+    throw Object.assign(new Error(tutorError.message), { tutorError, outcome: 'answered_with_error' });
+  }
+  const reply = { ...ids, text: textOf(result), tutorMode: result.metadata?.tutorMode ?? null, tutor: result.metadata?.tutor ?? null };
+  log('received reply', { ...reply, text: shown(reply.text) });
   onEvent('reply_received', { ...reply, runId: result.metadata?.runId ?? null });
   return reply;
 }

@@ -1,3 +1,9 @@
 node_modules/
 .playwright-mcp/
 public/vendor/
+
+# Local secrets - never commit
+.env
+.env.*
+!.env.example
+.temp

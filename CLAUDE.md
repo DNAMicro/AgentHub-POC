@@ -4,12 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A protocol-connectivity spike: two separate Node.js processes talk over the real A2A protocol (v1.0, JSON-RPC binding) using `@a2a-js/sdk` 1.3.0. `src/tutor-agent.js` is the A2A server (Agent B); `src/student-agent.js` is the A2A client (Agent A). `src/ui-server.js` + `public/` add a browser monitor that hosts the Student in-process and visualizes the exchange. Part 3 adds an A2UI v0.9 form the Tutor sends inside A2A and the browser renders with the official `@a2ui/lit` renderer. Replies are deterministic — no LLM, API keys, or external services. See README.md for the hop-by-hop walkthrough and version rationale.
+A protocol-connectivity spike: two separate Node.js processes talk over the real A2A protocol (v1.0, JSON-RPC binding) using `@a2a-js/sdk` 1.3.0. `src/tutor-agent.js` is the A2A server (Agent B); `src/student-agent.js` is the A2A client (Agent A). `src/ui-server.js` + `public/` add a browser monitor that hosts the Student in-process and visualizes the exchange. Part 3 adds an A2UI v0.9 form the Tutor sends inside A2A and the browser renders with the official `@a2ui/lit` renderer. Part 4 lets the Tutor answer chat with Claude Haiku 5.5 (`claude-haiku-5-5`, `@anthropic-ai/sdk` 1.3.0) in `TUTOR_MODE=live`; the default `fixed` mode keeps the deterministic Part 1 reply. See README.md for the hop-by-hop walkthrough and version rationale.
 
 ## Commands
 
 ```bash
-npm run tutor      # server on 127.0.0.1:41241 (override with PORT=...)
+npm run tutor      # server on 127.0.0.1:41241 (override with PORT=...), fixed reply
+npm run tutor:mock # deterministic fake model, no network
+npm run tutor:live # Claude Haiku 5.5; key from env or .env (TUTOR_ENV_FILE to override) — PAID
+npm run smoke:live # paid live smoke test; refuses unless LIVE_SMOKE_MAX_USD is set
 npm run student    # client; target with TUTOR_URL=http://127.0.0.1:...
 npm run ui         # builds public/vendor/a2ui.js, then monitor on http://127.0.0.1:3000 (UI_PORT, TUTOR_URL); needs the tutor running
 npm run build:ui   # esbuild bundle of the A2UI renderer only (output is gitignored)
@@ -33,6 +36,16 @@ Plain ESM JavaScript (`"type": "module"`), no lint/TypeScript. The only build st
 - **Run state lives in the UI server** (`NEXT_STATES`, forward-only). Tutor viz events arrive on a separate connection and may land *after* the A2A reply; tests must wait for them rather than assume ordering. Only POST endpoints start A2A requests; `GET /api/events` replays history (browser dedupes by `seq`, resets on new `bootId`).
 - Browser renders its own text via `textContent` — don't introduce `innerHTML`.
 
+## Part 4 (model) notes
+
+- `src/tutor-model.js` reads `TUTOR_MODE` **at import time** (module constant). Set env before importing it (see `scripts/live-smoke.js`). Tests that need live behavior run a live-mode Tutor process against `test/support/fake-anthropic.js` via `ANTHROPIC_BASE_URL`, with a placeholder key and `TUTOR_LOAD_DOTENV=0` — never a real key, never real network.
+- Never run paid calls (`smoke:live`, `tutor:live` with a real key) without the user's explicit spending approval. Never read, print, or log the key or the user's key files (`.env`, `.temp`); only report presence as a boolean.
+- No hidden retries: `maxRetries: 0`, no fallback model, no canned answers on failure. Errors are mapped to sanitized codes (`toTutorError`); don't pass raw provider messages through.
+- Duplicate-call protection is keyed by `(contextId, messageId)` in the Tutor's ledger; the Student reuses the same `messageId` only for reconciling an uncertain outcome. One in-flight model call per `contextId` (`busy` otherwise).
+- History is per A2A `contextId`, text-only (no thinking blocks are replayed), append-only per completed exchange, bounded to 10 messages / 12,000 chars. Form data is never sent to the model.
+- Haiku 5.5: no `temperature`/`top_p`/`top_k` (400 on API version 2026-10-21), thinking counts toward `max_tokens` (hence `effort: "low"` with the 800-token cap), always check `stop_reason` (`refusal`, `max_tokens`) before using content.
+- Message contents are logged only when `LOG_CONTENT` is on (default on in fixed/mock — earlier tests read Tutor logs — off in live; `TUTOR_LOG_CONTENT` overrides). The UI server sets `STUDENT_LOG_CONTENT=0`.
+
 ## A2UI gotchas
 
 - Pinned to **v0.9** (not v0.9.1) because `@a2ui/lit` 0.14.0 registers the v0_9 basic catalog and web_core ships v0_9 JSON schemas. Messages use `"version": "v0.9"`; extension URI `https://a2ui.org/a2a-extension/a2ui/v0.9`.
@@ -54,4 +67,4 @@ The SDK's v1.0 types are protobuf-generated and differ from v0.3 examples found 
 
 ## Scope constraints
 
-Do not add streaming, push notifications, a reverse server, continuous chat, hub/routing/mailboxes, database, auth/accounts, real email sending, frontend frameworks, or deployment unless explicitly asked. All servers must stay bound to `127.0.0.1`. Records are in-memory by design. Keep dependency versions pinned exactly. Use fictional sample data only (e.g. Alex Student, alex@example.com).
+Do not add token streaming, push notifications, a reverse server, hub/routing/mailboxes, database, auth/accounts, real email sending, frontend frameworks, model tools, model-generated UI/code, or deployment unless explicitly asked. Only the Tutor calls the LLM; form validation stays deterministic. All servers must stay bound to `127.0.0.1`. Records are in-memory by design. Keep dependency versions pinned exactly. Use fictional sample data only (e.g. Alex Student, alex@example.com).

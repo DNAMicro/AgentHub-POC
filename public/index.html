@@ -16,6 +16,7 @@
     <div class="badges">
       <span class="badge" id="browser-feed" data-ok="false">Browser stream: connecting</span>
       <span class="badge" id="tutor-feed" data-ok="false">Tutor feed: unknown</span>
+      <span class="badge" id="tutor-mode" data-mode="unknown">Tutor mode: unknown</span>
       <span class="state" id="state" data-state="idle">idle</span>
     </div>
   </header>
@@ -31,7 +32,10 @@
           <textarea id="message" rows="2" maxlength="2000" required>Hello Tutor Agent. Can you help me with calculus?</textarea>
           <button type="submit" id="send">Send</button>
         </form>
+        <p class="privacy" id="privacy-note" hidden></p>
         <div class="actions">
+          <span class="conversation" id="conversation">New conversation</span>
+          <button type="button" id="new-conversation" hidden>New conversation</button>
           <button type="button" id="request-form" class="secondary">Request form</button>
         </div>
         <p class="form-error" id="form-error" role="alert"></p>
