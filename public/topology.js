@@ -1,5 +1,5 @@
-// Part 7: the live topology — a switchboard of the four agents. Student on the left, the university
-// Hub in the centre, the Tutor and Library behind it. Each agent has its own small model box: the agent
+// Part 7: the live topology — a switchboard of the agents. Student on the left, the university
+// Hub in the centre, the Tutor, the Marketing 101 Professor (Part 9) and the Library behind it. Each agent has its own small model box: the agent
 // picks its own mode and model and calls the provider from its own process with its own key, so these
 // are separate connections, not one shared service. Those lines are HTTPS calls, drawn dashed, not A2A.
 // There is no Student↔specialist line.
@@ -12,21 +12,25 @@
 const SVG = 'http://www.w3.org/2000/svg';
 
 const NODES = {
-  student: { x: 130, y: 260, r: 60, name: 'Student agent', role: 'You' },
-  hub: { x: 450, y: 260, r: 76, name: 'University Hub', role: 'Front door and router' },
-  tutor: { x: 770, y: 118, r: 60, name: 'Tutor Agent', role: 'Tutoring specialist' },
-  library: { x: 770, y: 402, r: 60, name: 'Library Agent', role: 'Library specialist' },
+  student: { x: 130, y: 330, r: 60, name: 'Student agent', role: 'You' },
+  hub: { x: 450, y: 330, r: 76, name: 'University Hub', role: 'Front door and router' },
+  tutor: { x: 770, y: 110, r: 60, name: 'Tutor Agent', role: 'Tutoring specialist' },
+  professor: { x: 770, y: 330, r: 60, name: 'Professor', role: 'Marketing 101' },
+  library: { x: 770, y: 550, r: 60, name: 'Library Agent', role: 'Library specialist' },
   // One model box per agent (owner). Server labels say 'model'; the browser draws it at the caller's box.
-  'llm-student': { x: 130, y: 62, w: 184, h: 74, owner: 'student', name: 'Student’s model' },
-  'llm-hub': { x: 450, y: 62, w: 184, h: 74, owner: 'hub', name: 'Hub router’s model' },
-  'llm-tutor': { x: 985, y: 118, w: 184, h: 74, owner: 'tutor', name: 'Tutor’s model' },
-  'llm-library': { x: 985, y: 402, w: 184, h: 74, owner: 'library', name: 'Library’s model' },
+  'llm-student': { x: 130, y: 110, w: 184, h: 74, owner: 'student', name: 'Student’s model' },
+  'llm-hub': { x: 450, y: 110, w: 184, h: 74, owner: 'hub', name: 'Hub router’s model' },
+  'llm-tutor': { x: 985, y: 110, w: 184, h: 74, owner: 'tutor', name: 'Tutor’s model' },
+  'llm-professor': { x: 985, y: 330, w: 184, h: 74, owner: 'professor', name: 'Professor’s model' },
+  'llm-library': { x: 985, y: 550, w: 184, h: 74, owner: 'library', name: 'Library’s model' },
 };
 const EDGES = {
-  'student-hub': ['student', 'hub'], 'hub-tutor': ['hub', 'tutor'], 'hub-library': ['hub', 'library'],
-  'student-model': ['student', 'llm-student'], 'hub-model': ['hub', 'llm-hub'], 'tutor-model': ['tutor', 'llm-tutor'], 'library-model': ['library', 'llm-library'],
+  'student-hub': ['student', 'hub'], 'hub-tutor': ['hub', 'tutor'], 'hub-professor': ['hub', 'professor'], 'hub-library': ['hub', 'library'],
+  'student-model': ['student', 'llm-student'], 'hub-model': ['hub', 'llm-hub'], 'tutor-model': ['tutor', 'llm-tutor'], 'professor-model': ['professor', 'llm-professor'], 'library-model': ['library', 'llm-library'],
 };
-const MODEL_USES = { student: 'clarifying unclear questions and choosing which university capability a non-obvious one needs', hub: 'deciding where each question goes', tutor: 'answers, scope checks and form review', library: 'answers from saved content and form review' };
+const MODEL_USES = { student: 'clarifying unclear questions and choosing which university capability a non-obvious one needs', hub: 'deciding where each question goes', tutor: 'answers, scope checks and form review', library: 'answers from saved content and form review', professor: 'answering questions from the course pack and its lessons' };
+const SPECIALIST_IDS = ['tutor', 'professor', 'library'];
+const relaying = (active) => SPECIALIST_IDS.reduce((n, id) => n + (active[id] ?? 0), 0);
 const EDGE_KIND = (id) => (id.endsWith('-model') ? 'model' : 'a2a');
 const LANE = 9; // each connection has one lane per direction
 const STATUS = {
@@ -100,6 +104,7 @@ function shape(category, phase, color) {
     case 'form': return el('rect', { x: -6.5, y: -6.5, width: 13, height: 13, rx: 2, ...common });
     case 'registration': return el('path', { d: 'M0,-8 L8,0 L0,8 L-8,0 Z', ...common });
     case 'card': return el('path', { d: 'M0,-8 L8,6 L-8,6 Z', ...common });
+    case 'lesson': return el('path', { d: 'M-6,-8 L6,-8 L6,8 L0,3.5 L-6,8 Z', ...common }); // a bookmark
     case 'heartbeat': return el('circle', { r: 3.6, ...common, 'stroke-width': 1.6 });
     case 'model': return el('path', { d: 'M0,-8 L2.4,-2.4 L8,0 L2.4,2.4 L0,8 L-2.4,2.4 L-8,0 L-2.4,-2.4 Z', ...common });
     default: return el('circle', { r: 7, ...common });
@@ -115,10 +120,10 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
   const state = {
     live: false, hubFeed: false, snapshot: null, student: { busy: false, cardValid: null },
     specialists: {}, // agentId → snapshot entry (status, heartbeat, skills…)
-    active: { tutor: 0, library: 0 },
+    active: { tutor: 0, professor: 0, library: 0 },
     // Each agent's own model: its reported mode, and the calls we saw it make.
-    modes: { student: null, hub: null, tutor: null, library: null }, // { mode, model, keyConfigured }
-    provider: Object.fromEntries(['student', 'hub', 'tutor', 'library'].map((a) => [a, { inFlight: 0, calls: 0, failures: 0, last: null }])),
+    modes: { student: null, hub: null, tutor: null, professor: null, library: null }, // { mode, model, keyConfigured }
+    provider: Object.fromEntries(['student', 'hub', ...SPECIALIST_IDS].map((a) => [a, { inFlight: 0, calls: 0, failures: 0, last: null }])),
     traces: new Map(), // runId → { n, kind, at, destination, outcome, edges:Set, nodes:Set, events:[] }
     edgeEvents: Object.fromEntries(Object.keys(EDGES).map((id) => [id, []])),
     selected: null, // { kind: 'node'|'edge'|'trace', id }
@@ -231,11 +236,11 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
       const s = nodeStatus(id);
       const [icon, text, tone] = STATUS[s] ?? STATUS.unknown;
       const n = nodeEls[id];
-      const busy = id === 'student' ? state.student.busy : id === 'hub' ? (state.active.tutor + state.active.library) > 0 : state.active[id] > 0;
+      const busy = id === 'student' ? state.student.busy : id === 'hub' ? relaying(state.active) > 0 : state.active[id] > 0;
       let label = `${icon} ${text}`;
       if (id === 'student' && state.live) label = busy ? '↻ Waiting for reply' : state.student.cardValid === false ? '⚠ University card not verified' : '✓ Online';
-      if (id === 'hub' && state.hubFeed && busy) label = `↻ Relaying (${state.active.tutor + state.active.library})`;
-      if ((id === 'tutor' || id === 'library') && busy && s === 'ready') label = `↻ Working (${state.active[id]})`;
+      if (id === 'hub' && state.hubFeed && busy) label = `↻ Relaying (${relaying(state.active)})`;
+      if (SPECIALIST_IDS.includes(id) && busy && s === 'ready') label = `↻ Working (${state.active[id]})`;
       n.statusText.textContent = label;
       n.statusG.dataset.tone = busy && (s === 'ready' || id === 'student') ? 'busy' : id === 'student' && state.student.cardValid === false ? 'warn' : tone;
       n.g.dataset.status = s;
@@ -250,7 +255,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     if (state.selected?.kind === 'node') renderDetail();
   }
   setInterval(() => {
-    for (const id of ['tutor', 'library']) {
+    for (const id of SPECIALIST_IDS) {
       const spec = state.specialists[id];
       if (spec?.lastHeartbeatAt) nodeEls[id].extra.textContent = `♥ ${ago(spec.lastHeartbeatAt)}`;
     }
@@ -432,7 +437,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
       } else if (id === 'hub') {
         const hub = state.snapshot?.hub;
         const dests = html('ul', { className: 'dest-list' }, ...(hub?.destinations ?? []).map((d) => html('li', {}, html('strong', { textContent: d.destination }), ` → ${d.workerName} `, html('span', { className: 'hint', textContent: `(${STATUS[state.specialists[d.worker]?.status]?.[1] ?? 'unknown'})` }))));
-        detail.replaceChildren(head, dl([['status', text], ['public name', hub?.name], ['router', hub?.router ? `${hub.router.mode}${hub.router.model ? ` (${hub.router.model})` : ''}` : null], ['relaying now', state.active.tutor + state.active.library], ['telemetry', state.hubFeed ? 'connected' : 'lost']]),
+        detail.replaceChildren(head, dl([['status', text], ['public name', hub?.name], ['router', hub?.router ? `${hub.router.mode}${hub.router.model ? ` (${hub.router.model})` : ''}` : null], ['relaying now', relaying(state.active)], ['telemetry', state.hubFeed ? 'connected' : 'lost']]),
           html('h4', { textContent: 'Destinations (server-owned)' }), dests,
           html('p', { className: 'hint', textContent: state.snapshot?.trust ?? '' }));
       } else {

@@ -20,6 +20,8 @@ import { loadHubConfig } from './config.js';
 import { apiHost, keyEnvName, useModel } from './llm.js';
 import { createHubRegistry } from './hub-registry.js';
 import { CONTROL_MEDIA_TYPES, DEREGISTER_MEDIA_TYPE, HEARTBEAT_MEDIA_TYPE, REGISTER_MEDIA_TYPE } from './hub-link.js';
+import { createLessonService } from './hub-lessons.js';
+import { HUB_LESSON_MEDIA_TYPES, LESSON_PUBLISH_MEDIA_TYPE, LESSON_RECEIPT_MEDIA_TYPE, LESSON_STATUS_MEDIA_TYPE, STUDENT_SESSION_MEDIA_TYPE } from './lessons.js';
 import { CARD_CHANGED_MEDIA_TYPE } from './skills.js';
 import { A2UI_EXTENSION_URI, A2UI_MIME_TYPE, BASIC_CATALOG_ID, isA2uiPart } from './forms.js';
 import { ROUTER_MODE, decideRoute, routerStatus } from './router.js';
@@ -50,13 +52,31 @@ const trim = (map) => { if (map.size > MAX_RECORDS) map.delete(map.keys().next()
 // without one must not get its content relayed. HUB_TELEMETRY_SHOW_CONTENT=1 turns redaction off.
 const CONFIG_EVENT_TYPES = new Set(['status', 'skills_saved', 'card_notification', 'hub_registration']);
 // Part 8: the Generated UI inspector's payload (model output, validation results, synthetic loan facts).
-// It holds agent output and backend data, never values a student typed, so this one field passes.
+// By default only its STRUCTURE passes (decided after Part 8): component types, ids, references, bindings
+// and actions, validation results and backend loan facts — every model-written string is masked, because
+// it can repeat what the student said. HUB_TELEMETRY_SHOW_CONTENT=1 relays the full payload.
 const INSPECTOR_FIELDS = { ui_generated: ['inspector'] };
+const STRUCTURAL_KEYS = new Set(['id', 'component', 'children', 'child', 'componentId', 'path', 'action', 'event', 'name', 'context', 'variant', 'enableDate', 'enableTime', 'min', 'max', 'filterable', 'weight', 'direction', 'align', 'tabs', 'trigger', 'content']);
+function structureOnly(value, key = null) {
+  if (key === 'context') return value; // an action's operation inputs: loan ids and data-model paths
+  if (Array.isArray(value)) return value.map((v) => structureOnly(v, key));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, key === 'context' || STRUCTURAL_KEYS.has(k) ? structureOnly(v, k) : typeof v === 'string' ? `[${v.length} chars redacted]` : structureOnly(v, k)]));
+  if (typeof value === 'string' && !STRUCTURAL_KEYS.has(key) && key !== 'context') return `[${value.length} chars redacted]`;
+  return value;
+}
+const inspectorView = (inspector) => ({
+  ...inspector,
+  modelOutput: inspector?.modelOutput?.components
+    ? { components: structureOnly(inspector.modelOutput.components), dataModel: structureOnly(inspector.modelOutput.dataModel ?? {}), redacted: 'structure only — set HUB_TELEMETRY_SHOW_CONTENT=1 to see the text' }
+    : { text: typeof inspector?.modelOutput?.text === 'string' ? `[${inspector.modelOutput.text.length} chars redacted]` : null, redacted: 'set HUB_TELEMETRY_SHOW_CONTENT=1 to see the text' },
+  validation: (inspector?.validation ?? []).map((a) => ({ ...a, errors: (a.errors ?? []).map((e) => String(e).slice(0, 300)) })),
+});
 const SAFE_FIELDS = new Set([
   'runId', 'operationId', 'hubOperationId', 'formId', 'formRef', 'workflowId', 'taskId', 'contextId', 'messageId', 'inReplyTo', 'requestId',
   'agentId', 'skillId', 'actionName', 'policyRevision', 'revision', 'status', 'outcome', 'verdict', 'stage', 'decision', 'mode', 'model',
   'purpose', 'by', 'code', 'kind', 'final', 'lookup', 'duplicate', 'repeat', 'acknowledged', 'unavailable', 'truncated', 'stopReason',
   'taskState', 'resumedTask', 'violates', 'handler', 'reviewer', 'latencyMs', 'earlierMessages', 'chars', 'fallback', 'operation', 'loanId', 'ok', 'generated', 'revision',
+  'lessonId', 'deliveryId', 'inboxId', 'noticeId', 'courseId', 'attempt', 'found',
   'usage', 'inputTokens', 'outputTokens', 'cacheReadInputTokens', 'cacheCreationInputTokens', 'tutor', 'library',
 ]);
 // Lists of field NAMES (never values) that may pass, e.g. which fields a form prefilled.
@@ -78,7 +98,7 @@ function redactFields(data, depth = 0) {
 export function redactTelemetry(event) {
   if (process.env.HUB_TELEMETRY_SHOW_CONTENT === '1' || CONFIG_EVENT_TYPES.has(event.type) || !event.data || typeof event.data !== 'object') return event.data;
   const out = redactFields(event.data);
-  for (const field of INSPECTOR_FIELDS[event.type] ?? []) if (field in event.data) out[field] = event.data[field];
+  for (const field of INSPECTOR_FIELDS[event.type] ?? []) if (field in event.data) out[field] = inspectorView(event.data[field]);
   return out;
 }
 
@@ -88,7 +108,17 @@ export function startHubServer({ port } = {}) {
   const viz = new EventEmitter();
   viz.setMaxListeners(50);
   const emit = (type, runId, data, source = 'hub') => viz.emit('event', { source, type, runId: runId ?? null, at: new Date().toISOString(), data });
-  const registry = createHubRegistry({ peers: cfg.peers, expiryMs: cfg.heartbeatExpiryMs, cardFetchMs: cfg.timeouts.cardFetchMs, onEvent: (type, data) => emit(type, null, data) });
+  let lessons = null;
+  const registry = createHubRegistry({
+    peers: cfg.peers, expiryMs: cfg.heartbeatExpiryMs, cardFetchMs: cfg.timeouts.cardFetchMs,
+    onEvent: (type, data) => {
+      emit(type, null, data);
+      // Part 9: a professor becoming ready makes its courses available to enrolled students (once).
+      if (type === 'registry_status' && data.status === 'ready') lessons?.announceCourses();
+    },
+  });
+  // Part 9: professor-initiated lessons and student sessions (src/hub-lessons.js).
+  lessons = createLessonService({ cfg, registry, emit: (type, data) => emit(type, null, data) });
   const workerOf = Object.fromEntries(Object.entries(cfg.destinations).map(([dest, d]) => [d.worker, dest]));
 
   // Per Student conversation (= the Student↔Hub A2A context): owner, routing turns, and one separate
@@ -118,8 +148,15 @@ export function startHubServer({ port } = {}) {
       const msg = ctx.userMessage;
       const control = msg.parts.find((p) => p.content?.$case === 'data' && CONTROL_MEDIA_TYPES.has(p.mediaType));
       if (control) return handleControl(ctx, bus, control);
+      const lessonPart = msg.parts.find((p) => p.content?.$case === 'data' && HUB_LESSON_MEDIA_TYPES.has(p.mediaType));
+      if (lessonPart) return handleLessonMessage(ctx, bus, lessonPart, msg);
       const studentId = msg.metadata?.studentId;
       if (!cfg.students.includes(studentId)) return replyMessage(ctx, bus, 'This university front door only serves enrolled students configured for this demo.', { hub: { decision: 'rejected', reason: 'unknown_student' } });
+      // Part 9: a student request must carry its agent's session signature (key confirmed at registration).
+      const who = lessons.verifyStudent(studentId, [msg.contextId, msg.messageId], msg.metadata?.studentSignature);
+      if (who !== 'ok') {
+        return replyMessage(ctx, bus, who === 'no_session' ? 'Your student agent hasn’t connected to the university yet. Try again in a moment.' : 'This request isn’t signed by your student agent, so the university can’t accept it.', { hub: { decision: 'rejected', reason: who } });
+      }
       const a2ui = msg.parts.find(isA2uiPart);
       if (a2ui) return handleFormAction(ctx, bus, a2ui, studentId);
       return handleChat(ctx, bus, studentId);
@@ -154,6 +191,18 @@ export function startHubServer({ port } = {}) {
     bus.finished();
   }
 
+  // ---- Part 9: lessons and student sessions (typed A2A data parts; app conventions) ---------------
+  async function handleLessonMessage(ctx, bus, part, msg) {
+    const value = part.content.value ?? {};
+    let ack;
+    if (part.mediaType === STUDENT_SESSION_MEDIA_TYPE) ack = await lessons.registerStudent(value);
+    else if (part.mediaType === LESSON_PUBLISH_MEDIA_TYPE) ack = await lessons.publish(value);
+    else if (part.mediaType === LESSON_STATUS_MEDIA_TYPE) ack = lessons.status(value);
+    else if (part.mediaType === LESSON_RECEIPT_MEDIA_TYPE) ack = lessons.receipt(value, msg.metadata?.studentSignature);
+    bus.publish(AgentEvent.message({ messageId: randomUUID(), contextId: ctx.contextId, taskId: '', role: Role.ROLE_AGENT, parts: [jsonPart(ack ?? { status: 'rejected' })], metadata: undefined, extensions: [], referenceTaskIds: [] }));
+    bus.finished();
+  }
+
   // ---- chat: route, forward, relay --------------------------------------------------------------
   async function handleChat(ctx, bus, studentId) {
     const incoming = ctx.userMessage;
@@ -164,7 +213,7 @@ export function startHubServer({ port } = {}) {
     const key = `${ctx.contextId}|${incoming.messageId}`;
     const repeat = chatLedger.has(key);
     if (!repeat) {
-      chatLedger.set(key, processChat(ctx, conv, question, runId, incoming.messageId, incoming.metadata?.requestedCapability));
+      chatLedger.set(key, processChat(ctx, conv, question, runId, incoming.messageId, incoming.metadata?.requestedCapability, incoming.metadata?.lessonDeliveryId));
       trim(chatLedger);
     } else emit('request_repeat', runId, { messageId: incoming.messageId, note: 'Same request ID as before — returning the earlier result; nothing dispatched again.' });
     const out = await chatLedger.get(key);
@@ -180,7 +229,7 @@ export function startHubServer({ port } = {}) {
     emit('relay_sent', runId, { operationId: out.operationId, to: 'student', kind: out.form ? 'form_offer' : out.kind, servedBy: out.servedBy ?? null, repeat });
   }
 
-  async function processChat(ctx, conv, question, runId, upstreamMessageId, requestedCapability) {
+  async function processChat(ctx, conv, question, runId, upstreamMessageId, requestedCapability, lessonDeliveryId) {
     const operationId = randomUUID();
     emit('message_received', runId, { operationId, contextId: ctx.contextId, messageId: upstreamMessageId, chars: question.length });
     const plain = (text, metadata, kind) => ({ operationId, kind, message: { messageId: randomUUID(), taskId: '', role: Role.ROLE_AGENT, parts: [textPart(text)], metadata: { runId, operationId, ...metadata }, extensions: [], referenceTaskIds: [] } });
@@ -189,11 +238,17 @@ export function startHubServer({ port } = {}) {
     // The Student may name one of this university's PUBLIC capabilities (its card's skill IDs). The Hub
     // maps it to its own configured worker — the Student never supplies a destination — and the
     // readiness check below still applies. Anything else is ignored and the Hub routes as usual.
+    // Part 9: a question about a delivered lesson goes to that lesson's professor — from the Hub's own
+    // delivery record for this student (never from keywords or a claimed professor).
+    const lesson = typeof lessonDeliveryId === 'string' ? lessons.lessonRoute(conv.studentId, lessonDeliveryId) : null;
+    if (lessonDeliveryId && !lesson) emit('lesson_route_rejected', runId, { operationId, reason: 'not this student’s lesson' });
     const requested = typeof requestedCapability === 'string' ? requestedCapability.slice(0, 60) : null;
     const capability = requested && Object.hasOwn(cfg.destinations, requested) ? cfg.destinations[requested] : null;
     if (requested && !capability) emit('capability_rejected', runId, { operationId, capability: requested, reason: 'Not one of this university’s capabilities; the Hub routed the request itself.' });
     try {
-      if (capability) {
+      if (lesson) {
+        decision = { decision: 'route', agentId: lesson.professorId, skillId: null, reason: `A question about lesson ${lesson.lessonId} (revision ${lesson.revision}), delivered to this student — routed to its professor.`, model: null, decidedBy: 'lesson' };
+      } else if (capability) {
         decision = { decision: 'route', agentId: capability.worker, skillId: null, reason: `The Student asked for ${capability.name ?? requested}.`, model: null, decidedBy: 'student' };
       } else if (ROUTER_MODE === 'direct') {
         const tutor = view.find((s) => s.destination === 'tutoring');
@@ -239,7 +294,7 @@ export function startHubServer({ port } = {}) {
         runId, contextId: downstreamContextId, messageId: downstreamMessageId, card: registry.entry(agentId).card,
         // studentId: the conversation's verified owner (Part 8: the Library resolves the borrower from it).
         timeoutMs: cfg.timeouts.dispatchMs,
-        metadata: { hubOperationId: operationId, via: cfg.agentId, studentId: conv.studentId, hubSignature: registry.signFor(agentId, { studentId: conv.studentId, contextId: downstreamContextId, operationId }) },
+        metadata: { hubOperationId: operationId, via: cfg.agentId, studentId: conv.studentId, hubSignature: registry.signFor(agentId, { studentId: conv.studentId, contextId: downstreamContextId, operationId }), ...(lesson && agentId === lesson.professorId ? { lessonId: lesson.lessonId, lessonRevision: lesson.revision } : {}) },
       });
       registry.markReachable(agentId, true);
       conv.turns = [...conv.turns, { question, agentId, skillId: decision.skillId, answer: String(reply.text ?? '').slice(0, 300) }].slice(-ROUTING_TURNS);
@@ -362,7 +417,10 @@ export function startHubServer({ port } = {}) {
       hub: { agentId: cfg.agentId, name: cfg.name, role: 'University front door and router', status: 'ready', router: routerStatus(), active: counters.active, openForms: [...formRefs.values()].filter((m) => m.state === 'open').length,
         destinations: Object.entries(cfg.destinations).map(([dest, d]) => ({ destination: dest, worker: d.worker, workerName: registry.peer(d.worker)?.displayName ?? d.worker, description: d.description })) },
       specialists: registry.snapshot().map((s) => ({ ...s, destination: workerOf[s.agentId] ?? null, active: activeFor.get(s.agentId) ?? 0 })),
-      trust: 'Localhost spike: identities are self-declared and checked against the Hub’s allowlist and configured endpoints — not authentication.',
+      // Part 9: courses (trusted configuration), student sessions and lesson deliveries (ids and states only).
+      courses: Object.entries(cfg.courses ?? {}).map(([courseId, c]) => ({ courseId, title: c.title, professor: c.professor, enrolled: c.enrolled })),
+      lessons: lessons.snapshot(),
+      trust: 'Localhost spike: agent identities use per-process keys exchanged at registration (the Student’s key is confirmed by a challenge to its configured endpoint). There are no accounts or credentials — not production authentication.',
     };
   }
   // Relay each specialist's own visualization feed (trusted URLs from configuration), redacted.
@@ -459,6 +517,20 @@ export function startHubServer({ port } = {}) {
       dev.get('/dev/agents/:agentId/skills', proxy('', 'GET'));
       dev.post('/dev/agents/:agentId/skills/preview', proxy('/preview', 'POST'));
       dev.put('/dev/agents/:agentId/skills', proxy('', 'PUT'));
+      // Part 9: the Professor view's authoring API (the professor's own console; HTTP, not A2A). Posting a
+      // lesson there makes the PROFESSOR start a real A2A interaction with the Hub.
+      const author = (path, method) => async (req, res) => {
+        const peer = registry.peer(req.params.agentId);
+        if (!peer) return res.status(404).json({ error: 'Unknown agent.' });
+        try {
+          const upstream = await fetch(`${peer.baseUrl}/author${path}`, { method, headers: method === 'GET' ? {} : { 'Content-Type': 'application/json' }, body: method === 'GET' ? undefined : JSON.stringify(req.body ?? {}), signal: AbortSignal.timeout(15000) });
+          res.status(upstream.status).json(await upstream.json());
+        } catch {
+          res.status(502).json({ error: `${peer.displayName} is not reachable.` });
+        }
+      };
+      dev.get('/dev/agents/:agentId/author/state', author('/state', 'GET'));
+      dev.post('/dev/agents/:agentId/author/lessons', author('/lessons', 'POST'));
       // Manual "Refresh skills": re-fetch every specialist card from its configured URL (no model calls).
       dev.post('/dev/registry/refresh', (req, res) => {
         for (const peer of cfg.peers) registry.refresh(peer.agentId, 'manual');

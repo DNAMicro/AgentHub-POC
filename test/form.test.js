@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import {
-  startStack, waitFor, openStream, post, put, find, findAll, formVia, formAction, lifecycleOf, lastLifecycle, waitLifecycle, actionResults,
+  startStack, signedStudent, waitFor, openStream, post, put, find, findAll, formVia, formAction, lifecycleOf, lastLifecycle, waitLifecycle, actionResults,
 } from './support/harness.js';
 import { askTutor, sendFormAction } from '../src/student-agent.js';
 import { TUTORING_ACK } from '../src/tutor-agent.js';
@@ -27,10 +27,9 @@ const countIn = (text, needle) => text.split(needle).length - 1;
 
 // Content is shown in the Hub's telemetry here so the tests can compare received values.
 const SHOW = { HUB_TELEMETRY_SHOW_CONTENT: '1' };
-const STUDENT = { studentId: 'student-alex' };
 let stack, tutor, ui;
 before(async () => {
-  stack = await startStack({ library: false, hubEnv: SHOW });
+  stack = await startStack({ library: false, hubEnv: { ...SHOW, HUB_STUDENTS: 'student-alex,student-sam' } });
   ({ tutor, ui } = stack);
 });
 after(() => stack?.kill());
@@ -151,14 +150,23 @@ test('duplicate operations: double-click sends once; an identical retry returns 
   await waitLifecycle(stream, form.formId, ['accepted']);
   const first = lastLifecycle(stream.events, form.formId).receipt;
 
-  // The identical retry goes where the Student's retries go: to the Hub, which returns its stored result.
-  const again = await sendFormAction(stack.hub.url, { form, operationId, metadata: STUDENT, action: { name: 'submitTutoringRequest', surfaceId: form.formId, sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context: ALEX } });
-  assert.equal(again.duplicate, true);
-  assert.deepEqual(again.body.receipt, first, 'same receipt, nothing re-executed');
-  assert.equal(again.taskId, null, 'the completed task was not resumed (new message referencing it)');
-  const different = await sendFormAction(stack.hub.url, { form, operationId, metadata: STUDENT, action: { name: 'submitTutoringRequest', surfaceId: form.formId, sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context: { ...ALEX, firstName: 'Sam' } } });
-  assert.match(JSON.stringify(different.body.errors), /already used with different values/);
   assert.equal(countIn(tutor.output(), `requestId: '${first.requestId}'`), 1, 'recorded once');
+
+  // The identical retry goes where the Student's retries go: to the Hub, which returns its stored result.
+  // (Part 9: direct Hub calls are signed, so this part uses a test student's own form and session.)
+  const sam = await signedStudent(stack.hub.url, 'student-sam');
+  const own = (await askTutor(stack.hub.url, ASK, sam)).form;
+  const act = (context) => ({ name: 'submitTutoringRequest', surfaceId: own.formId, sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context });
+  const ownOp = randomUUID();
+  const firstSam = await sendFormAction(stack.hub.url, { form: own, operationId: ownOp, action: act(ALEX), ...sam });
+  assert.equal(firstSam.body.status, 'accepted');
+  const again = await sendFormAction(stack.hub.url, { form: own, operationId: ownOp, action: act(ALEX), ...sam });
+  assert.equal(again.duplicate, true);
+  assert.deepEqual(again.body.receipt, firstSam.body.receipt, 'same receipt, nothing re-executed');
+  assert.equal(again.taskId, null, 'the completed task was not resumed (new message referencing it)');
+  const different = await sendFormAction(stack.hub.url, { form: own, operationId: ownOp, action: act({ ...ALEX, firstName: 'Sam' }), ...sam });
+  assert.match(JSON.stringify(different.body.errors), /already used with different values/);
+  assert.equal(countIn(tutor.output(), `requestId: '${firstSam.body.receipt.requestId}'`), 1, 'recorded once');
   stream.close();
 });
 

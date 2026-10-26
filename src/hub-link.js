@@ -18,6 +18,7 @@ export const signStudent = (key, { studentId, contextId, operationId }) => creat
 import { Role } from '@a2a-js/sdk';
 import { ClientFactory } from '@a2a-js/sdk/client';
 import { CARD_CHANGED_MEDIA_TYPE } from './skills.js';
+import { sign } from './lessons.js';
 
 export const REGISTER_MEDIA_TYPE = 'application/vnd.a2a-spike.agent-register+json';
 export const HEARTBEAT_MEDIA_TYPE = 'application/vnd.a2a-spike.agent-heartbeat+json';
@@ -34,7 +35,7 @@ export function createHubLink({ agentId, hubUrl, endpoint, cardUrl, enabled, hea
   let stopped = false;
   const state = { registered: false, lastAckAt: null, lastError: null, hubUrl, instanceId, enabled };
 
-  async function send(mediaType, value) {
+  async function send(mediaType, value, timeoutMs = SEND_TIMEOUT_MS) {
     try {
       client ??= await new ClientFactory().createFromUrl(hubUrl);
       const result = await client.sendMessage({
@@ -44,7 +45,7 @@ export function createHubLink({ agentId, hubUrl, endpoint, cardUrl, enabled, hea
           parts: [{ content: { $case: 'data', value }, metadata: undefined, filename: '', mediaType }],
           metadata: { control: value.type, agentId }, extensions: [], referenceTaskIds: [],
         },
-      }, { signal: AbortSignal.timeout(SEND_TIMEOUT_MS) });
+      }, { signal: AbortSignal.timeout(timeoutMs) });
       return result.parts?.find((p) => p.content?.$case === 'data')?.content.value ?? { status: 'unrecognized' };
     } catch (err) {
       client = null; // re-discover the Hub next time (it may have restarted)
@@ -87,6 +88,18 @@ export function createHubLink({ agentId, hubUrl, endpoint, cardUrl, enabled, hea
   return {
     state,
     instanceId,
+    // Part 9: a request this specialist starts itself (e.g. the Professor publishing a lesson), signed with
+    // the key it gave the Hub at registration so the Hub can tell it really comes from this instance.
+    // Returns the Hub's typed reply, or { status: 'not_delivered' | 'uncertain', reason }.
+    async sendSigned(mediaType, value, fields) {
+      const body = { ...value, professorId: agentId, instanceId, signature: sign(callKey, [agentId, instanceId, ...fields]) };
+      try {
+        return await send(mediaType, body, 15000); // the Hub delivers to the Student before it replies
+      } catch (err) {
+        const refused = err?.cause?.code === 'ECONNREFUSED';
+        return { status: refused ? 'not_delivered' : 'uncertain', reason: offline(err) };
+      }
+    },
     // The student the Hub vouches for on this request, or null if the signature is missing or wrong.
     verifiedStudent(metadata, contextId) {
       const { studentId, hubOperationId, hubSignature } = metadata ?? {};

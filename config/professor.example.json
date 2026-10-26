@@ -1,0 +1,8 @@
+{
+  "agentId": "professor",
+  "displayName": "Marketing 101 Professor",
+  "hub": { "url": "http://127.0.0.1:41243" },
+  "enabled": true,
+  "heartbeatIntervalMs": 3000,
+  "model": { "name": "claude-haiku-5-5", "apiKeyEnv": "ANTHROPIC_API_KEY" }
+}

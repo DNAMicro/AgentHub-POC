@@ -4,7 +4,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { startStack, waitFor, openStream, post, forRun, find, findAll, stateOf, chatVia } from './support/harness.js';
+import { startStack, signedStudent, waitFor, openStream, post, forRun, find, findAll, stateOf, chatVia } from './support/harness.js';
 import { startFakeAnthropic, messageReply } from './support/fake-anthropic.js';
 import { askTutor } from '../src/student-agent.js';
 import { topologyLabel } from '../src/topology.js';
@@ -58,7 +58,7 @@ test('topology: the Student’s own model calls are drawn on its own line', () =
 let stack;
 const streams = [];
 before(async () => {
-  stack = await startStack({ hubEnv: { ROUTER_MODE: 'mock' }, uiEnv: { STUDENT_MODE: 'mock' } });
+  stack = await startStack({ hubEnv: { ROUTER_MODE: 'mock', HUB_STUDENTS: 'student-alex,student-sam' }, uiEnv: { STUDENT_MODE: 'mock' } });
 });
 after(() => {
   for (const s of streams) s.close();
@@ -72,7 +72,7 @@ const open = async (url) => {
 
 test('the Hub advertises one public skill per capability, with no worker names or URLs', async () => {
   const card = await (await fetch(`${stack.hub.url}/.well-known/agent-card.json`)).json();
-  assert.deepEqual(card.skills.map((s) => s.id), ['tutoring', 'library']);
+  assert.deepEqual(card.skills.map((s) => s.id), ['tutoring', 'library', 'marketing']);
   assert.ok(!JSON.stringify(card.skills).match(/4124[12]|Tutor Agent|Library Agent/), 'capabilities only');
 });
 
@@ -122,7 +122,8 @@ test('the Hub ignores a capability it doesn’t offer and routes the request its
   })();
   const runId = randomUUID();
   try {
-    const reply = await askTutor(stack.hub.url, 'Explain the derivative of x squared', { runId, metadata: { studentId: 'student-alex', requestedCapability: 'payroll' } });
+    const sam = await signedStudent(stack.hub.url, 'student-sam');
+    const reply = await askTutor(stack.hub.url, 'Explain the derivative of x squared', { runId, signer: sam.signer, metadata: { ...sam.metadata, requestedCapability: 'payroll' } });
     await waitFor(() => events.find((e) => e.runId === runId && e.type === 'route_decided'), { what: 'route decision' });
     assert.equal(events.find((e) => e.runId === runId && e.type === 'capability_rejected').data.capability, 'payroll');
     assert.equal(events.find((e) => e.runId === runId && e.type === 'route_decided').data.decidedBy, 'hub');
@@ -148,7 +149,7 @@ test('live mode: the Student’s own model (and key variable) decides a non-obvi
     assert.equal(stub.requests.length, 1, 'one Student model call; the specialist runs mock');
     const { body, headers } = stub.requests[0];
     assert.equal(body.model, 'claude-sonnet-5-5');
-    assert.deepEqual(body.output_config.format.schema.properties.capability.enum, ['tutoring', 'library', 'none'], 'only the Hub’s public capability IDs');
+    assert.deepEqual(body.output_config.format.schema.properties.capability.enum, ['tutoring', 'library', 'marketing', 'none'], 'only the Hub’s public capability IDs');
     assert.ok(headers['x-api-key'] === key || headers.authorization === `Bearer ${key}`);
     const plan = find(r.events, 'student', 'request_planned').data;
     assert.deepEqual([plan.action, plan.capability, plan.by], ['send', 'library', 'model']);
@@ -188,7 +189,7 @@ test('live mode: clearly not a university service → the Student answers itself
     stub.respondWith(() => messageReply(JSON.stringify({ action: 'decline', capability: 'none', reason: 'Home plumbing repair isn’t something the university offers.', clarification_question: '' })));
     const d = await chatVia(live.ui, stream, 'How do I fix my toilet plumbing?');
     const declined = find(d.events, 'student', 'request_declined').data;
-    assert.equal(declined.text, 'Home plumbing repair isn’t something the university offers. The university can help with: Tutoring and Library services.');
+    assert.equal(declined.text, 'Home plumbing repair isn’t something the university offers. The university can help with: Tutoring, Library services, and Marketing 101.');
     assert.ok(!find(d.events, 'student', 'request_sent'), 'nothing sent');
     assert.ok(!find(d.events, 'hub', 'message_received'));
     assert.equal(stateOf(stream.events, d.runId), 'completed');

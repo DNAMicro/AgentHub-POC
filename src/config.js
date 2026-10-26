@@ -77,19 +77,28 @@ export function loadStudentConfig() {
   return cfg;
 }
 
-// ---- Tutor / Library ------------------------------------------------------------------------------
+// ---- Tutor / Library / Professor ---------------------------------------------------------------------
+
+const SPECIALISTS = {
+  tutor: { port: 41241, displayName: 'Tutor Agent', file: 'TUTOR_CONFIG', model: 'TUTOR_MODEL', label: 'Tutor' },
+  library: { port: 41242, displayName: 'Library Agent', file: 'LIBRARY_CONFIG', model: 'LIBRARY_MODEL', label: 'Library' },
+  // Part 9: the Marketing 101 Professor (a private specialist behind the Hub, like the others).
+  professor: { port: 41244, displayName: 'Marketing 101 Professor', file: 'PROFESSOR_CONFIG', model: 'PROFESSOR_MODEL', label: 'Professor' },
+};
 
 export function loadSpecialistConfig(role) {
-  const port = role === 'tutor' ? 41241 : 41242;
+  const spec = SPECIALISTS[role];
+  if (!spec) throw new ConfigError('Specialist', [`Unknown specialist role "${role}".`]);
+  const port = spec.port;
   const defaults = {
     agentId: role,
-    displayName: role === 'tutor' ? 'Tutor Agent' : 'Library Agent',
+    displayName: spec.displayName,
     hub: { url: 'http://127.0.0.1:41243' },
     enabled: true,
     heartbeatIntervalMs: 3000,
     model: DEFAULT_MODEL_CFG,
   };
-  const cfg = merge(defaults, readFile(role === 'tutor' ? 'TUTOR_CONFIG' : 'LIBRARY_CONFIG'));
+  const cfg = merge(defaults, readFile(spec.file));
   if (env('HUB_URL')) cfg.hub.url = env('HUB_URL');
   if (env('HEARTBEAT_INTERVAL_MS')) cfg.heartbeatIntervalMs = num(env('HEARTBEAT_INTERVAL_MS'));
   if (env('SPECIALIST_ENABLED')) cfg.enabled = env('SPECIALIST_ENABLED') !== '0';
@@ -99,8 +108,8 @@ export function loadSpecialistConfig(role) {
   check(p, LOCAL_URL.test(cfg.hub?.url ?? ''), 'hub.url must be a localhost URL like http://127.0.0.1:41243.');
   check(p, typeof cfg.enabled === 'boolean', 'enabled must be true or false.');
   check(p, positive(cfg.heartbeatIntervalMs) && cfg.heartbeatIntervalMs >= 200, 'heartbeatIntervalMs must be an integer ≥ 200.');
-  modelProblems(p, cfg, role === 'tutor' ? 'TUTOR_MODEL' : 'LIBRARY_MODEL');
-  if (p.length) throw new ConfigError(role === 'tutor' ? 'Tutor' : 'Library', p);
+  modelProblems(p, cfg, spec.model);
+  if (p.length) throw new ConfigError(spec.label, p);
   return cfg;
 }
 
@@ -114,12 +123,13 @@ export function loadHubConfig() {
     peers: [
       { agentId: 'tutor', expectedName: 'Tutor Agent', displayName: 'Tutor Agent', baseUrl: 'http://127.0.0.1:41241' },
       { agentId: 'library', expectedName: 'Library Agent', displayName: 'Library Agent', baseUrl: 'http://127.0.0.1:41242' },
+      { agentId: 'professor', expectedName: 'Marketing 101 Professor', displayName: 'Marketing 101 Professor', baseUrl: 'http://127.0.0.1:41244' },
     ],
     destinations: {
       // name/tags/examples are PUBLIC: they become the Hub card's capability skills (no worker names or URLs).
       tutoring: {
         worker: 'tutor', name: 'Tutoring', description: 'Academic tutoring and in-person tutoring requests. Subjects come from the Tutor’s enabled skills.',
-        tags: ['tutor', 'tutoring', 'explain', 'homework', 'calculus', 'derivative', 'integral', 'limit', 'algebra', 'math', 'marketing'],
+        tags: ['tutor', 'tutoring', 'explain', 'homework', 'calculus', 'derivative', 'integral', 'limit', 'algebra', 'math'],
         examples: ['Explain the derivative of x squared', 'I want to book an in-person tutoring session'],
       },
       library: {
@@ -127,8 +137,18 @@ export function loadHubConfig() {
         tags: ['library', 'book', 'borrow', 'renew', 'return', 'loan', 'due', 'overdue', 'hours', 'study room', 'reserve'],
         examples: ['How do I renew a library book?', 'I want to reserve a group study room'],
       },
+      // Part 9: the Marketing 101 course (a fictional class) — questions go to its professor.
+      marketing: {
+        worker: 'professor', name: 'Marketing 101', description: 'Marketing 101 (a fictional introductory course): marketing concepts, course lessons, worked examples and checking your understanding.',
+        tags: ['marketing', 'marketing 101', 'segmentation', 'targeting', 'positioning', 'branding', 'pricing', 'promotion', 'customer value', 'lesson'],
+        examples: ['What is the difference between segmentation and targeting?', 'Can you explain the lesson about customer value?'],
+      },
     },
     students: ['student-alex'],
+    // Part 9 (trusted data): where the Hub may deliver to each student's own agent (its inbound A2A
+    // endpoint, served by the UI server), and who teaches and is enrolled in each course.
+    studentEndpoints: { 'student-alex': 'http://127.0.0.1:3000' },
+    courses: { 'mkt-101': { title: 'Marketing 101', professor: 'professor', enrolled: ['student-alex'] } },
     heartbeatExpiryMs: 10000,
     timeouts: { dispatchMs: 60000, formActionMs: 8000, cardFetchMs: 3000 },
     model: DEFAULT_MODEL_CFG,
@@ -142,6 +162,7 @@ export function loadHubConfig() {
   if (env('HUB_DISPATCH_TIMEOUT_MS')) cfg.timeouts.dispatchMs = num(env('HUB_DISPATCH_TIMEOUT_MS'));
   if (env('HUB_FORM_TIMEOUT_MS')) cfg.timeouts.formActionMs = num(env('HUB_FORM_TIMEOUT_MS'));
   if (env('HUB_STUDENTS')) cfg.students = env('HUB_STUDENTS').split(',');
+  if (env('STUDENT_URL')) cfg.studentEndpoints = { ...cfg.studentEndpoints, [cfg.students[0]]: env('STUDENT_URL') };
   const p = [];
   check(p, ID.test(cfg.agentId ?? ''), 'agentId must be a lowercase id like "csuf-hub".');
   check(p, typeof cfg.name === 'string' && cfg.name.length > 0, 'name (the public university name) is required.');
@@ -164,6 +185,16 @@ export function loadHubConfig() {
   }
   check(p, Object.keys(cfg.destinations ?? {}).length > 0, 'at least one destination is required.');
   check(p, Array.isArray(cfg.students) && cfg.students.every((s) => ID.test(s)), 'students must be a list of student ids.');
+  for (const [sid, url] of Object.entries(cfg.studentEndpoints ?? {})) {
+    check(p, cfg.students.includes(sid), `studentEndpoints: "${sid}" is not a configured student.`);
+    check(p, LOCAL_URL.test(url ?? ''), `studentEndpoints.${sid} must be a localhost URL (got "${url}").`);
+  }
+  for (const [courseId, c] of Object.entries(cfg.courses ?? {})) {
+    check(p, ID.test(courseId), `course "${courseId}" must be a lowercase id.`);
+    check(p, typeof c?.title === 'string' && c.title.length > 0, `course ${courseId}: title is required.`);
+    check(p, ids.has(c?.professor), `course ${courseId}: professor "${c?.professor}" is not an allowlisted peer.`);
+    check(p, Array.isArray(c?.enrolled) && c.enrolled.every((s) => cfg.students.includes(s)), `course ${courseId}: enrolled must list configured students.`);
+  }
   check(p, positive(cfg.heartbeatExpiryMs) && cfg.heartbeatExpiryMs >= 500, 'heartbeatExpiryMs must be an integer ≥ 500.');
   for (const k of ['dispatchMs', 'formActionMs', 'cardFetchMs']) check(p, positive(cfg.timeouts?.[k]), `timeouts.${k} must be a positive integer (ms).`);
   modelProblems(p, cfg, 'HUB_MODEL');

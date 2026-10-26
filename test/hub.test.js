@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
-  startStack, startUi, openStream, chatVia, formVia, formAction, waitFor, waitLifecycle, lastLifecycle, find, findAll, forRun, post, hubEntry, status,
+  startStack, startUi, openStream, signedStudent, chatVia, formVia, formAction, waitFor, waitLifecycle, lastLifecycle, find, findAll, forRun, post, hubEntry, status,
 } from './support/harness.js';
 import { askTutor, sendFormAction } from '../src/student-agent.js';
 import { addDays, todayIn } from '../src/forms.js';
@@ -30,7 +30,7 @@ const ALLOWED_EDGES = new Set(['student-hub', 'hub-tutor', 'hub-library', 'stude
 
 let stack, stream;
 before(async () => {
-  stack = await startStack({ hubEnv: { ROUTER_MODE: 'mock', HUB_STUDENTS: 'student-alex,student-sam' }, tutorEnv: { TUTOR_MODE: 'mock', TUTOR_SCOPE_ENFORCEMENT: 'off' } });
+  stack = await startStack({ hubEnv: { ROUTER_MODE: 'mock', HUB_STUDENTS: 'student-alex,student-sam,student-kim' }, tutorEnv: { TUTOR_MODE: 'mock', TUTOR_SCOPE_ENFORCEMENT: 'off' } });
   stream = await openStream(stack.ui.url);
 });
 after(() => {
@@ -75,18 +75,24 @@ test('unknown students are refused; another student can’t use a form; a form c
   const mallory = await askTutor(stack.hub.url, 'Explain limits', { metadata: { studentId: 'mallory' } });
   assert.equal(mallory.hub.decision, 'rejected');
 
-  const a = await askTutor(stack.hub.url, ASK, { metadata: { studentId: 'student-alex' } });
-  const b = await askTutor(stack.hub.url, ASK, { metadata: { studentId: 'student-alex' } }); // a second conversation
+  // Part 9: requests to the Hub are signed with the student's session key (see signedStudent).
+  const kim = await signedStudent(stack.hub.url, 'student-kim');
+  const sam = await signedStudent(stack.hub.url, 'student-sam');
+  const a = await askTutor(stack.hub.url, ASK, kim);
+  const b = await askTutor(stack.hub.url, ASK, kim); // a second conversation
   assert.ok(a.form?.formRef && b.form?.formRef && a.form.contextId !== b.form.contextId);
   const tutorActions = () => findAll(stream.events, 'tutor', 'form_action_received').length;
   const before = tutorActions();
-  const send = (form, studentId = 'student-alex', act = action(a.form)) => sendFormAction(stack.hub.url, { form, operationId: randomUUID(), action: act, metadata: { studentId } });
+  const send = (form, who = kim, act = action(a.form)) => sendFormAction(stack.hub.url, { form, operationId: randomUUID(), action: act, ...who });
 
-  assert.match(JSON.stringify((await send(a.form, 'student-sam')).body), /another student/);
+  assert.match(JSON.stringify((await send(a.form, sam)).body), /another student/);
+  // Claiming to be kim without kim's session key is refused before anything else.
+  const forged = await askTutor(stack.hub.url, 'Explain limits', { metadata: { studentId: 'student-kim' }, signer: sam.signer });
+  assert.match(forged.text, /isn’t signed/);
   // A's reference presented inside B's (live) conversation and task.
   assert.match(JSON.stringify((await send({ ...a.form, contextId: b.form.contextId, taskId: b.form.taskId })).body), /another conversation/);
   assert.match(JSON.stringify((await send({ ...a.form, formRef: `hf-${randomUUID()}` })).body), /Unknown or altered form reference/);
-  assert.match(JSON.stringify((await send(a.form, 'student-alex', action(b.form))).body), /does not match this form/);
+  assert.match(JSON.stringify((await send(a.form, kim, action(b.form))).body), /does not match this form/);
   await new Promise((r) => setTimeout(r, 200));
   assert.equal(tutorActions(), before, 'nothing reached the Tutor');
   assert.ok(findAll(stream.events, 'hub', 'form_action_rejected').length >= 4);
@@ -153,7 +159,8 @@ test('registration states: heartbeat expiry → stale, sign-out → disconnected
 
 test('concurrent requests from separate conversations stay separate', async () => {
   const qs = ['Explain limits', 'How do I renew a borrowed book?', 'Explain integrals', 'What are the library opening hours?', 'Explain the derivative of x cubed'];
-  const replies = await Promise.all(qs.map((q) => askTutor(stack.hub.url, q, { runId: randomUUID(), metadata: { studentId: 'student-alex' } })));
+  const kim = await signedStudent(stack.hub.url, 'student-kim');
+  const replies = await Promise.all(qs.map((q) => askTutor(stack.hub.url, q, { runId: randomUUID(), ...kim })));
   for (const [i, r] of replies.entries()) {
     const expected = /library|renew/i.test(qs[i]) ? 'library' : 'tutor';
     assert.equal(r.servedBy, expected, qs[i]);

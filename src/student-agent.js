@@ -29,10 +29,13 @@ const shown = (text) => (logContent() ? text : `[${text.length} chars, content n
 // `card`: an already-validated Agent Card (from Student's trusted registry). When given, it is used
 // as-is instead of fetching the card again, so the destination is the registry's vetted endpoint.
 // metadata: extra A2A message metadata (Part 7: the Student's identity to the Hub; the Hub's operation ID downstream).
-export async function askTutor(baseUrl, text = STUDENT_MESSAGE, { runId, contextId = '', messageId = randomUUID(), timeoutMs = CHAT_TIMEOUT_MS, card, metadata = {}, onEvent = () => {} } = {}) {
+// signer({ contextId, messageId }): Part 9 — the Student agent's session signature for the Hub (optional).
+export async function askTutor(baseUrl, text = STUDENT_MESSAGE, { runId, contextId = '', messageId = randomUUID(), timeoutMs = CHAT_TIMEOUT_MS, card, metadata = {}, signer = null, onEvent = () => {} } = {}) {
   let sendStarted = false;
+  // A signed request names its own context (the signature covers it; a server-assigned one couldn't be).
+  if (signer && !contextId) contextId = randomUUID();
   try {
-    return await exchange(baseUrl, text, { runId, contextId, messageId, timeoutMs, card, metadata }, onEvent, () => (sendStarted = true));
+    return await exchange(baseUrl, text, { runId, contextId, messageId, timeoutMs, card, metadata, signer }, onEvent, () => (sendStarted = true));
   } catch (err) {
     if (err.tutorError) throw err; // A2A worked; the Tutor reported its own failure (already emitted)
     const outcome = deliveryOutcome(err, sendStarted);
@@ -41,7 +44,7 @@ export async function askTutor(baseUrl, text = STUDENT_MESSAGE, { runId, context
   }
 }
 
-async function exchange(baseUrl, text, { runId, contextId, messageId, timeoutMs, card: knownCard, metadata: extra = {} }, onEvent, markSendStarted) {
+async function exchange(baseUrl, text, { runId, contextId, messageId, timeoutMs, card: knownCard, metadata: extra = {}, signer = null }, onEvent, markSendStarted) {
   // 1. Discovery: GET <baseUrl>/.well-known/agent-card.json
   const card = knownCard ?? (await new DefaultAgentCardResolver().resolve(baseUrl));
   const discovered = {
@@ -65,6 +68,7 @@ async function exchange(baseUrl, text, { runId, contextId, messageId, timeoutMs,
     extensions: [],
     referenceTaskIds: [],
   };
+  if (signer) message.metadata.studentSignature = signer({ contextId: message.contextId, messageId: message.messageId });
   log('sending message', { messageId: message.messageId, contextId: contextId || '(new)', text: shown(text) });
   // "Send started" only: receipt is confirmed separately by the Tutor's own event.
   onEvent('request_sent', { messageId: message.messageId, contextId: contextId || null, text });
@@ -166,7 +170,7 @@ function deliveryOutcome(err, sendStarted) {
 // context references the task instead; the agent returns the stored result for a repeated operationId.
 // acknowledgeReview: the student chose "Send anyway" after the agent's review flagged these values.
 // metadata: extra A2A metadata (Part 7: the Student's identity). The Hub's formRef is sent when present.
-export async function sendFormAction(baseUrl, { form, action, operationId, runId, card, acknowledgeReview = false, timeoutMs = SUBMIT_TIMEOUT_MS, metadata = {}, onEvent = () => {} }) {
+export async function sendFormAction(baseUrl, { form, action, operationId, runId, card, acknowledgeReview = false, timeoutMs = SUBMIT_TIMEOUT_MS, metadata = {}, signer = null, onEvent = () => {} }) {
   let sendStarted = false;
   try {
     const client = await connect(baseUrl, card);
@@ -177,6 +181,7 @@ export async function sendFormAction(baseUrl, { form, action, operationId, runId
       ...(resume ? { taskId: form.taskId } : { referenceTaskIds: [form.taskId] }),
       metadata: { ...metadata, runId, operationId, formId: form.formId, formVersion: form.formVersion ?? undefined, ...(form.formRef ? { formRef: form.formRef } : {}), ...(acknowledgeReview ? { reviewAcknowledged: true } : {}) },
     });
+    if (signer) message.metadata.studentSignature = signer({ contextId: message.contextId, messageId: message.messageId });
     const mode = resume ? 'resume-task' : 'new-message-referencing-task';
     log('sending form action', { operationId, action: action.name, formId: form.formId, messageId: message.messageId, mode });
     onEvent('form_action_sent', { operationId, actionName: action.name, formId: form.formId, messageId: message.messageId, mode, taskId: resume ? form.taskId : null });

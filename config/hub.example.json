@@ -3,13 +3,17 @@
   "name": "California State University Fullerton",
   "peers": [
     { "agentId": "tutor", "expectedName": "Tutor Agent", "displayName": "Tutor Agent", "baseUrl": "http://127.0.0.1:41241" },
-    { "agentId": "library", "expectedName": "Library Agent", "displayName": "Library Agent", "baseUrl": "http://127.0.0.1:41242" }
+    { "agentId": "library", "expectedName": "Library Agent", "displayName": "Library Agent", "baseUrl": "http://127.0.0.1:41242" },
+    { "agentId": "professor", "expectedName": "Marketing 101 Professor", "displayName": "Marketing 101 Professor", "baseUrl": "http://127.0.0.1:41244" }
   ],
   "destinations": {
     "tutoring": { "worker": "tutor", "description": "Academic tutoring and in-person tutoring requests." },
-    "library": { "worker": "library", "description": "Library services: hours, borrowing, renewals, returns, finding resources, group study rooms." }
+    "library": { "worker": "library", "description": "Library services: hours, borrowing, renewals, returns, finding resources, group study rooms." },
+    "marketing": { "worker": "professor", "description": "Marketing 101 (a fictional introductory course): marketing concepts, course lessons, worked examples and checking your understanding." }
   },
   "students": ["student-alex"],
+  "studentEndpoints": { "student-alex": "http://127.0.0.1:3000" },
+  "courses": { "mkt-101": { "title": "Marketing 101", "professor": "professor", "enrolled": ["student-alex"] } },
   "heartbeatExpiryMs": 10000,
   "timeouts": { "dispatchMs": 60000, "formActionMs": 8000, "cardFetchMs": 3000 },
   "model": { "name": "claude-haiku-5-5", "apiKeyEnv": "ANTHROPIC_API_KEY" }

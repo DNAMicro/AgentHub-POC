@@ -217,8 +217,10 @@ test('repeated requests never cause duplicate paid calls', async () => {
 test('uncertain outcome is reconciled with the same request ID — no second paid call; reconnect sends nothing', async () => {
   stub.reset();
   stub.respondWith(() => ({ ...messageReply('Slow but sure'), delayMs: 900 }));
-  // A second Student UI on the same Hub, which gives up on the Student↔Hub leg after 300 ms.
-  const impatientUi = await startUi(liveStack.hub.url, { CHAT_TIMEOUT_MS: '300' });
+  // A Student UI that gives up on the Student↔Hub leg after 300 ms. Its own stack: since Part 9 the Hub
+  // accepts the student's session only from the configured Student endpoint, so a second UI can't share one.
+  const own = await startStack({ library: false, tutorEnv: liveEnv(stub), uiEnv: { CHAT_TIMEOUT_MS: '300' } });
+  const impatientUi = own.ui;
   try {
     const stream = await open(impatientUi);
     const { runId } = await chat(impatientUi, stream, 'Will this time out?');
@@ -241,7 +243,7 @@ test('uncertain outcome is reconciled with the same request ID — no second pai
     assert.equal(stub.requests.length, 1, 'reconnects triggered no call');
     assert.equal((await post(`${impatientUi.url}/api/runs/${runId}/reconcile`, {})).status, 409, 'nothing left to reconcile');
   } finally {
-    impatientUi.proc.kill();
+    own.kill();
     stub.reset();
   }
 });

@@ -13,6 +13,8 @@
     "smoke:live": "node scripts/live-smoke.js",
     "library": "node src/library-agent.js",
     "library:live": "LIBRARY_MODE=live node src/library-agent.js",
+    "professor": "node src/professor-agent.js",
+    "professor:live": "PROFESSOR_MODE=live node src/professor-agent.js",
     "ui:live": "npm run build:ui && STUDENT_MODE=live node src/ui-server.js",
     "eval:live": "node scripts/live-eval.js",
     "hub": "ROUTER_MODE=mock node src/hub-agent.js",

@@ -32,15 +32,17 @@ export async function startTutor(env = {}) {
 }
 
 // Part 7: the Student UI connects only to the university Hub.
+// Part 9: every test process gets its own data files (never the demo's data/*.json).
+const tempFile = (name) => join(mkdtempSync(join(tmpdir(), 'a2a-')), name);
 export async function startUi(hubUrl, env = {}) {
-  const ui = startProcess('src/ui-server.js', { UI_PORT: '0', HUB_URL: hubUrl, ...env }, UI_READY);
+  const ui = startProcess('src/ui-server.js', { UI_PORT: '0', HUB_URL: hubUrl, STUDENT_INBOX_FILE: tempFile('inbox.json'), ...env }, UI_READY);
   ui.url = await ui.ready;
   return ui;
 }
 
 export const HUB_READY = /\[Hub\] listening on (http:\/\/127\.0\.0\.1:\d+)/;
 export async function startHub(env = {}) {
-  const hub = startProcess('src/hub-agent.js', { PORT: '0', ...env }, HUB_READY);
+  const hub = startProcess('src/hub-agent.js', { PORT: '0', HUB_LESSON_FILE: tempFile('hub-lessons.json'), ...env }, HUB_READY);
   hub.url = await hub.ready;
   return hub;
 }
@@ -104,6 +106,13 @@ export const stateOf = (events, runId) => forRun(events, runId).filter((e) => e.
 
 export const LIBRARY_READY = /\[Library Agent\] listening on (http:\/\/127\.0\.0\.1:\d+)/;
 
+export const PROFESSOR_READY = /\[Marketing 101 Professor\] listening on (http:\/\/127\.0\.0\.1:\d+)/;
+export async function startProfessor(env = {}) {
+  const professor = startProcess('src/professor-agent.js', { PORT: '0', PROFESSOR_OUTBOX_FILE: tempFile('outbox.json'), ...env }, PROFESSOR_READY);
+  professor.url = await professor.ready;
+  return professor;
+}
+
 // Each test Library gets its own fresh loan store (Part 8), never the demo's data/library-loans.json.
 export const freshLoanStore = () => join(mkdtempSync(join(tmpdir(), 'a2a-loans-')), 'loans.json');
 export async function startLibrary(env = {}) {
@@ -117,20 +126,25 @@ export async function startLibrary(env = {}) {
 // with the Hub. Pass tutorPort/libraryPort to restart a specialist on the same trusted endpoint.
 // library: false starts only the Tutor (the Library stays registered-but-absent, i.e. disconnected).
 // readyAgents: which specialists must be 'ready' before returning (e.g. ['tutor'] when the Library is disabled).
-export async function startStack({ tutorEnv = {}, libraryEnv = {}, hubEnv = {}, uiEnv = {}, library = true, tutorPort, libraryPort, waitReady = true, readyAgents } = {}) {
+// Part 9: professor: true also starts the Marketing 101 Professor. The UI (Student) port is pre-picked
+// too, so the Hub's configuration names the Student's inbound endpoint before it starts.
+export async function startStack({ tutorEnv = {}, libraryEnv = {}, hubEnv = {}, uiEnv = {}, professorEnv = {}, library = true, professor = false, tutorPort, libraryPort, professorPort, uiPort, waitReady = true, readyAgents } = {}) {
   const tPort = tutorPort ?? (await unusedPort());
   const lPort = libraryPort ?? (await unusedPort());
-  const hub = await startHub({ TUTOR_URL: `http://127.0.0.1:${tPort}`, LIBRARY_URL: `http://127.0.0.1:${lPort}`, HEARTBEAT_EXPIRY_MS: '3000', ...hubEnv });
+  const pPort = professorPort ?? (await unusedPort());
+  const uPort = uiPort ?? (await unusedPort());
+  const hub = await startHub({ TUTOR_URL: `http://127.0.0.1:${tPort}`, LIBRARY_URL: `http://127.0.0.1:${lPort}`, PROFESSOR_URL: `http://127.0.0.1:${pPort}`, STUDENT_URL: `http://127.0.0.1:${uPort}`, HEARTBEAT_EXPIRY_MS: '3000', HUB_DELIVER_RETRY_MS: '500', ...hubEnv });
   const specialistEnv = { HUB_URL: hub.url, HEARTBEAT_INTERVAL_MS: '500' };
   const tutor = await startTutor({ ...specialistEnv, PORT: String(tPort), ...tutorEnv });
   const lib = library ? await startLibrary({ ...specialistEnv, PORT: String(lPort), ...libraryEnv }) : null;
-  const ui = await startUi(hub.url, uiEnv);
+  const prof = professor ? await startProfessor({ ...specialistEnv, PORT: String(pPort), ...professorEnv }) : null;
+  const ui = await startUi(hub.url, { UI_PORT: String(uPort), ...uiEnv });
   const stack = {
-    hub, tutor, library: lib, ui, tutorPort: tPort, libraryPort: lPort, specialistEnv,
+    hub, tutor, library: lib, professor: prof, ui, tutorPort: tPort, libraryPort: lPort, professorPort: pPort, uiPort: uPort, specialistEnv,
     // Uses the stack's current processes, so a test that restarts one (stack.library = …) still cleans up.
-    kill() { [this.ui, this.tutor, this.library, this.hub].filter(Boolean).forEach((p) => p.proc.kill()); },
+    kill() { [this.ui, this.tutor, this.library, this.professor, this.hub].filter(Boolean).forEach((p) => p.proc.kill()); },
   };
-  const mustBeReady = readyAgents ?? (library ? ['tutor', 'library'] : ['tutor']);
+  const mustBeReady = readyAgents ?? [...(library ? ['tutor', 'library'] : ['tutor']), ...(professor ? ['professor'] : [])];
   if (waitReady) {
     await waitFor(async () => {
       const s = await status(ui);
@@ -139,7 +153,7 @@ export async function startStack({ tutorEnv = {}, libraryEnv = {}, hubEnv = {}, 
       const t = await (await fetch(`${hub.url}/viz/topology`)).json();
       const hubReady = (id) => t.specialists.find((x) => x.agentId === id)?.status === 'ready';
       // …and the Hub must be following each specialist's telemetry, or early events would be missed.
-      return s.hubFeedConnected && s.university.cardValid && mustBeReady.every((id) => hubReady(id) && t.feeds[id]) && (!library || t.feeds.library) && (ready('tutor') || hubReady('tutor'));
+      return s.hubFeedConnected && s.university.cardValid && s.student?.session === 'registered' && mustBeReady.every((id) => hubReady(id) && t.feeds[id]) && (!library || t.feeds.library) && (ready('tutor') || hubReady('tutor'));
     }, { what: 'stack ready', timeout: 8000 }).catch((err) => {
       stack.kill(); // never leave processes behind (they would keep the test runner alive)
       throw err;
@@ -170,7 +184,7 @@ export async function chatVia(ui, stream, text, contextId) {
     runId, contextId: ctx, events,
     decision: find(events, 'hub', 'route_decided')?.data,
     reply: find(events, 'student', 'reply_received')?.data,
-    destinations: ['tutor', 'library'].filter((a) => find(events, a, 'message_received')),
+    destinations: ['tutor', 'library', 'professor'].filter((a) => find(events, a, 'message_received')),
   };
 }
 
@@ -190,3 +204,15 @@ export const lastLifecycle = (events, formId) => events.filter((e) => e.type ===
 export const waitLifecycle = (stream, formId, states, timeout = 5000) =>
   waitFor(() => states.includes(lastLifecycle(stream.events, formId)?.state), { timeout, what: `form ${formId} in ${states}` });
 export const actionResults = (events, formId, name) => events.filter((e) => e.source === 'student' && e.type === 'form_action_result' && e.data.formId === formId && (!name || e.data.actionName === name));
+
+// Part 9: a test student that talks to the Hub directly with its own signed session. Only for students
+// WITHOUT a configured inbound endpoint (the demo student's endpoint is the UI, which holds its session).
+export async function signedStudent(hubUrl, studentId) {
+  const { randomBytes, randomUUID: uuid } = await import('node:crypto');
+  const { sendData } = await import('../../src/a2a-data.js');
+  const { sign, STUDENT_SESSION_MEDIA_TYPE } = await import('../../src/lessons.js');
+  const callKey = randomBytes(32).toString('base64url');
+  const r = await sendData(hubUrl, { mediaType: STUDENT_SESSION_MEDIA_TYPE, value: { type: 'student_session', studentId, instanceId: uuid(), endpoint: null, callKey } });
+  if (r.value?.status !== 'registered') throw new Error(`test student ${studentId} not registered: ${JSON.stringify(r)}`);
+  return { metadata: { studentId }, signer: ({ contextId, messageId }) => sign(callKey, [studentId, contextId, messageId]) };
+}

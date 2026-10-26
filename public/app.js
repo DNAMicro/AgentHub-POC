@@ -8,6 +8,7 @@
 // and Topology (the live switchboard, public/topology.js).
 import { createFormsUi } from './forms-ui.js';
 import { createTopology } from './topology.js';
+import { createClassroom } from './classroom.js';
 import { WORKFLOWS, prettyDate } from '/shared/forms.js';
 
 const $ = (id) => document.getElementById(id);
@@ -34,10 +35,11 @@ const els = {
   timeline: $('timeline'),
   timelineError: $('timeline-error'),
   libraryLog: $('library-log'),
+  professorLog: $('professor-log'),
   inspectorLog: $('inspector-log'),
   routerMode: $('router-mode'),
   refreshSkills: $('refresh-skills'),
-  skillsBox: { tutor: $('tutor-skills'), library: $('library-skills') },
+  skillsBox: { tutor: $('tutor-skills'), library: $('library-skills'), professor: $('professor-skills') },
   dialog: $('skills-dialog'),
   dialogTitle: $('skills-dialog-title'),
   dialogIdentity: $('skills-identity'),
@@ -55,9 +57,16 @@ const topology = createTopology({
   svg: $('topo'), detail: $('topo-detail'), list: $('topo-events'), count: $('topo-count'), traceSelect: $('topo-trace'),
   truncatedNote: $('topo-truncated'), clockEl: $('topo-clock'),
   controls: { heartbeats: $('topo-heartbeats'), reduce: $('topo-reduce'), pause: $('topo-pause') },
-  agentColor: (id) => ({ student: 'var(--student)', hub: 'var(--hub)', tutor: 'var(--tutor)', library: 'var(--library)', model: 'var(--model)' })[id] ?? 'var(--muted)',
+  agentColor: (id) => ({ student: 'var(--student)', hub: 'var(--hub)', tutor: 'var(--tutor)', library: 'var(--library)', professor: 'var(--professor)', model: 'var(--model)' })[id] ?? 'var(--muted)',
   // A small dot on the Topology tab when traffic happens while another tab is showing.
   onActivity: () => { if ($('view-topology').hidden) $('tab-pulse').dataset.on = 'true'; },
+});
+
+// Part 9: the course inbox, lesson view and toast (Conversation) and the Professor view.
+const classroom = createClassroom({
+  sendChat: (text, extra) => { chatFollow.pin(); return startRun('/api/runs', { text, contextId: currentContextId, ...extra }); },
+  showConversation: () => { if ($('view-conversation').hidden) showTab(tabs[0], { history: 'push' }); },
+  focusComposer: () => { showTab(tabs[0], { history: 'push' }); els.message.focus(); },
 });
 
 const STATE_LABELS = {
@@ -95,7 +104,7 @@ const STEPS = {
 };
 const STEP_ALIASES = { 'student:tutor_error': 'student:reply_received', 'student:form_received': 'student:reply_received', 'specialist:form_sent': 'specialist:reply_published' };
 const stepKey = (source, type) => {
-  const who = source === 'tutor' || source === 'library' ? 'specialist' : source;
+  const who = source === 'tutor' || source === 'library' || source === 'professor' ? 'specialist' : source;
   const key = `${who}:${type}`;
   return STEP_ALIASES[key] ?? key;
 };
@@ -106,7 +115,7 @@ let currentRunId = null;
 let currentRunKind = null;
 let currentState = 'idle';
 let awaitingRunId = null; // set between clicking Send and that run leaving a busy state
-const follow = new Map([els.studentLog, els.studentConsole, els.hubLog, els.tutorLog, els.libraryLog].map((log) => [log, followBottom(log)]));
+const follow = new Map([els.studentLog, els.studentConsole, els.hubLog, els.tutorLog, els.libraryLog, els.professorLog].map((log) => [log, followBottom(log)]));
 const chatFollow = follow.get(els.studentLog);
 window.__chatFollow = chatFollow; // read-only hook for browser tests (following state)
 const formsUi = createFormsUi({ log: els.studentLog, agentName: (id) => viaUniversity(id), onChange: () => renderState(), pinToBottom: () => chatFollow.pin() });
@@ -351,7 +360,7 @@ function flowStep(source, type, data, at) {
     case 'hub:route_decided':
       if (data.decision === 'route') {
         setSpecialist(data.agentId);
-        markStep(key, at, { note: `→ ${data.destination}${data.decidedBy === 'student' ? ' (Student’s choice)' : ''}` });
+        markStep(key, at, { note: `→ ${data.destination}${{ student: ' (Student’s choice)', lesson: ' (lesson you received)' }[data.decidedBy] ?? ''}` });
         for (const k of ['specialist:message_received', 'specialist:reply_published']) {
           const li = [...els.timeline.children].find((x) => x.dataset.step === k);
           if (li && li.dataset.state === 'pending') li.querySelector('.step-note').textContent = name(data.agentId);
@@ -474,7 +483,7 @@ const errorText = (errors) => Object.entries(errors ?? {}).map(([field, msg]) =>
 
 // ---- Part 5: advertised skills, Student's cached view, propagation ---------
 
-const AGENT_NAMES = { tutor: 'Tutor Agent', library: 'Library Agent', hub: 'University Hub', student: 'Student agent' };
+const AGENT_NAMES = { tutor: 'Tutor Agent', library: 'Library Agent', professor: 'Marketing 101 Professor', hub: 'University Hub', student: 'Student agent' };
 let universityName = 'California State University Fullerton';
 // Replies come from the university; the specialist that produced one is shown as attribution.
 const viaUniversity = (id) => (id && id !== 'hub' ? `${universityName} · ${AGENT_NAMES[id] ?? id}` : universityName);
@@ -483,6 +492,7 @@ const viaUniversity = (id) => (id && id !== 'hub' ? `${universityName} · ${AGEN
 const agents = {
   tutor: { advertised: null, saved: null, notification: null, received: null, registry: null },
   library: { advertised: null, saved: null, notification: null, received: null, registry: null },
+  professor: { advertised: null, saved: null, notification: null, received: null, registry: null },
 };
 
 const el = (tag, props = {}, ...children) => {
@@ -793,9 +803,11 @@ function handle(event, { live = true } = {}) {
   const hub = (item) => appendTo(els.hubLog, messageItem({ at, speaker: 'hub', ...item }));
   const tutor = (item) => appendTo(els.tutorLog, messageItem({ at, speaker: 'tutor', ...item }));
   const library = (item) => appendTo(els.libraryLog, messageItem({ at, speaker: 'library', ...item }));
+  const professor = (item) => appendTo(els.professorLog, messageItem({ at, speaker: 'professor', ...item }));
   const agentName = (id) => AGENT_NAMES[id] ?? id;
 
   topology.event(event, { live });
+  classroom.event(event, { live });
   if (source === 'system') {
     if (type === 'hub_feed') {
       setBadge(els.hubFeed, data.connected, data.connected ? 'Hub telemetry: connected' : 'Hub telemetry: lost');
@@ -809,6 +821,9 @@ function handle(event, { live = true } = {}) {
     } else if (type === 'agent_status') {
       topology.agentMode(data.agentId, { mode: data.mode, model: data.model, keyConfigured: data.keyConfigured });
       if (data.agentId === 'tutor') renderMode(data);
+      if (data.agentId === 'professor') {
+        document.getElementById('professor-role').textContent = `Marketing 101 · answers from the course pack (${data.mode === 'live' ? `live, ${data.model}` : 'mock, no model'})`;
+      }
       if (data.agentId === 'library') {
         document.getElementById('library-role').textContent = `Specialist behind the Hub · answers from saved content (${data.mode === 'live' ? `live, ${data.model}` : 'mock, no model'})`;
       }
@@ -850,12 +865,25 @@ function handle(event, { live = true } = {}) {
         break;
       // The Student's own model (STUDENT_MODE): its plan before anything is sent, and its calls.
       case 'request_planned': {
-        const how = { uncertain: 'your answer didn’t settle it — the Hub decides', rule: 'obvious from the words — the Hub routes it', model: 'decided by the Student’s model', heuristic: 'mock heuristic', context: 'reply to the university’s question', off: 'Student model off', model_failed: 'Student model failed' }[data.by] ?? data.by;
+        const how = { uncertain: 'your answer didn’t settle it — the Hub decides', rule: 'obvious from the words — the Hub routes it', model: 'decided by the Student’s model', heuristic: 'mock heuristic', context: 'reply to the university’s question', off: 'Student model off', model_failed: 'Student model failed', lesson: 'about a lesson you received — routed by its delivery record', course: 'asked for this course' }[data.by] ?? data.by;
         const text = data.action === 'clarify' ? 'Not clear enough to send yet — asking you first.' : data.action === 'decline' ? 'Clearly not a university service — answering you here; nothing sent.' : data.capability ? `Needs ${data.capabilityName ?? data.capability}; the Hub will be asked for that capability.` : 'No capability chosen; the Hub routes it.';
         const relation = data.relation === 'new_request' ? ' (A new request — my earlier question was dropped.)' : data.relation === 'answers_question' ? ' (Your answer to my question — sent together with your earlier message.)' : '';
         studentConsole({ dir: data.error ? 'error' : 'info', label: `Plan: ${data.action === 'clarify' ? 'clarify first' : data.action === 'decline' ? 'answer here (not offered)' : data.capability ? `send to ${data.capabilityName ?? data.capability}` : 'send as-is'}`, text: `${text} ${data.reason ?? ''}${relation}`.trim(), ids: { how, matched: data.matched?.map((m) => `${m.id}: ${m.terms.join(', ')}`).join('; ') || null, model: data.usage ? `${data.model} · ${data.usage.inputTokens} in / ${data.usage.outputTokens} out tokens` : null, run } });
         break;
       }
+      // Part 9: the Student agent's inbound side — its session with the Hub and what the Hub delivered.
+      case 'student_session':
+        studentConsole({ dir: data.status === 'registered' ? 'received' : 'error', label: data.status === 'registered' ? 'Session with the university' : 'Session not registered', text: data.status === 'registered' ? 'Registered its inbound endpoint and answered the Hub’s challenge; its requests are now signed.' : `The Hub didn’t accept the session (${data.reason ?? data.status}); retrying.`, ids: {} });
+        break;
+      case 'lesson_received':
+        studentConsole({ dir: 'received', label: 'Lesson delivered', text: `“${data.title || 'Untitled lesson'}” (${data.courseTitle}) — saved in the inbox before confirming to the Hub.`, ids: { delivery: data.deliveryId, lesson: data.lessonId, revision: data.revision } });
+        break;
+      case 'lesson_opened':
+        studentConsole({ dir: 'sent', label: 'Lesson opened', text: 'You opened it; a signed receipt goes to the Hub.', ids: { delivery: data.deliveryId } });
+        break;
+      case 'course_available':
+        studentConsole({ dir: 'received', label: 'Course available', text: `${data.courseTitle} is now available.`, ids: { notice: data.noticeId } });
+        break;
       case 'clarification_asked':
         student({ dir: 'sent', speaker: 'student', label: 'You (held by your Student agent, not sent yet)', text: data.question, ids: { contextId: data.contextId, run } });
         student({ dir: 'received', speaker: 'student', label: 'Your Student agent asks', text: data.text, ids: { note: 'Your answer is sent to the university together with your question.', run } });
@@ -963,6 +991,42 @@ function handle(event, { live = true } = {}) {
         formAgentEvent(library, type, data, run);
     }
     if (isCurrent) flowStep(source, type, data, at);
+  } else if (source === 'professor') {
+    // Part 9: the Marketing 101 Professor — student questions in, answers out, and lessons it posted.
+    switch (type) {
+      case 'message_received':
+        professor({ dir: 'received', label: 'Received', text: data.text, ids: { messageId: data.messageId, contextId: data.contextId, run } });
+        break;
+      case 'reply_published':
+        professor({ dir: 'sent', label: 'Sent', text: data.text, ids: { outcome: data.professor?.outcome, lesson: data.professor?.lessonId, model: data.professor?.model, messageId: data.messageId, inReplyTo: data.inReplyTo, run } });
+        break;
+      case 'model_call_started':
+        professor({ dir: 'sent', label: 'Model call', text: `Calling ${data.model} (${data.purpose}).`, ids: { mode: data.mode, run } });
+        break;
+      case 'model_response_received':
+        professor({ dir: 'received', label: 'Model reply', text: `${data.model} responded in ${(data.latencyMs / 1000).toFixed(1)} s (${data.usage?.inputTokens ?? '?'} input / ${data.usage?.outputTokens ?? '?'} output tokens).`, ids: { anthropicRequest: data.requestId, run } });
+        break;
+      case 'model_call_failed':
+        professor({ dir: 'error', label: 'Model error', text: data.message, ids: { code: data.code, run } });
+        break;
+      case 'lesson_posted':
+        professor({ dir: 'sent', label: 'Lesson posted', text: 'Sent to the university Hub over A2A (a new interaction, signed).', ids: { lesson: data.lessonId, revision: data.revision, operation: data.operationId } });
+        break;
+      case 'lesson_publish_result':
+        professor({ dir: data.status === 'rejected' ? 'error' : 'received', label: 'Hub answered', text: `Lesson ${data.status}${data.reason ? ` (${data.reason})` : ''}${data.duplicate ? ' — stored result, nothing sent twice' : ''}.`, ids: { lesson: data.lessonId, revision: data.revision } });
+        break;
+      case 'skills_saved':
+        agents.professor.saved = { ...data, at };
+        loadAdvertised('professor');
+        break;
+      case 'card_notification':
+        agents.professor.notification = data;
+        renderSkillsBox('professor');
+        break;
+      default:
+        break;
+    }
+    if (isCurrent) flowStep(source, type, data, at);
   } else if (source === 'tutor') {
     switch (type) {
       case 'skills_saved':
@@ -1017,7 +1081,44 @@ function hubEvent(panel, type, data, run) {
       panel({ dir: 'info', label: 'Repeat request', text: data.note, ids: { messageId: data.messageId, run } });
       break;
     case 'route_decided':
-      panel({ dir: data.decision === 'route' ? 'sent' : 'info', label: data.decision === 'route' ? `Routed → ${data.destination}${data.decidedBy === 'student' ? ' (Student’s choice)' : ''}` : `Not routed: ${data.decision}`, text: data.decision === 'clarify' ? `Asks: ${data.clarificationQuestion}` : data.reason, ids: { decidedBy: data.decidedBy === 'student' ? 'the Student (capability checked by the Hub; no Hub router call)' : null, worker: data.agentId ? name(data.agentId) : null, skill: data.skillId, router: data.model, routerUsage: data.usage ? `${data.usage.inputTokens} in / ${data.usage.outputTokens} out tokens` : null, invalidChoice: data.invalid ? 'model choice refused by code' : null, operation: data.operationId, run } });
+      panel({ dir: data.decision === 'route' ? 'sent' : 'info', label: data.decision === 'route' ? `Routed → ${data.destination}${{ student: ' (Student’s choice)', lesson: ' (lesson you received)' }[data.decidedBy] ?? ''}` : `Not routed: ${data.decision}`, text: data.decision === 'clarify' ? `Asks: ${data.clarificationQuestion}` : data.reason, ids: { decidedBy: data.decidedBy === 'student' ? 'the Student (capability checked by the Hub; no Hub router call)' : null, worker: data.agentId ? name(data.agentId) : null, skill: data.skillId, router: data.model, routerUsage: data.usage ? `${data.usage.inputTokens} in / ${data.usage.outputTokens} out tokens` : null, invalidChoice: data.invalid ? 'model choice refused by code' : null, operation: data.operationId, run } });
+      break;
+    // Part 9: lessons (Professor → Hub → Student), student sessions and course notices.
+    case 'lesson_publish_received':
+      panel({ dir: 'received', label: 'Lesson from the Professor', text: 'Signature, course, professor and enrollment checked; delivering to the student.', ids: { lesson: data.lessonId, revision: data.revision, delivery: data.deliveryId } });
+      break;
+    case 'lesson_rejected':
+      panel({ dir: 'error', label: 'Lesson refused', text: data.reason, ids: { from: data.agentId, lesson: data.lessonId } });
+      break;
+    case 'lesson_delivery_attempted':
+      panel({ dir: 'sent', label: 'Lesson sent to the Student', text: `Attempt ${data.attempt}, signed with the Student’s session.`, ids: { delivery: data.deliveryId } });
+      break;
+    case 'lesson_delivered':
+      panel({ dir: 'received', label: 'Lesson delivered', text: data.duplicate ? 'Already in the Student’s inbox — not stored twice.' : 'The Student agent committed it to its inbox.', ids: { delivery: data.deliveryId } });
+      break;
+    case 'lesson_queued':
+      panel({ dir: 'info', label: 'Lesson queued', text: `The Student agent is offline (${data.reason}); it will be delivered when it returns.`, ids: { delivery: data.deliveryId } });
+      break;
+    case 'lesson_uncertain':
+      panel({ dir: 'error', label: 'Delivery outcome unknown', text: `${data.reason}. The Hub will ask the Student before sending again.`, ids: { delivery: data.deliveryId } });
+      break;
+    case 'lesson_reconciled':
+      panel({ dir: 'info', label: 'Delivery reconciled', text: data.found ? 'The Student already had it — marked delivered, nothing re-sent.' : 'The Student didn’t have it — sending again.', ids: { delivery: data.deliveryId } });
+      break;
+    case 'lesson_failed':
+      panel({ dir: 'error', label: 'Delivery refused', text: data.reason, ids: { delivery: data.deliveryId } });
+      break;
+    case 'lesson_opened':
+      panel({ dir: 'received', label: 'Lesson opened', text: 'Signed receipt from the Student; the Professor will see it.', ids: { delivery: data.deliveryId } });
+      break;
+    case 'lesson_route_rejected':
+      panel({ dir: 'error', label: 'Lesson question refused', text: 'That lesson wasn’t delivered to this student.', ids: { run } });
+      break;
+    case 'course_available_sent':
+      panel({ dir: 'sent', label: 'Course announced', text: `Course availability delivered to ${data.studentId} (once).`, ids: { notice: data.noticeId } });
+      break;
+    case 'student_session':
+      panel({ dir: data.status === 'registered' ? 'received' : 'error', label: data.status === 'registered' ? 'Student session' : 'Student session refused', text: data.status === 'registered' ? `${data.studentId}: challenge answered at the configured endpoint.` : `${data.studentId}: ${data.reason}`, ids: {} });
       break;
     case 'capability_rejected':
       panel({ dir: 'error', label: 'Capability not recognised', text: data.reason, ids: { requested: data.capability, operation: data.operationId, run } });
@@ -1217,6 +1318,7 @@ function showTab(tab, { focus = false, history: how = null } = {}) {
     document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
   }
   if (tab.id === 'tab-topology') els.tabPulse.dataset.on = 'false';
+  if (tab.id === 'tab-professor') classroom.professorShown();
   if (focus) tab.focus();
   const path = tab.getAttribute('href');
   if (how && location.pathname !== path) window.history[how === 'push' ? 'pushState' : 'replaceState'](null, '', path);
@@ -1274,7 +1376,7 @@ els.form.addEventListener('submit', async (e) => {
   if (els.send.disabled || !text.trim()) return;
   els.message.value = ''; // cleared on send…
   chatFollow.pin(); // your own message: always show the newest part of the conversation
-  const started = await startRun('/api/runs', { text, contextId: currentContextId });
+  const started = await startRun('/api/runs', { text, contextId: currentContextId, ...classroom.composerContext() });
   if (!started && !els.message.value) els.message.value = text; // …and given back if the request never started
 });
 els.newConversation.addEventListener('click', async () => {

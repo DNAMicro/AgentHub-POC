@@ -12,7 +12,7 @@
   <header class="topbar">
     <div class="brand">
       <h1 id="university-name">California State University Fullerton</h1>
-      <p class="subtitle">Fictional local demo. Your Student agent talks only to the university’s front door, which routes each request to its tutoring or library service over A2A and relays the answer.</p>
+      <p class="subtitle">Fictional local demo. Your Student agent talks only to the university’s front door, which routes each request to its tutoring, library or Marketing 101 service over A2A and relays the answer. Your Marketing 101 professor can also send you lessons.</p>
     </div>
     <div class="badges" aria-label="Connections and modes">
       <span class="badge" id="browser-feed" data-ok="false">Live view: connecting</span>
@@ -30,6 +30,7 @@
     <a href="/conversation" role="tab" id="tab-conversation" aria-controls="view-conversation" aria-selected="true">Conversation</a>
     <a href="/activity" role="tab" id="tab-activity" aria-controls="view-activity" aria-selected="false" tabindex="-1">Agent activity</a>
     <a href="/topology" role="tab" id="tab-topology" aria-controls="view-topology" aria-selected="false" tabindex="-1">Topology <span class="tab-pulse" id="tab-pulse" aria-hidden="true"></span></a>
+    <a href="/professor" role="tab" id="tab-professor" aria-controls="view-professor" aria-selected="false" tabindex="-1">Professor view</a>
   </nav>
 
   <!-- Conversation: you and the university -->
@@ -39,12 +40,23 @@
         <h2 id="student-title">Conversation with the university</h2>
         <span class="role" id="student-role">Student agent “student-alex” · connects only to the university</span>
         <span class="conversation" id="conversation">New conversation</span>
+        <button type="button" class="inbox-toggle" id="inbox-toggle" aria-controls="inbox" aria-expanded="false" hidden>Lessons <span class="unread" id="inbox-unread" hidden></span></button>
       </header>
+      <!-- Part 9: course notices and lessons the university delivered to this Student agent (persisted by it). -->
+      <section class="inbox" id="inbox" aria-label="Course inbox" hidden>
+        <div class="course-notice" id="course-notice" hidden>
+          <p><strong id="course-notice-title"></strong> <span id="course-notice-text"></span></p>
+          <button type="button" id="course-notice-ask">Ask a question</button>
+          <button type="button" id="course-notice-ok" class="quiet">Got it</button>
+        </div>
+        <ol class="lesson-list" id="lesson-list"></ol>
+      </section>
       <ol class="log chat-log" id="student-log" aria-live="polite"></ol>
       <div class="dock">
+        <p class="about-chip" id="about-chip" hidden><span>About: <strong id="about-title"></strong></span> <button type="button" id="about-clear" aria-label="Stop asking about this lesson">×</button></p>
         <form id="send-form" class="composer">
           <label for="message" class="visually-hidden">Your message</label>
-          <textarea id="message" rows="2" maxlength="2000" required aria-keyshortcuts="Enter" aria-description="Enter sends; Shift+Enter starts a new line." placeholder="Ask a calculus question, ask the library something, or ask to book a study room…">Explain the derivative of x squared</textarea>
+          <textarea id="message" rows="2" maxlength="2000" required aria-keyshortcuts="Enter" aria-description="Enter sends; Shift+Enter starts a new line." placeholder="Ask about calculus, the library, Marketing 101, or book a study room…">Explain the derivative of x squared</textarea>
           <button type="submit" id="send">Send</button>
         </form>
         <div class="actions">
@@ -97,6 +109,15 @@
       <div class="skills-box" id="library-skills"></div>
       <ol class="log console-log" id="library-log"></ol>
     </section>
+    <section class="panel console" aria-labelledby="professor-title" data-agent="professor">
+      <header class="panel-head">
+        <h2 id="professor-title">Marketing 101 Professor</h2>
+        <span class="role" id="professor-role">Specialist behind the Hub</span>
+        <button type="button" class="gear" data-agent="professor" aria-label="Edit agent skills — Marketing 101 Professor" title="Edit skills">⚙</button>
+      </header>
+      <div class="skills-box" id="professor-skills"></div>
+      <ol class="log console-log" id="professor-log"></ol>
+    </section>
     <!-- Part 8: developer view of model-generated UI. Model output, application validation and backend facts are kept apart. -->
     <section class="panel inspector" aria-labelledby="inspector-title">
       <header class="panel-head">
@@ -104,6 +125,39 @@
         <span class="role">What the Library's model decided and composed, what the app's checks said, and where every fact came from</span>
       </header>
       <ol class="inspector-log" id="inspector-log" aria-live="polite"></ol>
+    </section>
+  </section>
+
+  <!-- Part 9: the professor's own console (a separate role in this demo; proxied to the Professor agent) -->
+  <section class="view view-professor" id="view-professor" role="tabpanel" aria-labelledby="tab-professor" hidden>
+    <section class="panel author" aria-labelledby="author-title" data-agent="professor">
+      <header class="panel-head">
+        <h2 id="author-title">Marketing 101 — Professor</h2>
+        <span class="role" id="author-course">Marketing 101</span>
+      </header>
+      <form class="author-form" id="author-form" novalidate>
+        <div class="author-meta">
+          <label for="author-student">Student</label>
+          <select id="author-student" required></select>
+          <span class="presence" id="author-presence"></span>
+        </div>
+        <label for="author-title-input">Title <span class="optional">(optional)</span></label>
+        <input id="author-title-input" maxlength="120" autocomplete="off">
+        <label for="author-text">What would you like your student to learn?</label>
+        <textarea id="author-text" rows="9" maxlength="4000" required></textarea>
+        <div class="author-seeds" id="author-seeds"><span>Start from a course lesson:</span></div>
+        <div class="author-actions">
+          <button type="submit" id="author-post">Post lesson</button>
+          <p class="author-status" id="author-status" role="status"></p>
+        </div>
+      </form>
+    </section>
+    <section class="panel posted" aria-labelledby="posted-title" data-agent="professor">
+      <header class="panel-head">
+        <h2 id="posted-title">Posted lessons</h2>
+        <span class="role" id="posted-hub">Delivery state from the university Hub</span>
+      </header>
+      <ol class="posted-list" id="posted-list"></ol>
     </section>
   </section>
 
@@ -119,7 +173,7 @@
         </label>
         <span class="topo-clock" id="topo-clock" aria-live="off"></span>
       </div>
-      <svg id="topo" class="topo" viewBox="0 0 1100 540" role="group" aria-label="Live topology: Student, University Hub, Tutor Agent and Library Agent, each with its own model box (the Student has none). Use Tab to reach a node or connection, Enter to open its details.">
+      <svg id="topo" class="topo" viewBox="0 0 1100 660" role="group" aria-label="Live topology: Student, University Hub, Tutor Agent, Marketing 101 Professor and Library Agent, each with its own model box (the Student has none). Use Tab to reach a node or connection, Enter to open its details.">
         <defs>
           <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9 z" fill="currentColor"></path></marker>
           <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="b"></feGaussianBlur><feMerge><feMergeNode in="b"></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge></filter>
@@ -131,7 +185,8 @@
       <ul class="legend" aria-label="Legend">
         <li><span class="glyph" data-shape="request"></span>Question or answer</li>
         <li><span class="glyph" data-shape="form"></span>Form or form action</li>
-        <li><span class="glyph" data-shape="registration"></span>Registration</li>
+        <li><span class="glyph" data-shape="lesson"></span>Lesson or course notice</li>
+        <li><span class="glyph" data-shape="registration"></span>Registration or session</li>
         <li><span class="glyph" data-shape="card"></span>Agent Card</li>
         <li><span class="glyph" data-shape="heartbeat"></span>Heartbeat</li>
         <li><span class="glyph" data-shape="model"></span>Model call (dashed line = HTTPS, not A2A)</li>
@@ -177,5 +232,20 @@
   </dialog>
 
   <script type="module" src="app.js"></script>
+  <!-- Part 9: one lesson, opened by the student. Text is shown as text only. -->
+  <dialog class="lesson-dialog" id="lesson-dialog" aria-labelledby="lesson-dialog-title">
+    <header>
+      <p class="lesson-course" id="lesson-dialog-course"></p>
+      <h2 id="lesson-dialog-title"></h2>
+    </header>
+    <div class="lesson-text" id="lesson-dialog-text"></div>
+    <footer>
+      <button type="button" id="lesson-start">Start lesson</button>
+      <button type="button" id="lesson-ask">Ask about this lesson</button>
+      <button type="button" id="lesson-save">Save for later</button>
+      <button type="button" id="lesson-close" class="quiet">Close</button>
+    </footer>
+  </dialog>
+  <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 </body>
 </html>

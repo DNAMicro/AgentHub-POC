@@ -27,6 +27,10 @@ import { getCard, validateCard } from './cards.js';
 import { topologyLabel } from './topology.js';
 import { apiHost, keyEnvName, useModel } from './llm.js';
 import { planRequest, studentAssistantStatus } from './student-assistant.js';
+import { AGENT_CARD_PATH, A2A_PROTOCOL_VERSION } from '@a2a-js/sdk';
+import { DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
+import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
+import { createStudentInbox } from './student-inbox.js';
 
 const HOST = '127.0.0.1';
 const MAX_TEXT_LENGTH = 2000;
@@ -36,7 +40,7 @@ const PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url));
 const SHARED_FORM_MODULE = fileURLToPath(new URL('./forms.js', import.meta.url));
 const ACTION_KEYS = ['name', 'surfaceId', 'sourceComponentId', 'timestamp', 'context'];
 const CONTEXT_ID_PATTERN = /^[\w-]{8,100}$/;
-const CONFIG_EVENTS = new Set(['skills_saved', 'card_notification', 'hub_registration']); // specialist events not tied to a run
+const CONFIG_EVENTS = new Set(['skills_saved', 'card_notification', 'hub_registration', 'lesson_posted', 'lesson_publish_result']); // + Part 9: the Professor's own lesson events // specialist events not tied to a run
 const EPHEMERAL = new Set(['heartbeat']); // shown live (if the viewer wants them) but not kept in history
 
 // Allowed forward transitions per run kind. Late events can never move a run backwards.
@@ -138,7 +142,10 @@ export async function startUiServer({ port = 3000 } = {}) {
     if (feeds.hub.connected === connected) return;
     feeds.hub.connected = connected;
     publish({ source: 'system', type: 'hub_feed', runId: null, data: { connected } });
-    if (connected) discoverHub('reconnect'); // the Hub may have restarted
+    if (connected) {
+      discoverHub('reconnect'); // the Hub may have restarted
+      if (inbox && endpointUrl) inbox.register(endpointUrl); // …and forgotten our session: register again
+    }
   }
 
   // Follow the Hub's telemetry feed (its events plus the specialists' redacted feeds).
@@ -207,13 +214,20 @@ export async function startUiServer({ port = 3000 } = {}) {
   app.use(express.json({ limit: '64kb' }));
   app.get('/shared/forms.js', (req, res) => res.type('text/javascript').sendFile(SHARED_FORM_MODULE));
   // Each tab has its own address; the page picks the tab from the path. Only these three exist.
-  app.get(['/conversation', '/activity', '/topology'], (req, res) => res.sendFile('index.html', { root: PUBLIC_DIR }));
+  app.get(['/conversation', '/activity', '/topology', '/professor'], (req, res) => res.sendFile('index.html', { root: PUBLIC_DIR }));
   app.use(express.static(PUBLIC_DIR));
 
   agentStatus.student = studentAssistantStatus(); // the Student's own model (mode, model, key present)
   publish({ source: 'system', type: 'agent_status', runId: null, data: { agentId: 'student', ...agentStatus.student } });
+  // Part 9: the Student agent's inbound side (lessons and course notices from the Hub) and its inbox.
+  let endpointUrl = null;
+  const inbox = createStudentInbox({
+    studentId: cfg.agentId, hubUrl: hub.baseUrl,
+    emit: (type, data) => publish({ source: 'student', type, runId: null, data }),
+    log: (...a) => console.log('[Student Agent]', ...a),
+  });
   const statusBody = () => ({
-    student: { agentId: cfg.agentId, displayName: cfg.displayName, relationship: cfg.university.relationship },
+    student: { agentId: cfg.agentId, displayName: cfg.displayName, relationship: cfg.university.relationship, session: inbox.session().status, inboxUnread: inbox.view().unread },
     university: { name: hub.name, cardUrl: hub.cardUrl, cardValid: Boolean(hubCard), cardError: hubCardError, capabilities: capabilities.map((c) => ({ id: c.id, name: c.name })) },
     hubFeedConnected: feeds.hub.connected, activeRunId, topology, agents: agentStatus,
     tutorStatus: agentStatus.tutor ?? null,
@@ -235,8 +249,8 @@ export async function startUiServer({ port = 3000 } = {}) {
       return;
     }
     askTutor(hub.baseUrl, run.text, {
-      runId, card, contextId: run.contextId, messageId: run.messageId, timeoutMs: cfg.timeouts.chatMs,
-      metadata: { ...identity, ...(run.requestedCapability ? { requestedCapability: run.requestedCapability } : {}) },
+      runId, card, contextId: run.contextId, messageId: run.messageId, timeoutMs: cfg.timeouts.chatMs, signer: inbox.signer,
+      metadata: { ...identity, ...(run.requestedCapability ? { requestedCapability: run.requestedCapability } : {}), ...(run.lessonDeliveryId ? { lessonDeliveryId: run.lessonDeliveryId } : {}) },
       onEvent: (type, data) => {
         // A relayed form: register it (issuer, workflow, conversation, Hub reference) before showing it.
         const extra = type === 'form_received' ? registerForm(data, { conversationId: run.contextId, runId }) : {};
@@ -259,6 +273,11 @@ export async function startUiServer({ port = 3000 } = {}) {
   async function planAndSend(runId, run) {
     activeRunId = runId;
     const conv = conversationFor(run.contextId);
+    // A question about a lesson or a course goes on as-is: the Hub routes it by its own lesson record.
+    if (run.lessonDeliveryId || run.requestedCapability) {
+      publish({ source: 'student', type: 'request_planned', runId, data: { action: 'send', capability: run.requestedCapability ?? null, capabilityName: run.requestedCapability ? capabilities.find((c) => c.id === run.requestedCapability)?.name ?? null : null, by: run.lessonDeliveryId ? 'lesson' : 'course', reason: run.lessonDeliveryId ? 'A question about a lesson you received — the university routes it to that lesson’s professor.' : 'A question for this course.', matched: [], model: null, usage: null, error: null, relation: null } });
+      return sendChat(runId, run);
+    }
     if (hubCard || (await discoverHub('send'))) {
       const last = conv.turns.at(-1);
       const plan = await planRequest({
@@ -279,7 +298,7 @@ export async function startUiServer({ port = 3000 } = {}) {
       }
       if (plan.action === 'decline') {
         // Clearly not a university service: the Student answers itself and nothing is sent.
-        const offered = capabilities.map((c) => c.name ?? c.id).join(' and ');
+        const offered = new Intl.ListFormat('en', { type: 'conjunction' }).format(capabilities.map((c) => c.name ?? c.id));
         const text = `${plan.reason}${offered ? ` The university can help with: ${offered}.` : ''}`;
         conv.turns = [...conv.turns, { question: run.text, capability: null, answer: text.slice(0, 300) }].slice(-6);
         publish({ source: 'student', type: 'request_declined', runId, data: { question: run.text, text, contextId: run.contextId } });
@@ -337,7 +356,7 @@ export async function startUiServer({ port = 3000 } = {}) {
     publish({ source: 'system', type: 'state', runId, data: { state: 'sending' } });
     // Always to the Hub, with its opaque form reference; the Hub forwards to the issuing specialist.
     sendFormAction(hub.baseUrl, {
-      form, action, operationId, runId, acknowledgeReview, card: hubCard ?? undefined, metadata: identity, timeoutMs: cfg.timeouts.formActionMs,
+      form, action, operationId, runId, acknowledgeReview, card: hubCard ?? undefined, metadata: identity, timeoutMs: cfg.timeouts.formActionMs, signer: inbox.signer,
       onEvent: (type, data) => publish({ source: 'student', type, runId, data: { ...data, agentId: form.agentId, workflowId: form.workflowId } }),
     })
       .then((result) => {
@@ -439,7 +458,12 @@ export async function startUiServer({ port = 3000 } = {}) {
 
     // contextId names the student's conversation: it is the Student↔Hub A2A contextId. The Hub keeps
     // separate downstream contexts per specialist under it.
-    const run = { kind: 'chat', state: 'sending', text, typed: text, contextId: requestedContext ?? randomUUID(), messageId: randomUUID(), clarified: false, pending: null };
+    // Part 9: optional context from the inbox — a lesson the student received, or a course to ask.
+    const lessonDeliveryId = req.body?.lessonDeliveryId ?? null;
+    if (lessonDeliveryId !== null && (typeof lessonDeliveryId !== 'string' || !inbox.lesson(lessonDeliveryId))) return res.status(400).json({ error: 'Unknown lesson.' });
+    const course = req.body?.capability ?? null;
+    if (course !== null && !capabilities.some((c) => c.id === course)) return res.status(400).json({ error: 'Unknown course or capability.' });
+    const run = { kind: 'chat', state: 'sending', text, typed: text, contextId: requestedContext ?? randomUUID(), messageId: randomUUID(), clarified: false, pending: null, lessonDeliveryId, requestedCapability: course };
     // Our clarifying question is waiting: the planner decides whether this message answers it (then the
     // held-back question is sent with it) or is a new request (sent on its own).
     const conv = requestedContext ? conversations.get(requestedContext) : null;
@@ -464,6 +488,22 @@ export async function startUiServer({ port = 3000 } = {}) {
     for (const f of forms.values()) if (f.state === 'editing' || f.state === 'rejected') setLifecycle(f.formId, 'cancelled', { reason: 'new_conversation' });
     publish({ source: 'system', type: 'conversation_reset', runId: null, data: {} });
     res.status(202).json({});
+  });
+
+  // ---- Part 9: the course inbox (lessons the Hub delivered; persisted by the Student agent) ----------
+  app.get('/api/inbox', (req, res) => res.json({ ...inbox.view(), session: inbox.session().status }));
+  // "Opened" only from the student's own action here — never from a toast or a delivery.
+  apiPost.post('/inbox/:deliveryId/open', async (req, res) => {
+    const e = await inbox.markOpened(req.params.deliveryId);
+    return e ? res.json(e) : res.status(404).json({ error: 'Unknown lesson.' });
+  });
+  apiPost.post('/inbox/:deliveryId/save', (req, res) => {
+    const e = inbox.markSaved(req.params.deliveryId);
+    return e ? res.json(e) : res.status(404).json({ error: 'Unknown lesson.' });
+  });
+  apiPost.post('/notices/:noticeId/seen', (req, res) => {
+    const n = inbox.markNoticeSeen(req.params.noticeId);
+    return n ? res.json(n) : res.status(404).json({ error: 'Unknown notice.' });
   });
 
   // After an uncertain outcome: ask the Hub again for the result of the same request (same request ID).
@@ -506,6 +546,21 @@ export async function startUiServer({ port = 3000 } = {}) {
     }
   }
   app.get('/api/agents/:agentId/skills', (req, res) => proxySettings(req, res, '', 'GET'));
+  // Part 9: the Professor view (the professor's own console in this demo), proxied through the Hub to
+  // the Professor agent's authoring API. Posting there makes the PROFESSOR send the lesson over A2A.
+  async function proxyAuthor(req, res, path, method) {
+    try {
+      const upstream = await fetch(`${hub.devUrl}/agents/professor/author${path}`, {
+        method, headers: method === 'GET' ? {} : { 'Content-Type': 'application/json' },
+        body: method === 'GET' ? undefined : JSON.stringify(req.body ?? {}), signal: AbortSignal.timeout(20000),
+      });
+      res.status(upstream.status).json(await upstream.json());
+    } catch {
+      res.status(502).json({ error: `${hub.name} is not reachable, so the Professor view can’t load or post.` });
+    }
+  }
+  app.get('/api/professor/state', (req, res) => proxyAuthor(req, res, '/state', 'GET'));
+  apiPost.post('/professor/lessons', (req, res) => proxyAuthor(req, res, '/lessons', 'POST'));
   apiPost.post('/agents/:agentId/skills/preview', (req, res) => proxySettings(req, res, '/preview', 'POST'));
   apiPost.put('/agents/:agentId/skills', (req, res) => proxySettings(req, res, '', 'PUT'));
 
@@ -542,7 +597,22 @@ export async function startUiServer({ port = 3000 } = {}) {
       guardHost = hostGuard(actualPort);
       guardOrigin = sameOriginGuard(actualPort);
       const baseUrl = `http://${HOST}:${actualPort}`;
+      // Part 9: the Student agent's inbound A2A endpoint (only typed, signed messages from the Hub).
+      endpointUrl = baseUrl;
+      const studentCard = {
+        name: 'Student Agent', description: `The student's own agent (${cfg.agentId}). Receives course lessons and notices from the university Hub; accepts nothing else.`, version: '0.1.0',
+        supportedInterfaces: [{ url: `${baseUrl}/a2a/jsonrpc`, protocolBinding: 'JSONRPC', protocolVersion: A2A_PROTOCOL_VERSION, tenant: '' }],
+        provider: undefined, capabilities: { streaming: false, pushNotifications: false, extensions: [] }, securitySchemes: {}, securityRequirements: [],
+        defaultInputModes: ['application/json'], defaultOutputModes: ['application/json'],
+        skills: [{ id: 'receive-course-lessons', name: 'Receive course lessons', description: 'Accepts lessons and course notices delivered by the university Hub (signed).', tags: ['lessons'], examples: [], inputModes: ['application/json'], outputModes: ['application/json'], securityRequirements: [] }],
+        signatures: [],
+      };
+      const studentHandler = new DefaultRequestHandler(studentCard, new InMemoryTaskStore(), inbox.executor);
+      app.use(`/${AGENT_CARD_PATH}`, agentCardHandler({ agentCardProvider: studentHandler, cache: { maxAge: 0 } }));
+      app.use('/a2a/jsonrpc', jsonRpcHandler({ requestHandler: studentHandler, userBuilder: UserBuilder.noAuthentication }));
+      inbox.register(baseUrl);
       const close = () => {
+        inbox.stop();
         feedAbort.abort();
         for (const res of clients) res.end();
         return new Promise((r) => server.close(r));
