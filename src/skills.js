@@ -6,7 +6,8 @@
 // Skill kinds:
 //   answer — answered by the agent's model from the skill's saved "answer content" (and, for the
 //            Tutor, its own subject knowledge). The content is private: it never goes on the card.
-//   form   — the Tutor's built-in A2UI student-details form, handled by code. Reserved ID; it can
+//   form   — an agent's built-in A2UI workflow form (Tutor: in-person tutoring requests; Library:
+//            group study-room booking), handled by code. Reserved ID per agent; it can
 //            be enabled/disabled and re-described, but not added twice or given to another agent.
 import { createHash } from 'node:crypto';
 
@@ -24,7 +25,7 @@ const isStringList = (v) => Array.isArray(v) && v.every((s) => typeof s === 'str
 const cleanList = (v) => v.map((s) => s.trim()).filter(Boolean);
 
 // rules: what this agent supports.
-//   { answer: { knowledge: 'required' | 'optional' }, form?: { id: 'student-details-form' } }
+//   { answer: { knowledge: 'required' | 'optional' }, form?: { id: 'in-person-tutoring-request' } }
 // Returns { ok: true, config } (normalized) or { ok: false, errors: [{ path, message }] }.
 export function validateSkillConfig(input, rules) {
   const errors = [];

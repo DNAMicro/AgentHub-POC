@@ -1,11 +1,11 @@
 // Browser side of the monitor. Renders only events published by the UI server;
 // it never decides on its own that a step happened. Text is set with textContent.
 //
-// Part 3: the form is drawn by the official A2UI v0.9 Lit renderer from the A2UI
-// messages the Tutor sent over A2A (delivered here by the event stream). Draft values
-// live only in the renderer's local data model until Submit.
-import { MessageProcessor, basicCatalog } from './vendor/a2ui.js';
-import { SUBMIT_ACTION, validateSubmission } from '/shared/student-form.js';
+// Forms (Parts 3 and 6) are drawn by the official A2UI v0.9 Lit renderer from the A2UI messages an
+// agent sent over A2A in reply to a chat message (delivered here by the event stream); see
+// forms-ui.js. Draft values live only in the renderer's local data model until Submit.
+import { createFormsUi } from './forms-ui.js';
+import { WORKFLOWS, prettyDate } from '/shared/forms.js';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -17,13 +17,10 @@ const els = {
   form: $('send-form'),
   message: $('message'),
   send: $('send'),
-  requestForm: $('request-form'),
   tutorMode: $('tutor-mode'),
-  privacyNote: $('privacy-note'),
   conversation: $('conversation'),
   newConversation: $('new-conversation'),
   formError: $('form-error'),
-  formArea: $('form-area'),
   runId: $('run-id'),
   timeline: $('timeline'),
   timelineError: $('timeline-error'),
@@ -46,11 +43,10 @@ const els = {
 };
 
 const STATE_LABELS = {
-  idle: 'idle', sending: 'sending', waiting: 'waiting for response', completed: 'completed', failed: 'failed',
-  requesting: 'requesting form', awaiting_input: 'waiting for student', submitting: 'submitting',
-  uncertain: 'delivery uncertain', accepted: 'accepted',
+  idle: 'idle', routing: 'routing', sending: 'sending', waiting: 'waiting for response', completed: 'completed', failed: 'failed',
+  uncertain: 'outcome uncertain',
 };
-const BUSY = new Set(['sending', 'waiting', 'requesting']); // blocks Send / Request form
+const BUSY = new Set(['routing', 'sending', 'waiting']); // blocks Send
 
 // Timeline steps per run kind: [key, label, note]. A step is marked only when its real event arrives.
 const STEPS = {
@@ -78,15 +74,11 @@ const STEPS = {
     ['reply_published', 'Response sent', 'by the service over A2A'],
     ['reply_received', 'Student received', 'A2A result returned'],
   ],
-  form: [
-    ['form_requested', 'Form requested', 'A2A request started'],
-    ['form_request_received', 'Tutor received request', 'confirmed by Tutor process'],
-    ['form_sent', 'Form sent', 'A2UI in input-required task'],
-    ['form_received', 'Student received form', 'A2UI payload checked'],
-    ['awaiting_input', 'Waiting for student', 'drafts stay in this browser'],
-    ['submission_sent', 'Submission sent', 'A2A message started'],
-    ['submission_accepted', 'Tutor accepted', 'validated and recorded'],
-    ['ack_received', 'Acknowledgment received', 'A2A result returned'],
+  // One action on a form (Part 6), always sent to the agent that issued the form.
+  form_action: [
+    ['form_action_sent', 'Action sent', 'over A2A to the issuing agent'],
+    ['form_action_received', 'Agent received', 'confirmed by that agent'],
+    ['form_action_result', 'Result returned', 'from the agent’s handler, over A2A'],
   ],
 };
 
@@ -94,12 +86,12 @@ let bootId = null;
 let seen = new Set(); // event seq numbers already rendered (history is replayed on reconnect)
 let currentRunId = null;
 let currentState = 'idle';
-let awaitingRunId = null; // set between clicking Send/Request form and that run leaving a busy state
-const formsById = new Map(); // formId → rendered form state
+let awaitingRunId = null; // set between clicking Send and that run leaving a busy state
+const formsUi = createFormsUi({ log: els.studentLog, agentName: (id) => AGENT_NAMES[id] ?? id, onChange: () => renderState() });
 let currentContextId = null; // the chat conversation follow-up questions belong to (null → start a new one)
 
 const MODE_TEXT = {
-  live: (s) => `Tutor: LIVE · ${s.model}`,
+  live: (s) => `Tutor: live (${s.model})`,
   mock: () => 'Tutor: mock model (no external calls)',
   fixed: () => 'Tutor: fixed reply (no model)',
 };
@@ -107,15 +99,12 @@ const MODE_TEXT = {
 function renderMode(status) {
   if (!status) return;
   els.tutorMode.dataset.mode = status.mode;
-  els.tutorMode.textContent = MODE_TEXT[status.mode]?.(status) ?? `Tutor: ${status.mode}`;
-  els.privacyNote.hidden = status.mode !== 'live';
-  els.privacyNote.textContent = status.mode !== 'live' ? '' :
-    `Live tutoring: your chat questions, and this conversation’s earlier questions and answers, are sent to Anthropic (${status.model}). ` +
-    'Form names, emails and notes are not sent.' + (status.keyConfigured ? '' : ' The Tutor has no API key set, so answers will fail until you add one.');
+  els.tutorMode.textContent = (MODE_TEXT[status.mode]?.(status) ?? `Tutor: ${status.mode}`) + (status.mode === 'live' && !status.keyConfigured ? ', no API key set' : '');
 }
 
 function renderConversation() {
-  els.conversation.textContent = currentContextId ? `Conversation ${currentContextId} — follow-ups use its history` : 'New conversation — your next message starts fresh';
+  els.conversation.textContent = currentContextId ? `Conversation ${currentContextId.slice(0, 8)}` : 'New conversation';
+  els.conversation.title = currentContextId ? `Conversation ${currentContextId}: follow-ups use its history` : 'Your next message starts a fresh conversation';
 }
 
 const fmtUsage = (t) => (t ? `${t.model} · ${(t.latencyMs / 1000).toFixed(1)} s · ${t.usage?.inputTokens ?? '?'} in / ${t.usage?.outputTokens ?? '?'} out tokens${t.truncated ? ' · cut off at output cap' : ''}${t.duplicate ? ' · repeat request (no new model call)' : ''}` : null);
@@ -138,10 +127,13 @@ function definitionList(className, entries) {
   return dl;
 }
 
-function messageItem({ dir, label, at, text, values, ids }) {
+// speaker: who produced the line (student | tutor | library | router) — it sets the line's color.
+// kind "note": a routing/system line, shown small and centered in the chat.
+function messageItem({ dir, label, at, text, values, ids, speaker, kind }) {
   const li = document.createElement('li');
-  li.className = 'msg';
+  li.className = kind === 'note' ? 'msg note' : 'msg';
   li.dataset.dir = dir;
+  if (speaker) li.dataset.speaker = speaker;
 
   const head = document.createElement('div');
   head.className = 'msg-head';
@@ -210,10 +202,9 @@ function renderState() {
   els.state.textContent = STATE_LABELS[currentState] ?? currentState;
   const busy = awaitingRunId !== null || BUSY.has(currentState);
   els.send.disabled = busy;
-  els.requestForm.disabled = busy;
   // Offered whenever there's something on screen to clear; unavailable mid-request.
   els.newConversation.hidden = !currentContextId && ![els.studentLog, els.tutorLog, els.libraryLog].some((log) => log.children.length);
-  els.newConversation.disabled = busy || [...formsById.values()].some((f) => f.pending);
+  els.newConversation.disabled = busy || formsUi.busy;
 }
 
 // Empty every conversation panel and forget the current conversation (not the event
@@ -221,12 +212,10 @@ function renderState() {
 function clearScreen() {
   currentRunId = null;
   currentState = 'idle';
-  formsById.clear();
+  formsUi.clear();
   els.studentLog.replaceChildren();
   els.tutorLog.replaceChildren();
   els.libraryLog.replaceChildren();
-  els.formArea.replaceChildren();
-  els.formArea.hidden = true;
   els.runId.textContent = 'no run yet';
   els.timeline.replaceChildren();
   els.timelineError.textContent = '';
@@ -259,116 +248,9 @@ function reconcileButton(runId) {
 
 const errorText = (errors) => Object.entries(errors ?? {}).map(([field, msg]) => (field === '_form' ? msg : `${field}: ${msg}`)).join(' ');
 
-// ---- A2UI form ----------------------------------------------------------
-
-function renderForm(runId, data) {
-  // Draw with the official renderer from the received A2UI messages.
-  const processor = new MessageProcessor([basicCatalog], (action) => onFormAction(action));
-  processor.processMessages(data.a2uiMessages);
-  const surface = processor.model.getSurface(data.formId);
-
-  const meta = document.createElement('p');
-  meta.className = 'form-meta';
-  meta.textContent = `A2UI surface ${data.formId} · task ${data.taskId}`;
-  const surfaceEl = document.createElement('a2ui-surface');
-  surfaceEl.className = 'form-surface';
-  surfaceEl.surface = surface;
-  const notice = document.createElement('p');
-  notice.className = 'notice';
-  notice.setAttribute('role', 'status');
-
-  els.formArea.replaceChildren(meta, surfaceEl, notice);
-  els.formArea.hidden = false;
-  els.formArea.dataset.state = 'awaiting_input';
-  formsById.set(data.formId, { runId, formId: data.formId, surface, notice, pending: false, accepted: false, lastAttempt: null });
-}
-
-function setNotice(form, kind, text, retry) {
-  form.notice.dataset.kind = kind;
-  form.notice.textContent = text;
-  if (retry) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = 'Retry submission';
-    button.addEventListener('click', () => {
-      button.disabled = true;
-      sendSubmission(form, form.lastAttempt);
-    });
-    form.notice.append(button);
-  }
-}
-
-// The renderer's submit event. This is the explicit A2UI → backend mapping; nothing is
-// wired automatically. Typing never reaches here — only a Button action does.
-function onFormAction(action) {
-  const form = formsById.get(action.surfaceId);
-  if (!form || form.pending || form.accepted || action.name !== SUBMIT_ACTION) return;
-
-  form.surface.dataModel.set('/ui/submitAttempted', true); // reveals the renderer's inline errors
-  const check = validateSubmission(action.context);
-  if (!check.ok) {
-    setNotice(form, 'bad', 'Please fix the highlighted fields. Nothing was sent.');
-    return;
-  }
-  const { name, surfaceId, sourceComponentId, timestamp, context } = action;
-  sendSubmission(form, { submissionId: crypto.randomUUID(), action: { name, surfaceId, sourceComponentId, timestamp, context } });
-}
-
-async function sendSubmission(form, attempt) {
-  form.pending = true;
-  form.lastAttempt = attempt;
-  form.surface.dataModel.set('/ui/submitLocked', true); // the Tutor's Button check disables Submit
-  setNotice(form, 'warn', 'Submitting…');
-  try {
-    const res = await fetch(`/api/forms/${encodeURIComponent(form.formId)}/submissions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(attempt),
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body.errors ? errorText(body.errors) : body.error ?? `HTTP ${res.status}`);
-    }
-    // Outcome arrives as real events (state + student/tutor events).
-  } catch (err) {
-    form.pending = false;
-    form.surface.dataModel.set('/ui/submitLocked', false);
-    setNotice(form, 'bad', `Not sent: ${err.message}`);
-  }
-}
-
-function onFormState(runId, data) {
-  const form = [...formsById.values()].find((f) => f.runId === runId);
-  if (!form) return;
-  els.formArea.dataset.state = data.state;
-  if (data.state === 'submitting') {
-    form.pending = true;
-    form.surface.dataModel.set('/ui/submitLocked', true);
-  } else if (data.state === 'accepted') {
-    form.pending = false;
-    form.accepted = true;
-    form.surface.dataModel.set('/ui/submitLocked', true);
-    setNotice(form, 'ok', 'Submitted — the Tutor Agent confirmed it accepted your details.');
-  } else if (data.state === 'awaiting_input' && (data.rejected || data.notDelivered)) {
-    form.pending = false;
-    form.surface.dataModel.set('/ui/submitLocked', false);
-    if (data.notDelivered) {
-      const reason = data.code === 'ECONNREFUSED' ? 'the Tutor Agent is unavailable'
-        : /task not found/i.test(data.error ?? '') ? 'the Tutor Agent no longer knows this form (it keeps records in memory, so a restart clears them) — request a new form'
-          : data.error;
-      setNotice(form, 'bad', `Not delivered: ${reason}. Your draft is kept.`);
-    }
-  } else if (data.state === 'uncertain') {
-    form.pending = false;
-    setNotice(form, 'warn',
-      'Delivery uncertain: the request timed out, so the Tutor Agent may or may not have received it. ' +
-      'Retry sends the same submission ID, so it will be recorded at most once.', Boolean(form.lastAttempt));
-  }
-}
-
 // ---- Part 5: advertised skills, Student's cached view, propagation ---------
 
-const AGENT_NAMES = { tutor: 'Calculus Tutor', library: 'Library Agent' };
+const AGENT_NAMES = { tutor: 'Tutor Agent', library: 'Library Agent' };
 // Per agent: what it advertises (its own settings), the last save, the notification outcome,
 // what Student received, and Student's cached registry view. Each comes from a real event.
 const agents = {
@@ -404,7 +286,7 @@ function renderSkillsBox(agentId) {
   if (a.advertised) {
     const chips = a.advertised.config.skills.map((s) => el('span', { className: 'chip', textContent: s.name, title: `${s.id}${s.enabled ? '' : ' (disabled)'}`, dataset: { off: String(!s.enabled) } }));
     rows.push(el('div', { className: 'skills-row' }, el('span', { className: 'label', textContent: `Advertised (rev ${a.advertised.revision}):` }), ...chips,
-      el('span', { className: 'tested', textContent: a.advertised.matchesTestedDefault ? ' · matches tested default' : ' · changed since tests — not verified' })));
+      el('span', { className: 'tested', textContent: a.advertised.matchesTestedDefault ? 'Matches the tested default.' : 'Changed since tests; not verified.' })));
   }
   const r = a.registry;
   if (r) {
@@ -495,7 +377,7 @@ function skillCard(skill, { isNew }) {
       field({ label: 'Description', control: area('description', skill.description, 2, { maxLength: 500, placeholder: 'What this skill helps with, in one or two sentences.' }), errorKey: 'description', required: true, hint: 'The Student’s router reads this to decide which questions to send here.' }),
       field({ label: 'Skill ID', control: idInput, errorKey: 'id', hint: isNew ? 'Generated from the name; you can edit it before saving. It can’t change after saving.' : 'Stable ID — fixed once saved.' })),
     isForm
-      ? section('How it answers', null, el('p', { className: 'note', textContent: 'Built-in A2UI form (Part 3), handled by code. You can rename, re-describe, or turn it off; it has no answer content.' }))
+      ? section('How it answers', null, el('p', { className: 'note', textContent: 'Built-in workflow form, handled by code: the agent sends it when a student asks for it in chat. You can rename, re-describe, or turn it off (then no form is sent or accepted); it has no answer content.' }))
       : section('Answer content', required
         ? 'The facts this skill answers from. The agent reads it for each question and replies with just the relevant part — for example one day from a weekly schedule. It won’t answer beyond what’s written here.'
         : 'Optional reference notes the Tutor uses when answering. The Tutor also uses its own subject knowledge, within the boundaries below.',
@@ -612,7 +494,7 @@ async function openSkills(agentId) {
   els.skillsErrors.replaceChildren();
   els.skillsDirty.hidden = true;
   els.dialogTitle.textContent = `Edit skills — ${AGENT_NAMES[agentId]}`;
-  els.dialogIdentity.textContent = `${body.agentName} · ID “${body.agentId}” · revision ${body.revision} · ${body.matchesTestedDefault ? 'matches the tested default' : 'changed since tests (not verified)'}`;
+  els.dialogIdentity.textContent = `${body.agentName} (ID “${body.agentId}”), revision ${body.revision}. ${body.matchesTestedDefault ? 'Matches the tested default.' : 'Changed since tests; not verified.'}`;
   els.skillsEditor.replaceChildren(...body.config.skills.map((s) => skillCard(s, { isNew: false })));
   els.cardPreviewBox.open = false;
   els.cardPreview.textContent = '';
@@ -662,11 +544,21 @@ els.refreshSkills.addEventListener('click', async () => {
   setTimeout(() => { els.refreshSkills.disabled = false; }, 800);
 });
 
-const ROUTER_TEXT = { direct: 'Router: off (everything to Tutor)', mock: 'Router: mock heuristic (no external calls)', live: 'Router: LIVE · claude-haiku-5-5' };
+const ROUTER_TEXT = { direct: 'Router: off (everything to Tutor)', mock: 'Router: mock heuristic (no external calls)', live: 'Router: live (claude-haiku-5-5)' };
 function renderRouter(router) {
   if (!router) return;
   els.routerMode.dataset.mode = router.mode === 'live' ? 'live' : router.mode === 'mock' ? 'mock' : 'direct';
   els.routerMode.textContent = ROUTER_TEXT[router.mode] ?? `Router: ${router.mode}`;
+}
+
+// In the chat, color says who spoke and position says direction: your messages on the right,
+// agents' replies on the left, routing/system lines small in the middle.
+function chatRole({ label = '', dir }) {
+  if (/^Sent/.test(label)) return { speaker: 'student' };
+  if (/Tutor Agent/.test(label) && /^Received|Tutor error/.test(label)) return { speaker: 'tutor' };
+  if (/Library Agent/.test(label) && /^Received/.test(label)) return { speaker: 'library' };
+  if (/^(Routing|No matching|Clarification needed|Routing failed)/.test(label)) return { speaker: 'router', kind: dir === 'error' ? undefined : 'note' };
+  return {};
 }
 
 // ---- event handling -----------------------------------------------------
@@ -675,9 +567,9 @@ function handle(event) {
   const { source, type, runId, at, data } = event;
   const run = runId ? runId.slice(0, 8) : null;
   const isCurrent = runId === currentRunId;
-  const student = (item) => appendTo(els.studentLog, messageItem({ at, ...item }));
-  const tutor = (item) => appendTo(els.tutorLog, messageItem({ at, ...item }));
-  const library = (item) => appendTo(els.libraryLog, messageItem({ at, ...item }));
+  const student = (item) => appendTo(els.studentLog, messageItem({ at, ...chatRole(item), ...item }));
+  const tutor = (item) => appendTo(els.tutorLog, messageItem({ at, speaker: 'tutor', ...item }));
+  const library = (item) => appendTo(els.libraryLog, messageItem({ at, speaker: 'library', ...item }));
   const agentName = (id) => AGENT_NAMES[id] ?? id;
 
   if (source === 'system') {
@@ -690,7 +582,7 @@ function handle(event) {
       renderMode(data);
     } else if (type === 'agent_status') {
       if (data.agentId === 'library') {
-        document.getElementById('library-role').textContent = `A2A server · answers from saved content · ${data.mode === 'live' ? `LIVE ${data.model}` : 'mock (no model)'}`;
+        document.getElementById('library-role').textContent = `A2A server, answers from saved content (${data.mode === 'live' ? `live, ${data.model}` : 'mock, no model'})`;
       }
       if (agents[data.agentId] && data.skills) {
         agents[data.agentId].advertised = data.skills;
@@ -710,8 +602,13 @@ function handle(event) {
     } else if (type === 'state') {
       if (isCurrent) currentState = data.state;
       if (runId === awaitingRunId && !BUSY.has(data.state)) awaitingRunId = null;
-      if (isCurrent && data.state === 'awaiting_input') markStep('awaiting_input', at);
-      onFormState(runId, data);
+    } else if (type === 'form_lifecycle') {
+      formsUi.lifecycle({ ...data, at });
+      if (data.state === 'confirmation_pending') {
+        student({ dir: 'error', label: 'Confirmation pending', text: 'No reply in time; the outcome is unknown until it is checked.', ids: { form: data.formId, operation: data.operationId, run } });
+      }
+    } else if (type === 'form_note') {
+      student({ dir: 'info', label: 'Form', text: data.text, ids: { form: data.formId, run } });
     }
   } else if (source === 'student') {
     switch (type) {
@@ -763,39 +660,37 @@ function handle(event) {
         }
         break;
       }
-      // form
-      case 'form_requested':
-        student({ dir: 'sent', label: 'Sent', text: 'Requested the student-details form.', ids: { messageId: data.messageId, run } });
-        break;
+      // forms (Part 6): only ever sent by an agent in reply to a chat message
+      // The form is itself a chat item (forms-ui.js): it arrives as the agent's message, becomes the
+      // student's submitted summary, and the agent's reply to the final action follows it here.
+      // Lookups and review steps stay inside the form (and in the agent's panel), not in the chat.
       case 'form_received':
-        student({ dir: 'received', label: 'Received', text: `Form received (${data.a2uiMessages.length} A2UI v0.9 messages) — rendered below.`, ids: { form: data.formId, contextId: data.contextId, taskId: `${data.taskId} (input-required)`, messageId: data.messageId, run } });
-        renderForm(runId, data);
+        formsUi.received({ ...data, at });
         break;
-      case 'form_request_failed': {
-        const detail = data.code ? `${data.error} (${data.code})` : data.error;
-        student({ dir: 'error', label: 'Failed', text: `Form request failed: ${detail}`, ids: { run } });
-        if (isCurrent) els.timelineError.textContent = `Form request failed: ${detail}`;
+      case 'form_action_sent':
         break;
-      }
-      case 'submission_sent':
-        student({ dir: 'sent', label: 'Sent', text: `Submitted the form (${data.mode === 'resume-task' ? 'resuming the form task' : 'new message referencing the completed form task'}).`, ids: { submission: data.submissionId, form: data.formId, messageId: data.messageId, taskId: data.taskId, run } });
-        break;
-      case 'ack_received':
-        student({ dir: 'received', label: data.duplicate ? 'Ack (duplicate)' : 'Ack', text: data.ack.message, ids: { ackId: data.ack.ackId, recordedAt: data.ack.recordedAt, submission: data.submissionId, form: data.formId, contextId: data.contextId, taskId: data.taskId ? `${data.taskId} (completed)` : '(direct Message reply)', messageId: data.messageId, run } });
-        break;
-      case 'submission_rejected': {
-        student({ dir: 'error', label: 'Rejected', text: `Tutor rejected the submission: ${errorText(data.errors)}`, ids: { submission: data.submissionId, form: data.formId, messageId: data.messageId, run } });
-        const form = formsById.get(data.formId);
-        if (form) setNotice(form, 'bad', `Tutor rejected the submission: ${errorText(data.errors)}`);
+      case 'form_action_result': {
+        formsUi.actionResult(data);
+        if (!WORKFLOWS[data.workflowId]?.actions[data.actionName]?.final) break;
+        const r = data.body?.receipt;
+        const values = r?.bookingId
+          ? { 'Booking ID': r.bookingId, Room: r.room, Date: prettyDate(r.date), Time: `${r.start}–${r.end}`, 'Group size': r.groupSize, Timezone: r.timezone, Note: r.note }
+          : r?.requestId ? { 'Request ID': r.requestId, Status: r.status, 'Preferred date': prettyDate(r.preferences.preferredDate), 'Time of day': r.preferences.period, 'Specific time': r.preferences.specificTime ?? 'none', Timezone: r.timezone, Note: r.note } : undefined;
+        const flagged = data.body?.status === 'needs_review';
+        student({ dir: data.body?.status === 'rejected' || data.body?.status === 'conflict' ? 'error' : 'received', label: `Received from ${agentName(data.agentId)}${data.duplicate ? ' (already recorded)' : ''}${flagged ? ' (please check)' : ''}`, text: data.text || data.body?.status, values, ids: { form: data.formId, operation: data.operationId, messageId: data.messageId, taskId: data.taskId ? `${data.taskId}` : '(direct Message reply)', a2uiUpdate: data.a2uiUpdate?.length ? `${data.a2uiUpdate.length} message(s)` : null, run } });
         break;
       }
-      case 'submission_failed':
-        student({ dir: 'error', label: data.outcome === 'uncertain' ? 'Uncertain' : 'Failed', text: `${data.outcome === 'uncertain' ? 'Delivery uncertain' : 'Not delivered'}: ${data.error}${data.code ? ` (${data.code})` : ''}`, ids: { submission: data.submissionId, run } });
-        if (isCurrent) els.timelineError.textContent = data.outcome === 'uncertain' ? 'Submission delivery uncertain.' : `Submission not delivered: ${data.error}`;
+      case 'form_action_failed':
+        if (!WORKFLOWS[data.workflowId]?.actions[data.actionName]?.final) {
+          formsUi.actionFailed(data);
+          break;
+        }
+        student({ dir: 'error', label: data.outcome === 'uncertain' ? 'Uncertain' : 'Failed', text: `${data.actionName}: ${data.outcome === 'uncertain' ? 'no reply in time — outcome unknown' : 'not delivered'} (${data.error}${data.code ? `, ${data.code}` : ''})`, ids: { form: data.formId, operation: data.operationId, run } });
+        formsUi.actionFailed(data);
         break;
     }
-    // A Tutor-reported error still arrived as an A2A response.
-    if (isCurrent && type !== 'submission_failed') markStep(type === 'tutor_error' ? 'reply_received' : type, at);
+    // A Tutor-reported error still arrived as an A2A response; a form is the A2A response of a chat run.
+    if (isCurrent) markStep(type === 'tutor_error' || type === 'form_received' ? 'reply_received' : type, at);
   } else if (source === 'library') {
     switch (type) {
       case 'message_received':
@@ -815,8 +710,10 @@ function handle(event) {
         agents.library.notification = data;
         renderSkillsBox('library');
         break;
+      default:
+        formAgentEvent(library, type, data, run);
     }
-    if (isCurrent) markStep(type, at);
+    if (isCurrent) markStep(type === 'form_sent' ? 'reply_published' : type === 'intent_decided' ? 'scope_checked' : type, at);
   } else if (source === 'tutor') {
     switch (type) {
       case 'skills_saved':
@@ -852,32 +749,44 @@ function handle(event) {
       case 'model_call_reused':
         tutor({ dir: 'sent', label: 'Repeat request', text: 'Same request ID as before — returning the earlier result; no new model call.', ids: { contextId: data.contextId, messageId: data.messageId, run } });
         break;
-      // form
-      case 'form_request_received':
-        tutor({ dir: 'received', label: 'Received', text: 'Form request.', ids: { messageId: data.messageId, contextId: data.contextId, taskId: data.taskId, run } });
-        break;
-      case 'form_sent':
-        tutor({ dir: 'sent', label: 'Sent', text: `A2UI form (${data.a2uiMessages} messages) in a task awaiting input.`, ids: { form: data.formId, taskId: data.taskId, contextId: data.contextId, messageId: data.messageId, run } });
-        break;
-      case 'form_request_refused':
-        tutor({ dir: 'error', label: 'Refused', text: data.reason, ids: { messageId: data.messageId, run } });
-        break;
-      case 'submission_received':
-        tutor({ dir: 'received', label: 'Received', text: `Submission (action "${data.actionName}") — values exactly as received:`, values: data.receivedValues ?? {}, ids: { submission: data.submissionId, form: data.formId, messageId: data.messageId, taskId: data.taskId, contextId: data.contextId, resumedTask: data.resumedTask, run } });
-        break;
-      case 'submission_accepted':
-        tutor({ dir: 'sent', label: 'Accepted', text: 'Validated and recorded in memory:', values: data.values, ids: { ackId: data.ackId, submission: data.submissionId, form: data.formId, run } });
-        break;
-      case 'submission_rejected':
-        tutor({ dir: 'error', label: 'Rejected', text: errorText(data.errors), ids: { submission: data.submissionId, form: data.formId, run } });
-        break;
-      case 'submission_duplicate':
-        tutor({ dir: 'sent', label: 'Duplicate', text: 'Already processed — returned the stored acknowledgment, recorded nothing.', ids: { ackId: data.ackId, submission: data.submissionId, form: data.formId, run } });
-        break;
+      default:
+        formAgentEvent(tutor, type, data, run);
     }
-    if (isCurrent) markStep(type, at);
+    if (isCurrent) markStep(type === 'form_sent' ? 'reply_published' : type === 'intent_decided' ? 'scope_checked' : type, at);
   }
   renderState();
+}
+
+// Part 6 events from the issuing agent (Tutor or Library), shown in that agent's panel.
+function formAgentEvent(panel, type, data, run) {
+  switch (type) {
+    case 'intent_decided':
+      panel({ dir: 'info', label: 'Intent', text: { offer: 'Workflow request → send the form', info: 'Question about the workflow → explain it', clarify: 'Unclear → ask a question' }[data.outcome] ?? data.outcome, ids: { decidedBy: data.by, reason: data.reason, run } });
+      break;
+    case 'form_sent':
+      panel({ dir: 'sent', label: data.repeat ? 'Sent (same form again)' : 'Sent form', text: `${data.workflowId}: A2UI form in a task awaiting input${data.prefilled?.length ? ` (prefilled: ${data.prefilled.join(', ')})` : ''}${data.supersedes ? ` — replaces ${data.supersedes}` : ''}.`, ids: { form: data.formId, taskId: data.taskId, contextId: data.contextId, messageId: data.messageId, run } });
+      break;
+    case 'form_action_received':
+      panel({ dir: 'received', label: 'Form action', text: `“${data.actionName}”${data.lookup ? ' — scheduling fields only:' : data.receivedValues && Object.keys(data.receivedValues).length ? ' — values exactly as received:' : ''}`, values: data.receivedValues ?? data.criteria ?? undefined, ids: { form: data.formId, operation: data.operationId, messageId: data.messageId, taskId: data.taskId, resumedTask: data.resumedTask, run } });
+      break;
+    case 'form_review':
+      panel({ dir: data.flags?.length ? 'info' : 'received', label: 'Review', text: data.acknowledged ? 'Student chose to send anyway; the flagged values were not re-reviewed.' : data.unavailable ? `Review unavailable (${data.unavailable}); the submission continues.` : data.flags?.length ? `${data.reviewer} flagged: ${data.flags.map((f) => f.message).join(' ')}` : `${data.reviewer} found nothing to flag.`, ids: { form: data.formId, run } });
+      break;
+    case 'form_reply_sent': {
+      const r = data.receipt;
+      const detail = r?.bookingId ? ` Booking ${r.bookingId}: ${r.room}, ${r.date} ${r.start}–${r.end} (${r.timezone}).` : r?.requestId ? ` Request ${r.requestId}: ${r.status}.` : '';
+      panel({ dir: data.status === 'rejected' || data.status === 'conflict' ? 'error' : 'sent', label: data.duplicate ? 'Sent (stored result again)' : 'Sent', text: `${data.text}${detail}`, ids: { form: data.formId, operation: data.operationId, action: data.actionName, task: data.taskState, contextId: data.contextId, run } });
+      break;
+    }
+    case 'form_action_result': {
+      const r = data.receipt;
+      const text = data.duplicate ? `Same operation ID as before — returned the stored ${data.status} result; nothing re-executed.`
+        : data.status === 'accepted' ? (r?.requestId ? `Recorded request ${r.requestId} (${r.status}).` : `Reserved demo booking ${r?.bookingId}.`)
+          : data.status === 'rejected' || data.status === 'conflict' ? `${data.status}: ${errorText(data.errors)}` : `${data.actionName}: ${data.status}`;
+      panel({ dir: data.status === 'rejected' || data.status === 'conflict' ? 'error' : 'sent', label: data.status === 'accepted' ? 'Accepted' : 'Result', text, values: data.status === 'accepted' && !data.duplicate ? data.values ?? undefined : undefined, ids: { form: data.formId, operation: data.operationId, run } });
+      break;
+    }
+  }
 }
 
 // ---- connections --------------------------------------------------------
@@ -889,6 +798,7 @@ stream.addEventListener('open', () => setBadge(els.browserFeed, true, 'Browser s
 stream.addEventListener('error', () => setBadge(els.browserFeed, false, 'Browser stream: reconnecting…'));
 stream.addEventListener('hello', (e) => {
   const hello = JSON.parse(e.data);
+  formsUi.setReplaying(true); // history follows; forms are reconstructed when it ends
   if (bootId !== null && hello.bootId !== bootId) resetAll(); // UI server restarted: seq numbers restart too
   bootId = hello.bootId;
   setBadge(els.tutorFeed, hello.tutorFeedConnected, hello.tutorFeedConnected ? 'Tutor feed: connected' : 'Tutor feed: offline');
@@ -900,6 +810,7 @@ stream.addEventListener('hello', (e) => {
   for (const r of hello.registry ?? []) if (agents[r.agentId]) agents[r.agentId].registry = r;
   for (const id of Object.keys(agents)) renderSkillsBox(id);
 });
+stream.addEventListener('replayed', () => formsUi.replayDone());
 stream.addEventListener('message', (e) => {
   const event = JSON.parse(e.data);
   if (seen.has(event.seq)) return;
@@ -935,9 +846,6 @@ els.newConversation.addEventListener('click', async () => {
   // The server records the reset; the screen clears when that event arrives (here and in other tabs).
   const res = await fetch('/api/conversation/new', { method: 'POST' });
   if (!res.ok) els.formError.textContent = (await res.json().catch(() => ({}))).error ?? `Could not start a new conversation (HTTP ${res.status}).`;
-});
-els.requestForm.addEventListener('click', () => {
-  if (!els.requestForm.disabled) startRun('/api/forms', {});
 });
 
 renderConversation();

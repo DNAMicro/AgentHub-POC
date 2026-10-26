@@ -50,5 +50,14 @@ export const LIBRARY_DEFAULT_SKILLS = {
         'Physics for Beginners — call number QC21 .S77 — Floor 3, Sciences',
         'Writing a Research Paper — call number LB2369 .S04 — Floor 1, Study Skills',
       ].join('\n')),
+    // Built-in workflow (handled by code, no answer content): the group study-room booking form.
+    {
+      id: 'study-room-booking', kind: 'form', enabled: true, name: 'Group study room booking',
+      description: 'Books a group study room (demo): sends a booking form with demo availability, a review step, and a demo booking confirmation.',
+      tags: ['study room', 'group study room', 'room booking', 'reserve a room'],
+      examples: ['I want to reserve a group study room'],
+      scope: { allowed: ['booking group study rooms'], excluded: ['real university reservations'] },
+      knowledge: '',
+    },
   ],
 };

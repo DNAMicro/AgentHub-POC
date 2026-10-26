@@ -5,15 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>A2A Spike Monitor</title>
   <link rel="icon" href="data:,">
+  <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header class="topbar">
-    <div>
-      <h1>A2A Spike Monitor</h1>
-      <p class="subtitle">Student routes to Calculus Tutor or Library over A2A v1.0 · forms in A2UI v0.9</p>
+    <div class="brand">
+      <h1>A2A Spike</h1>
+      <p class="subtitle">You talk to the Student agent. It routes each request to the Tutor Agent or the Library Agent over A2A; they answer, or send a form when you ask for something.</p>
     </div>
-    <div class="badges">
+    <div class="badges" aria-label="Connections and modes">
       <span class="badge" id="browser-feed" data-ok="false">Browser stream: connecting</span>
       <span class="badge" id="tutor-feed" data-ok="false">Tutor feed: unknown</span>
       <span class="badge" id="library-feed" data-ok="false">Library feed: unknown</span>
@@ -23,50 +24,54 @@
     </div>
   </header>
 
-  <main>
-    <div class="panels three">
-      <section class="panel" aria-labelledby="student-title">
-        <h2 id="student-title">Student Agent <span class="role">A2A client + router</span></h2>
-        <ol class="log" id="student-log" aria-live="polite"></ol>
-        <div id="form-area" class="form-area" hidden></div>
+  <main class="desk">
+    <section class="panel chat" aria-labelledby="student-title" data-agent="student">
+      <header class="panel-head">
+        <h2 id="student-title">Student agent</h2>
+        <span class="role">A2A client and router</span>
+        <span class="conversation" id="conversation">New conversation</span>
+      </header>
+      <ol class="log chat-log" id="student-log" aria-live="polite"></ol>
+      <div class="dock">
         <form id="send-form" class="composer">
-          <label for="message" class="visually-hidden">Your question</label>
-          <textarea id="message" rows="2" maxlength="2000" required>Explain the derivative of x squared</textarea>
+          <label for="message" class="visually-hidden">Your message</label>
+          <textarea id="message" rows="2" maxlength="2000" required placeholder="Ask a calculus question, ask the library something, or ask to book a study room…">Explain the derivative of x squared</textarea>
           <button type="submit" id="send">Send</button>
         </form>
-        <p class="privacy" id="privacy-note" hidden></p>
         <div class="actions">
-          <span class="conversation" id="conversation">New conversation</span>
           <button type="button" id="new-conversation" hidden>New conversation</button>
-          <button type="button" id="request-form" class="secondary">Request form</button>
           <button type="button" id="refresh-skills" title="Re-fetch registered Agent Cards (conditional, no model calls)">Refresh skills</button>
+          <p class="form-error" id="form-error" role="alert"></p>
         </div>
-        <p class="form-error" id="form-error" role="alert"></p>
-      </section>
+      </div>
+    </section>
 
-      <section class="panel" aria-labelledby="tutor-title" data-agent="tutor">
-        <h2 id="tutor-title">Calculus Tutor <span class="role">A2A server</span>
-          <button type="button" class="gear" data-agent="tutor" aria-label="Edit agent skills — Calculus Tutor" title="Edit agent skills">⚙</button>
-        </h2>
-        <div class="skills-box" id="tutor-skills"></div>
-        <ol class="log" id="tutor-log" aria-live="polite"></ol>
-      </section>
+    <section class="panel console" aria-labelledby="tutor-title" data-agent="tutor">
+      <header class="panel-head">
+        <h2 id="tutor-title">Tutor Agent</h2>
+        <span class="role">A2A server</span>
+        <button type="button" class="gear" data-agent="tutor" aria-label="Edit agent skills — Tutor Agent" title="Edit skills">⚙</button>
+      </header>
+      <div class="skills-box" id="tutor-skills"></div>
+      <ol class="log console-log" id="tutor-log" aria-live="polite"></ol>
+    </section>
 
-      <section class="panel" aria-labelledby="library-title" data-agent="library">
-        <h2 id="library-title">Library Agent <span class="role" id="library-role">A2A server</span>
-          <button type="button" class="gear" data-agent="library" aria-label="Edit agent skills — Library Agent" title="Edit agent skills">⚙</button>
-        </h2>
-        <div class="skills-box" id="library-skills"></div>
-        <ol class="log" id="library-log" aria-live="polite"></ol>
-      </section>
-    </div>
-
-    <section class="timeline-panel" aria-labelledby="timeline-title">
-      <h2 id="timeline-title">Activity timeline <span class="run-id" id="run-id">no run yet</span></h2>
-      <ol class="timeline" id="timeline"></ol>
-      <p class="timeline-error" id="timeline-error" role="alert"></p>
+    <section class="panel console" aria-labelledby="library-title" data-agent="library">
+      <header class="panel-head">
+        <h2 id="library-title">Library Agent</h2>
+        <span class="role" id="library-role">A2A server</span>
+        <button type="button" class="gear" data-agent="library" aria-label="Edit agent skills — Library Agent" title="Edit skills">⚙</button>
+      </header>
+      <div class="skills-box" id="library-skills"></div>
+      <ol class="log console-log" id="library-log" aria-live="polite"></ol>
     </section>
   </main>
+
+  <details class="timeline-panel" open>
+    <summary><h2 id="timeline-title">Activity timeline</h2> <span class="run-id" id="run-id">no run yet</span></summary>
+    <ol class="timeline" id="timeline"></ol>
+    <p class="timeline-error" id="timeline-error" role="alert"></p>
+  </details>
 
   <dialog id="skills-dialog" aria-labelledby="skills-dialog-title">
     <form method="dialog" id="skills-form" novalidate>

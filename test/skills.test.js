@@ -8,8 +8,8 @@ import { LIBRARY_DEFAULT_SKILLS } from '../src/library-fixture.js';
 import { validateDecision } from '../src/router.js';
 import { validateCard, trustedPeers } from '../src/student-registry.js';
 
-const TUTOR_RULES = { answer: { knowledge: 'optional' }, form: { id: 'student-details-form' } };
-const LIBRARY_RULES = { answer: { knowledge: 'required' } };
+const TUTOR_RULES = { answer: { knowledge: 'optional' }, form: { id: 'in-person-tutoring-request' } };
+const LIBRARY_RULES = { answer: { knowledge: 'required' }, form: { id: 'study-room-booking' } };
 const clone = (v) => structuredClone(v);
 const newSkill = (extra = {}) => ({ id: 'opening-events', kind: 'answer', enabled: true, name: 'Events', description: 'Library events.', tags: [], examples: [], scope: { allowed: ['library events'], excluded: [] }, knowledge: 'Book club: first Monday, 18:00.', ...extra });
 
@@ -24,8 +24,8 @@ test('invalid skill configurations are rejected with field-level errors', () => 
     [(c) => { c.skills[0].endpointUrl = 'http://evil.example'; }, /Unexpected field/],
     [(c) => { c.skills[0].handler = 'llm-tutoring'; }, /Unexpected field\(s\): handler/],
     [(c) => { c.securitySchemes = {}; }, /Only skills can be edited/],
-    [(c) => { c.skills.push({ ...c.skills[1], id: 'second-form' }); }, /Only the built-in "student-details-form" skill can be a form/],
-    [(c) => { c.skills[0].id = 'student-details-form'; c.skills[1].id = 'x-form'; c.skills[1].kind = 'answer'; }, /reserved for the built-in form/],
+    [(c) => { c.skills.push({ ...c.skills[1], id: 'second-form' }); }, /Only the built-in "in-person-tutoring-request" skill can be a form/],
+    [(c) => { c.skills[0].id = 'in-person-tutoring-request'; c.skills[1].id = 'x-form'; c.skills[1].kind = 'answer'; }, /reserved for the built-in form/],
     [(c) => { c.skills[0].kind = 'robot'; }, /Unknown skill kind/],
     [(c) => { c.skills[0].knowledge = 'x'.repeat(6001); }, /limited to 6000 characters/],
   ];
@@ -72,7 +72,7 @@ test('Library skills must carry the answer content they answer from; any number 
   const empty = validateSkillConfig(cfg, LIBRARY_RULES);
   assert.equal(empty.ok, false);
   assert.match(empty.errors[0].message, /Add the answer content/);
-  assert.equal(empty.errors[0].path, 'skills[5].knowledge', 'error points at the field');
+  assert.equal(empty.errors[0].path, `skills[${cfg.skills.length - 1}].knowledge`, 'error points at the field');
 
   // With content it's accepted — two skills about borrowing are fine (no handler limit any more).
   const two = clone(LIBRARY_DEFAULT_SKILLS);
@@ -82,14 +82,14 @@ test('Library skills must carry the answer content they answer from; any number 
   const draft = clone(LIBRARY_DEFAULT_SKILLS);
   draft.skills.push(newSkill({ enabled: false, knowledge: '' }));
   assert.equal(validateSkillConfig(draft, LIBRARY_RULES).ok, true);
-  // The Library has no built-in form.
+  // Only the Library's own built-in workflow can be a form.
   const form = clone(LIBRARY_DEFAULT_SKILLS);
   form.skills[0].kind = 'form';
-  assert.match(validateSkillConfig(form, LIBRARY_RULES).errors[0].message, /no built-in form/);
+  assert.match(validateSkillConfig(form, LIBRARY_RULES).errors[0].message, /Only the built-in "study-room-booking" skill can be a form/);
 });
 
 test('router decisions are validated against the live registry view; anything else sends nothing', () => {
-  const services = [{ agentId: 'tutor', name: 'Calculus Tutor', skills: [{ id: 'calculus-tutoring' }] }, { agentId: 'library', name: 'Library', skills: [{ id: 'renewals' }] }];
+  const services = [{ agentId: 'tutor', name: 'Tutor Agent', skills: [{ id: 'calculus-tutoring' }] }, { agentId: 'library', name: 'Library', skills: [{ id: 'renewals' }] }];
   assert.equal(validateDecision({ decision: 'route', agent_id: 'tutor', skill_id: 'calculus-tutoring', reason: 'ok' }, services).decision, 'route');
   for (const raw of [
     { decision: 'route', agent_id: 'evil', skill_id: 'calculus-tutoring' },

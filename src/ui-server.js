@@ -2,19 +2,20 @@
 // receiving endpoint) and serves a browser page that visualizes the exchange.
 //
 // Keep these distinct:
-//   * A2A:           Student → Tutor/Library JSON-RPC (questions, forms), and Tutor/Library →
+//   * A2A:           Student → Tutor/Library JSON-RPC (questions, form actions), and Tutor/Library →
 //                    Student's endpoint (agent_card_changed notifications). All agent messages.
 //   * Routing:       this application's choice of service (src/router.js), not an A2A feature.
-//   * A2UI:          the form description the Tutor sends inside A2A, rendered by the browser.
+//   * A2UI:          a form an agent decides to send inside A2A (Part 6: only in reply to a chat
+//                    request — there is no "request form" shortcut), rendered by the browser.
 //   * Visualization: agents' /viz/events → this server → browser /api/events (SSE). Reports real
 //                    events and delivers received A2UI payloads; never carries agent messages.
 //   * Settings:      local developer controls proxied to each agent's /settings/skills (HTTP, not A2A).
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
-import { askTutor, requestForm, submitForm } from './student-agent.js';
+import { askTutor, sendFormAction } from './student-agent.js';
 import { hostGuard, sameOriginGuard } from './local-guard.js';
-import { A2UI_VERSION, validateAction } from './student-form.js';
+import { A2UI_VERSION, WORKFLOWS, checkAction, validateBookingCriteria, validateFinal } from './forms.js';
 import { createRegistry, trustedPeers } from './student-registry.js';
 import { ROUTER_MODE, decideRoute, routerStatus } from './router.js';
 import { startStudentEndpoint } from './student-endpoint.js';
@@ -24,7 +25,7 @@ const MAX_TEXT_LENGTH = 2000;
 const MAX_HISTORY = 1000;
 const FEED_RETRY_MS = 1000;
 const PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url));
-const SHARED_FORM_MODULE = fileURLToPath(new URL('./student-form.js', import.meta.url));
+const SHARED_FORM_MODULE = fileURLToPath(new URL('./forms.js', import.meta.url));
 const ACTION_KEYS = ['name', 'surfaceId', 'sourceComponentId', 'timestamp', 'context'];
 const CONTEXT_ID_PATTERN = /^[\w-]{8,100}$/;
 const CONFIG_EVENTS = new Set(['skills_saved', 'card_notification']); // agent events not tied to a run
@@ -42,22 +43,26 @@ const NEXT_STATES = {
     completed: [],
     failed: [],
   },
-  form: {
-    requesting: ['awaiting_input', 'failed'],
-    awaiting_input: ['submitting'],
-    submitting: ['accepted', 'awaiting_input', 'uncertain'],
-    uncertain: ['submitting'],
-    accepted: [],
+  // One A2A request carrying a form action (lookup, review, submit, confirm, cancel).
+  form_action: {
+    sending: ['completed', 'failed', 'uncertain'],
+    completed: [],
     failed: [],
+    uncertain: [],
   },
 };
+
+// A form's lifecycle in the Student view, separate from the A2A runs that act on it.
+// editing → submitting → accepted | rejected | confirmation_pending;  editing → cancelled | superseded
+// rejected → editing (explicit "Edit and retry");  confirmation_pending → submitting (reconcile, same operation ID)
+const CLOSED_FORM_STATES = new Set(['accepted', 'cancelled', 'superseded']);
 
 export async function startUiServer({ port = 3000, tutorUrl = 'http://127.0.0.1:41241', libraryUrl = 'http://127.0.0.1:41242', studentPort = 41240 } = {}) {
   const bootId = randomUUID();
   const history = []; // every published event, replayed to (re)connecting browsers
   const clients = new Set();
   const runs = new Map(); // runId → { kind, state, ... }
-  const forms = new Map(); // formId → runId
+  const forms = new Map(); // formId → { workflowId, agentId, conversationId, contextId, taskId, state, … }
   const conversations = new Map(); // conversationId → { turns, contexts: { agentId → A2A contextId } }
   let activeRunId = null; // a chat run or form request in flight (one at a time)
   let seq = 0;
@@ -162,7 +167,7 @@ export async function startUiServer({ port = 3000, tutorUrl = 'http://127.0.0.1:
   const app = express();
   app.use((req, res, next) => guardHost(req, res, next));
   app.use(express.json({ limit: '64kb' }));
-  app.get('/shared/student-form.js', (req, res) => res.type('text/javascript').sendFile(SHARED_FORM_MODULE));
+  app.get('/shared/forms.js', (req, res) => res.type('text/javascript').sendFile(SHARED_FORM_MODULE));
   app.use(express.static(PUBLIC_DIR));
 
   const statusBody = () => ({
@@ -197,14 +202,154 @@ export async function startUiServer({ port = 3000, tutorUrl = 'http://127.0.0.1:
       card, // routed: the registry's validated card (vetted endpoint); direct: fetched as in Parts 2–4
       contextId: run.agentContextId ?? run.contextId,
       messageId: run.messageId,
-      onEvent: (type, data) => publish({ source: 'student', type, runId, data: { ...data, agentId } }),
+      onEvent: (type, data) => {
+        // A form decided by the agent: register it (issuer, workflow, conversation) before showing it.
+        const extra = type === 'form_received' ? registerForm(data, { agentId, conversationId: run.contextId, runId }) : {};
+        publish({ source: 'student', type, runId, data: { ...data, agentId, ...extra } });
+      },
     })
-      .then(() => setState(runId, 'completed', { agentId }))
+      .then((reply) => {
+        // Remember a snippet of the service's reply, so a short follow-up ("yes") can be routed.
+        const turn = conversations.get(run.contextId)?.turns.at(-1);
+        if (run.routed && turn && turn.question === run.text) turn.answer = String(reply?.text ?? '').slice(0, 300);
+        setState(runId, 'completed', { agentId });
+      })
       .catch((err) => setState(runId, err.outcome === 'uncertain' ? 'uncertain' : 'failed', { agentId, ...(err.tutorError ? { tutorError: err.tutorError.code } : {}) }))
       .finally(() => {
         if (activeRunId === runId) activeRunId = null;
       });
   }
+
+  // ---- Part 6: forms the agents decided to send --------------------------------------------
+
+  function setLifecycle(formId, state, extra = {}) {
+    const form = forms.get(formId);
+    form.state = state;
+    publish({ source: 'system', type: 'form_lifecycle', runId: extra.runId ?? null, data: { formId, workflowId: form.workflowId, agentId: form.agentId, state, ...extra } });
+  }
+
+  // Returns { lifecycle } for the form_received event: 'editing' to render it, anything else to not.
+  function registerForm(data, { agentId, conversationId, runId }) {
+    const workflow = WORKFLOWS[data.workflowId];
+    // Form-origin check: an agent may only issue its own workflows.
+    if (!workflow || workflow.agentId !== agentId) return { lifecycle: 'refused', refusedReason: `${agentId} can’t issue the “${data.workflowId}” workflow.` };
+    const known = forms.get(data.formId);
+    if (known) return { lifecycle: known.state, repeat: true }; // the same form re-sent (retry): never a second copy
+    const record = {
+      formId: data.formId, workflowId: data.workflowId, agentId, conversationId, contextId: data.contextId, taskId: data.taskId,
+      formVersion: data.formVersion, a2uiMessages: data.a2uiMessages, updates: [], state: 'editing', inFlight: false,
+      lastOperation: null, lastSubmitted: null, issuedRunId: runId,
+    };
+    // Explicit replacement: the old form is superseded (its editable UI is removed, records kept).
+    const replaced = data.supersedes && forms.get(data.supersedes);
+    forms.set(record.formId, record);
+    if (replaced && replaced.agentId === agentId && replaced.conversationId === conversationId && !CLOSED_FORM_STATES.has(replaced.state) && !replaced.inFlight) {
+      setLifecycle(replaced.formId, 'superseded', { runId, by: record.formId });
+    }
+    // Never stack two editable forms of one workflow in one conversation (the agent asks first; this is a backstop).
+    const other = [...forms.values()].find((f) => f !== record && f.workflowId === record.workflowId && f.conversationId === conversationId && f.state === 'editing');
+    if (other) {
+      record.state = 'superseded';
+      return { lifecycle: 'superseded', duplicateOf: other.formId };
+    }
+    return { lifecycle: 'editing' };
+  }
+
+  // Send one action of a form to its issuing agent (never re-routed). `final`: submit/confirm.
+  function runAction(form, { operationId, action, spec, acknowledgeReview = false }) {
+    const runId = startRun('form_action', 'sending');
+    form.inFlight = true;
+    publish({ source: 'system', type: 'run_started', runId, data: { kind: 'form_action', formId: form.formId, workflowId: form.workflowId, actionName: action.name, operationId, agentId: form.agentId } });
+    publish({ source: 'system', type: 'state', runId, data: { state: 'sending' } });
+    const peer = registry.peer(form.agentId);
+    sendFormAction(peer.baseUrl, {
+      form, action, operationId, runId, acknowledgeReview, card: registry.entry(form.agentId)?.card,
+      onEvent: (type, data) => publish({ source: 'student', type, runId, data: { ...data, agentId: form.agentId, workflowId: form.workflowId } }),
+    })
+      .then((result) => {
+        form.updates.push(...result.a2uiUpdate.filter((m) => !m.deleteSurface));
+        setState(runId, 'completed');
+        const status = result.body?.status;
+        if (spec.final) {
+          if (status === 'accepted') setLifecycle(form.formId, 'accepted', { runId, receipt: result.body.receipt, duplicate: result.duplicate });
+          // The agent's review flagged something: back to the student with the values and the flags.
+          else if (status === 'needs_review') setLifecycle(form.formId, 'editing', { runId, restored: true, review: true, flags: result.body.flags ?? [], values: form.lastSubmitted });
+          else {
+            form.lastConflict = status === 'conflict';
+            setLifecycle(form.formId, 'rejected', { runId, errors: result.body?.errors ?? { _form: 'Not accepted.' }, conflict: status === 'conflict' });
+          }
+        } else if (spec.cancel && status !== 'cancelled') {
+          publish({ source: 'system', type: 'form_note', runId, data: { formId: form.formId, text: `The agent didn’t confirm the cancellation: ${JSON.stringify(result.body?.errors ?? {})}` } });
+        }
+      })
+      .catch((err) => {
+        setState(runId, err.outcome === 'uncertain' ? 'uncertain' : 'failed');
+        if (!spec.final) return; // lookups/review/cancel: the browser shows the failure; nothing to reconcile
+        // Possibly accepted: never offer a blind resubmission — only a reconcile with the same operation ID.
+        if (err.outcome === 'uncertain') setLifecycle(form.formId, 'confirmation_pending', { runId, operationId });
+        else setLifecycle(form.formId, 'rejected', { runId, notDelivered: true, errors: { _form: /task not found/i.test(err.message) ? 'The agent no longer knows this form (it keeps records in memory, so a restart clears them).' : `Not delivered: ${err.message}` } });
+      })
+      .finally(() => {
+        form.inFlight = false;
+      });
+    return runId;
+  }
+
+  apiPost.post('/forms/:formId/actions', (req, res) => {
+    const form = forms.get(req.params.formId);
+    if (!form) return res.status(404).json({ error: 'Unknown form.' });
+    const { operationId, action, acknowledgeReview = false } = req.body ?? {};
+    if (Object.keys(req.body ?? {}).some((k) => !['operationId', 'action', 'acknowledgeReview'].includes(k))) return res.status(400).json({ errors: { _form: 'Unexpected request fields.' } });
+    if (typeof acknowledgeReview !== 'boolean') return res.status(400).json({ errors: { _form: 'acknowledgeReview must be true or false.' } });
+    if (typeof operationId !== 'string' || !/^[\w-]{8,100}$/.test(operationId)) return res.status(400).json({ errors: { _form: 'Missing or malformed operation ID.' } });
+    if (!action || typeof action !== 'object' || Object.keys(action).some((k) => !ACTION_KEYS.includes(k))) return res.status(400).json({ errors: { _form: 'Unexpected action fields.' } });
+    const checked = checkAction({ version: A2UI_VERSION, action }, { workflowId: form.workflowId, surfaceId: form.formId });
+    if (!checked.ok) return res.status(400).json({ errors: { _form: checked.error } });
+    if (form.inFlight) return res.status(409).json({ error: 'This form already has a request in progress.' });
+    if (form.state === 'confirmation_pending') return res.status(409).json({ error: 'The outcome of the last submission is unknown. Use “Check status” first; nothing is resent automatically.' });
+    if (form.state !== 'editing') return res.status(409).json({ error: `This form is ${form.state}.` });
+    const { spec } = checked;
+    // Same rules the issuing agent applies; invalid data is never sent over A2A.
+    if (spec.final || checked.name === 'reviewBooking') {
+      const v = validateFinal(form.workflowId, checked.context);
+      if (!v.ok) return res.status(400).json({ errors: v.errors });
+    } else if (checked.name === 'checkAvailability') {
+      const v = validateBookingCriteria(checked.context);
+      if (!v.ok) return res.status(400).json({ errors: v.errors });
+    }
+    if (spec.cancel) setLifecycle(form.formId, 'cancelled');
+    if (spec.final) {
+      form.lastOperation = { operationId, action, spec, acknowledgeReview }; // a reconcile resends exactly this
+      form.lastSubmitted = checked.context; // for explicit recovery only
+      // `submitted` lets the chat show what was sent (also after a reload); the agents' panels already show these values.
+      setLifecycle(form.formId, 'submitting', { operationId, submitted: checked.context });
+    }
+    const runId = runAction(form, { operationId, action, spec, acknowledgeReview: spec.final && acknowledgeReview });
+    res.status(202).json({ runId, operationId });
+  });
+
+  // After a known rejection or failure: explicitly reopen the form with the saved values.
+  apiPost.post('/forms/:formId/edit', (req, res) => {
+    const form = forms.get(req.params.formId);
+    if (!form) return res.status(404).json({ error: 'Unknown form.' });
+    if (form.state !== 'rejected') return res.status(409).json({ error: `Nothing to edit: the form is ${form.state}.` });
+    // The values that were sent come back with the reopened form (a taken slot must be chosen again).
+    const values = form.lastSubmitted && form.lastConflict ? { ...form.lastSubmitted, slot: [] } : form.lastSubmitted;
+    setLifecycle(form.formId, 'editing', { restored: true, values });
+    res.json({ formId: form.formId, a2uiMessages: form.a2uiMessages, updates: form.updates, values });
+  });
+
+  // After an unknown outcome: ask the issuing agent again with the SAME operation ID. It returns the
+  // stored result if it already processed it, or processes it once now. Never a new operation.
+  apiPost.post('/forms/:formId/reconcile', (req, res) => {
+    const form = forms.get(req.params.formId);
+    if (!form) return res.status(404).json({ error: 'Unknown form.' });
+    if (form.state !== 'confirmation_pending' || !form.lastOperation) return res.status(409).json({ error: `Nothing to reconcile: the form is ${form.state}.` });
+    if (form.inFlight) return res.status(409).json({ error: 'A check is already in progress.' });
+    setLifecycle(form.formId, 'submitting', { operationId: form.lastOperation.operationId, reconcile: true });
+    const runId = runAction(form, form.lastOperation);
+    res.status(202).json({ runId, operationId: form.lastOperation.operationId });
+  });
 
   // Routed chat: decide (model or heuristic), validate, then send to exactly one service — or none.
   async function routeAndSend(runId, run) {
@@ -222,7 +367,7 @@ export async function startUiServer({ port = 3000, tutorUrl = 'http://127.0.0.1:
       return;
     }
     publish({ source: 'student', type: 'route_decided', runId, data: decision });
-    conv.turns = [...conv.turns, { question: run.text, agentId: decision.agentId, skillId: decision.skillId }].slice(-ROUTING_TURNS);
+    conv.turns = [...conv.turns, { question: run.text, agentId: decision.agentId, skillId: decision.skillId, answer: decision.decision === 'clarify' ? decision.clarificationQuestion ?? '' : '' }].slice(-ROUTING_TURNS);
     if (decision.decision !== 'route') {
       setState(runId, 'completed', { noServiceCalled: true, decision: decision.decision });
       activeRunId = null;
@@ -263,8 +408,10 @@ export async function startUiServer({ port = 3000, tutorUrl = 'http://127.0.0.1:
   // "New conversation": a visualization-only marker. Browsers clear their panels when they see it,
   // including on replay after a reload. No A2A traffic; the next chat simply gets a new contextId.
   apiPost.post('/conversation/new', (req, res) => {
-    const submitting = [...runs.values()].some((r) => r.form?.inFlight);
-    if (activeRunId || submitting) return res.status(409).json({ error: 'Wait for the current request to finish.' });
+    const busy = [...forms.values()].some((f) => f.inFlight || f.state === 'submitting');
+    if (activeRunId || busy) return res.status(409).json({ error: 'Wait for the current request to finish.' });
+    // Open forms of the old conversation are closed (UI only — no handler is called, records are kept).
+    for (const f of forms.values()) if (f.state === 'editing' || f.state === 'rejected') setLifecycle(f.formId, 'cancelled', { reason: 'new_conversation' });
     publish({ source: 'system', type: 'conversation_reset', runId: null, data: {} });
     res.status(202).json({});
   });
@@ -311,93 +458,15 @@ export async function startUiServer({ port = 3000, tutorUrl = 'http://127.0.0.1:
   apiPost.post('/agents/:agentId/skills/preview', (req, res) => proxySettings(req, res, '/preview', 'POST'));
   apiPost.put('/agents/:agentId/skills', (req, res) => proxySettings(req, res, '', 'PUT'));
 
-  // Form run (Part 3), step 1: ask the form-issuing agent (the Tutor) for the A2UI form over A2A.
-  apiPost.post('/forms', (req, res) => {
-    if (activeRunId) return res.status(409).json({ error: 'A request is already in progress.', activeRunId });
-    const runId = startRun('form', 'requesting');
-    activeRunId = runId;
-    publish({ source: 'system', type: 'run_started', runId, data: { kind: 'form', agentId: 'tutor' } });
-    publish({ source: 'system', type: 'state', runId, data: { state: 'requesting' } });
-    res.status(202).json({ runId });
-
-    requestForm(peers.tutor.baseUrl, {
-      runId,
-      onEvent: (type, data) => {
-        // form_received carries the validated A2UI messages to the browser for rendering.
-        publish({ source: 'student', type, runId, data });
-      },
-    })
-      .then((form) => {
-        // Record the issuing agent: submissions always return to it, never re-routed.
-        runs.get(runId).form = { ...form, agentId: 'tutor', inFlight: false };
-        forms.set(form.formId, runId);
-        setState(runId, 'awaiting_input', { formId: form.formId, taskId: form.taskId, contextId: form.contextId });
-      })
-      .catch(() => setState(runId, 'failed'))
-      .finally(() => {
-        if (activeRunId === runId) activeRunId = null;
-      });
-  });
-
-  // Form run, step 2: forward the renderer's submit action to the issuing agent over A2A.
-  apiPost.post('/forms/:formId/submissions', (req, res) => {
-    const runId = forms.get(req.params.formId);
-    const run = runs.get(runId);
-    if (!run) return res.status(404).json({ error: 'Unknown form.' });
-    const { form } = run;
-
-    const { submissionId, action } = req.body ?? {};
-    const bodyKeys = Object.keys(req.body ?? {});
-    if (bodyKeys.some((k) => k !== 'submissionId' && k !== 'action')) return res.status(400).json({ errors: { _form: 'Unexpected request fields.' } });
-    if (typeof submissionId !== 'string' || !/^[\w-]{8,100}$/.test(submissionId)) return res.status(400).json({ errors: { _form: 'Missing or malformed submissionId.' } });
-    if (!action || typeof action !== 'object' || Object.keys(action).some((k) => !ACTION_KEYS.includes(k))) {
-      return res.status(400).json({ errors: { _form: 'Unexpected action fields.' } });
-    }
-    // Same rules the Tutor applies; invalid data is never sent over A2A.
-    const check = validateAction({ version: A2UI_VERSION, action }, form.formId);
-    if (!check.ok) return res.status(400).json({ errors: check.errors });
-
-    if (form.inFlight) return res.status(409).json({ error: 'A submission is already in progress.' });
-    if (run.state === 'accepted') return res.status(409).json({ error: 'This form was already submitted and accepted.' });
-    // A retry after an uncertain delivery must reuse the same submissionId so the Tutor can dedupe.
-    if (run.state === 'uncertain' && submissionId !== form.uncertainSubmissionId) {
-      return res.status(409).json({ error: 'Delivery of the previous submission is uncertain; retry it with the same submission ID.' });
-    }
-    if (!setState(runId, 'submitting', { submissionId })) return res.status(409).json({ error: `Cannot submit while ${run.state}.` });
-
-    form.inFlight = true;
-    res.status(202).json({ runId, submissionId });
-
-    submitForm(registry.peer(form.agentId).baseUrl, {
-      form,
-      action,
-      submissionId,
-      runId,
-      onEvent: (type, data) => publish({ source: 'student', type, runId, data: { ...data, agentId: form.agentId } }),
-    })
-      .then((result) => {
-        if (result.body?.status === 'accepted') setState(runId, 'accepted', { submissionId, ackId: result.body.ackId });
-        else setState(runId, 'awaiting_input', { formId: form.formId, rejected: true });
-      })
-      .catch((err) => {
-        if (err.outcome === 'uncertain') {
-          form.uncertainSubmissionId = submissionId;
-          setState(runId, 'uncertain', { submissionId });
-        } else {
-          setState(runId, 'awaiting_input', { formId: form.formId, notDelivered: true, error: err.message, code: err.cause?.code ?? null });
-        }
-      })
-      .finally(() => {
-        form.inFlight = false;
-      });
-  });
-
   app.use('/api', apiPost);
 
   app.get('/api/events', (req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     res.write(`event: hello\ndata: ${JSON.stringify({ bootId, ...statusBody() })}\n\n`);
     for (const event of history) writeEvent(res, event);
+    // End of replay: the browser now reconstructs each form's CURRENT lifecycle state (rendering only
+    // forms that are still editable) instead of re-rendering old form-creation events one by one.
+    res.write(`event: replayed\ndata: {}\n\n`);
     clients.add(res);
     req.on('close', () => clients.delete(res));
   });

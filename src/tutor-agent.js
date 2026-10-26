@@ -1,25 +1,27 @@
 // Agent B — "Tutor Agent". An A2A server: publishes an Agent Card and answers
 // `SendMessage` over the JSON-RPC binding.
 //
-// It handles three kinds of incoming message:
-//   * plain text                      → a tutoring answer: the fixed Part 1 reply, or (Part 4)
-//                                        a mock or live Claude answer, depending on TUTOR_MODE
-//   * metadata.request = form request → a Task in INPUT_REQUIRED carrying an A2UI v0.9 form (Part 3)
-//   * an A2UI `action` DataPart        → a form submission: validate, dedupe, record, acknowledge
+// It handles two kinds of incoming message:
+//   * plain text              → the Tutor decides: answer (fixed Part 1 reply, or a mock/live Claude
+//                                answer, per TUTOR_MODE), clarify, decline, or (Part 6) offer its
+//                                in-person tutoring request form as an A2UI v0.9 Task in INPUT_REQUIRED
+//   * an A2UI `action` DataPart → an action on a form it issued (src/form-host.js): validate, dedupe,
+//                                call the allowlisted createTutoringRequest handler, acknowledge
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import express from 'express';
-import { Role, TaskState, AGENT_CARD_PATH, A2A_PROTOCOL_VERSION } from '@a2a-js/sdk';
+import { Role, AGENT_CARD_PATH, A2A_PROTOCOL_VERSION } from '@a2a-js/sdk';
 import { AgentEvent, DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
 import { hostGuard } from './local-guard.js';
 import { createSkillService } from './agent-settings.js';
 import { LOG_CONTENT, MODE, TutorError, answer, status as tutorStatus } from './tutor-model.js';
 import { apiHost } from './llm.js';
-import {
-  A2UI_EXTENSION_URI, A2UI_MIME_TYPE, A2UI_VERSION, BASIC_CATALOG_ID, FORM_REQUEST,
-  buildStudentDetailsForm, isA2uiPart, validateAction,
-} from './student-form.js';
+import { A2UI_EXTENSION_URI, A2UI_MIME_TYPE, BASIC_CATALOG_ID, TIMEZONE_LABEL, TUTORING_HOURS, WORKFLOWS, buildTutoringForm, isA2uiPart, validateTutoringRequest } from './forms.js';
+import { createFormHost } from './form-host.js';
+import { reviewGate } from './form-review.js';
+import { createTutoringStore } from './demo-store.js';
+import { mockTutorIntent, tutoringPrefill, wantsReplacement } from './form-intent.js';
 
 const HOST = '127.0.0.1';
 const JSONRPC_PATH = '/a2a/jsonrpc';
@@ -39,14 +41,26 @@ const emitViz = (type, runId, data) => vizEvents.emit('event', { source: 'tutor'
 const textOf = (message) =>
   message.parts.filter((p) => p.content?.$case === 'text').map((p) => p.content.value).join('');
 
-// In-memory records. Restarting the Tutor clears them.
-const forms = new Map(); // formId (= A2UI surfaceId) → { taskId, contextId, state: 'awaiting_input' | 'accepted' }
-const submissions = new Map(); // submissionId → { formId, values, ack }
+// In-memory demo records (requests, forms, operation results). Restarting the Tutor clears them.
+const tutoringStore = createTutoringStore();
+const WORKFLOW_ID = 'tutoring-request';
+export const TUTORING_ACK = 'We received your request. A time slot will be sent based on your preferences.';
+// Server-written texts (not model output) for the workflow outcomes.
+const WORKFLOW_TEXT = {
+  offer: 'Here is the in-person tutoring request form. Fill it in and press “Send tutoring request”.',
+  info: `In-person calculus tutoring (demo): ask for it here — for example “I’d like to arrange in-person help with calculus” — and I’ll send a request form for your contact details, preferred date, morning or afternoon, an optional specific time, and what you’d like help with. It’s a request, not a booking: a time slot would be sent based on your preferences (this demo sends no messages). Sessions run ${TUTORING_HOURS.days}, ${TUTORING_HOURS.open}–${TUTORING_HOURS.close}, ${TIMEZONE_LABEL}.`,
+  clarify: 'Would you like me to explain a calculus topic here, or to request an in-person tutoring session?',
+  disabled: 'In-person tutoring requests aren’t offered by this Tutor right now.',
+  noClient: 'I can send an in-person tutoring request form, but your client didn’t declare A2UI v0.9 support, so I can’t show it.',
+  alreadyOpen: 'You already have an open tutoring request form above. Fill that one in, or say “replace the form” to start a new one.',
+};
+// Contact details stay out of logs whatever LOG_CONTENT says.
+const redact = (values) => (values && typeof values === 'object' ? Object.fromEntries(Object.entries(values).map(([k, v]) => [k, ['firstName', 'lastName', 'email'].includes(k) ? '[redacted]' : LOG_CONTENT ? v : '[not logged]'])) : values);
 
 function buildAgentCard(port) {
   return {
     name: 'Tutor Agent',
-    description: 'Calculus tutor. Its advertised skills come from its saved skill configuration and are enforced on every request.',
+    description: 'Tutor. Its subjects come from its saved skill configuration (calculus by default) and are enforced on every request.',
     version: '0.1.0',
     supportedInterfaces: [
       {
@@ -79,8 +93,8 @@ function buildAgentCard(port) {
 }
 
 // Tutoring skills are answered by the model within their scope; their answer content is optional
-// reference notes. The student-details form is a built-in skill handled by code.
-const TUTOR_RULES = { answer: { knowledge: 'optional' }, form: { id: 'student-details-form' } };
+// reference notes. The in-person tutoring request workflow is a built-in form skill handled by code.
+const TUTOR_RULES = { answer: { knowledge: 'optional' }, form: { id: WORKFLOWS[WORKFLOW_ID].skillId } };
 
 // Initial skills. Edited through the gear dialog; in memory only (a restart restores these).
 export const TUTOR_DEFAULT_SKILLS = {
@@ -98,12 +112,12 @@ export const TUTOR_DEFAULT_SKILLS = {
       knowledge: '', // optional reference notes for the model; the subject itself comes from the model
     },
     {
-      id: 'student-details-form', kind: 'form', enabled: true,
-      name: 'Student details form',
-      description: `Sends an A2UI form for first name, last name, email, and notes (request with metadata.request="${FORM_REQUEST}"), then validates and acknowledges the submission.`,
-      tags: ['a2ui', 'form'],
-      examples: [],
-      scope: { allowed: ['collect and acknowledge first name, last name, email, and optional notes'], excluded: [] },
+      id: 'in-person-tutoring-request', kind: 'form', enabled: true,
+      name: 'In-person tutoring requests',
+      description: 'Takes requests for an in-person calculus tutoring session: sends a form for contact details, preferred date, morning or afternoon, and what you need help with. A request, not a booking (demo).',
+      tags: ['in-person tutoring', 'tutoring session', 'meet a tutor', 'tutoring request'],
+      examples: ['I want to arrange in-person help with calculus', 'Can I meet a tutor about derivatives tomorrow afternoon?'],
+      scope: { allowed: ['requests for an in-person calculus tutoring session', 'explaining how in-person tutoring requests work'], excluded: ['confirming or booking appointment times'] },
       knowledge: '',
     },
   ],
@@ -115,20 +129,45 @@ const tutoringPolicy = () => {
   const policy = skillService.policy();
   return { revision: policy.revision, skills: policy.skills.filter((s) => s.kind === 'answer') };
 };
-const formEnabled = () => skillService.policy().kinds.has('form');
+const workflowEnabled = () => skillService.policy().skills.some((s) => s.id === WORKFLOWS[WORKFLOW_ID].skillId);
+
+// The tutoring request workflow: template + allowlisted actions. Only server code runs the handler.
+const formHost = createFormHost({
+  agentId: 'tutor',
+  isEnabled: (workflowId) => workflowId === WORKFLOW_ID && workflowEnabled(),
+  emitViz, log, logValues: redact,
+  workflows: {
+    [WORKFLOW_ID]: {
+      build: buildTutoringForm,
+      actions: {
+        async submitTutoringRequest(form, context, tools) {
+          const checked = validateTutoringRequest(context);
+          if (!checked.ok) return { status: 'rejected', message: 'Please correct the highlighted fields.', errors: checked.errors };
+          // Advisory review of every field (model in live mode); it can only send the form back with flags.
+          const flagged = await reviewGate({ form, workflowId: WORKFLOW_ID, values: checked.values, acknowledged: tools.reviewAcknowledged, live: MODE === 'live', emit: tools.emit });
+          if (flagged) return flagged;
+          const record = tutoringStore.createTutoringRequest(checked.values);
+          log('recorded tutoring request', { requestId: record.requestId, preferences: LOG_CONTENT ? record.preferences : '[not logged]' });
+          return {
+            status: 'accepted', message: TUTORING_ACK, values: checked.values,
+            receipt: { requestId: record.requestId, status: record.status, preferences: record.preferences, timezone: TIMEZONE_LABEL, demo: true, note: 'Demo request — this spike sends no email or scheduling message.' },
+          };
+        },
+        async cancelForm() {
+          return { status: 'cancelled', message: 'Form cancelled. Nothing was submitted.' };
+        },
+      },
+    },
+  },
+});
 
 // ---- message construction ---------------------------------------------------
 
 const textPart = (value) => ({ content: { $case: 'text', value }, metadata: undefined, filename: '', mediaType: 'text/plain' });
-const jsonPart = (value) => ({ content: { $case: 'data', value }, metadata: undefined, filename: '', mediaType: 'application/json' });
-// A2A v1.0 Parts have a native mediaType; the A2UI extension spec (written against A2A v0.3
-// examples) names metadata.mimeType. Set both so either reading finds it.
-const a2uiPart = (messages) => ({ content: { $case: 'data', value: messages }, metadata: { mimeType: A2UI_MIME_TYPE }, filename: '', mediaType: A2UI_MIME_TYPE });
 
 function agentMessage(ctx, parts, { taskId = '', metadata } = {}) {
   return { messageId: randomUUID(), contextId: ctx.contextId, taskId, role: Role.ROLE_AGENT, parts, metadata, extensions: [], referenceTaskIds: [] };
 }
-const status = (state, message) => ({ state, message, timestamp: new Date().toISOString() });
 
 // ---- handlers -----------------------------------------------------------------
 
@@ -141,7 +180,14 @@ async function handleChat(ctx, bus, runId) {
 
   let text = TUTOR_REPLY;
   const metadata = { ...(runId ? { runId } : {}), agentId: 'tutor', tutorMode: MODE };
-  if (MODE === 'fixed') {
+  // Fixed mode has no model: the deterministic workflow heuristic decides form requests.
+  const fixedIntent = MODE === 'fixed' ? mockTutorIntent(question) : null;
+  if (fixedIntent) {
+    emitViz('intent_decided', runId, { outcome: fixedIntent, by: 'heuristic (fixed mode)' });
+    if (fixedIntent === 'offer') return offerWorkflow(ctx, bus, runId, question, metadata);
+    text = fixedIntent === 'info' ? WORKFLOW_TEXT.info : WORKFLOW_TEXT.clarify;
+    metadata.tutor = { outcome: fixedIntent === 'info' ? 'workflow_info' : 'clarify' };
+  } else if (MODE === 'fixed') {
     // Part 1 connectivity reply. Still subject to the code-level check: no enabled tutoring skill → decline.
     const policy = tutoringPolicy();
     if (!policy.skills.length) {
@@ -156,9 +202,11 @@ async function handleChat(ctx, bus, runId) {
         messageId: incoming.messageId,
         question,
         getPolicy: tutoringPolicy,
+        workflow: { enabled: workflowEnabled() },
         emit: (type, data) => emitViz(type, runId, data),
       });
-      text = result.text;
+      if (result.kind === 'offer_form') return offerWorkflow(ctx, bus, runId, question, metadata);
+      text = result.kind === 'workflow_info' ? WORKFLOW_TEXT.info : result.kind === 'workflow_disabled' ? WORKFLOW_TEXT.disabled : result.text;
       metadata.tutor = { outcome: result.kind, scope: result.scope ?? null, model: result.model, latencyMs: result.latencyMs, usage: result.usage, stopReason: result.stopReason, truncated: result.truncated, requestId: result.requestId, duplicate: result.duplicate };
     } catch (err) {
       // Sanitized error only — never the provider's raw message, never a canned "success".
@@ -178,110 +226,21 @@ async function handleChat(ctx, bus, runId) {
   emitViz('reply_published', runId, sent);
 }
 
-function handleFormRequest(ctx, bus, runId) {
-  const incoming = ctx.userMessage;
-  const ids = { messageId: incoming.messageId, contextId: ctx.contextId, taskId: ctx.taskId };
-  log('received form request', ids);
-  emitViz('form_request_received', runId, ids);
-
-  if (!formEnabled()) {
-    // Current policy check: the form skill is disabled, so no form is issued.
-    const reply = agentMessage(ctx, [textPart('The student-details form isn’t offered by this Tutor right now (that skill is disabled).')], { metadata: runId ? { runId } : undefined });
-    bus.publish(AgentEvent.message(reply));
+// The request asks for the tutoring workflow: send the form (or say why not). Prefill comes only
+// from the student's own words (parsed in code), never from the model; names and emails never.
+function offerWorkflow(ctx, bus, runId, question, metadata) {
+  const reply = (text, outcome) => {
+    const message = agentMessage(ctx, [textPart(text)], { metadata: { ...metadata, tutor: { outcome } } });
+    bus.publish(AgentEvent.message(message));
     bus.finished();
-    emitViz('form_request_refused', runId, { ...ids, reason: 'student-details-form skill is disabled' });
-    return;
-  }
-
-  const caps = incoming.metadata?.a2uiClientCapabilities?.[A2UI_VERSION];
-  if (!caps?.supportedCatalogIds?.includes(BASIC_CATALOG_ID)) {
-    const reply = agentMessage(ctx, [textPart(`I can only send forms to clients that support A2UI ${A2UI_VERSION} with the basic catalog.`)], { metadata: runId ? { runId } : undefined });
-    bus.publish(AgentEvent.message(reply));
-    bus.finished();
-    emitViz('form_request_refused', runId, { ...ids, reason: 'client lacks A2UI v0.9 basic catalog capability' });
-    return;
-  }
-
-  const formId = `student-details-${randomUUID().slice(0, 8)}`;
-  const a2ui = buildStudentDetailsForm(formId);
-  const message = agentMessage(ctx, [textPart('Please fill in your details.'), a2uiPart(a2ui)], { taskId: ctx.taskId, metadata: { runId, formId } });
-  forms.set(formId, { taskId: ctx.taskId, contextId: ctx.contextId, state: 'awaiting_input' });
-
-  // INPUT_REQUIRED keeps the task open so the submission can resume it with the same taskId.
-  bus.publish(AgentEvent.task({
-    id: ctx.taskId, contextId: ctx.contextId, status: status(TaskState.TASK_STATE_INPUT_REQUIRED, message),
-    artifacts: [], history: [], metadata: { runId, formId },
-  }));
-  bus.finished();
-  log('sent form', { formId, ...ids, messageId: message.messageId });
-  emitViz('form_sent', runId, { formId, ...ids, messageId: message.messageId, a2uiMessages: a2ui.length });
-}
-
-function handleSubmission(ctx, bus, runId, part) {
-  const incoming = ctx.userMessage;
-  const resuming = Boolean(ctx.task); // true: resumed the form's INPUT_REQUIRED task; false: new correlated message
-  const submissionId = incoming.metadata?.submissionId;
-  const messages = part.content.value;
-  const action = Array.isArray(messages) && messages.length === 1 ? messages[0] : null;
-  const formId = action?.action?.surfaceId;
-  const form = forms.get(formId);
-  const ids = { messageId: incoming.messageId, contextId: ctx.contextId, taskId: ctx.taskId, formId, submissionId, resumedTask: resuming };
-
-  log('received submission', { ...ids, context: LOG_CONTENT ? action?.action?.context : '[values not logged]' });
-  emitViz('submission_received', runId, { ...ids, receivedValues: action?.action?.context ?? null, actionName: action?.action?.name ?? null });
-
-  // Reply on the same task when resuming (keeping it open on rejection), or as a direct Message otherwise.
-  const respond = (state, parts, metadata) => {
-    if (resuming) {
-      bus.publish(AgentEvent.task(ctx.task));
-      bus.publish(AgentEvent.statusUpdate({
-        taskId: ctx.taskId, contextId: ctx.contextId, metadata: undefined,
-        status: status(state, agentMessage(ctx, parts, { taskId: ctx.taskId, metadata })),
-      }));
-    } else {
-      bus.publish(AgentEvent.message(agentMessage(ctx, parts, { metadata })));
-    }
-    bus.finished();
+    emitViz('reply_published', runId, { messageId: message.messageId, contextId: ctx.contextId, inReplyTo: ctx.userMessage.messageId, text, tutor: { outcome } });
   };
-  const reject = (errors) => {
-    log('rejected submission', { ...ids, errors });
-    respond(TaskState.TASK_STATE_INPUT_REQUIRED, [textPart('Submission rejected. Please correct the fields.'), jsonPart({ status: 'rejected', formId, submissionId, errors })], { runId, formId, submissionId });
-    emitViz('submission_rejected', runId, { ...ids, errors });
-  };
-
-  if (typeof submissionId !== 'string' || !/^[\w-]{8,100}$/.test(submissionId)) return reject({ _form: 'Missing or malformed submissionId.' });
-  if (!form) return reject({ _form: 'Unknown form.' });
-  // Checked against the current policy, not the one in force when the form was issued.
-  if (!formEnabled()) return reject({ _form: 'This form action is no longer supported: the Tutor’s student-details-form skill is disabled.' });
-  // Correlation: the message must belong to this form's task and conversation.
-  const correlated = resuming ? ctx.task.id === form.taskId : incoming.referenceTaskIds.includes(form.taskId) && ctx.contextId === form.contextId;
-  if (!correlated) return reject({ _form: 'Submission is not correlated with this form’s task and conversation.' });
-
-  const previous = submissions.get(submissionId);
-  if (previous) {
-    if (previous.formId !== formId || JSON.stringify(previous.raw) !== JSON.stringify(action.action.context)) {
-      return reject({ _form: 'This submissionId was already used with different content.' });
-    }
-    // Duplicate: processed once already — return the identical acknowledgment, record nothing.
-    log('duplicate submission — returning stored acknowledgment', ids);
-    respond(TaskState.TASK_STATE_COMPLETED, [textPart(previous.ack.message), jsonPart(previous.ack)], { runId, formId, submissionId, duplicate: true });
-    emitViz('submission_duplicate', runId, { ...ids, ackId: previous.ack.ackId });
-    return;
-  }
-
-  const result = validateAction(action, formId);
-  if (!result.ok) return reject(result.errors);
-  if (form.state === 'accepted') return reject({ _form: 'This form was already submitted.' });
-
-  const ack = {
-    status: 'accepted', ackId: randomUUID(), formId, submissionId, recordedAt: new Date().toISOString(),
-    message: `Thanks ${result.values.firstName}, your details were received.`,
-  };
-  submissions.set(submissionId, { formId, values: result.values, raw: action.action.context, ack });
-  form.state = 'accepted';
-  log('recorded submission', { ...ids, values: LOG_CONTENT ? result.values : '[values not logged]' });
-  respond(TaskState.TASK_STATE_COMPLETED, [textPart(ack.message), jsonPart(ack)], { runId, formId, submissionId });
-  emitViz('submission_accepted', runId, { ...ids, values: result.values, ackId: ack.ackId });
+  if (!workflowEnabled()) return reply(WORKFLOW_TEXT.disabled, 'workflow_disabled');
+  if (!formHost.clientSupportsForms(ctx.userMessage)) return reply(WORKFLOW_TEXT.noClient, 'workflow_unsupported_client');
+  const open = formHost.openForm(ctx.contextId, WORKFLOW_ID);
+  // Never stack a second form or silently drop a draft: ask, unless the student explicitly asked to replace it.
+  if (open && open !== formHost.formForRequest(ctx) && !wantsReplacement(question)) return reply(WORKFLOW_TEXT.alreadyOpen, 'clarify');
+  formHost.issue(ctx, bus, { workflowId: WORKFLOW_ID, prefill: tutoringPrefill(question), runId, intro: WORKFLOW_TEXT.offer, supersedes: open === formHost.formForRequest(ctx) ? null : open });
 }
 
 // The agent's business logic. The SDK calls execute() for every incoming message.
@@ -299,13 +258,12 @@ const tutorExecutor = {
         firstSubmissionDelayMs = 0;
         await new Promise((r) => setTimeout(r, delay));
       }
-      return handleSubmission(requestContext, eventBus, runId, a2ui);
+      return formHost.handleAction(requestContext, eventBus, runId, a2ui);
     }
-    if (incoming.metadata?.request === FORM_REQUEST) return handleFormRequest(requestContext, eventBus, runId);
     return handleChat(requestContext, eventBus, runId);
   },
   async cancelTask() {
-    // Nothing long-running to cancel: every reply is immediate.
+    // Nothing long-running to cancel: every reply is immediate. Forms are cancelled with their own action.
   },
 };
 

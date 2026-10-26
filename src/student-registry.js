@@ -42,7 +42,7 @@ export function trustedPeers({ tutorUrl, libraryUrl } = {}) {
     ...extra,
   });
   return {
-    tutor: peer('tutor', 'Tutor Agent', 'Calculus Tutor', tutorUrl ?? 'http://127.0.0.1:41241', { issuesForms: true }),
+    tutor: peer('tutor', 'Tutor Agent', 'Tutor Agent', tutorUrl ?? 'http://127.0.0.1:41241', { issuesForms: true }),
     library: peer('library', 'Library Agent', 'Library Agent', libraryUrl ?? 'http://127.0.0.1:41242', {}),
   };
 }

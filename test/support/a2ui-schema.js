@@ -7,8 +7,16 @@ import Ajv2020 from 'ajv/dist/2020.js';
 const dir = fileURLToPath(new URL('../../node_modules/@a2ui/web_core/src/v0_9/schemas/', import.meta.url));
 const load = (name) => JSON.parse(readFileSync(dir + name, 'utf8'));
 
-// validateFormats off: the schemas use "uri"/"date" formats that need ajv-formats; nothing in this form uses them.
-const ajv = new Ajv2020({ strict: false, allErrors: true, validateFormats: false, logger: false });
+// Formats are validated: DateTimeInput min/max is "oneOf" date | time | date-time, which only
+// works if the formats are checked. These mirror ajv-formats' defaults (time needs seconds;
+// the timezone is optional). Other formats (e.g. "uri") aren't used by these forms and are ignored.
+const ajv = new Ajv2020({ strict: false, allErrors: true, validateFormats: true, logger: false });
+const realDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s) && new Date(`${s}T12:00:00Z`).toISOString().slice(0, 10) === s;
+const TIME = /^([01]\d|2[0-3]):[0-5]\d:[0-5]\d(\.\d+)?(z|[+-]\d\d(:?\d\d)?)?$/i;
+ajv.addFormat('date', realDate);
+ajv.addFormat('time', TIME);
+ajv.addFormat('date-time', (s) => { const [d, t] = String(s).split(/t|\s/i); return realDate(d) && TIME.test(t ?? ''); });
+ajv.addFormat('uri', true);
 const basicCatalog = load('catalogs/basic/catalog.json');
 ajv.addSchema(load('common_types.json'));
 ajv.addSchema(basicCatalog);

@@ -16,6 +16,7 @@ npm run smoke:live # paid live smoke test; refuses unless LIVE_SMOKE_MAX_USD is 
 npm run library    # Library Agent on 127.0.0.1:41242 (LIBRARY_MODE=mock: line extraction from saved content)
 npm run library:live  # Library answers via Haiku 5.5 with code-verified evidence (paid)
 npm run student    # CLI client; target with TUTOR_URL=http://127.0.0.1:...
+# Forms (Part 6): no form command — ask in chat, e.g. "I want to reserve a group study room"
 npm run ui         # builds bundle, then UI :3000 + Student A2A endpoint :41240 with the MOCK router
 npm run ui:live    # same with the live Haiku router — PAID
 npm run ui:direct  # no routing: Parts 2–4 behaviour (this is also the code default for ROUTER_MODE)
@@ -37,13 +38,13 @@ Plain ESM JavaScript (`"type": "module"`), no lint/TypeScript. The only build st
 ## Architecture notes
 
 - **Server layering**: `tutorExecutor` (business logic) → `DefaultRequestHandler` (protocol: assigns contextId/taskId, enforces event ordering) → `jsonRpcHandler` / `agentCardHandler` Express adapters. Every executor call must publish `AgentEvent.message(...)` or `AgentEvent.task(...)` first — including follow-ups on an existing task (re-publish `ctx.task`, then `statusUpdate`).
-- **Tutor routing** (`execute`): A2UI DataPart → `handleSubmission`; `metadata.request === 'student-details-form'` → `handleFormRequest`; otherwise → `handleChat` (Part 1 reply, log format unchanged).
+- **Agent dispatch** (`execute`, Tutor and Library): A2UI DataPart → `formHost.handleAction` (src/form-host.js); otherwise chat → decide answer / clarify / offer the agent's own workflow form / out of scope. There is no "request form" message or endpoint (Part 6 removed `metadata.request` and `POST /api/forms`).
 - **Routes are mounted inside the `listen()` callback** so the Agent Card URL contains the real port. Tests rely on `PORT=0`/`UI_PORT=0` and parse the `listening on http://127.0.0.1:<port>` lines — keep those log lines stable. Host/Origin guards (`src/local-guard.js`) are likewise created there.
 - **Log shape is a test contract**: tests match `messageId: '<id>'` in the Tutor's `received message` log and count `[Tutor Agent] recorded submission` blocks.
 - **Three channels — keep them separate**: A2A carries all agent messages; A2UI describes the UI and travels inside A2A; the SSE stream (Tutor `/viz/events` → UI server → browser `/api/events`) only reports real events and delivers the received A2UI payload to the renderer. Never route agent messages over SSE or synthesize events agents didn't emit.
-- **Form = one A2A task**: the form is returned as a Task in `INPUT_REQUIRED`; a submission resumes it with `taskId`. A completed task can't be resumed (SDK rejects: "terminal state"), so `submitForm()` checks `GetTask` first and otherwise sends a new message in the same `contextId` with `referenceTaskIds`. Tutor dedupes by `metadata.submissionId` and returns the stored ack.
+- **Form = one A2A task**: a chat reply that is a form is a Task in `INPUT_REQUIRED` (askTutor returns `{ form }`); every form action resumes it with `taskId`. A completed task can't be resumed (SDK rejects: "terminal state"), so `sendFormAction()` checks `GetTask` first and otherwise sends a new message in the same `contextId` with `referenceTaskIds`. The form host dedupes by `metadata.operationId` (same values → stored result; different values → rejected).
 - **Delivery outcomes** (`deliveryOutcome` in student-agent): failures before `sendMessage` starts or ECONNREFUSED → `not_delivered`; timeout/network error mid-send → `uncertain` (never auto-retried; retry must reuse the submissionId).
-- **Validation runs in three places** from one module (`src/student-form.js`): A2UI `checks` (renderer), UI server, Tutor. The Tutor is authoritative. `student-form.js` must stay dependency-free — the browser imports it from `/shared/student-form.js`.
+- **Validation runs in three places** from one module (`src/forms.js`): browser (A2UI `checks` + `validateFinal`), UI server, issuing agent (authoritative). `forms.js` must stay dependency-free — the browser imports it from `/shared/forms.js`.
 - **Run state lives in the UI server** (`NEXT_STATES`, forward-only). Tutor viz events arrive on a separate connection and may land *after* the A2A reply; tests must wait for them rather than assume ordering. Only POST endpoints start A2A requests; `GET /api/events` replays history (browser dedupes by `seq`, resets on new `bootId`).
 - Browser renders its own text via `textContent` — don't introduce `innerHTML`.
 
@@ -88,6 +89,20 @@ The SDK's v1.0 types are protobuf-generated and differ from v0.3 examples found 
 - Agent Card uses `supportedInterfaces[{ url, protocolBinding: 'JSONRPC', protocolVersion: '1.0', tenant }]`, not a top-level `url`.
 - `sendMessage(request, { signal, serviceParameters })` returns `Message | Task`; `serviceParameters` become HTTP headers (`HTTP_EXTENSION_HEADER` = `A2A-Extensions`).
 - npm package ships no samples; check `node_modules/@a2a-js/sdk/dist/**/*.d.ts` for exact shapes.
+
+## Steps folder (keep it current)
+
+`Steps/` holds one file per build step (`NN-short-name.md`) plus `Steps/README.md` (index table + rules for all steps). At the end of every step, and after any later enhancement to an existing step, write or update that step's file so it is the **final version's prompt**: the user's original wording with every enhancement merged into the instructions themselves (so running the steps in order rebuilds the current app), plus an "Avoid these known problems" section listing every bug, wrong assumption or user-reported issue hit during the step (written as instructions so a rebuild avoids it), followed by an "Enhancements merged into this step" section saying what changed and why. Add the new step to the README table. Take the original prompt from the user's message verbatim (drop "Copy this into Codex" lines).
+
+## Part 6 (conversational workflow forms) notes
+
+- Workflows live in `src/forms.js` (`WORKFLOWS`): `tutoring-request` (Tutor skill `in-person-tutoring-request`) and `study-room-booking` (Library skill `study-room-booking`). Each is the agent's reserved `kind: 'form'` skill; disabling it blocks both new forms and actions. Actions are allowlisted per workflow with their button ID and fields.
+- **Prefill comes only from `src/form-intent.js` parsing the student's words** — never from model output; names/emails/notes are never prefilled. Live mode asks the model only for the outcome (new verdicts in the Tutor's scope check and the Library's structured call).
+- **Form lifecycle is owned by the UI server** (`form_lifecycle` events): `editing → submitting → accepted | rejected | confirmation_pending`, `editing → cancelled | superseded`. The browser (`public/forms-ui.js`) removes the surface with the standard A2UI `deleteSurface` on a valid submit, and only re-renders forms still `editing` after the `replayed` SSE marker. Late events for closed forms are ignored.
+- One editable form per workflow per conversation: the agent asks "continue or replace?" (`wantsReplacement`); the UI server also refuses to render a second one. A repeat of the same chat request (same messageId) gets the same form back (`formHost.formForRequest`).
+- Room booking: availability only from `createRoomStore().listStudyRoomAvailability`; slot IDs are opaque and per form; `reserveStudyRoom` is synchronous check-and-set (no `await` between check and write) — keep it that way. Review is required before confirm.
+- The test schema validator checks formats (date/time/date-time): DateTimeInput `min`/`max` must be `YYYY-MM-DD` or `HH:MM:SS`, otherwise the schema's `oneOf` fails.
+- **Advisory review before recording** (`src/form-review.js`, `reviewGate`): after the code checks pass, the agent reviews all fields (live: Haiku with every field incl. name/email; otherwise a heuristic). It can only return `needs_review` with flags — the UI server reopens the form (`editing`, `review: true`); "Send anyway" (`acknowledgeReview`) skips the review only for the exact values already reviewed. Review failures fail open. Agent server logs still redact names/emails; lookups send scheduling fields only.
 
 ## Scope constraints
 

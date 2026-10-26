@@ -5,7 +5,8 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { startTutor, startLibrary, startTrio, openStream, waitFor, put, post, find, findAll, forRun, stateOf, unusedPort } from './support/harness.js';
+import { startTutor, startLibrary, startTrio, openStream, waitFor, put, post, find, findAll, forRun, stateOf, unusedPort, formVia, formAction, lastLifecycle, waitLifecycle } from './support/harness.js';
+import { addDays, todayIn } from '../src/forms.js';
 import { startFakeAnthropic, messageReply } from './support/fake-anthropic.js';
 import { askTutor } from '../src/student-agent.js';
 import { TUTOR_DEFAULT_SKILLS } from '../src/tutor-agent.js';
@@ -211,48 +212,68 @@ test('Library (live path): an answer is released only if its evidence is in the 
   }
 });
 
+test('live path (Part 6): the model only picks the outcome; code sends the registered form, and prefill comes from the student’s words', async () => {
+  const stub = await startFakeAnthropic();
+  const t = await startTutor({ TUTOR_MODE: 'live', ANTHROPIC_API_KEY: 'sk-ant-test-scope-placeholder', ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0', STUDENT_A2A_URL: deadStudent });
+  const lib = await startLibrary({ LIBRARY_MODE: 'live', ANTHROPIC_API_KEY: 'sk-ant-test-library-placeholder', ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0', STUDENT_A2A_URL: deadStudent });
+  try {
+    stub.respondWith(() => messageReply(JSON.stringify({ verdict: 'offer_tutoring_request_form', reason: 'asks to meet in person', clarification_question: '' })));
+    const r = await askTutor(t.url, 'Could we meet face to face about integrals on Friday afternoon?', {});
+    assert.equal(stub.requests.length, 1, 'one decision call, no answer generated');
+    assert.match(stub.requests[0].body.messages[0].content ?? '', /latest_student_message/);
+    assert.match(stub.requests[0].body.system, /offer_tutoring_request_form/);
+    assert.equal(r.form.workflowId, 'tutoring-request');
+    const model = r.form.a2uiMessages.find((m) => m.updateDataModel).updateDataModel.value.form;
+    assert.deepEqual(model.period, ['afternoon'], 'from the student’s words');
+    assert.equal(model.firstName, '');
+
+    // The same decision when the workflow is disabled → a clear reply, no form.
+    await save(t, (c) => { c.skills.find((s) => s.id === 'in-person-tutoring-request').enabled = false; });
+    const off = await askTutor(t.url, 'Could we meet face to face about integrals?', {});
+    assert.equal(off.form ?? null, null);
+    assert.match(off.text, /aren’t offered/);
+
+    // Library: the model's booking outcome opens the registered form; availability never comes from it.
+    stub.reset();
+    stub.respondWith(() => messageReply(JSON.stringify({ verdict: 'offer_study_room_booking_form', skill_id: '', answer: 'Room C is free at 3pm!', evidence: [], clarification_question: '' })));
+    const room = await askTutor(lib.url, 'Could my study group of 6 get a room tomorrow?', {});
+    assert.equal(room.form.workflowId, 'study-room-booking');
+    assert.doesNotMatch(JSON.stringify(room.form.a2uiMessages), /Room C is free/, 'model prose is never shown');
+    assert.equal(room.form.a2uiMessages.find((m) => m.updateDataModel).updateDataModel.value.form.groupSize, '6');
+  } finally {
+    t.proc.kill();
+    lib.proc.kill();
+    await stub.close();
+  }
+});
+
 test('A2UI submissions stay with the issuing agent and are checked against its current policy', async () => {
   const trio = await startTrio({ uiEnv: { ROUTER_MODE: 'mock' } });
   const stream = await openStream(trio.ui.url);
+  const weekday = (() => { for (let n = 2; ; n++) { const d = addDays(todayIn(), n); if (![0, 6].includes(new Date(`${d}T12:00:00Z`).getUTCDay())) return d; } })();
+  const submit = (formId, notes) => formAction(trio.ui, formId, 'submitTutoringRequest', 'submit_button', { firstName: 'Alex', lastName: 'Student', email: 'alex@example.com', preferredDate: weekday, period: ['morning'], specificTime: '', notes });
   try {
-    const startForm = async () => {
-      const { runId } = await (await post(`${trio.ui.url}/api/forms`, {})).json();
-      await waitFor(() => stateOf(stream.events, runId) === 'awaiting_input', { what: 'form' });
-      return { runId, formId: find(forRun(stream.events, runId), 'student', 'form_received').data.formId };
-    };
-    const submit = (formId, notes) => post(`${trio.ui.url}/api/forms/${formId}/submissions`, {
-      submissionId: randomUUID(),
-      action: { name: 'submitStudentDetails', surfaceId: formId, sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context: { firstName: 'Alex', lastName: 'Student', email: 'alex@example.com', notes } },
-    });
-
     // Notes that read like a library request are NOT routed to the Library.
-    const a = await startForm();
+    const a = (await formVia(trio.ui, stream, 'I want to arrange in-person help with calculus')).form;
     await submit(a.formId, 'How do I renew a borrowed book?');
-    await waitFor(() => stateOf(stream.events, a.runId) === 'accepted', { what: 'accepted' });
-    assert.ok(find(forRun(stream.events, a.runId), 'tutor', 'submission_received'));
+    await waitLifecycle(stream, a.formId, ['accepted']);
+    assert.ok(findAll(stream.events, 'tutor', 'form_action_received').some((e) => e.data.formId === a.formId));
     assert.equal(findAll(stream.events, 'library', 'message_received').length, 0, 'Library received nothing');
 
-    // Form skill disabled after the form was issued → the submission gets a clear error, not a reroute.
-    const b = await startForm();
-    const res = await save(trio.tutor, (c) => { c.skills.find((s) => s.id === 'student-details-form').enabled = false; });
+    // Workflow skill disabled after the form was issued → a clear error, not a reroute.
+    await post(`${trio.ui.url}/api/conversation/new`, {});
+    const b = (await formVia(trio.ui, stream, 'I want to arrange in-person help with calculus')).form;
+    const res = await save(trio.tutor, (c) => { c.skills.find((s) => s.id === 'in-person-tutoring-request').enabled = false; });
     assert.equal(res.status, 200);
     await submit(b.formId, 'Morning sessions');
-    await waitFor(() => find(forRun(stream.events, b.runId), 'student', 'submission_rejected'), { what: 'rejection' });
-    assert.match(JSON.stringify(find(forRun(stream.events, b.runId), 'student', 'submission_rejected').data.errors), /no longer supported/);
+    await waitLifecycle(stream, b.formId, ['rejected']);
+    assert.match(JSON.stringify(lastLifecycle(stream.events, b.formId).errors), /no longer offered/);
     assert.equal(findAll(stream.events, 'library', 'message_received').length, 0);
-
-    // New form requests are refused while the skill is disabled.
-    const { runId } = await (await post(`${trio.ui.url}/api/forms`, {})).json();
-    await waitFor(() => stateOf(stream.events, runId) === 'failed', { what: 'form refused' });
-    assert.ok(find(forRun(stream.events, runId), 'tutor', 'form_request_refused'));
   } finally {
     stream.close();
     trio.kill();
   }
 });
-
-// Silence unused import lint in some editors.
-void TUTOR_DEFAULT_SKILLS;
 
 test('mock answer check does not flag an allowed topic that is also named inside an exclusion', async () => {
   // "standalone math outside calculus" must not make every calculus answer a violation.

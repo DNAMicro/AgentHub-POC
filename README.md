@@ -1,4 +1,4 @@
-# A2A Spike: Student Agent ↔ Calculus Tutor & Library Agent
+# A2A Spike: Student Agent ↔ Tutor Agent & Library Agent
 
 A localhost spike built in parts:
 
@@ -6,7 +6,7 @@ A localhost spike built in parts:
 2. A browser monitor shows each exchange as it happens.
 3. The Tutor sends an **A2UI** form, which the student fills in and submits.
 4. The Tutor can answer with **Claude Haiku 5.5**.
-5. The Student **routes** each question to a Calculus Tutor or a Library Agent based on their advertised skills. Each service **enforces** its own scope, and editing a service's skills **notifies** the Student, which updates its routing.
+5. The Student **routes** each question to the Tutor Agent (calculus by default; its subjects are configurable) or the Library Agent based on their advertised skills. Each service **enforces** its own scope, and editing a service's skills **notifies** the Student, which updates its routing.
 
 - SDK: [`@a2a-js/sdk`](https://www.npmjs.com/package/@a2a-js/sdk) **1.3.0** (pinned exactly)
 - Protocol: **A2A v1.0** ([spec](https://a2a-protocol.org/v1.0.0/specification/)), JSON-RPC binding
@@ -33,7 +33,7 @@ Use `PORT=...` to change the Tutor's port and `TUTOR_URL=http://127.0.0.1:...` t
 ### Browser monitor: all three agents (Part 5)
 
 ```bash
-npm run tutor:mock    # terminal 1 — Calculus Tutor on 127.0.0.1:41241 (mock model; or tutor:live, or tutor = Part 1 fixed reply)
+npm run tutor:mock    # terminal 1 — Tutor Agent on 127.0.0.1:41241 (mock model; or tutor:live, or tutor = Part 1 fixed reply)
 npm run library       # terminal 2 — Library Agent on 127.0.0.1:41242 (mock: answers from saved skill content, no model)
                       #   or: npm run library:live — Haiku 5.5 reads the saved content (paid; uses the same .env key)
 npm run ui            # terminal 3 — UI + Student Agent on 127.0.0.1:3000, Student's A2A endpoint on 127.0.0.1:41240
@@ -54,7 +54,7 @@ Then open **http://127.0.0.1:3000**.
 | `STUDENT_A2A_PORT` | Port of the Student's A2A endpoint |
 | `STUDENT_A2A_URL` | Where the Tutor and Library send notifications |
 
-In the browser, **Send** asks a question, which is routed to one service or none, and **Request form** runs the Part 3 A2UI form with the Tutor. The ⚙ button on the Tutor and Library panels opens their skill settings, and **Refresh skills** re-fetches both agents' cards.
+In the browser, **Send** asks a question, which is routed to one service or none. There is no form button: ask for something in plain words — “I’d like to arrange in-person help with calculus” or “I want to reserve a group study room” — and the receiving agent sends its form (Part 6). The ⚙ button on the Tutor and Library panels opens their skill settings, and **Refresh skills** re-fetches both agents' cards.
 
 ```bash
 npm test   # starts the Tutor (and UI server) as child processes, runs all checks, stops them
@@ -66,7 +66,11 @@ npm test   # starts the Tutor (and UI server) as child processes, runs all check
 | --- | --- |
 | `src/tutor-agent.js` | **Agent B, the Tutor Agent.** An Express server that serves the Agent Card at `/.well-known/agent-card.json` and the A2A JSON-RPC endpoint at `/a2a/jsonrpc`. Its executor routes each message to one of three handlers: chat (fixed reply), form request (builds the A2UI form), or form submission (validate, de-duplicate, record, acknowledge). It also serves `/viz/events`, a read-only feed of its own events for the monitor. |
 | `src/student-agent.js` | **Agent A, the Student Agent.** Three functions: `askTutor()` (chat), `requestForm()` (gets the A2UI form over A2A and checks it against an allowlist) and `submitForm()` (sends the renderer's submit action back over A2A). The UI server and the tests call these directly. |
-| `src/student-form.js` | The form definition, in one place: the A2UI v0.9 messages the Tutor builds, the validation rules (run separately by the browser, the UI server and the Tutor), and the allowlist the Student applies to any A2UI payload it receives. It has no dependencies, so the browser loads it too, from `/shared/student-form.js`. |
+| `src/forms.js` | Part 6: the two registered workflow forms in one place — their A2UI v0.9 templates and updates (slot options, review screen, `deleteSurface`), the validation rules (run separately by the browser, the UI server and the issuing agent), each workflow's allowlisted actions, the demo timezone/hours/rooms, and the allowlist the Student applies to every A2UI payload or update it receives. No dependencies, so the browser loads it too, from `/shared/forms.js`. |
+| `src/form-intent.js` | Part 6: deterministic workflow heuristics (fixed/mock modes) and the prefill parser — prefill always comes from the student's own words, never from a model. |
+| `src/form-host.js` | Part 6: the issuing side shared by Tutor and Library — sends a form as an A2A task, then accepts only that workflow's actions: correlation, form version, current skill check, operation-ID dedupe, then the agent's allowlisted handler. |
+| `src/demo-store.js` | Part 6: in-memory demo records — tutoring requests, and the fictional room schedule with an atomic check-and-reserve. |
+| `public/forms-ui.js` | Part 6: forms in the Student view — renders, removes on submit (`deleteSurface`), shows pending/receipt/recovery states, refreshes room availability, rebuilds the current state after a replay. |
 | `src/tutor-model.js` | The Tutor's tutoring logic. Part 4 added the mode switch, system prompt, per-conversation history, request ledger and one-at-a-time rule. Part 5 added the scope layers: policy check, scope check, scope-bounded instructions, answer check and release check. |
 | `src/llm.js` | Shared Anthropic access: explicit key, no retries, `effort: low`, optional JSON-schema structured output, and the mapping from SDK errors to sanitized codes. |
 | `src/skills.js` | Part 5: the single skill configuration, its validation, and everything derived from it. That's the Agent Card skills, the documented scope extension and the runtime policy. |
@@ -79,19 +83,20 @@ npm test   # starts the Tutor (and UI server) as child processes, runs all check
 | `scripts/live-smoke.js` | The paid live smoke test, off unless `LIVE_SMOKE_MAX_USD` is set. |
 | `.env.example` | Placeholder for your local `.env` (git-ignored). |
 | `src/local-guard.js` | Host and Origin checks for both servers. They block DNS rebinding and cross-site POSTs to the localhost services. |
-| `src/ui-server.js` | **UI backend.** Serves the page and hosts the Student Agent (router, registry, receiving endpoint). Its routes: `POST /api/runs` (a routed or direct chat), `POST /api/forms` and `…/submissions` (the issuing agent only), `GET`/`PUT /api/agents/:id/skills` (a proxy to the registered agent's settings) and `POST /api/registry/refresh`. It also relays both agents' feeds and decides each run's state. |
+| `src/ui-server.js` | **UI backend.** Serves the page and hosts the Student Agent (router, registry, receiving endpoint). Its routes: `POST /api/runs` (a routed or direct chat), `POST /api/forms/:id/actions`, `…/edit` and `…/reconcile` (always to the form's issuing agent; there is no route that creates a form), `GET`/`PUT /api/agents/:id/skills` (a proxy to the registered agent's settings) and `POST /api/registry/refresh`. It also relays both agents' feeds and decides each run's state. |
 | `src/browser/a2ui-entry.js` | Entry point for the renderer bundle that esbuild writes to `public/vendor/a2ui.js` (generated, not committed). |
 | `public/` | The browser page: `index.html`, `styles.css` and `app.js`. It shows only events the server sent and renders the received A2UI messages with the official renderer. Its own text goes through `textContent`. |
 | `test/a2a.test.js` | The original A2A tests: the Agent Card, the exact reply, traceable process ↔ process logs, and a clear failure when the Tutor is down. |
 | `test/ui.test.js` | Part 2 browser-event tests: the typed-message round trip, run-ID correlation, the double-submit guard, no resend on reconnect, the unavailable Tutor, and input validation. |
-| `test/a2ui-render.test.js` | Gets the form from a real Tutor over A2A and validates it against the official A2UI v0.9 JSON Schemas. Then renders it with the real Lit renderer in jsdom, and checks that the rendering follows the description, that typing sends nothing, that Submit emits a schema-valid action, and that inline errors and locking work. |
+| `test/a2ui-render.test.js` | Gets both forms from real agents by chatting (and a real availability update), validates them against the official A2UI v0.9 JSON Schemas with format checks, renders them with the real Lit renderer in jsdom, and checks that rendering follows the description, typing sends nothing, Send emits a schema-valid action, the slot update applies in place, and `deleteSurface` unmounts the form. |
 | `test/tutor-llm.test.js` | Part 4: the live SDK path against a local fake Anthropic API, plus mock mode. No paid calls. |
-| `test/payload-policy.test.js` | The Student's allowlist for received A2UI payloads. |
+| `test/payload-policy.test.js` | The Student's allowlist for received A2UI payloads and updates, plus the shared validators (dates, weekdays, period/time, capacity, slot IDs) and action checks. |
 | `test/skills.test.js` | Part 5 unit tests: skill validation, a single source for the card and policy, Library capability limits, router decision validation and trusted card validation. |
 | `test/routing.test.js` | Part 5 routing with real processes: every example's **actual A2A destination**, no calls for clarify or unsupported, malicious choices failing closed, separate contexts per service, follow-ups, reconnects, an offline service, router errors, and the mock heuristic. |
 | `test/scope.test.js` | Part 5 scope enforcement through **direct** A2A calls: physics, plumbing, mixed and override requests; topic switches; disabled skills; changes mid-request; the live check, answer and answer-check structure; the Library answering only from saved content (mock line extraction, live evidence check); and forms staying with their agent. |
 | `test/card-refresh.test.js` | Part 5 reverse path: the settings API, save → ETag → A2A notification → re-fetch → routing change, duplicate and late notices, spoofed senders and notice URLs, an offline Student, and failed refresh with recovery. |
-| `test/form.test.js` | Part 3 end to end with real processes: the valid round trip with exact values, invalid data refused by the UI server and by the Tutor on its own, unexpected fields and actions, duplicate submissions, reconnect without resubmitting, an unavailable Tutor, uncertain delivery with retry, and the localhost guards. |
+| `test/form.test.js` | Parts 3 + 6, tutoring workflow end to end: no form shortcut; natural language decides; removal → pending → receipt; invalid input sends nothing; the Tutor's own checks (forged/stale/uncorrelated); duplicates; one form per conversation and explicit replacement; replay never resurrects; cancel; disabled workflow; Edit and retry; confirmation pending + reconcile; privacy; localhost guards. |
+| `test/booking.test.js` | Part 6, study-room workflow: routing to the Library, fixture-only availability with scheduling fields only, criteria changes, required review, forged/stale/mismatched slots, receipts, a concurrent double-booking race, and actions always going to the issuing agent. |
 | `package.json` / `package-lock.json` | Pinned dependencies and the `tutor` / `student` / `ui` / `build:ui` / `test` scripts. |
 
 ## How a message gets there and back
@@ -143,6 +148,8 @@ Notes on reading the monitor:
 - **Reloading the page** replays the server's event history over `GET /api/events`. Only `POST /api/runs` can start an A2A request, so a reconnect can never send anything to the Tutor.
 
 ## Part 3: an A2UI form over A2A
+
+> **Since Part 6** there is no Request form button and no `POST /api/forms`: a form appears only when an agent decides to send one in reply to a chat message, and the student-details form was replaced by the tutoring-request form. The A2UI mechanics below (version choice, action mapping, delivery outcomes) still apply; see Part 6 for how a form starts and ends now.
 
 Three protocols or channels are involved, and each has one job:
 
@@ -340,7 +347,7 @@ It checks that `claude-haiku-5-5` is available to your account. That check uses 
 
 ```
 Browser ─▶ UI server :3000 ── hosts ──▶ Student Agent (router + trusted registry)
-                                         ├── A2A client ══▶ Calculus Tutor :41241 (scope-checked; mock/live model)
+                                         ├── A2A client ══▶ Tutor Agent    :41241 (scope-checked; mock/live model)
                                          ├── A2A client ══▶ Library Agent  :41242 (answers from saved skill content)
                                          └── A2A server :41240 ◀══ agent_card_changed notices from Tutor / Library
 ```
@@ -431,7 +438,7 @@ The browser shows three separate outcomes, each from a real event: **configurati
 
 Each service checks **its own current policy** on every request, including **direct A2A calls that bypass the router**. A stale Student registry therefore can't reach a removed skill.
 
-**Calculus Tutor** (`src/tutor-model.js`):
+**Tutor Agent** (`src/tutor-model.js`, calculus by default):
 
 1. **Code:** if no tutoring skill is enabled, it declines and makes no model call. If the form skill is disabled, it refuses form requests and submissions.
 2. **Scope check** before answering: Haiku, with structured output, classifies the request against the saved skills, allowed scope and exclusions. It returns `in_scope`, `out_of_scope` or `needs_clarification`.
@@ -469,12 +476,98 @@ How "calculus" is bounded: limits, derivatives, integrals, calculus exercises, a
 
 | Restarted | Lost |
 | --- | --- |
-| Tutor | Its skill edits (back to the defaults at revision 1), tutoring history, forms, submissions, A2A tasks |
-| Library | Its skill edits |
+| Tutor | Its skill edits (back to the defaults at revision 1), tutoring history, forms, tutoring requests, operation dedupe records, A2A tasks |
+| Library | Its skill edits, forms, demo bookings (the fixture schedule comes back), operation dedupe records |
 | UI server / Student | The registry (rebuilt by the startup refresh), routing context per conversation, event history |
 
 Agents send a notice when they start, and the Student refreshes at startup and on feed reconnects, so the views converge again after any restart.
 
+## Part 6: forms the agents decide to send
+
+There's no form button. The student just asks, and the **receiving agent** decides.
+
+### Intent → form → submission → handler → receipt
+
+```
+Student types "Can I meet a tutor about derivatives tomorrow afternoon?"
+  → Student router picks a service (Part 5) ─ A2A ─▶ Tutor
+       Tutor decides: answer | clarify | offer_tutoring_request_form | out_of_scope
+         (live: one structured Haiku call; fixed/mock: a labelled heuristic)
+       code checks: workflow is this agent's and enabled? client supports A2UI v0.9?
+                    a form already open in this conversation? (then ask: continue or replace)
+       prefill parsed from the student's words: date, afternoon  (never names, emails, notes)
+  ◀─ A2A: Task INPUT_REQUIRED carrying the registered A2UI template
+Browser renders it; drafts stay local.
+Student presses "Send tutoring request"
+  → browser validates; invalid → errors shown, nothing sent
+  → valid → snapshot kept, form removed at once (deleteSurface), "Sending request…" shown
+  ─ A2A (resumes the form's task, with an operation ID) ─▶ Tutor
+       form host: correlated? current version? workflow still enabled? allowlisted action/button/fields?
+                  operation ID seen? → return the stored result, run nothing
+       validate → createTutoringRequest (allowlisted handler, once) → stored "Received — awaiting scheduling"
+  ◀─ A2A: the handler's result + deleteSurface → read-only receipt
+```
+
+The study-room workflow is the same shape with a few extra steps:
+
+- **Availability:** the Library's form looks up demo availability whenever date, room, duration or group size change. Only those four fields are sent. The times come from `listStudyRoomAvailability` (the fixture), never from a model.
+- **Review:** "Review booking" returns a summary screen.
+- **Confirm:** **Confirm demo booking** re-checks the slot and reserves it atomically. The check and the write happen in one synchronous step, so of two simultaneous confirmations exactly one wins.
+- **Slot IDs:** they're opaque and specific to each form. A forged ID, or one taken from another form, is rejected, and no other time is ever substituted.
+- **Conflicts:** if someone else takes the slot first, the student sees the conflict and refreshed alternatives.
+
+### The form's lifecycle in the Student view
+
+A form is part of the chat: it appears where the agent sent it, becomes a summary of what you sent when you submit, and the agent's reply follows it. Availability lookups and the review step stay inside the form (and show in the agent's panel). After **Edit and retry**, the failed attempt stays in place and the reopened form moves to the bottom.
+
+
+`editing → submitting → accepted | rejected | confirmation_pending`, and `editing → cancelled | superseded`.
+
+| State | What the student sees |
+| --- | --- |
+| editing | The live A2UI form |
+| submitting | "Sending request…" / "Confirming booking…" — the editable form is already gone |
+| accepted | Your submission as a read-only summary; the agent's confirmation follows it as the next chat message, with the receipt (request ID and preferences, or booking ID, room, date, times, timezone, "Demo booking") |
+| rejected | The reason, and **Edit and retry**, which reopens the form with the saved values. After a room conflict, a new time must be chosen. |
+| confirmation_pending | "Confirmation pending" and **Check status**, which resends the *same* operation ID. The agent returns the stored result or processes it once. No resubmission button appears until that's resolved. |
+| cancelled / superseded | A compact record; no handler was called |
+
+Removing the UI isn't deleting data: receipts, correlation and dedupe records are kept.
+
+A reload or reconnect replays history, then sends a `replayed` marker. The browser rebuilds each form's *current* state, so a submitted, cancelled or superseded form never comes back, and late events for a closed form are ignored.
+
+### What the agent does with submitted data
+
+- **Understanding the request:** the model (or the heuristic) only chooses which allowed outcome applies.
+- **Everything else is code:** validation, availability, reservation and the receipt text. The model can't invent workflows, rooms, times or a successful booking.
+- **No re-routing:** form actions always go back to the agent that issued the form, using the recorded IDs, never based on the Notes text or the current topic.
+
+### Demo data (fictional)
+
+| | |
+| --- | --- |
+| Timezone | America/Los_Angeles (Pacific Time) |
+| Tutoring | Monday–Friday 09:00–17:00; morning before 12:00; preferred date up to 60 days ahead |
+| Rooms | Room A (4 people), Room B (6), Room C (10); 09:00–21:00; 1 or 2 hours; up to 14 days ahead |
+| Fixture bookings | Every day: Room A 14:00–16:00, Room B 10:00–11:00, Room C 18:00–19:00 |
+
+Nothing is sent anywhere: no email, calendar invitation, SMS or university system. A tutoring request never becomes "Appointment booked".
+
+### Review before recording
+
+After a submission passes the code checks, the issuing agent reviews **every field**: in live mode with one structured Claude Haiku 5.5 call, which sees the name, email, preferences and notes; in fixed/mock modes with a labelled heuristic.
+- **Advisory only.** The review can only *flag*: contradictions (notes say "afternoons only", form says morning), notes unrelated to the form's purpose, likely email typos, placeholder values. It never accepts or rejects; code validation stays authoritative.
+- **Nothing is recorded while flagged.** The form comes back at the bottom of the chat with the values and the flags; the student edits and sends again (reviewed again), or chooses **Send anyway**, which skips the review only for exactly the flagged values.
+- **Fails open.** If the review call fails, the valid submission continues and the agent's panel says the review was unavailable.
+- A known false positive ("the email doesn't match the name") is discarded in code.
+- Availability lookups carry only scheduling fields; agent server logs redact names and emails.
+
+### Limits, honestly
+
+- **No durability:** state is in memory and there's no durable guarantee. A restart forgets forms, requests, bookings and dedupe records.
+- **Decision accuracy:** live intent decisions are probabilistic. The mock heuristics are labelled stand-ins that prove the plumbing, not language understanding.
+- **"Superseded" is per conversation:** two open browser tabs in the same conversation see the same lifecycle, because the UI server owns it.
+
 ## Deliberately not included
 
-Token streaming, push notifications, multi-agent fan-out, authentication or authorization, a Hub, mailboxes, a database, actually sending email, model-driven tools, and deployment. Each chat goes to at most one service as one A2A request and one response. Each form is one task: request, then submit.
+Token streaming, push notifications, multi-agent fan-out, authentication or authorization, a Hub, mailboxes, a database, actually sending email, model-driven tools, and deployment. Each chat goes to at most one service as one A2A request and one response. Each form is one A2A task, opened by the agent's reply to a chat message and acted on only by its own allowlisted actions.

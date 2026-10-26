@@ -60,6 +60,7 @@ export async function openStream(baseUrl) {
           const data = lines.find((l) => l.startsWith('data: '))?.slice(6);
           if (!data) continue;
           if (lines.includes('event: hello')) stream.hello = JSON.parse(data);
+          else if (lines.includes('event: replayed')) stream.replayed = (stream.replayed ?? 0) + 1;
           else stream.events.push(JSON.parse(data));
         }
       }
@@ -122,7 +123,7 @@ export async function chatVia(ui, stream, text, contextId) {
   // Agents' feed events travel separately from the A2A reply; wait for the destination's own reply event.
   const routed = find(forRun(stream.events, runId), 'student', 'route_decided')?.data;
   const target = routed?.decision === 'route' ? routed.agentId : null;
-  if (target) await waitFor(() => find(forRun(stream.events, runId), target, 'reply_published') || stateOf(stream.events, runId) !== 'completed', { what: 'agent reply event' }).catch(() => {});
+  if (target) await waitFor(() => find(forRun(stream.events, runId), target, 'reply_published') || find(forRun(stream.events, runId), target, 'form_sent') || stateOf(stream.events, runId) !== 'completed', { what: 'agent reply event' }).catch(() => {});
   await new Promise((r) => setTimeout(r, 40));
   const events = forRun(stream.events, runId);
   return {
@@ -132,3 +133,20 @@ export async function chatVia(ui, stream, text, contextId) {
     destinations: ['tutor', 'library'].filter((a) => find(events, a, 'message_received')),
   };
 }
+
+// ---- Part 6: forms the agents send ---------------------------------------------------------
+
+// Ask in chat; resolves with the form_received event data (or null if the reply wasn't a form).
+export async function formVia(ui, stream, text, contextId) {
+  const r = await chatVia(ui, stream, text, contextId);
+  return { ...r, form: find(r.events, 'student', 'form_received')?.data ?? null };
+}
+
+export const formAction = (ui, formId, name, button, context = {}, operationId = crypto.randomUUID()) =>
+  post(`${ui.url}/api/forms/${formId}/actions`, { operationId, action: { name, surfaceId: formId, sourceComponentId: button, timestamp: new Date().toISOString(), context } });
+
+export const lifecycleOf = (events, formId) => events.filter((e) => e.type === 'form_lifecycle' && e.data.formId === formId).map((e) => e.data.state);
+export const lastLifecycle = (events, formId) => events.filter((e) => e.type === 'form_lifecycle' && e.data.formId === formId).at(-1)?.data;
+export const waitLifecycle = (stream, formId, states, timeout = 5000) =>
+  waitFor(() => states.includes(lastLifecycle(stream.events, formId)?.state), { timeout, what: `form ${formId} in ${states}` });
+export const actionResults = (events, formId, name) => events.filter((e) => e.source === 'student' && e.type === 'form_action_result' && e.data.formId === formId && (!name || e.data.actionName === name));

@@ -1,17 +1,29 @@
-// Part 3 end-to-end: real Tutor + UI server processes. The browser is stood in for by
-// the event stream reader and HTTP calls; the A2UI action is built exactly as the
-// renderer emits it (shape verified in a2ui-render.test.js).
+// Parts 3 + 6 end to end: real Tutor + UI server processes. Forms appear only because the Tutor
+// decided, from a chat message, to send one. The browser is stood in for by the event-stream reader
+// and HTTP calls; actions are built exactly as the renderer emits them (see a2ui-render.test.js).
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import {
-  startTutor, startUi, waitFor, openStream, unusedPort, post, forRun, find, findAll, stateOf,
+  startTutor, startUi, waitFor, openStream, post, put, find, findAll, formVia, formAction, lifecycleOf, lastLifecycle, waitLifecycle, actionResults,
 } from './support/harness.js';
-import { requestForm, submitForm } from '../src/student-agent.js';
-import { SUBMIT_ACTION } from '../src/student-form.js';
+import { askTutor, sendFormAction } from '../src/student-agent.js';
+import { TUTORING_ACK } from '../src/tutor-agent.js';
+import { addDays, todayIn } from '../src/forms.js';
 
-const ALEX = { firstName: 'Alex', lastName: 'Student', email: 'alex@example.com', notes: 'Prefers morning sessions.\nSecond line.' };
+// A weekday a few days ahead (tutoring runs Monday–Friday).
+const weekday = (() => {
+  for (let n = 2; ; n++) {
+    const d = addDays(todayIn(), n);
+    if (![0, 6].includes(new Date(`${d}T12:00:00Z`).getUTCDay())) return d;
+  }
+})();
+const ALEX = { firstName: 'Alex', lastName: 'Student', email: 'alex@example.com', preferredDate: weekday, period: ['afternoon'], specificTime: '14:30', notes: 'Chain rule practice.\nSecond line.' };
+const ASK = 'I want to arrange in-person help with calculus';
+const submit = (ui, formId, context = ALEX, operationId) => formAction(ui, formId, 'submitTutoringRequest', 'submit_button', context, operationId);
+const countIn = (text, needle) => text.split(needle).length - 1;
 
 let tutor, ui;
 before(async () => {
@@ -24,233 +36,314 @@ after(() => {
   tutor?.proc.kill();
 });
 
-const actionFor = (formId, context, name = SUBMIT_ACTION) => ({
-  name, surfaceId: formId, sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context,
+test('no request-form shortcut: no button in the page, no endpoint that creates a form', async () => {
+  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  assert.doesNotMatch(html, /request-form|Request form/);
+  assert.equal((await post(`${ui.url}/api/forms`, {})).status, 404, 'POST /api/forms no longer exists');
+  const s = await openStream(ui.url);
+  await waitFor(() => s.replayed, { what: 'replay marker' });
+  assert.equal(findAll(s.events, 'student', 'form_received').length, 0, 'opening the page creates nothing');
+  s.close();
 });
 
-// Request a form through the UI server and wait until it's awaiting input.
-async function openForm(uiUrl, stream) {
-  const res = await post(`${uiUrl}/api/forms`, {});
-  assert.equal(res.status, 202);
-  const { runId } = await res.json();
-  await waitFor(() => ['awaiting_input', 'failed'].includes(stateOf(stream.events, runId)), { what: 'form' });
-  const received = find(forRun(stream.events, runId), 'student', 'form_received');
-  return { runId, formId: received?.data.formId, received };
-}
-
-const submit = (uiUrl, formId, body) => post(`${uiUrl}/api/forms/${formId}/submissions`, body);
-const settled = (stream, runId, states) => waitFor(() => states.includes(stateOf(stream.events, runId)), { what: `state in ${states}` });
-const countIn = (text, needle) => text.split(needle).length - 1;
-
-test('valid round trip: Tutor receives all four values exactly, accepts, and the Student gets the acknowledgment', async () => {
+test('natural language decides: request → form (with stated preferences only); questions → answers; vague → clarification', async () => {
   const stream = await openStream(ui.url);
-  const { runId, formId, received } = await openForm(ui.url, stream);
-  assert.ok(received.data.a2uiMessages.length >= 3, 'browser was delivered the A2UI messages');
+  const a = await formVia(ui, stream, 'Can I meet a tutor about derivatives tomorrow afternoon?');
+  assert.ok(a.form, 'the Tutor sent the form');
+  assert.equal(a.form.workflowId, 'tutoring-request');
+  assert.equal(a.form.agentId, 'tutor');
+  assert.equal(a.form.lifecycle, 'editing');
+  const model = a.form.a2uiMessages.find((m) => m.updateDataModel).updateDataModel.value.form;
+  assert.deepEqual(model.period, ['afternoon'], 'stated preference prefilled');
+  assert.equal(model.firstName, '', 'names never prefilled');
+  assert.equal(model.email, '', 'email never prefilled');
+  assert.equal(model.notes, '', 'notes not invented');
+  const tomorrowIsWeekday = ![0, 6].includes(new Date(`${addDays(todayIn(), 1)}T12:00:00Z`).getUTCDay());
+  assert.equal(model.preferredDate, tomorrowIsWeekday ? addDays(todayIn(), 1) : '', '“tomorrow” → that date, only if tutoring runs then');
 
-  const submissionId = randomUUID();
-  const res = await submit(ui.url, formId, { submissionId, action: actionFor(formId, ALEX) });
-  assert.equal(res.status, 202);
-  await settled(stream, runId, ['accepted']);
-  await waitFor(() => find(forRun(stream.events, runId), 'tutor', 'submission_accepted'), { what: 'tutor accepted event' });
-
-  const events = forRun(stream.events, runId);
-  assert.deepEqual(find(events, 'tutor', 'submission_received').data.receivedValues, ALEX, 'Tutor received exactly the four values');
-  assert.deepEqual(find(events, 'tutor', 'submission_accepted').data.values, ALEX);
-  const ack = find(events, 'student', 'ack_received').data;
-  assert.equal(ack.ack.status, 'accepted');
-  assert.equal(ack.submissionId, submissionId);
-  assert.equal(ack.ack.ackId, find(events, 'tutor', 'submission_accepted').data.ackId);
-
-  // Correlation: same conversation and task end to end; submission resumed the form's task.
-  const formTask = received.data;
-  const sent = find(events, 'student', 'submission_sent').data;
-  assert.equal(sent.mode, 'resume-task');
-  assert.equal(sent.taskId, formTask.taskId);
-  assert.equal(find(events, 'tutor', 'submission_received').data.contextId, formTask.contextId);
-  assert.equal(ack.contextId, formTask.contextId);
-
-  // The eight visible steps all come from real events, in causal order.
-  const order = [
-    ['student', 'form_requested'], ['tutor', 'form_request_received'], ['tutor', 'form_sent'], ['student', 'form_received'],
-    ['system', 'state:awaiting_input'], ['student', 'submission_sent'], ['tutor', 'submission_accepted'], ['student', 'ack_received'],
-  ].map(([source, type]) => (type.startsWith('state:')
-    ? events.find((e) => e.type === 'state' && e.data.state === type.slice(6))
-    : find(events, source, type)));
-  assert.ok(order.every(Boolean), 'all eight steps observed');
-  const t = order.map((e) => Date.parse(e.at));
-  assert.ok(t.every((v, i) => i === 0 || t[i - 1] <= v), `steps in causal order: ${order.map((e) => e.type)}`);
-  stream.close();
-});
-
-test('UI server refuses invalid data and never forwards it to the Tutor', async () => {
-  const stream = await openStream(ui.url);
-  const { runId, formId } = await openForm(ui.url, stream);
-  const cases = [
-    [{ ...ALEX, firstName: '' }, 'firstName'],
-    [{ ...ALEX, lastName: '   ' }, 'lastName'],
-    [{ ...ALEX, email: 'alex@' }, 'email'],
-    [{ ...ALEX, notes: 'x'.repeat(1001) }, 'notes'],
-    [{ ...ALEX, firstName: 'x'.repeat(101) }, 'firstName'],
-    [{ ...ALEX, admin: true }, '_form'], // unexpected field
-  ];
-  for (const [context, field] of cases) {
-    const res = await submit(ui.url, formId, { submissionId: randomUUID(), action: actionFor(formId, context) });
-    assert.equal(res.status, 400, JSON.stringify(context).slice(0, 60));
-    assert.ok((await res.json()).errors[field], `error reported for ${field}`);
+  for (const [question, outcome] of [['Explain derivatives', null], ['How does in-person tutoring work?', /request form/], ['I want tutoring', /explain a calculus topic here, or to request an in-person/]]) {
+    const r = await formVia(ui, stream, question);
+    assert.equal(r.form, null, `${question}: no form`);
+    if (outcome) assert.match(r.reply.text, outcome, question);
   }
-  const unknownAction = await submit(ui.url, formId, { submissionId: randomUUID(), action: actionFor(formId, ALEX, 'deleteEverything') });
-  assert.equal(unknownAction.status, 400);
-  const extraActionKey = await submit(ui.url, formId, { submissionId: randomUUID(), action: { ...actionFor(formId, ALEX), url: 'https://example.com' } });
-  assert.equal(extraActionKey.status, 400);
-  const extraBodyKey = await submit(ui.url, formId, { submissionId: randomUUID(), action: actionFor(formId, ALEX), script: 'alert(1)' });
-  assert.equal(extraBodyKey.status, 400);
-
-  await new Promise((r) => setTimeout(r, 150));
-  assert.equal(findAll(forRun(stream.events, runId), 'tutor', 'submission_received').length, 0, 'Tutor received nothing');
-  assert.equal(stateOf(stream.events, runId), 'awaiting_input');
   stream.close();
 });
 
-test('Tutor independently rejects invalid submissions sent straight over A2A, then accepts a corrected one on the same task', async () => {
-  const form = await requestForm(tutor.url, { runId: 'direct' });
-  const direct = (context, name) => submitForm(tutor.url, { form, action: actionFor(form.formId, context, name), submissionId: randomUUID(), runId: 'direct' });
+test('valid round trip: editable form removed at once → pending → read-only receipt; Tutor records exactly once', async () => {
+  const stream = await openStream(ui.url);
+  const { form } = await formVia(ui, stream, ASK);
+  const operationId = randomUUID();
+  assert.equal((await submit(ui, form.formId, ALEX, operationId)).status, 202);
+  await waitLifecycle(stream, form.formId, ['accepted']);
+  assert.deepEqual(lifecycleOf(stream.events, form.formId), ['submitting', 'accepted'], 'pending state shown before the receipt');
 
-  for (const [context, name, field] of [
-    [{ ...ALEX, firstName: '  ' }, SUBMIT_ACTION, 'firstName'],
-    [{ ...ALEX, lastName: '' }, SUBMIT_ACTION, 'lastName'],
-    [{ ...ALEX, email: 'nope' }, SUBMIT_ACTION, 'email'],
-    [{ ...ALEX, role: 'admin' }, SUBMIT_ACTION, '_form'],
-    [ALEX, 'deleteEverything', '_form'],
+  const receipt = lastLifecycle(stream.events, form.formId).receipt;
+  assert.match(receipt.requestId, /^TR-/);
+  assert.equal(receipt.status, 'Received — awaiting scheduling');
+  assert.deepEqual(receipt.preferences, { preferredDate: weekday, period: 'afternoon', specificTime: '14:30', notes: ALEX.notes });
+  assert.equal(receipt.demo, true);
+  const result = actionResults(stream.events, form.formId, 'submitTutoringRequest').at(-1).data;
+  assert.equal(result.text, TUTORING_ACK);
+  assert.doesNotMatch(JSON.stringify(stream.events), /appointment booked/i, 'never claims an appointment');
+  assert.ok(result.a2uiUpdate.some((m) => m.deleteSurface?.surfaceId === form.formId), 'the agent also closes the surface (standard deleteSurface)');
+
+  await waitFor(() => findAll(stream.events, 'tutor', 'form_action_result').some((e) => e.data.formId === form.formId), { what: 'tutor event' });
+  const received = findAll(stream.events, 'tutor', 'form_action_received').find((e) => e.data.formId === form.formId).data;
+  assert.deepEqual(received.receivedValues, ALEX, 'Tutor received exactly the submitted values');
+  assert.equal(received.resumedTask, true, 'submission resumed the form’s own task');
+  assert.equal(received.contextId, form.contextId);
+  assert.equal(countIn(tutor.output(), `requestId: '${receipt.requestId}'`), 1, 'recorded once');
+  // After acceptance nothing can be submitted again.
+  assert.equal((await submit(ui, form.formId)).status, 409);
+  stream.close();
+});
+
+test('invalid input: nothing is sent, the form stays editable', async () => {
+  const stream = await openStream(ui.url);
+  const { form } = await formVia(ui, stream, ASK);
+  for (const [patch, field] of [
+    [{ firstName: '   ' }, 'firstName'], [{ email: 'alex@' }, 'email'], [{ preferredDate: addDays(todayIn(), -1) }, 'preferredDate'],
+    [{ period: [] }, 'period'], [{ period: ['morning'], specificTime: '14:30' }, 'specificTime'], [{ notes: '' }, 'notes'], [{ admin: true }, '_form'],
   ]) {
-    const result = await direct(context, name);
-    assert.equal(result.body.status, 'rejected', `${name} ${JSON.stringify(context).slice(0, 50)}`);
-    assert.ok(result.body.errors[field]);
-    assert.equal(result.taskId, form.taskId, 'rejection keeps the same task open (input-required)');
+    const res = await submit(ui, form.formId, { ...ALEX, ...patch });
+    assert.equal(res.status, 400, JSON.stringify(patch));
+    assert.ok((await res.json()).errors[field], field);
   }
-  const ok = await direct(ALEX, SUBMIT_ACTION);
+  assert.equal((await formAction(ui, form.formId, 'deleteEverything', 'submit_button', ALEX)).status, 400, 'unknown action');
+  assert.equal((await formAction(ui, form.formId, 'submitTutoringRequest', 'cancel_button', ALEX)).status, 400, 'wrong button');
+  const extra = await post(`${ui.url}/api/forms/${form.formId}/actions`, { operationId: randomUUID(), action: { name: 'submitTutoringRequest', surfaceId: form.formId, sourceComponentId: 'submit_button', context: ALEX, url: 'https://example.com' } });
+  assert.equal(extra.status, 400, 'unexpected action key');
+  await new Promise((r) => setTimeout(r, 150));
+  assert.deepEqual(lifecycleOf(stream.events, form.formId), [], 'still editing');
+  assert.equal(findAll(stream.events, 'tutor', 'form_action_received').filter((e) => e.data.formId === form.formId).length, 0, 'Tutor received nothing');
+  stream.close();
+});
+
+test('the Tutor validates independently over A2A: invalid, forged, wrong-form and stale actions are rejected', async () => {
+  const { form } = await askTutor(tutor.url, ASK, {});
+  const direct = (context, extra = {}) => sendFormAction(tutor.url, { form: { ...form, ...extra.form }, operationId: extra.operationId ?? randomUUID(), action: { name: extra.name ?? 'submitTutoringRequest', surfaceId: extra.surfaceId ?? form.formId, sourceComponentId: extra.button ?? 'submit_button', timestamp: new Date().toISOString(), context } });
+  for (const [label, context, extra, pattern] of [
+    ['blank name', { ...ALEX, firstName: ' ' }, {}, /First name/],
+    ['bad email', { ...ALEX, email: 'nope' }, {}, /email/],
+    ['extra field', { ...ALEX, role: 'admin' }, {}, /Unexpected field/],
+    ['unknown action', ALEX, { name: 'deleteEverything' }, /Unknown action/],
+    ['forged button', ALEX, { button: 'cancel_button' }, /own button/],
+    ['stale form version', ALEX, { form: { formVersion: 7 } }, /out of date/],
+    ['other surface', ALEX, { surfaceId: 'tutoring-request-forged' }, /Unknown form/],
+  ]) {
+    const r = await direct(context, extra);
+    assert.equal(r.body.status, 'rejected', label);
+    assert.match(JSON.stringify(r.body.errors), pattern, label);
+  }
+  // Correlation: an action from a different conversation that doesn't reference the task.
+  const other = await sendFormAction(tutor.url, { form: { ...form, contextId: randomUUID(), taskId: randomUUID() }, operationId: randomUUID(), action: { name: 'submitTutoringRequest', surfaceId: form.formId, sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context: ALEX } }).catch((e) => ({ body: { status: 'rejected', errors: { _form: e.message } } }));
+  assert.equal(other.body.status, 'rejected', 'uncorrelated action rejected');
+  const ok = await direct(ALEX);
   assert.equal(ok.body.status, 'accepted');
-  assert.equal(ok.taskId, form.taskId);
 });
 
-test('duplicate submission is processed once and returns the identical acknowledgment', async () => {
+test('duplicate operations: double-click sends once; an identical retry returns the stored receipt; reuse with other values is refused', async () => {
   const stream = await openStream(ui.url);
-  const { runId, formId } = await openForm(ui.url, stream);
-  const submissionId = randomUUID();
-
-  // Double click: two concurrent submits → only one is accepted by the UI server.
-  const [a, b] = await Promise.all([
-    submit(ui.url, formId, { submissionId, action: actionFor(formId, ALEX) }),
-    submit(ui.url, formId, { submissionId, action: actionFor(formId, ALEX) }),
-  ]);
+  const { form } = await formVia(ui, stream, ASK);
+  const operationId = randomUUID();
+  const [a, b] = await Promise.all([submit(ui, form.formId, ALEX, operationId), submit(ui, form.formId, ALEX, operationId)]);
   assert.deepEqual([a.status, b.status].sort(), [202, 409]);
-  await settled(stream, runId, ['accepted']);
-  // After acceptance the UI server refuses further submits.
-  assert.equal((await submit(ui.url, formId, { submissionId, action: actionFor(formId, ALEX) })).status, 409);
+  await waitLifecycle(stream, form.formId, ['accepted']);
+  const first = lastLifecycle(stream.events, form.formId).receipt;
 
-  // A duplicate that reaches the Tutor anyway (straight over A2A, same submissionId).
-  const form = { ...find(forRun(stream.events, runId), 'student', 'form_received').data };
-  const first = find(forRun(stream.events, runId), 'student', 'ack_received').data.ack;
-  const again = await submitForm(tutor.url, { form, action: actionFor(formId, ALEX), submissionId, runId });
+  const again = await sendFormAction(tutor.url, { form, operationId, action: { name: 'submitTutoringRequest', surfaceId: form.formId, sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context: ALEX } });
   assert.equal(again.duplicate, true);
-  assert.equal(again.body.ackId, first.ackId, 'same acknowledgment');
-  assert.equal(again.body.recordedAt, first.recordedAt);
-  const recordLines = tutor.output().split('[Tutor Agent]').filter((block) => block.startsWith(' recorded submission') && block.includes(submissionId));
-  assert.equal(recordLines.length, 1, 'Tutor log shows the submission recorded exactly once');
-  assert.equal(findAll(forRun(stream.events, runId), 'tutor', 'submission_accepted').length, 1);
-  await waitFor(() => find(forRun(stream.events, runId), 'tutor', 'submission_duplicate'), { what: 'duplicate event' });
-
-  // Same submissionId with different content is refused, not silently merged.
-  const conflict = await submitForm(tutor.url, { form, action: actionFor(formId, { ...ALEX, firstName: 'Sam' }), submissionId, runId });
-  assert.equal(conflict.body.status, 'rejected');
+  assert.deepEqual(again.body.receipt, first, 'same receipt, nothing re-executed');
+  assert.equal(again.taskId, null, 'the completed task was not resumed (new message referencing it)');
+  const different = await sendFormAction(tutor.url, { form, operationId, action: { name: 'submitTutoringRequest', surfaceId: form.formId, sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context: { ...ALEX, firstName: 'Sam' } } });
+  assert.match(JSON.stringify(different.body.errors), /already used with different values/);
+  assert.equal(countIn(tutor.output(), `requestId: '${first.requestId}'`), 1, 'recorded once');
   stream.close();
 });
 
-test('browser reconnect replays events but never resubmits', async () => {
+test('one editable form per workflow per conversation: repeats ask first; explicit replacement supersedes the old form', async () => {
   const stream = await openStream(ui.url);
-  const { runId, formId } = await openForm(ui.url, stream);
-  await submit(ui.url, formId, { submissionId: randomUUID(), action: actionFor(formId, ALEX) });
-  await settled(stream, runId, ['accepted']);
-  stream.close();
-  const receivedBefore = countIn(tutor.output(), 'received submission');
+  const first = await formVia(ui, stream, ASK);
+  const repeat = await formVia(ui, stream, 'Can I book an in-person tutoring session?', first.contextId);
+  assert.equal(repeat.form, null, 'no second form stacked');
+  assert.match(repeat.reply.text, /already have an open tutoring request form/);
+  assert.deepEqual(lifecycleOf(stream.events, first.form.formId), [], 'the draft form is untouched');
 
+  const replaced = await formVia(ui, stream, 'Please replace the form, I want in-person tutoring on a different day', first.contextId);
+  assert.ok(replaced.form, 'new form after an explicit request');
+  assert.equal(replaced.form.supersedes, first.form.formId);
+  assert.equal(lastLifecycle(stream.events, first.form.formId).state, 'superseded');
+  assert.equal((await submit(ui, first.form.formId)).status, 409, 'a superseded form accepts nothing');
+  // A genuinely new request after completion gets a new form with new identifiers.
+  await submit(ui, replaced.form.formId);
+  await waitLifecycle(stream, replaced.form.formId, ['accepted']);
+  const fresh = await formVia(ui, stream, ASK, first.contextId);
+  assert.ok(fresh.form && fresh.form.formId !== replaced.form.formId);
+  stream.close();
+});
+
+test('reconnect / history replay reconstructs current state and never resubmits or resurrects a form', async () => {
+  const stream = await openStream(ui.url);
+  const { form } = await formVia(ui, stream, ASK);
+  await submit(ui, form.formId);
+  await waitLifecycle(stream, form.formId, ['accepted']);
+  stream.close();
+  const before = countIn(tutor.output(), 'received form action');
   for (let i = 0; i < 3; i++) {
     const again = await openStream(ui.url);
-    await waitFor(() => stateOf(again.events, runId) === 'accepted', { what: 'replay' });
-    assert.equal(findAll(forRun(again.events, runId), 'student', 'submission_sent').length, 1, 'still one submission');
-    assert.ok(find(forRun(again.events, runId), 'student', 'form_received').data.a2uiMessages, 'form replayed for rendering');
+    await waitFor(() => again.replayed, { what: 'replay marker' });
+    assert.ok(find(again.events, 'student', 'form_received'), 'creation event replayed…');
+    assert.equal(lastLifecycle(again.events, form.formId).state, 'accepted', '…followed by its current state, so the browser shows only the receipt');
     again.close();
   }
   await new Promise((r) => setTimeout(r, 200));
-  assert.equal(countIn(tutor.output(), 'received submission'), receivedBefore, 'Tutor received nothing new');
+  assert.equal(countIn(tutor.output(), 'received form action'), before, 'Tutor received nothing new');
 });
 
-test('unavailable Tutor: form request fails visibly; a submission is reported not delivered and the form stays editable', async () => {
-  const lonelyTutor = await startTutor();
-  const lonelyUi = await startUi(lonelyTutor.url);
+test('Cancel removes the form without calling the handler; New conversation closes open forms', async () => {
+  const stream = await openStream(ui.url);
+  const { form } = await formVia(ui, stream, ASK);
+  assert.equal((await formAction(ui, form.formId, 'cancelForm', 'cancel_button')).status, 202);
+  await waitFor(() => actionResults(stream.events, form.formId, 'cancelForm').length, { what: 'cancel result' });
+  assert.deepEqual(lifecycleOf(stream.events, form.formId), ['cancelled']);
+  assert.equal(actionResults(stream.events, form.formId, 'cancelForm')[0].data.body.status, 'cancelled');
+  assert.equal((await submit(ui, form.formId)).status, 409);
+  assert.doesNotMatch(tutor.output().split(form.formId).slice(1).join(''), /recorded tutoring request/, 'no request recorded for a cancelled form');
+
+  const open = await formVia(ui, stream, ASK);
+  assert.equal((await post(`${ui.url}/api/conversation/new`, {})).status, 202);
+  await waitLifecycle(stream, open.form.formId, ['cancelled']);
+  assert.equal(lastLifecycle(stream.events, open.form.formId).reason, 'new_conversation');
+  stream.close();
+});
+
+test('a disabled workflow can neither send nor accept forms', async () => {
+  const t = await startTutor();
+  const u = await startUi(t.url);
   try {
-    const stream = await openStream(lonelyUi.url);
-    const { runId, formId } = await openForm(lonelyUi.url, stream);
-    lonelyTutor.proc.kill();
-    await new Promise((r) => lonelyTutor.proc.once('exit', r));
-
-    const res = await submit(lonelyUi.url, formId, { submissionId: randomUUID(), action: actionFor(formId, ALEX) });
-    assert.equal(res.status, 202);
-    await waitFor(() => find(forRun(stream.events, runId), 'student', 'submission_failed'), { what: 'failure' });
-    const failure = find(forRun(stream.events, runId), 'student', 'submission_failed').data;
-    assert.equal(failure.outcome, 'not_delivered');
-    assert.equal(failure.code, 'ECONNREFUSED');
-    await settled(stream, runId, ['awaiting_input']);
-    const last = forRun(stream.events, runId).filter((e) => e.type === 'state').at(-1).data;
-    assert.equal(last.notDelivered, true, 'browser is told: not delivered, draft kept');
-    assert.equal(find(forRun(stream.events, runId), 'student', 'ack_received'), undefined);
-
-    // With no Tutor at all, requesting a form fails and says so.
-    const second = await post(`${lonelyUi.url}/api/forms`, {});
-    const { runId: run2 } = await second.json();
-    await settled(stream, run2, ['failed']);
-    assert.equal(find(forRun(stream.events, run2), 'student', 'form_request_failed').data.code, 'ECONNREFUSED');
+    await waitFor(async () => (await (await fetch(`${u.url}/api/status`)).json()).tutorFeedConnected, { what: 'feed' });
+    const stream = await openStream(u.url);
+    const { form } = await formVia(u, stream, ASK);
+    const cfg = await (await fetch(`${u.url}/api/agents/tutor/skills`)).json();
+    cfg.config.skills.find((s) => s.id === 'in-person-tutoring-request').enabled = false;
+    assert.equal((await put(`${u.url}/api/agents/tutor/skills`, { config: cfg.config, baseRevision: cfg.revision })).status, 200);
+    await submit(u, form.formId);
+    await waitLifecycle(stream, form.formId, ['rejected']);
+    assert.match(JSON.stringify(lastLifecycle(stream.events, form.formId).errors), /no longer offered/);
+    const r = await formVia(u, stream, ASK);
+    assert.equal(r.form, null);
+    assert.match(r.reply.text, /aren’t offered/);
     stream.close();
   } finally {
-    lonelyUi.proc.kill();
+    u.proc.kill();
+    t.proc.kill();
   }
 });
 
-test('uncertain delivery is reported honestly; an explicit retry with the same submissionId is deduplicated', async () => {
-  // A Tutor that takes 1.2s to process its first submission, and a Student that gives up after 400ms.
-  const slowTutor = await startTutor({ TUTOR_TEST_DELAY_FIRST_SUBMISSION_MS: '1200' });
-  const impatientUi = await startUi(slowTutor.url, { SUBMIT_TIMEOUT_MS: '400' });
+test('known failure → explicit “Edit and retry” restores the values; an unavailable Tutor is reported, never claimed', async () => {
+  const t = await startTutor();
+  const u = await startUi(t.url);
   try {
-    await waitFor(async () => (await (await fetch(`${impatientUi.url}/api/status`)).json()).tutorFeedConnected, { what: 'feed' });
-    const stream = await openStream(impatientUi.url);
-    const { runId, formId } = await openForm(impatientUi.url, stream);
-    const submissionId = randomUUID();
-    await submit(impatientUi.url, formId, { submissionId, action: actionFor(formId, ALEX) });
-
-    await settled(stream, runId, ['uncertain']);
-    assert.equal(find(forRun(stream.events, runId), 'student', 'submission_failed').data.outcome, 'uncertain');
-    assert.equal(find(forRun(stream.events, runId), 'student', 'ack_received'), undefined, 'no success claimed');
-
-    // Meanwhile the Tutor did get it — which is exactly why "uncertain" was the honest answer.
-    await waitFor(() => find(forRun(stream.events, runId), 'tutor', 'submission_accepted'), { timeout: 4000, what: 'late tutor acceptance' });
-    assert.equal(stateOf(stream.events, runId), 'uncertain', 'no silent retry happened');
-
-    // A retry must reuse the submissionId.
-    assert.equal((await submit(impatientUi.url, formId, { submissionId: randomUUID(), action: actionFor(formId, ALEX) })).status, 409);
-    // Explicit retry (the browser's "Retry submission" button), same submissionId.
-    assert.equal((await submit(impatientUi.url, formId, { submissionId, action: actionFor(formId, ALEX) })).status, 202);
-    await settled(stream, runId, ['accepted']);
-    const events = forRun(stream.events, runId);
-    const [, retry] = findAll(events, 'student', 'submission_sent');
-    assert.equal(retry.data.mode, 'new-message-referencing-task', 'did not try to resume the completed task');
-    assert.equal(retry.data.submissionId, submissionId);
-    assert.equal(find(events, 'student', 'ack_received').data.duplicate, true);
-    assert.equal(find(events, 'student', 'ack_received').data.ack.ackId, find(events, 'tutor', 'submission_accepted').data.ackId);
-    assert.equal(findAll(events, 'tutor', 'submission_accepted').length, 1, 'recorded once');
+    await waitFor(async () => (await (await fetch(`${u.url}/api/status`)).json()).tutorFeedConnected, { what: 'feed' });
+    const stream = await openStream(u.url);
+    const { form } = await formVia(u, stream, ASK);
+    t.proc.kill();
+    await new Promise((r) => t.proc.once('exit', r));
+    await submit(u, form.formId);
+    await waitLifecycle(stream, form.formId, ['rejected']);
+    const failed = lastLifecycle(stream.events, form.formId);
+    assert.equal(failed.notDelivered, true);
+    assert.ok(!findAll(stream.events, 'system', 'form_lifecycle').some((e) => e.data.state === 'accepted'));
+    const edit = await post(`${u.url}/api/forms/${form.formId}/edit`, {});
+    assert.equal(edit.status, 200);
+    assert.deepEqual((await edit.json()).values, ALEX, 'saved values restored');
+    await waitLifecycle(stream, form.formId, ['editing']);
+    assert.deepEqual(lastLifecycle(stream.events, form.formId).values, ALEX, 'the reopen event itself carries the values (reload/other tabs)');
+    assert.equal(lastLifecycle(stream.events, form.formId).restored, true);
+    // With the Tutor gone, a new request fails visibly too.
+    const r = await post(`${u.url}/api/runs`, { text: ASK });
+    const { runId } = await r.json();
+    await waitFor(() => find(stream.events.filter((e) => e.runId === runId), 'student', 'request_failed'), { what: 'failure' });
     stream.close();
   } finally {
-    impatientUi.proc.kill();
-    slowTutor.proc.kill();
+    u.proc.kill();
   }
+});
+
+test('unknown outcome → “Confirmation pending”: no blind resubmission; reconcile with the same operation ID records once', async () => {
+  // A Tutor that takes 1.2 s on its first form action, and a Student that gives up after 400 ms.
+  const slow = await startTutor({ TUTOR_TEST_DELAY_FIRST_SUBMISSION_MS: '1200' });
+  const impatient = await startUi(slow.url, { SUBMIT_TIMEOUT_MS: '400' });
+  try {
+    await waitFor(async () => (await (await fetch(`${impatient.url}/api/status`)).json()).tutorFeedConnected, { what: 'feed' });
+    const stream = await openStream(impatient.url);
+    const { form } = await formVia(impatient, stream, ASK);
+    const operationId = randomUUID();
+    await submit(impatient, form.formId, ALEX, operationId);
+    await waitLifecycle(stream, form.formId, ['confirmation_pending']);
+    // Meanwhile the Tutor did record it — which is exactly why "pending", not "failed", is honest.
+    await waitFor(() => findAll(stream.events, 'tutor', 'form_action_result').some((e) => e.data.formId === form.formId && e.data.status === 'accepted'), { timeout: 4000, what: 'late acceptance' });
+    assert.equal(lastLifecycle(stream.events, form.formId).state, 'confirmation_pending', 'no silent retry');
+    assert.equal((await submit(impatient, form.formId, ALEX, randomUUID())).status, 409, 'no new submission while pending');
+    assert.equal((await post(`${impatient.url}/api/forms/${form.formId}/edit`, {})).status, 409, 'no edit-and-retry while pending');
+
+    assert.equal((await post(`${impatient.url}/api/forms/${form.formId}/reconcile`, {})).status, 202);
+    await waitLifecycle(stream, form.formId, ['accepted']);
+    const final = lastLifecycle(stream.events, form.formId);
+    assert.equal(final.duplicate, true, 'the stored result came back');
+    const sends = findAll(stream.events, 'student', 'form_action_sent').filter((e) => e.data.formId === form.formId);
+    assert.deepEqual(sends.map((e) => e.data.operationId), [operationId, operationId], 'same operation ID');
+    assert.equal(sends[1].data.mode, 'new-message-referencing-task', 'did not try to resume the completed task');
+    assert.equal(countIn(slow.output(), 'recorded tutoring request'), 1, 'recorded once');
+    stream.close();
+  } finally {
+    impatient.proc.kill();
+    slow.proc.kill();
+  }
+});
+
+test('review: a flagged submission comes back unrecorded; “Send anyway” records it; changed values are reviewed again', async () => {
+  const stream = await openStream(ui.url);
+  const { form } = await formVia(ui, stream, ASK);
+  const typo = { ...ALEX, email: 'alex@gmial.com' };
+  const recorded = () => countIn(tutor.output(), 'recorded tutoring request');
+  const before = recorded();
+  // Claiming "send anyway" without any earlier review doesn't skip the review.
+  await post(`${ui.url}/api/forms/${form.formId}/actions`, { operationId: randomUUID(), acknowledgeReview: true, action: { name: 'submitTutoringRequest', surfaceId: form.formId, sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context: typo } });
+  await waitFor(() => lastLifecycle(stream.events, form.formId)?.review, { what: 'flagged' });
+  const flagged = lastLifecycle(stream.events, form.formId);
+  assert.equal(flagged.state, 'editing');
+  assert.match(flagged.flags[0].message, /typo/);
+  assert.deepEqual(flagged.values, typo, 'the submitted values come back for editing');
+  assert.equal(recorded(), before, 'nothing recorded');
+  const reply = actionResults(stream.events, form.formId, 'submitTutoringRequest').at(-1).data;
+  assert.equal(reply.body.status, 'needs_review');
+
+  // Edited values are reviewed again (and pass).
+  await submit(ui, form.formId, { ...typo, email: 'alex@example.com', notes: 'Related rates.' });
+  await waitLifecycle(stream, form.formId, ['accepted']);
+  assert.equal(recorded(), before + 1);
+
+  // "Send anyway" for exactly the flagged values records them without another review.
+  const other = (await formVia(ui, stream, ASK)).form;
+  await submit(ui, other.formId, typo);
+  await waitFor(() => lastLifecycle(stream.events, other.formId)?.review, { what: 'flagged again' });
+  await post(`${ui.url}/api/forms/${other.formId}/actions`, { operationId: randomUUID(), acknowledgeReview: true, action: { name: 'submitTutoringRequest', surfaceId: other.formId, sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context: typo } });
+  await waitLifecycle(stream, other.formId, ['accepted']);
+  assert.ok(stream.events.some((e) => e.source === 'tutor' && e.type === 'form_review' && e.data.formId === other.formId && e.data.acknowledged));
+  assert.equal((await post(`${ui.url}/api/forms/${other.formId}/actions`, { operationId: randomUUID(), acknowledgeReview: 'yes', action: {} })).status, 400, 'acknowledgeReview must be a boolean');
+  stream.close();
+});
+
+test('privacy: contact details stay out of Tutor logs; drafts never leave the browser before submit', async () => {
+  const stream = await openStream(ui.url);
+  const { form } = await formVia(ui, stream, ASK);
+  const marker = `privacy-${randomUUID().slice(0, 8)}@example.com`;
+  await submit(ui, form.formId, { ...ALEX, email: marker });
+  await waitLifecycle(stream, form.formId, ['accepted']);
+  assert.ok(!tutor.output().includes(marker), 'email not logged by the Tutor');
+  assert.ok(!ui.output().includes(marker), 'email not logged by the UI server');
+  stream.close();
 });
 
 // fetch() silently drops a custom Host header, so forge it with node:http.
@@ -266,7 +359,7 @@ test('localhost guards: foreign Host headers (DNS rebinding) and cross-origin PO
   assert.equal(await statusWithHost(ui.url, '/api/events', 'attacker.example:3000'), 421);
   assert.equal(await statusWithHost(tutor.url, '/.well-known/agent-card.json', 'attacker.example'), 421);
   assert.equal(await statusWithHost(tutor.url, '/viz/events', 'attacker.example'), 421);
-  const crossOrigin = await post(`${ui.url}/api/forms`, {}, { Origin: 'http://attacker.example' });
+  const crossOrigin = await post(`${ui.url}/api/runs`, { text: ASK }, { Origin: 'http://attacker.example' });
   assert.equal(crossOrigin.status, 403);
   const sameOrigin = await fetch(`${ui.url}/api/status`, { headers: { Origin: ui.url } });
   assert.equal(sameOrigin.status, 200);

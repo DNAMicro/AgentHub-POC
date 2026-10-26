@@ -1,6 +1,7 @@
 // Library Agent — a separate A2A service. Answers ONLY from the saved "answer content" of its
 // enabled skills (src/library-model.js): mock mode extracts matching lines deterministically;
-// live mode uses Claude Haiku 5.5 with code-verified evidence. It performs no transactions.
+// live mode uses Claude Haiku 5.5 with code-verified evidence. Part 6: when asked to reserve a group
+// study room it sends its booking form (A2UI) and makes DEMO bookings in memory; no real transactions.
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import express from 'express';
@@ -12,6 +13,14 @@ import { createSkillService } from './agent-settings.js';
 import { LlmError, apiHost } from './llm.js';
 import { LIBRARY_DEFAULT_SKILLS } from './library-fixture.js';
 import { LIBRARY_MODE, answerFromKnowledge, libraryStatus } from './library-model.js';
+import {
+  A2UI_EXTENSION_URI, A2UI_MIME_TYPE, BASIC_CATALOG_ID, BOOKING, ROOMS, TIMEZONE_LABEL, WORKFLOWS,
+  buildEditUpdate, buildReviewUpdate, buildSlotUpdate, buildStudyRoomForm, isA2uiPart, prettyDate, validateBooking, validateBookingCriteria,
+} from './forms.js';
+import { createFormHost } from './form-host.js';
+import { reviewGate } from './form-review.js';
+import { createRoomStore } from './demo-store.js';
+import { bookingPrefill, wantsReplacement } from './form-intent.js';
 
 export { LIBRARY_DEFAULT_SKILLS };
 
@@ -26,11 +35,139 @@ const vizEvents = new EventEmitter();
 const emitViz = (type, runId, data) => vizEvents.emit('event', { source: 'library', type, runId, at: new Date().toISOString(), data });
 const textOf = (message) => message.parts.filter((p) => p.content?.$case === 'text').map((p) => p.content.value).join('');
 
-// Every Library skill is answered from its own saved content, so that content is required.
-const LIBRARY_RULES = { answer: { knowledge: 'required' } };
+// Every Library answer skill is answered from its own saved content, so that content is required.
+// Group study-room booking is a built-in form skill handled by code.
+const WORKFLOW_ID = 'study-room-booking';
+const LIBRARY_RULES = { answer: { knowledge: 'required' }, form: { id: WORKFLOWS[WORKFLOW_ID].skillId } };
+const WORKFLOW_TEXT = {
+  offer: 'Here is the group study room booking form. Choose your details to see demo availability, review, then confirm.',
+  info: `Group study rooms (demo): ask here — for example “I want to reserve a group study room” — and I’ll send a booking form. You choose group size, date, room and duration, pick from demo availability, review, then confirm. ${ROOMS.map((r) => `${r.name} holds up to ${r.capacity}`).join('; ')}. Bookable ${BOOKING.open}–${BOOKING.close} ${TIMEZONE_LABEL}, 1 or 2 hours, up to ${BOOKING.maxDaysAhead} days ahead. Demo bookings only.`,
+  disabled: 'Group study room booking isn’t offered by the Library Agent right now.',
+  noClient: 'I can send a study room booking form, but your client didn’t declare A2UI v0.9 support, so I can’t show it.',
+  alreadyOpen: 'You already have an open study room booking form above. Continue with it, or say “replace the form” to start a new one.',
+};
 const LOG_CONTENT = process.env.LIBRARY_LOG_CONTENT !== undefined ? process.env.LIBRARY_LOG_CONTENT === '1' : LIBRARY_MODE !== 'live';
 
 let skillService = null;
+const rooms = createRoomStore();
+const workflowEnabled = () => skillService.policy().skills.some((s) => s.id === WORKFLOWS[WORKFLOW_ID].skillId);
+const roomName = (id) => ROOMS.find((r) => r.id === id)?.name ?? id;
+
+// Opaque, per-form slot IDs: only times this form was actually offered can be reviewed or confirmed.
+function offerSlots(form, slots) {
+  form.data.offered ??= new Map(); // slotId → { room, date, start, end, duration }
+  form.data.byKey ??= new Map(); // same slot offered again keeps its ID
+  return slots.map((slot) => {
+    const key = `${slot.room}|${slot.date}|${slot.start}|${slot.duration}`;
+    let slotId = form.data.byKey.get(key);
+    if (!slotId) {
+      slotId = `slot-${randomUUID().slice(0, 8)}`;
+      form.data.byKey.set(key, slotId);
+      form.data.offered.set(slotId, slot);
+    }
+    return { slotId, label: `${slot.start}–${slot.end}` };
+  });
+}
+function availabilityUpdate(form, formId, criteria) {
+  const offered = offerSlots(form, rooms.listStudyRoomAvailability(criteria));
+  const where = `${roomName(criteria.room)} on ${prettyDate(criteria.date)} for ${criteria.duration / 60} hour${criteria.duration > 60 ? 's' : ''}`;
+  const note = offered.length ? `Demo availability for ${where} (${TIMEZONE_LABEL}).` : `No demo availability for ${where}. Try another date, room or duration.`;
+  return { note, a2ui: buildSlotUpdate(formId, offered, note) };
+}
+// The selected slot must be one this form offered AND match the chosen room/date/duration. Never substituted.
+function selectedSlot(form, values) {
+  const slot = form.data.offered?.get(values.slot);
+  if (!slot) return { error: 'That time wasn’t offered on this form. Choose one of the available times.' };
+  if (slot.room !== values.room || slot.date !== values.date || slot.duration !== values.duration) return { error: 'The selected time doesn’t match the chosen room, date or duration. Choose a new time.' };
+  return { slot };
+}
+const summary = (v, slot) => [
+  `Name: ${v.firstName} ${v.lastName}`, `Email: ${v.email}`, `Group size: ${v.groupSize}`,
+  `Room: ${roomName(slot.room)}`, `Date: ${prettyDate(slot.date)}`, `Time: ${slot.start}–${slot.end} (${TIMEZONE_LABEL})`, 'Demo booking — not a real reservation.',
+];
+
+const formHost = createFormHost({
+  agentId: 'library',
+  isEnabled: (workflowId) => workflowId === WORKFLOW_ID && workflowEnabled(),
+  emitViz, log,
+  logValues: (v) => (v ? { ...v, firstName: '[redacted]', lastName: '[redacted]', email: '[redacted]' } : v),
+  workflows: {
+    [WORKFLOW_ID]: {
+      build: buildStudyRoomForm,
+      actions: {
+        // Lookup: scheduling fields only. Availability comes from the fixture handler, never a model.
+        async checkAvailability(form, context, { formId }) {
+          const c = validateBookingCriteria(context);
+          if (!c.ok) {
+            const note = `To see demo availability: ${Object.values(c.errors).join(' ')}`;
+            return { status: 'updated', message: note, errors: c.errors, a2ui: buildSlotUpdate(formId, [], note) };
+          }
+          const { note, a2ui } = availabilityUpdate(form, formId, c.values);
+          return { status: 'updated', message: note, a2ui };
+        },
+        async reviewBooking(form, context, { formId }) {
+          const v = validateBooking(context);
+          if (!v.ok) return { status: 'rejected', message: 'Please correct the highlighted fields.', errors: v.errors };
+          const { slot, error } = selectedSlot(form, v.values);
+          if (error) return { status: 'rejected', message: error, errors: { slot: error } };
+          if (!rooms.isFree(slot)) {
+            const { note, a2ui } = availabilityUpdate(form, formId, v.values);
+            return { status: 'rejected', message: `That time is no longer available. ${note}`, errors: { slot: 'That time is no longer available. Choose another.' }, a2ui };
+          }
+          form.stage = 'review';
+          return { status: 'updated', message: 'Review your booking, then confirm.', a2ui: buildReviewUpdate(formId, summary(v.values, slot)) };
+        },
+        async editBooking(form, context, { formId }) {
+          form.stage = 'edit';
+          return { status: 'updated', message: 'Back to editing.', a2ui: buildEditUpdate(formId) };
+        },
+        // Final: re-validate, re-check, and atomically reserve (rooms.reserveStudyRoom is synchronous).
+        async confirmStudyRoomBooking(form, context, { formId, reviewAcknowledged, emit }) {
+          if (form.stage !== 'review') return { status: 'rejected', message: 'Review the booking before confirming.', errors: { _form: 'Review the booking before confirming.' } };
+          const v = validateBooking(context);
+          if (!v.ok) return { status: 'rejected', message: 'Please correct the highlighted fields.', errors: v.errors };
+          const { slot, error } = selectedSlot(form, v.values);
+          if (error) return { status: 'rejected', message: error, errors: { slot: error } };
+          // Advisory review of every field (model in live mode). Then the check-and-reserve below stays synchronous.
+          const flagged = await reviewGate({ form, workflowId: WORKFLOW_ID, values: v.values, acknowledged: reviewAcknowledged, live: LIBRARY_MODE === 'live', slotLabel: `${slot.start}–${slot.end}`, emit });
+          if (flagged) return flagged;
+          const result = rooms.reserveStudyRoom({ ...slot, groupSize: v.values.groupSize, contact: { firstName: v.values.firstName, lastName: v.values.lastName, email: v.values.email } });
+          if (!result.ok) {
+            // Conflict: report it and offer refreshed alternatives. Never pick another time or room.
+            form.stage = 'edit';
+            const { note, a2ui } = availabilityUpdate(form, formId, v.values);
+            return { status: 'conflict', message: `That time was just taken, so nothing was booked. ${note}`, errors: { slot: 'That time was just taken. Choose another available time.' }, a2ui: [...buildEditUpdate(formId), ...a2ui] };
+          }
+          const b = result.booking;
+          log('recorded demo booking', { bookingId: b.bookingId, room: b.room, date: b.date, start: b.start });
+          return {
+            status: 'accepted', message: 'Your group study room is booked.', values: { ...v.values, slot: `${b.start}–${b.end}` },
+            receipt: { bookingId: b.bookingId, room: b.roomName, date: b.date, start: b.start, end: b.end, groupSize: b.groupSize, timezone: TIMEZONE_LABEL, demo: true, note: 'Demo booking — not a real university reservation.' },
+          };
+        },
+        async cancelForm() {
+          return { status: 'cancelled', message: 'Form cancelled. Nothing was booked.' };
+        },
+      },
+    },
+  },
+});
+
+function offerWorkflow(ctx, bus, runId, question, metadata) {
+  const reply = (text, outcome) => {
+    const message = { messageId: randomUUID(), contextId: ctx.contextId, taskId: '', role: Role.ROLE_AGENT, parts: [{ content: { $case: 'text', value: text }, metadata: undefined, filename: '', mediaType: 'text/plain' }], metadata: { ...metadata, library: { outcome } }, extensions: [], referenceTaskIds: [] };
+    bus.publish(AgentEvent.message(message));
+    bus.finished();
+    emitViz('reply_published', runId, { messageId: message.messageId, contextId: ctx.contextId, inReplyTo: ctx.userMessage.messageId, text, library: { outcome } });
+  };
+  if (!workflowEnabled()) return reply(WORKFLOW_TEXT.disabled, 'workflow_disabled');
+  if (!formHost.clientSupportsForms(ctx.userMessage)) return reply(WORKFLOW_TEXT.noClient, 'workflow_unsupported_client');
+  const open = formHost.openForm(ctx.contextId, WORKFLOW_ID);
+  const same = formHost.formForRequest(ctx);
+  if (open && open !== same && !wantsReplacement(question)) return reply(WORKFLOW_TEXT.alreadyOpen, 'clarify');
+  formHost.issue(ctx, bus, { workflowId: WORKFLOW_ID, prefill: bookingPrefill(question), runId, intro: WORKFLOW_TEXT.offer, supersedes: open === same ? null : open });
+}
+const recentByContext = new Map(); // contextId → last few { question, answer } (in memory; only for short follow-ups)
 const ledger = new Map(); // `${contextId}|${messageId}` → Promise<result>; a repeat request reuses it (no second paid call)
 
 async function answerOnce(ctx, question, runId) {
@@ -40,8 +177,10 @@ async function answerOnce(ctx, question, runId) {
     return { ...(await ledger.get(key)), duplicate: true };
   }
   const promise = (async () => {
-    const policy = skillService.policy();
-    const result = await answerFromKnowledge({ question, policy, emit: (type, data) => emitViz(type, runId, data) });
+    const current = skillService.policy();
+    const policy = { revision: current.revision, skills: current.skills.filter((s) => s.kind === 'answer') };
+    const recent = recentByContext.get(ctx.contextId) ?? [];
+    const result = await answerFromKnowledge({ question, policy, workflow: { enabled: workflowEnabled() }, recent, emit: (type, data) => emitViz(type, runId, data) });
     // Release check: skills changed while answering → don't release under the old policy.
     if (skillService.revision() !== policy.revision) return { ...result, verdict: 'changed', text: 'The Library Agent’s skills changed while your question was being answered, so that answer wasn’t released. Please ask again.', policyRevision: skillService.revision() };
     return { ...result, policyRevision: policy.revision };
@@ -62,6 +201,8 @@ const libraryExecutor = {
   async execute(ctx, bus) {
     const incoming = ctx.userMessage;
     const runId = incoming.metadata?.runId ?? null;
+    const a2ui = incoming.parts.find(isA2uiPart);
+    if (a2ui) return formHost.handleAction(ctx, bus, runId, a2ui);
     const question = textOf(incoming).slice(0, 2000);
     const received = { messageId: incoming.messageId, contextId: ctx.contextId, taskId: ctx.taskId, text: question };
     log('received message', LOG_CONTENT ? received : { ...received, text: `[${question.length} chars, content not logged]` });
@@ -72,7 +213,9 @@ const libraryExecutor = {
     try {
       const r = await answerOnce(ctx, question, runId);
       emitViz('scope_checked', runId, { stage: 'request', verdict: r.verdict, skillId: r.skillId ?? null, policyRevision: r.policyRevision, evidenceLines: r.evidence.length });
-      text = r.verdict === 'answered' ? `${r.text}\n\n(From the Library Agent’s saved information.)` : r.text;
+      if (r.verdict === 'offer_form') return offerWorkflow(ctx, bus, runId, question, metadata);
+      text = r.verdict === 'answered' ? `${r.text}\n\n(From the Library Agent’s saved information.)`
+        : r.verdict === 'workflow_info' ? WORKFLOW_TEXT.info : r.verdict === 'workflow_disabled' ? WORKFLOW_TEXT.disabled : r.text;
       metadata.library = { outcome: r.verdict, skillId: r.skillId ?? null, policyRevision: r.policyRevision, mode: LIBRARY_MODE, model: r.model, usage: r.usage, requestId: r.requestId ?? null, evidence: r.evidence, duplicate: Boolean(r.duplicate) };
     } catch (err) {
       const failure = err instanceof LlmError ? err : new LlmError('internal_error');
@@ -86,6 +229,10 @@ const libraryExecutor = {
     bus.publish(AgentEvent.message(message));
     bus.finished();
     emitViz('reply_published', runId, sent);
+    const turns = [...(recentByContext.get(ctx.contextId) ?? []), { question, answer: text }].slice(-4);
+    recentByContext.delete(ctx.contextId);
+    recentByContext.set(ctx.contextId, turns);
+    if (recentByContext.size > MAX_LEDGER) recentByContext.delete(recentByContext.keys().next().value);
   },
   async cancelTask() {},
 };
@@ -105,11 +252,14 @@ function buildAgentCard(port) {
     version: '0.1.0',
     supportedInterfaces: [{ url: `http://${HOST}:${port}${JSONRPC_PATH}`, protocolBinding: 'JSONRPC', protocolVersion: A2A_PROTOCOL_VERSION, tenant: '' }],
     provider: undefined,
-    capabilities: { streaming: false, pushNotifications: false, extensions: [] },
+    capabilities: {
+      streaming: false, pushNotifications: false,
+      extensions: [{ uri: A2UI_EXTENSION_URI, description: 'Sends A2UI v0.9 surfaces (basic catalog) and accepts A2UI actions.', required: false, params: { supportedCatalogIds: [BASIC_CATALOG_ID], acceptsInlineCatalogs: false } }],
+    },
     securitySchemes: {},
     securityRequirements: [],
-    defaultInputModes: ['text/plain'],
-    defaultOutputModes: ['text/plain'],
+    defaultInputModes: ['text/plain', A2UI_MIME_TYPE],
+    defaultOutputModes: ['text/plain', A2UI_MIME_TYPE, 'application/json'],
     skills: [],
     signatures: [],
   };
