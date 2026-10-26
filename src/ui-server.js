@@ -262,7 +262,7 @@ export async function startUiServer({ port = 3000 } = {}) {
     if (hubCard || (await discoverHub('send'))) {
       const last = conv.turns.at(-1);
       const plan = await planRequest({
-        question: run.text, capabilities, recentTurns: conv.turns, clarifiedAlready: run.clarified,
+        question: run.text, capabilities, recentTurns: conv.turns, clarifiedAlready: run.clarified, clarificationAnswer: run.clarified ? run.typed : '',
         followsQuestion: Boolean(last && /\?\s*$/.test(last.answer ?? '')),
         onModelEvent: (type, data) => publish({ source: 'student', type, runId, data }),
       });
@@ -272,6 +272,16 @@ export async function startUiServer({ port = 3000 } = {}) {
         conv.pending = { original: run.text };
         publish({ source: 'student', type: 'clarification_asked', runId, data: { question: run.text, text: plan.clarificationQuestion, contextId: run.contextId } });
         setState(runId, 'completed', { decision: 'student_clarify' });
+        activeRunId = null;
+        return;
+      }
+      if (plan.action === 'decline') {
+        // Clearly not a university service: the Student answers itself and nothing is sent.
+        const offered = capabilities.map((c) => c.name ?? c.id).join(' and ');
+        const text = `${plan.reason}${offered ? ` The university can help with: ${offered}.` : ''}`;
+        conv.turns = [...conv.turns, { question: run.text, capability: null, answer: text.slice(0, 300) }].slice(-6);
+        publish({ source: 'student', type: 'request_declined', runId, data: { question: run.text, text, contextId: run.contextId } });
+        setState(runId, 'completed', { decision: 'student_decline' });
         activeRunId = null;
         return;
       }
@@ -426,7 +436,7 @@ export async function startUiServer({ port = 3000 } = {}) {
 
     // contextId names the student's conversation: it is the Student↔Hub A2A contextId. The Hub keeps
     // separate downstream contexts per specialist under it.
-    const run = { kind: 'chat', state: 'sending', text, contextId: requestedContext ?? randomUUID(), messageId: randomUUID(), clarified: false };
+    const run = { kind: 'chat', state: 'sending', text, typed: text, contextId: requestedContext ?? randomUUID(), messageId: randomUUID(), clarified: false };
     // Answering the Student's own clarifying question: send the held-back question together with it.
     const conv = requestedContext ? conversations.get(requestedContext) : null;
     if (conv?.pending) {

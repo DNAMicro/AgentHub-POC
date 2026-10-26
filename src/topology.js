@@ -37,9 +37,10 @@ const STUDENT = {
   model_call_started: (d) => MODEL_CALLS.model_call_started('student', d),
   model_response_received: (d) => MODEL_CALLS.model_response_received('student', d),
   model_call_failed: (d) => MODEL_CALLS.model_call_failed('student', d),
-  request_planned: (d) => inside('student', 'routing', 'processing', d.action === 'clarify' ? 'Student decided to ask you first'
+  request_planned: (d) => inside('student', 'routing', 'processing', d.action === 'clarify' ? 'Student decided to ask you first' : d.action === 'decline' ? 'Not a university service — Student answers itself'
     : d.capability ? `Student chose ${d.capabilityName ?? d.capability}${d.by === 'model' ? ' (its model)' : ''}` : d.by === 'rule' ? 'Obvious — the Hub routes it' : 'Student left routing to the Hub'),
   clarification_asked: () => inside('student', 'request', 'completed', 'Student asked you a clarifying question'),
+  request_declined: () => inside('student', 'request', 'completed', 'Student answered you itself (not offered by the university)'),
   // Only a real discovery (it carries a reason); the per-request reuse of the known card is not a hop.
   card_discovered: (d) => (d.reason ? hop('hub', 'student', 'card', 'completed', 'Student read the university’s public card') : null),
   request_sent: () => hop('student', 'hub', 'request', 'attempted', 'Question sent to the Hub'),

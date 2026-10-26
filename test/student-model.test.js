@@ -31,6 +31,10 @@ test('obvious requests are decided by rule (no model); unclear ones are not', as
   assert.equal(again.action, 'send', 'never asks twice');
   const mixed = await planRequest({ question: 'Explain the derivative example in my library book', capabilities: CAPABILITIES });
   assert.deepEqual([mixed.action, mixed.capability], ['send', null], 'mock: several matches go to the Hub’s own heuristic');
+  for (const unsure of ['I don’t know', 'idk', 'not sure, maybe either']) {
+    const p = await planRequest({ question: `I need help\n${unsure}`, capabilities: CAPABILITIES, clarifiedAlready: true, clarificationAnswer: unsure });
+    assert.deepEqual([p.action, p.capability, p.by], ['send', null, 'uncertain'], `“${unsure}” after our question goes to the Hub`);
+  }
   const reply = await planRequest({ question: 'yes', capabilities: CAPABILITIES, followsQuestion: true });
   assert.deepEqual([reply.action, reply.capability, reply.by], ['send', null, 'context'], 'a reply to the university’s question goes on as-is');
 });
@@ -158,6 +162,45 @@ test('live mode: the Student’s own model (and key variable) decides a non-obvi
     assert.equal(find(f.events, 'student', 'model_call_failed').data.code, 'provider_unavailable');
     assert.deepEqual([find(f.events, 'student', 'request_planned').data.by, find(f.events, 'student', 'request_planned').data.capability], ['model_failed', null]);
     assert.ok(find(f.events, 'student', 'request_sent'), 'still sent; the Hub decides');
+  } finally {
+    live.kill();
+    await stub.close();
+  }
+});
+
+test('live mode: clearly not a university service → the Student answers itself; anything uncertain goes to the Hub', async () => {
+  const stub = await startFakeAnthropic();
+  const live = await startStack({
+    hubEnv: { ROUTER_MODE: 'mock' },
+    uiEnv: { STUDENT_MODE: 'live', ANTHROPIC_API_KEY: `sk-ant-test-${randomUUID()}`, ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0' },
+  });
+  try {
+    const stream = await open(live.ui.url);
+    // Confident: declined here, nothing sent to the university.
+    stub.respondWith(() => messageReply(JSON.stringify({ action: 'decline', capability: 'none', reason: 'Home plumbing repair isn’t something the university offers.', clarification_question: '' })));
+    const d = await chatVia(live.ui, stream, 'How do I fix my toilet plumbing?');
+    const declined = find(d.events, 'student', 'request_declined').data;
+    assert.equal(declined.text, 'Home plumbing repair isn’t something the university offers. The university can help with: Tutoring and Library services.');
+    assert.ok(!find(d.events, 'student', 'request_sent'), 'nothing sent');
+    assert.ok(!find(d.events, 'hub', 'message_received'));
+    assert.equal(stateOf(stream.events, d.runId), 'completed');
+
+    // The model is unsure ("none"): the Hub decides.
+    stub.respondWith(() => messageReply(JSON.stringify({ action: 'send', capability: 'none', reason: 'Not sure the university covers this.', clarification_question: '' })));
+    const u = await chatVia(live.ui, stream, 'Who do I talk to about my parking permit?');
+    assert.ok(find(u.events, 'student', 'request_sent'));
+    assert.equal(find(u.events, 'student', 'request_planned').data.capability, null);
+
+    // Asked first, then "I don't know": straight to the Hub, no second Student model call.
+    stub.respondWith(() => messageReply(JSON.stringify({ action: 'clarify', capability: 'none', reason: 'Could be either.', clarification_question: 'Is this about a class or a library book?' })));
+    const c = await chatVia(live.ui, stream, 'Can you help me with chapter five?');
+    assert.ok(find(c.events, 'student', 'clarification_asked'));
+    const calls = stub.requests.length;
+    const a = await chatVia(live.ui, stream, 'I don’t know', c.contextId);
+    assert.equal(stub.requests.length, calls, 'no Student model call for an unsure answer');
+    assert.equal(find(a.events, 'student', 'request_planned').data.by, 'uncertain');
+    assert.equal(find(a.events, 'student', 'request_sent').data.text, 'Can you help me with chapter five?\nI don’t know');
+    assert.ok(!find(a.events, 'student', 'request_declined'));
   } finally {
     live.kill();
     await stub.close();

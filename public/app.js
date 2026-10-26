@@ -256,11 +256,12 @@ function flowStep(source, type, data, at) {
   const name = (id) => AGENT_NAMES[id] ?? id;
   switch (key) {
     case 'student:request_planned': {
-      const how = data.action === 'clarify' ? 'asked you to clarify first'
+      const how = data.action === 'clarify' ? 'asked you to clarify first' : data.action === 'decline' ? 'not a university service — answered here'
         : data.capability ? `needs ${data.capabilityName ?? data.capability} (${data.by === 'model' ? 'its model' : data.by})`
-          : { rule: 'obvious — the Hub routes it', context: 'reply to the university — sent as-is', off: 'sent as-is (Student model off)', heuristic: 'the Hub decides', model: 'the Hub decides', model_failed: 'its model failed — the Hub decides' }[data.by] ?? 'sent as-is';
+          : { uncertain: 'your answer didn’t settle it — the Hub decides', rule: 'obvious — the Hub routes it', context: 'reply to the university — sent as-is', off: 'sent as-is (Student model off)', heuristic: 'the Hub decides', model: 'the Hub decides', model_failed: 'its model failed — the Hub decides' }[data.by] ?? 'sent as-is';
       markStep(key, at, { note: how });
       if (data.action === 'clarify') skipSteps(CHAT_AFTER(key), 'not sent — your Student agent asked you first');
+      if (data.action === 'decline') skipSteps(CHAT_AFTER(key), 'not sent — your Student agent answered (not offered)');
       return;
     }
     case 'student:request_failed':
@@ -763,14 +764,18 @@ function handle(event, { live = true } = {}) {
         break;
       // The Student's own model (STUDENT_MODE): its plan before anything is sent, and its calls.
       case 'request_planned': {
-        const how = { rule: 'obvious from the words — the Hub routes it', model: 'decided by the Student’s model', heuristic: 'mock heuristic', context: 'reply to the university’s question', off: 'Student model off', model_failed: 'Student model failed' }[data.by] ?? data.by;
-        const text = data.action === 'clarify' ? 'Not clear enough to send yet — asking you first.' : data.capability ? `Needs ${data.capabilityName ?? data.capability}; the Hub will be asked for that capability.` : 'No capability chosen; the Hub routes it.';
-        studentConsole({ dir: data.error ? 'error' : 'info', label: `Plan: ${data.action === 'clarify' ? 'clarify first' : data.capability ? `send to ${data.capabilityName ?? data.capability}` : 'send as-is'}`, text: `${text} ${data.reason ?? ''}`.trim(), ids: { how, matched: data.matched?.map((m) => `${m.id}: ${m.terms.join(', ')}`).join('; ') || null, model: data.usage ? `${data.model} · ${data.usage.inputTokens} in / ${data.usage.outputTokens} out tokens` : null, run } });
+        const how = { uncertain: 'your answer didn’t settle it — the Hub decides', rule: 'obvious from the words — the Hub routes it', model: 'decided by the Student’s model', heuristic: 'mock heuristic', context: 'reply to the university’s question', off: 'Student model off', model_failed: 'Student model failed' }[data.by] ?? data.by;
+        const text = data.action === 'clarify' ? 'Not clear enough to send yet — asking you first.' : data.action === 'decline' ? 'Clearly not a university service — answering you here; nothing sent.' : data.capability ? `Needs ${data.capabilityName ?? data.capability}; the Hub will be asked for that capability.` : 'No capability chosen; the Hub routes it.';
+        studentConsole({ dir: data.error ? 'error' : 'info', label: `Plan: ${data.action === 'clarify' ? 'clarify first' : data.action === 'decline' ? 'answer here (not offered)' : data.capability ? `send to ${data.capabilityName ?? data.capability}` : 'send as-is'}`, text: `${text} ${data.reason ?? ''}`.trim(), ids: { how, matched: data.matched?.map((m) => `${m.id}: ${m.terms.join(', ')}`).join('; ') || null, model: data.usage ? `${data.model} · ${data.usage.inputTokens} in / ${data.usage.outputTokens} out tokens` : null, run } });
         break;
       }
       case 'clarification_asked':
         student({ dir: 'sent', speaker: 'student', label: 'You (held by your Student agent, not sent yet)', text: data.question, ids: { contextId: data.contextId, run } });
         student({ dir: 'received', speaker: 'student', label: 'Your Student agent asks', text: data.text, ids: { note: 'Your answer is sent to the university together with your question.', run } });
+        break;
+      case 'request_declined':
+        student({ dir: 'sent', speaker: 'student', label: 'You (not sent — answered by your Student agent)', text: data.question, ids: { contextId: data.contextId, run } });
+        student({ dir: 'info', speaker: 'student', label: 'Your Student agent — not offered by the university', text: data.text, ids: { note: 'Nothing was sent to the university.', run } });
         break;
       case 'model_call_started':
         studentConsole({ dir: 'sent', label: 'Model call', text: `Calling ${data.model} to ${data.purpose}.`, ids: { mode: data.mode, run } });
