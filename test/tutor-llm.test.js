@@ -1,14 +1,16 @@
-// Part 4: the Tutor's model integration. No paid calls: "live" mode runs the real Anthropic
+// Part 4: the Tutor's model integration, reached through the University Hub (Part 7, direct routing). No paid calls: "live" mode runs the real Anthropic
 // SDK against a local fake Messages API (ANTHROPIC_BASE_URL), and "mock" mode uses no network.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { readFileSync, readdirSync } from 'node:fs';
-import { startTutor, startUi, waitFor, openStream, post, forRun, find, findAll, stateOf, formVia, formAction, waitLifecycle } from './support/harness.js';
+import { readFileSync, readdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { startStack, startUi, waitFor, openStream, post, forRun, find, findAll, stateOf, formVia, formAction, waitLifecycle } from './support/harness.js';
 import { addDays, todayIn } from '../src/forms.js';
 import { startFakeAnthropic, messageReply } from './support/fake-anthropic.js';
 import { askTutor, sendFormAction } from '../src/student-agent.js';
-import { SYSTEM_PROMPT, MODEL } from '../src/tutor-model.js';
+import { SYSTEM_PROMPT, modelName } from '../src/tutor-model.js';
 
 // A placeholder that must never appear anywhere except the request to the (fake) provider.
 const SENTINEL_KEY = `sk-ant-test-SENTINEL-${randomUUID()}`;
@@ -20,22 +22,23 @@ const liveEnv = (stub, extra = {}) => ({
   TUTOR_SCOPE_ENFORCEMENT: 'off', ...extra,
 });
 
-let stub, live, liveUi, mock, mockUi;
+let stub, liveStack, live, liveUi, mockStack, mockUi;
 const streams = [];
 
 before(async () => {
   stub = await startFakeAnthropic();
-  live = await startTutor(liveEnv(stub));
-  liveUi = await startUi(live.url, { CHAT_TIMEOUT_MS: '4000' });
-  mock = await startTutor({ TUTOR_MODE: 'mock', TUTOR_SCOPE_ENFORCEMENT: 'off' });
-  mockUi = await startUi(mock.url);
+  liveStack = await startStack({ library: false, tutorEnv: liveEnv(stub), uiEnv: { CHAT_TIMEOUT_MS: '4000' } });
+  ({ tutor: live, ui: liveUi } = liveStack);
+  mockStack = await startStack({ library: false, tutorEnv: { TUTOR_MODE: 'mock', TUTOR_SCOPE_ENFORCEMENT: 'off' } });
+  mockUi = mockStack.ui;
   for (const ui of [liveUi, mockUi]) {
     await waitFor(async () => (await (await fetch(`${ui.url}/api/status`)).json()).tutorStatus, { what: 'tutor status' });
   }
 });
 after(async () => {
   for (const s of streams) s.close();
-  for (const p of [liveUi, mockUi, live, mock]) p?.proc.kill();
+  liveStack?.kill();
+  mockStack?.kill();
   await stub?.close();
 });
 
@@ -127,6 +130,7 @@ test('usage is reported to the browser and logged without message contents', asy
   assert.ok(!logged.includes(question), 'question text not in Tutor logs (live mode default)');
   assert.ok(!logged.includes('Usage check answer'), 'answer text not in Tutor logs');
   assert.ok(!liveUi.output().includes(question), 'question text not in UI server logs');
+  assert.ok(!liveStack.hub.output().includes(question), 'question text not in Hub logs');
 });
 
 test('provider failures become clear, sanitized errors — one attempt, no canned success', async () => {
@@ -157,13 +161,13 @@ test('provider failures become clear, sanitized errors — one attempt, no canne
 });
 
 test('missing API key: clear error and no provider call', async () => {
-  const keyless = await startTutor({ ...liveEnv(stub), ANTHROPIC_API_KEY: '' });
-  const keylessUi = await startUi(keyless.url);
+  const keylessStack = await startStack({ library: false, tutorEnv: { ...liveEnv(stub), ANTHROPIC_API_KEY: '' } });
+  const { tutor: keyless, ui: keylessUi } = keylessStack;
   try {
     await waitFor(async () => (await (await fetch(`${keylessUi.url}/api/status`)).json()).tutorStatus, { what: 'status' });
     const status = (await (await fetch(`${keylessUi.url}/api/status`)).json()).tutorStatus;
     assert.deepEqual({ mode: status.mode, keyConfigured: status.keyConfigured }, { mode: 'live', keyConfigured: false });
-    assert.match(keyless.output(), /API key: NOT SET/);
+    assert.match(keyless.output(), /API key \(ANTHROPIC_API_KEY\): NOT SET/);
 
     stub.reset();
     const stream = await open(keylessUi);
@@ -175,8 +179,7 @@ test('missing API key: clear error and no provider call', async () => {
     assert.equal(reply, undefined);
     assert.equal(stub.requests.length, 0, 'no provider call without a key');
   } finally {
-    keylessUi.proc.kill();
-    keyless.proc.kill();
+    keylessStack.kill();
   }
 });
 
@@ -214,7 +217,8 @@ test('repeated requests never cause duplicate paid calls', async () => {
 test('uncertain outcome is reconciled with the same request ID — no second paid call; reconnect sends nothing', async () => {
   stub.reset();
   stub.respondWith(() => ({ ...messageReply('Slow but sure'), delayMs: 900 }));
-  const impatientUi = await startUi(live.url, { CHAT_TIMEOUT_MS: '300' });
+  // A second Student UI on the same Hub, which gives up on the Student↔Hub leg after 300 ms.
+  const impatientUi = await startUi(liveStack.hub.url, { CHAT_TIMEOUT_MS: '300' });
   try {
     const stream = await open(impatientUi);
     const { runId } = await chat(impatientUi, stream, 'Will this time out?');
@@ -227,7 +231,9 @@ test('uncertain outcome is reconciled with the same request ID — no second pai
     await waitFor(() => stateOf(stream.events, runId) === 'completed', { what: 'reconciled' });
     const reply = find(forRun(stream.events, runId), 'student', 'reply_received').data;
     assert.equal(reply.text, 'Slow but sure');
-    assert.equal(reply.tutor.duplicate, true);
+    // The Hub answers the reconcile from its own ledger (same Student request ID): nothing is dispatched again.
+    await waitFor(() => find(forRun(stream.events, runId), 'hub', 'request_repeat'), { what: 'Hub repeat event' });
+    assert.equal(findAll(forRun(stream.events, runId), 'hub', 'forward_attempted').length, 1, 'forwarded to the Tutor once');
     assert.equal(stub.requests.length, 1, 'one paid call in total');
 
     for (let i = 0; i < 3; i++) (await open(impatientUi)).close(); // browser reconnects
@@ -371,6 +377,34 @@ test('the API key never appears in frontend assets, browser events, status, or l
   }
 });
 
-test('MODEL constant is the requested model (no silent substitution)', () => {
-  assert.equal(MODEL, 'claude-haiku-5-5');
+test('the default model is Claude Haiku 5.5 (no silent substitution)', () => {
+  assert.equal(modelName(), 'claude-haiku-5-5');
+});
+
+test('each agent can set its own model and key variable: the Tutor’s choice reaches the provider', async () => {
+  // A second Tutor configured for Sonnet 5.5 with its own key variable; ANTHROPIC_API_KEY is empty.
+  const ownKey = `sk-ant-test-OWNKEY-${randomUUID()}`;
+  const dir = mkdtempSync(join(tmpdir(), 'a2a-model-'));
+  const config = join(dir, 'tutor.json');
+  writeFileSync(config, JSON.stringify({ model: { name: 'claude-haiku-5-5', apiKeyEnv: 'TUTOR_ANTHROPIC_KEY' } }));
+  const stack = await startStack({ library: false, tutorEnv: liveEnv(stub, { TUTOR_CONFIG: config, TUTOR_MODEL: 'claude-sonnet-5-5', TUTOR_ANTHROPIC_KEY: ownKey, ANTHROPIC_API_KEY: '' }), uiEnv: { CHAT_TIMEOUT_MS: '4000' } });
+  try {
+    await waitFor(async () => (await (await fetch(`${stack.ui.url}/api/status`)).json()).tutorStatus, { what: 'tutor status' });
+    stub.reset();
+    stub.respondWith(() => messageReply('Sonnet here.', { model: 'claude-sonnet-5-5' }));
+    const stream = await open(stack.ui);
+    const { reply, events } = await chat(stack.ui, stream, 'What is a limit?');
+    assert.equal(stub.requests.length, 1);
+    assert.equal(stub.requests[0].body.model, 'claude-sonnet-5-5', 'TUTOR_MODEL overrides the config file');
+    const { headers } = stub.requests[0];
+    assert.ok(headers['x-api-key'] === ownKey || headers.authorization === `Bearer ${ownKey}`, 'the key comes from the Tutor’s own variable');
+    assert.ok(reply, `reply received (${JSON.stringify(events.filter((e) => /error|failed/.test(e.type)).map((e) => [e.type, e.data?.code ?? e.data?.message]))})`);
+    assert.equal(reply.tutor.model, 'claude-sonnet-5-5');
+    assert.equal(find(events, 'tutor', 'model_call_started').data.model, 'claude-sonnet-5-5', 'telemetry names the Tutor’s model');
+    const status = (await (await fetch(`${stack.ui.url}/api/status`)).json()).tutorStatus;
+    assert.equal(status.model, 'claude-sonnet-5-5');
+  } finally {
+    stack.kill();
+    stub.reset();
+  }
 });

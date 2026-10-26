@@ -26,7 +26,9 @@
   --student: #2b59c3;     /* cobalt — you */
   --tutor: #8a3fa8;       /* plum */
   --library: #16765e;     /* spruce */
-  --router: #9a6300;      /* ochre — routing and system notes */
+  --router: #9a6300;      /* ochre — the university Hub: routing and relay */
+  --hub: var(--router);
+  --model: #5b6472;       /* slate — the model provider (outside the university) */
   --student-tint: #e6edfb;
   --on-student: #ffffff;
   --accent: var(--student);
@@ -54,6 +56,8 @@
     --tutor: #c99ae6;
     --library: #4cc4a0;
     --router: #e3b04b;
+    --hub: var(--router);
+    --model: #aab4c2;
     --student-tint: #1e2a45;
     --on-student: #0d1526;
     --ok: #63cf93;
@@ -102,15 +106,24 @@ h1 { margin: 0; font-size: 1.2rem; font-weight: 700; letter-spacing: -0.01em; }
 .state[data-state="completed"] { color: var(--ok); }
 .state[data-state="failed"] { color: var(--bad); background: var(--bad-bg); border-color: transparent; }
 
-/* ---- the desk: chat + two agent consoles, each filling the height and scrolling on its own ---- */
-.desk {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(440px, 1.7fr) minmax(260px, 1fr) minmax(260px, 1fr);
-  gap: 12px;
-  padding: 12px;
+/* ---- tabs and views. Each view fills what the header leaves and scrolls inside its panels ---- */
+.live-banner { margin: 0; padding: 8px 20px; background: var(--warn-bg); color: var(--warn); font-weight: 600; font-size: 0.9rem; }
+.tabs { display: flex; gap: 2px; padding: 8px 20px 0; background: var(--surface); border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
+.tabs [role="tab"] {
+  position: relative; padding: 8px 16px 10px; border: 0; background: none; cursor: pointer; font-weight: 600; color: var(--muted);
+  border-bottom: 3px solid transparent; margin-bottom: -1px; white-space: nowrap; text-decoration: none;
 }
+.tabs [role="tab"]:hover { color: var(--text); }
+.tabs [role="tab"][aria-selected="true"] { color: var(--text); border-bottom-color: var(--hub); }
+.tab-pulse { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-left: 6px; vertical-align: 2px; background: transparent; }
+.tab-pulse[data-on="true"] { background: var(--hub); animation: blink 1.2s ease-in-out infinite; }
+@keyframes blink { 50% { opacity: 0.25; } }
+.view { flex: 1; min-height: 0; padding: 12px; gap: 12px; }
+.view[hidden] { display: none !important; }
+.view-conversation { display: grid; grid-template-rows: minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); max-width: 1080px; width: 100%; margin: 0 auto; }
+.view-conversation .timeline-panel { margin: 0; }
+.view-activity { display: grid; grid-template-columns: repeat(4, minmax(240px, 1fr)); }
+.view-topology { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); }
 .panel {
   display: flex; flex-direction: column; min-height: 0; min-width: 0;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
@@ -123,6 +136,7 @@ h1 { margin: 0; font-size: 1.2rem; font-weight: 700; letter-spacing: -0.01em; }
 .panel[data-agent="student"] { --agent: var(--student); }
 .panel[data-agent="tutor"] { --agent: var(--tutor); }
 .panel[data-agent="library"] { --agent: var(--library); }
+.panel[data-agent="hub"] { --agent: var(--hub); }
 h2 { margin: 0; font-size: 1.07rem; font-weight: 700; color: var(--agent, var(--text)); }
 .role { font-size: 0.82rem; color: var(--muted); min-width: 0; }
 .console .panel-head .role { grid-column: 1 / 3; grid-row: 2; }
@@ -143,6 +157,8 @@ h2 { margin: 0; font-size: 1.07rem; font-weight: 700; color: var(--agent, var(--
 .msg[data-speaker="tutor"] { --who: var(--tutor); }
 .msg[data-speaker="library"] { --who: var(--library); }
 .msg[data-speaker="router"] { --who: var(--router); }
+.msg[data-speaker="hub"] { --who: var(--hub); }
+.chat-log .msg[data-dir="info"] { background: var(--field); }
 .msg-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 0.8rem; color: var(--muted); }
 .msg-dir { font-weight: 600; color: var(--who); }
 .msg-head time { font-family: var(--mono); font-size: 0.74rem; }
@@ -300,35 +316,163 @@ h2 { margin: 0; font-size: 1.07rem; font-weight: 700; color: var(--agent, var(--
 .run-id { font-family: var(--mono); font-size: 0.74rem; color: var(--muted); overflow-wrap: anywhere; }
 .timeline { list-style: none; margin: 0 0 12px; padding: 0; display: flex; gap: 6px; overflow-x: auto; counter-reset: step; }
 .timeline:empty::before { content: "Send a message to start a run."; color: var(--muted); font-size: 0.88rem; }
-.timeline li { counter-increment: step; flex: 1 0 150px; padding: 6px 10px; border-radius: 8px; border: 1px dashed var(--border-strong); display: grid; gap: 1px; color: var(--muted); }
-.timeline li[data-done="true"] { border-style: solid; border-color: color-mix(in srgb, var(--ok) 60%, transparent); color: var(--text); }
+/* Each step takes the color of the agent that performs it; the specialist steps take the color of the
+   service the Hub actually chose. pending (dashed) → in progress (pulsing) → done (filled, ✓ time);
+   skipped (dotted, with the reason), failed (✕), unknown (?). */
+.timeline li { --c: var(--muted); counter-increment: step; flex: 1 0 100px; padding: 6px 9px; border-radius: 8px; border: 1.5px dashed var(--border-strong); display: grid; gap: 1px; align-content: start; color: var(--muted); transition: background-color 0.35s, border-color 0.35s, color 0.35s; }
+.timeline li[data-actor="student"] { --c: var(--student); }
+.timeline li[data-actor="hub"] { --c: var(--hub); }
+.timeline li[data-agent="tutor"] { --c: var(--tutor); }
+.timeline li[data-agent="library"] { --c: var(--library); }
+.timeline li[data-active="true"] { border-style: solid; border-color: var(--c); color: var(--text); background: color-mix(in srgb, var(--c) 6%, var(--surface)); animation: step-pulse 1.1s ease-in-out infinite; }
+@keyframes step-pulse { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 28%, transparent); } }
+.timeline li[data-state="done"] { border-style: solid; border-color: var(--c); background: color-mix(in srgb, var(--c) 14%, var(--surface)); color: var(--text); animation: step-in 0.4s ease-out; }
+@keyframes step-in { from { background: color-mix(in srgb, var(--c) 40%, var(--surface)); } }
+.timeline li[data-state="done"] .step-label, .timeline li[data-state="done"] .step-status { color: var(--c); }
+.timeline li[data-state="done"] .step-label::after { content: " ✓"; }
+.timeline li[data-state="skipped"] { border-style: dotted; opacity: 0.6; }
+.timeline li[data-state="failed"] { border-style: solid; border-color: var(--bad); background: var(--bad-bg); color: var(--text); }
+.timeline li[data-state="failed"] .step-status { color: var(--bad); font-weight: 600; }
+.timeline li[data-state="unknown"] { border-style: dashed; border-color: var(--warn); background: var(--warn-bg); color: var(--text); }
+.timeline li[data-state="unknown"] .step-status { color: var(--warn); font-weight: 600; }
+.step-status { font-family: var(--mono); font-size: 0.74rem; white-space: nowrap; }
 .step-label { font-weight: 600; font-size: 0.86rem; }
 .step-label::before { content: counter(step) ". "; color: var(--muted); }
 .step-note { font-size: 0.76rem; color: var(--muted); }
-.timeline time { font-family: var(--mono); font-size: 0.74rem; }
-.timeline li:not([data-done="true"]) time::before { content: "not observed"; }
 .timeline-error { color: var(--bad); font-size: 0.86rem; margin: 0 0 10px; }
 .timeline-error:empty { display: none; }
 
-/* ---- narrower screens: the chat on top, consoles side by side below; phones stack ---- */
-@media (max-width: 1100px) {
+/* ---- narrower screens: consoles two by two, topology details below the graph; phones stack ---- */
+@media (max-width: 1200px) {
   body { height: auto; min-height: 100dvh; }
-  .desk { grid-template-columns: 1fr 1fr; }
-  .desk > .chat { grid-column: 1 / -1; height: min(78dvh, 820px); }
-  .desk > .console { height: 52dvh; }
+  .view-conversation > .chat { height: min(76dvh, 820px); }
+  .view-activity { grid-template-columns: 1fr 1fr; }
+  .view-activity > .console { height: 56dvh; }
+  .view-topology { grid-template-columns: 1fr; }
+  .topo-side { max-height: none; }
 }
 @media (max-width: 720px) {
   .topbar { padding: 10px 16px; }
-  .desk { grid-template-columns: 1fr; padding: 8px; }
-  .desk > .chat { height: 82dvh; }
-  .desk > .console { height: 60dvh; }
+  .tabs { padding: 6px 8px 0; }
+  .view { padding: 8px; }
+  .view-conversation > .chat { height: 80dvh; }
+  .view-activity { grid-template-columns: 1fr; }
+  .view-activity > .console { height: 60dvh; }
   .chat-log .msg { max-width: 94%; }
   .panel-head .role { grid-column: 1 / -1; grid-row: 2; }
   .chat .panel-head .conversation { grid-column: 2 / -1; grid-row: 1; }
   .subtitle { font-size: 0.82rem; }
   .timeline-panel { margin: 0 8px 8px; }
 }
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* ---- topology: the switchboard. Nodes are jacks in their agent's color; lanes carry signals ---- */
+.topo-stage { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px 12px; }
+.topo-toolbar { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; font-size: 0.86rem; }
+.check { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.trace-pick { display: inline-flex; gap: 6px; align-items: center; }
+.trace-pick select { max-width: 280px; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--border-strong); background: var(--field); }
+.topo-clock { margin-left: auto; font-family: var(--mono); font-size: 0.76rem; color: var(--muted); }
+.topo { width: 100%; flex: 1; min-height: 300px; max-height: 70dvh; display: block; }
+
+.topo .lane { stroke: var(--border-strong); stroke-width: 2; color: var(--border-strong); transition: stroke 0.25s, stroke-width 0.25s; }
+.topo .lane[data-dir="back"] { stroke-dasharray: 1 0; }
+.topo .lane.lit { stroke: var(--lit); stroke-width: 3.4; color: var(--lit); }
+.topo .edge[data-kind="model"] .lane { stroke-dasharray: 5 5; }
+.topo .edge[data-kind="model"] .lane.lit { stroke-dasharray: 5 3; }
+.topo .hit { stroke: transparent; stroke-width: 34; cursor: pointer; }
+.topo .edge:focus-visible { outline: none; }
+.topo .edge:focus-visible .hit, .topo .edge.selected .hit { stroke: color-mix(in srgb, var(--hub) 16%, transparent); }
+.topo .edge-label { font: 600 11px var(--mono); fill: var(--muted); pointer-events: none; }
+
+.topo .node { cursor: pointer; }
+.topo .node:focus-visible { outline: none; }
+.topo .node:focus-visible .halo, .topo .node.selected .halo { stroke: var(--node); stroke-width: 2; stroke-dasharray: 4 4; }
+.topo .halo { fill: none; stroke: transparent; }
+.topo .disc { fill: var(--surface); stroke: var(--node); stroke-width: 4; transition: fill 0.3s; }
+.topo .node.flash .disc { fill: color-mix(in srgb, var(--node) 14%, var(--surface)); }
+.topo .orbit { fill: none; stroke: var(--node); stroke-width: 2; stroke-dasharray: 10 14; opacity: 0; transform-origin: 0 0; }
+.topo .node[data-busy="true"] .orbit { opacity: 0.8; animation: orbit 2.4s linear infinite; }
+@keyframes orbit { to { transform: rotate(360deg); } }
+.topo .node:is([data-status="disconnected"], [data-status="disabled"], [data-status="unknown"]) .disc { stroke-dasharray: 6 5; }
+.topo .node:is([data-status="unreachable"], [data-status="invalid_card"]) .disc { stroke: var(--bad); }
+.topo .node[data-status="stale"] .disc { stroke: var(--warn); }
+/* each agent's own model box: smaller, square-cornered, slate — a service the agent calls, not an agent */
+.topo .node.service .disc { stroke-width: 2.5; }
+.topo .node.service .node-name { font-size: 13px; }
+.topo .node.service .orbit { transform: none; stroke-dasharray: 8 8; }
+.topo .node.service[data-busy="true"] .orbit { animation: march 0.9s linear infinite; }
+@keyframes march { to { stroke-dashoffset: -16; } }
+.topo .edge[data-unused="true"] { opacity: 0.35; }
+.topo .node-name { font: 700 15px var(--font); fill: var(--node); }
+.topo .node[data-node="hub"] .node-name { font-size: 16px; }
+.topo .node-sub { font: 12px var(--font); fill: var(--muted); }
+.topo .node-extra { font: 11px var(--mono); fill: var(--muted); }
+.topo .node-caption { font: 600 12px var(--font); fill: var(--text); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; }
+.topo .status-pill { fill: var(--field); stroke: var(--border); }
+.topo .status-text { font: 600 12px var(--font); fill: var(--muted); }
+.topo .node-status[data-tone="ok"] .status-pill { fill: var(--ok-bg); stroke: transparent; }
+.topo .node-status[data-tone="ok"] .status-text { fill: var(--ok); }
+.topo .node-status[data-tone="warn"] .status-pill { fill: var(--warn-bg); stroke: transparent; }
+.topo .node-status[data-tone="warn"] .status-text { fill: var(--warn); }
+.topo .node-status[data-tone="bad"] .status-pill { fill: var(--bad-bg); stroke: transparent; }
+.topo .node-status[data-tone="bad"] .status-text { fill: var(--bad); }
+.topo .node-status[data-tone="busy"] .status-pill { fill: color-mix(in srgb, var(--node) 14%, var(--surface)); stroke: transparent; }
+.topo .node-status[data-tone="busy"] .status-text { fill: var(--node); }
+.topo .pulse-mark { font: 700 15px var(--font); fill: var(--text); }
+.topo .pulse[data-phase="unknown"] { animation: blink 0.8s ease-in-out infinite; }
+/* A highlighted trace: everything it didn't touch steps back. */
+.topo.tracing .edge:not(.in-trace), .topo.tracing .node:not(.in-trace) { opacity: 0.25; }
+.topo.tracing .edge.in-trace .lane { stroke: var(--hub); }
+.topo.offline .node .disc { stroke: var(--border-strong); }
+.topo.offline { filter: grayscale(0.8); }
+
+.legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.8rem; color: var(--muted); }
+.legend li { display: inline-flex; align-items: center; gap: 6px; }
+.legend .sep { margin-left: 8px; }
+.legend .legend-note { flex-basis: 100%; margin-left: 0; font-size: 0.76rem; }
+.glyph { --c: var(--text); display: inline-block; width: 12px; height: 12px; flex: none; background: var(--c); border-radius: 50%; }
+.glyph[data-shape="form"] { border-radius: 2px; }
+.glyph[data-shape="registration"] { border-radius: 1px; transform: rotate(45deg) scale(0.85); }
+.glyph[data-shape="card"] { border-radius: 0; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.glyph[data-shape="heartbeat"] { width: 7px; height: 7px; }
+.glyph[data-shape="model"] { width: 15px; height: 15px; border-radius: 0; clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%); }
+.glyph[data-shape="routing"], .glyph[data-shape="model"] { background: none; border: 2px solid var(--c); }
+.glyph.phase { --c: var(--muted); }
+.glyph[data-phase="attempted"] { background: none; border: 2px solid var(--c); }
+.glyph[data-phase="completed"] { box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 30%, transparent); }
+.glyph[data-phase="failed"] { --c: var(--bad); background: var(--bad); }
+.glyph[data-phase="unknown"] { --c: var(--warn); background: none; border: 2px dashed var(--warn); }
+
+.topo-side { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; overflow: hidden; }
+.topo-side h2 { font-size: 0.98rem; }
+.topo-side h3 { margin: 0 0 6px; font-size: 1rem; }
+.topo-side h4 { margin: 10px 0 4px; font-size: 0.86rem; }
+.topo-side .count { font-weight: 400; color: var(--muted); font-size: 0.8rem; }
+.topo-detail { font-size: 0.86rem; max-height: 44%; overflow-y: auto; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.kv { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+.dest-list { margin: 0; padding-left: 18px; }
+.mini-timeline { list-style: none; margin: 6px 0; padding: 0; display: grid; gap: 3px; font-size: 0.8rem; }
+.mini-timeline li { display: grid; grid-template-columns: max-content 1fr; gap: 8px; padding-left: 8px; border-left: 3px solid var(--ok); }
+.mini-timeline li[data-phase="attempted"] { border-left-color: var(--border-strong); }
+.mini-timeline li[data-phase="failed"] { border-left-color: var(--bad); }
+.mini-timeline li[data-phase="unknown"] { border-left-color: var(--warn); border-left-style: dashed; }
+.mini-timeline li[data-phase="processing"] { border-left-color: var(--hub); border-left-style: dotted; }
+.mini-timeline time, .topo-events time { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); }
+.truncated { margin: 0; font-size: 0.8rem; color: var(--warn); background: var(--warn-bg); padding: 4px 8px; border-radius: 6px; }
+.topo-events { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; min-height: 160px; display: grid; align-content: start; gap: 0; }
+.topo-events:empty::before { content: "No events yet. Send a message in the Conversation tab."; color: var(--muted); font-size: 0.86rem; }
+.topo-events li { display: grid; grid-template-columns: max-content 12px 1fr; gap: 0 8px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 0.82rem; }
+.topo-events .ev-route { grid-column: 3; font-weight: 600; }
+.topo-events .glyph { grid-column: 2; grid-row: 1; }
+.topo-events time { grid-column: 1; grid-row: 1; }
+.topo-events .ev-label, .topo-events .ev-phase, .topo-events .ev-trace { grid-column: 3; }
+.topo-events .ev-phase { color: var(--muted); font-size: 0.76rem; }
+.topo-events .ev-trace { justify-self: start; border: 0; background: none; padding: 0; color: var(--hub); font-size: 0.76rem; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.topo-events li[data-phase="failed"] .ev-label { color: var(--bad); }
+.topo-events li[data-phase="unknown"] .ev-label { color: var(--warn); }
 
 /* ---- skills settings dialog ---- */
 dialog#skills-dialog { width: min(820px, calc(100vw - 24px)); max-height: calc(100vh - 24px); border: 1px solid var(--border); border-radius: 14px; padding: 0; background: var(--surface); color: var(--text); overflow: hidden; }

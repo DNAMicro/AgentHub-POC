@@ -7,7 +7,7 @@
 //
 // live: one structured Claude Haiku 5.5 call with all fields. Otherwise: a labelled deterministic
 // heuristic (for tests and demos — it proves the plumbing, not understanding).
-import { MODEL, callModel, keyConfigured, toLlmError } from './llm.js';
+import { modelName, callModel, keyConfigured, toLlmError } from './llm.js';
 import { ROOMS, TIMEZONE_LABEL, prettyDate, todayIn } from './forms.js';
 
 const SCHEMA = {
@@ -96,10 +96,10 @@ export async function reviewSubmission({ workflowId, values, live, slotLabel = n
     return { flags, reviewer: 'heuristic', usage: null, requestId: null };
   }
   if (!keyConfigured()) {
-    emit('form_review', { reviewer: MODEL, unavailable: 'missing_credentials', flags: [] });
-    return { flags: [], reviewer: MODEL, unavailable: 'missing_credentials' };
+    emit('form_review', { reviewer: modelName(), unavailable: 'missing_credentials', flags: [] });
+    return { flags: [], reviewer: modelName(), unavailable: 'missing_credentials' };
   }
-  emit('model_call_started', { model: MODEL, mode: 'live', purpose: 'form review', earlierMessages: 0 });
+  emit('model_call_started', { model: modelName(), mode: 'live', purpose: 'form review', earlierMessages: 0 });
   const started = Date.now();
   try {
     const result = await callModel({
@@ -130,8 +130,8 @@ export async function reviewSubmission({ workflowId, values, live, slotLabel = n
     const mapped = toLlmError(err);
     // Advisory only: a failed review never blocks a valid submission.
     emit('model_call_failed', { code: mapped.code, message: mapped.message, latencyMs: Date.now() - started, requestId: mapped.requestId });
-    emit('form_review', { reviewer: MODEL, unavailable: mapped.code, flags: [] });
-    return { flags: [], reviewer: MODEL, unavailable: mapped.code, requestId: mapped.requestId };
+    emit('form_review', { reviewer: modelName(), unavailable: mapped.code, flags: [] });
+    return { flags: [], reviewer: modelName(), unavailable: mapped.code, requestId: mapped.requestId };
   }
 }
 

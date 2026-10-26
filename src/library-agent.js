@@ -10,7 +10,9 @@ import { AgentEvent, DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sd
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
 import { hostGuard } from './local-guard.js';
 import { createSkillService } from './agent-settings.js';
-import { LlmError, apiHost } from './llm.js';
+import { loadSpecialistConfig } from './config.js';
+import { createHubLink } from './hub-link.js';
+import { LlmError, apiHost, keyEnvName, useModel } from './llm.js';
 import { LIBRARY_DEFAULT_SKILLS } from './library-fixture.js';
 import { LIBRARY_MODE, answerFromKnowledge, libraryStatus } from './library-model.js';
 import {
@@ -27,7 +29,10 @@ export { LIBRARY_DEFAULT_SKILLS };
 const HOST = '127.0.0.1';
 const JSONRPC_PATH = '/a2a/jsonrpc';
 const VIZ_PATH = '/viz/events';
-const STUDENT_A2A_URL = process.env.STUDENT_A2A_URL ?? 'http://127.0.0.1:41240';
+// Part 7: this agent connects to the University Hub (registration, heartbeats, card-change notices).
+const CONFIG = loadSpecialistConfig('library');
+useModel(CONFIG.model); // the Library's own model and key variable
+let hubLink = null;
 const MAX_LEDGER = 500;
 
 const log = (...args) => console.log('[Library Agent]', ...args);
@@ -275,7 +280,12 @@ export function startLibraryServer({ port = 41242 } = {}) {
       const card = buildAgentCard(actualPort);
       skillService = createSkillService({
         agentId: 'library', agentName: card.name, defaults: LIBRARY_DEFAULT_SKILLS, rules: LIBRARY_RULES, card,
-        emit: (type, data) => emitViz(type, null, data), log, studentUrl: STUDENT_A2A_URL,
+        emit: (type, data) => emitViz(type, null, data), log, notify: (n) => hubLink.notifyCardChanged(n),
+      });
+      hubLink = createHubLink({
+        agentId: CONFIG.agentId, hubUrl: CONFIG.hub.url, endpoint: `${baseUrl}${JSONRPC_PATH}`, cardUrl: `${baseUrl}/${AGENT_CARD_PATH}`,
+        enabled: CONFIG.enabled, heartbeatIntervalMs: CONFIG.heartbeatIntervalMs, log,
+        emit: (type, data) => emitViz(type, null, data),
       });
       const requestHandler = new DefaultRequestHandler(card, new InMemoryTaskStore(), libraryExecutor);
       app.use(hostGuard(actualPort));
@@ -284,7 +294,8 @@ export function startLibraryServer({ port = 41242 } = {}) {
       app.get(VIZ_PATH, serveVizEvents);
       app.use(skillService.router());
       skillService.started(actualPort, `${baseUrl}/${AGENT_CARD_PATH}`);
-      resolve({ server, baseUrl });
+      hubLink.start(); // retries until the Hub accepts the registration
+      resolve({ server, baseUrl, hubLink });
     });
     server.on('error', reject);
   });
@@ -293,8 +304,15 @@ export function startLibraryServer({ port = 41242 } = {}) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const port = process.env.PORT === undefined ? 41242 : Number(process.env.PORT);
   const { baseUrl } = await startLibraryServer({ port });
+  // Sign out from the Hub on shutdown (best effort; the Hub's heartbeat expiry covers a crash).
+  for (const signal of ['SIGINT', 'SIGTERM']) {
+    process.once(signal, async () => {
+      await Promise.race([hubLink?.stop(), new Promise((r) => setTimeout(r, 800))]);
+      process.exit(0);
+    });
+  }
   log(`listening on ${baseUrl}`);
   log(`Agent Card: ${baseUrl}/${AGENT_CARD_PATH}`);
   const s = libraryStatus();
-  log(`mode: ${s.mode} (${s.model})${s.mode === 'live' ? `, API key: ${s.keyConfigured ? 'configured' : 'NOT SET'}, API host: ${apiHost()}` : ''}, answers only from saved skill content`);
+  log(`mode: ${s.mode} (${s.model})${s.mode === 'live' ? `, API key (${keyEnvName()}): ${s.keyConfigured ? 'configured' : 'NOT SET'}, API host: ${apiHost()}` : ''}, answers only from saved skill content`);
 }

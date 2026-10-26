@@ -14,7 +14,7 @@ const ASK = 'I want to reserve a group study room';
 
 let trio, stream;
 before(async () => {
-  trio = await startTrio({ uiEnv: { ROUTER_MODE: 'mock' } });
+  trio = await startTrio({ hubEnv: { ROUTER_MODE: 'mock', HUB_TELEMETRY_SHOW_CONTENT: '1' } });
   stream = await openStream(trio.ui.url);
 });
 after(() => {
@@ -130,7 +130,7 @@ test('confirming without review is refused by the Library; the form becomes reco
 });
 
 test('an unclear request gets a question first; “yes” then opens the form (the Library remembers its own question)', async () => {
-  const library = await startLibrary({ STUDENT_A2A_URL: 'http://127.0.0.1:9' });
+  const library = await startLibrary();
   try {
     const contextId = randomUUID();
     const q = await askTutor(library.url, 'I need a room', { contextId });
@@ -146,7 +146,7 @@ test('an unclear request gets a question first; “yes” then opens the form (t
 });
 
 test('concurrent confirmations for the same slot: exactly one booking; the other gets a conflict and fresh alternatives', async () => {
-  const library = await startLibrary({ STUDENT_A2A_URL: 'http://127.0.0.1:9' });
+  const library = await startLibrary();
   try {
     const crit = { date: addDays(todayIn(), 3), room: ['room-c'], duration: ['120'], groupSize: '8' };
     const action = (form, name, button, context) => ({ name, surfaceId: form.formId, sourceComponentId: button, timestamp: new Date().toISOString(), context });

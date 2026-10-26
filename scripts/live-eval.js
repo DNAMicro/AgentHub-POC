@@ -1,5 +1,5 @@
 // Opt-in LIVE evaluation of Part 5's model judgments (PAID, off unless you set a limit):
-//   - routing: the 8 example questions through the live router (claude-haiku-5-5),
+//   - routing: the 8 example questions through the live router (TUTOR_MODEL, default claude-haiku-5-5),
 //   - scope: direct A2A requests to a live-mode Tutor (scope check → answer → answer check).
 //
 //   LIVE_EVAL_MAX_USD=0.02 npm run eval:live
@@ -8,7 +8,13 @@
 // A handful of examples is not a measurement of accuracy; treat results as a spot check.
 import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { MODEL, PRICE, costOf } from '../src/llm.js';
+import { DEFAULT_MODEL, costOf, priceOf, useModel } from '../src/llm.js';
+
+// Router and Tutor run in this one process here, so they share one model: TUTOR_MODEL (the Tutor
+// module reads the same variable through its configuration).
+const MODEL = process.env.TUTOR_MODEL || DEFAULT_MODEL;
+useModel({ name: MODEL });
+const PRICE = priceOf(MODEL);
 
 const ROUTING = [
   ['Explain the derivative of x squared', 'tutor'],
@@ -36,7 +42,7 @@ const usd = (n) => `$${n.toFixed(6)}`;
 console.log('Live Part 5 evaluation plan');
 console.log(`  model:       ${MODEL} (no substitution)`);
 console.log(`  paid calls:  about ${PLANNED_CALLS} (${ROUTING.length} routing, ${SCOPE.length} scope checks, answers + answer checks for in-scope cases); no retries`);
-console.log(`  pricing:     $${PRICE.inputPerMTok}/MTok input, $${PRICE.outputPerMTok}/MTok output (≤100K-token prompts; checked 2026-10-25)`);
+console.log(`  pricing:     $${PRICE.inputPerMTok}/MTok input, $${PRICE.outputPerMTok}/MTok output (${PRICE.label}; src/models.js)`);
 console.log(`  worst case:  ${usd(WORST_CALL * PLANNED_CALLS)} total (pessimistic)`);
 
 const limit = Number(process.env.LIVE_EVAL_MAX_USD);
@@ -56,22 +62,24 @@ if (!process.env.ANTHROPIC_API_KEY?.trim()) {
 }
 console.log(`  API key:     present (value not shown) · limit ${usd(limit)}\n`);
 
-// In-process agents in live mode. Notifications go nowhere (no Student running) — that's fine.
+// In-process agents in live mode. No Hub is running: their registration attempts just fail — that's fine.
 process.env.TUTOR_MODE = 'live';
 process.env.ROUTER_MODE = 'live';
-process.env.STUDENT_A2A_URL = 'http://127.0.0.1:9';
+process.env.HUB_URL = 'http://127.0.0.1:9';
 process.env.STUDENT_LOG_CONTENT = '0';
 const { startTutorServer } = await import('../src/tutor-agent.js');
 const { startLibraryServer } = await import('../src/library-agent.js');
-const { createRegistry, trustedPeers } = await import('../src/student-registry.js');
+const { createHubRegistry } = await import('../src/hub-registry.js');
 const { decideRoute } = await import('../src/router.js');
 const { askTutor } = await import('../src/student-agent.js');
 console.log = ((orig) => (...a) => (String(a[0]).startsWith('[') ? undefined : orig(...a)))(console.log); // hide agent logs
 
 const tutor = await startTutorServer({ port: 0 });
 const library = await startLibraryServer({ port: 0 });
-const registry = createRegistry({ peers: trustedPeers({ tutorUrl: tutor.baseUrl, libraryUrl: library.baseUrl }) });
-await registry.refreshAll('eval');
+// The Hub's registry, fed directly with the cards (the eval exercises the router, not registration).
+const peer = (agentId, expectedName, baseUrl) => ({ agentId, expectedName, displayName: expectedName, baseUrl, rpcUrl: `${baseUrl}/a2a/jsonrpc`, cardUrl: `${baseUrl}/.well-known/agent-card.json` });
+const registry = createHubRegistry({ peers: [peer('tutor', 'Tutor Agent', tutor.baseUrl), peer('library', 'Library Agent', library.baseUrl)], expiryMs: 60000 });
+await Promise.all(['tutor', 'library'].map((id) => registry.refresh(id, 'eval')));
 
 let spent = 0;
 const canSpend = (calls) => spent + calls * WORST_CALL <= limit;

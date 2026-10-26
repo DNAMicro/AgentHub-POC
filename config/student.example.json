@@ -1,0 +1,12 @@
+{
+  "agentId": "student-alex",
+  "displayName": "Student Agent",
+  "university": {
+    "name": "California State University Fullerton",
+    "relationship": "Enrolled student (fictional demo identity)",
+    "hubUrl": "http://127.0.0.1:41243",
+    "cardUrl": "http://127.0.0.1:41243/.well-known/agent-card.json"
+  },
+  "timeouts": { "chatMs": 60000, "formActionMs": 8000 },
+  "model": { "name": "claude-haiku-5-5", "apiKeyEnv": "ANTHROPIC_API_KEY" }
+}

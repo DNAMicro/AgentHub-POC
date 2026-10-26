@@ -68,7 +68,7 @@ export function createFormsUi({ log, agentName = (id) => id, onChange = () => {}
   function role(view, dir) {
     view.card.dataset.dir = dir;
     view.card.dataset.speaker = dir === 'sent' ? 'student' : view.agentId;
-    view.label.textContent = dir === 'sent' ? `You sent: ${WORKFLOWS[view.workflowId]?.title ?? 'form'}` : `Received from ${agentName(view.agentId)}`;
+    view.label.textContent = dir === 'sent' ? `You sent: ${WORKFLOWS[view.workflowId]?.title ?? 'form'}` : agentName(view.agentId);
     view.intro.hidden = dir === 'sent';
   }
   // A read-only summary of what was submitted.

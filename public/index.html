@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>A2A Spike Monitor</title>
+  <title>University Hub Monitor</title>
   <link rel="icon" href="data:,">
   <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="styles.css">
@@ -11,24 +11,33 @@
 <body>
   <header class="topbar">
     <div class="brand">
-      <h1>A2A Spike</h1>
-      <p class="subtitle">You talk to the Student agent. It routes each request to the Tutor Agent or the Library Agent over A2A; they answer, or send a form when you ask for something.</p>
+      <h1 id="university-name">California State University Fullerton</h1>
+      <p class="subtitle">Fictional local demo. Your Student agent talks only to the university’s front door, which routes each request to its tutoring or library service over A2A and relays the answer.</p>
     </div>
     <div class="badges" aria-label="Connections and modes">
-      <span class="badge" id="browser-feed" data-ok="false">Browser stream: connecting</span>
-      <span class="badge" id="tutor-feed" data-ok="false">Tutor feed: unknown</span>
-      <span class="badge" id="library-feed" data-ok="false">Library feed: unknown</span>
+      <span class="badge" id="browser-feed" data-ok="false">Live view: connecting</span>
+      <span class="badge" id="hub-feed" data-ok="false">Hub telemetry: unknown</span>
       <span class="badge" id="router-mode" data-mode="unknown">Router: unknown</span>
-      <span class="badge" id="tutor-mode" data-mode="unknown">Tutor mode: unknown</span>
+      <span class="badge" id="tutor-mode" data-mode="unknown">Tutor: unknown</span>
       <span class="state" id="state" data-state="idle">idle</span>
     </div>
   </header>
 
-  <main class="desk">
+  <p class="live-banner" id="live-banner" role="status" hidden></p>
+
+  <nav class="tabs" role="tablist" aria-label="Views">
+    <!-- Real links: each view has its own address, so Cmd/Ctrl-click or middle-click opens it in a new browser tab. -->
+    <a href="/conversation" role="tab" id="tab-conversation" aria-controls="view-conversation" aria-selected="true">Conversation</a>
+    <a href="/activity" role="tab" id="tab-activity" aria-controls="view-activity" aria-selected="false" tabindex="-1">Agent activity</a>
+    <a href="/topology" role="tab" id="tab-topology" aria-controls="view-topology" aria-selected="false" tabindex="-1">Topology <span class="tab-pulse" id="tab-pulse" aria-hidden="true"></span></a>
+  </nav>
+
+  <!-- Conversation: you and the university -->
+  <section class="view view-conversation" id="view-conversation" role="tabpanel" aria-labelledby="tab-conversation">
     <section class="panel chat" aria-labelledby="student-title" data-agent="student">
       <header class="panel-head">
-        <h2 id="student-title">Student agent</h2>
-        <span class="role">A2A client and router</span>
+        <h2 id="student-title">Conversation with the university</h2>
+        <span class="role" id="student-role">Student agent “student-alex” · connects only to the university</span>
         <span class="conversation" id="conversation">New conversation</span>
       </header>
       <ol class="log chat-log" id="student-log" aria-live="polite"></ol>
@@ -40,45 +49,107 @@
         </form>
         <div class="actions">
           <button type="button" id="new-conversation" hidden>New conversation</button>
-          <button type="button" id="refresh-skills" title="Re-fetch registered Agent Cards (conditional, no model calls)">Refresh skills</button>
+          <button type="button" id="refresh-skills" title="The Hub re-fetches its services’ Agent Cards (conditional, no model calls)">Refresh skills</button>
           <p class="form-error" id="form-error" role="alert"></p>
         </div>
       </div>
     </section>
 
+    <details class="timeline-panel" open>
+      <summary><h2 id="timeline-title">Hop by hop</h2> <span class="run-id" id="run-id">no run yet</span></summary>
+      <ol class="timeline" id="timeline"></ol>
+      <p class="timeline-error" id="timeline-error" role="alert"></p>
+    </details>
+  </section>
+
+  <!-- Agent activity: one console per agent -->
+  <section class="view view-activity" id="view-activity" role="tabpanel" aria-labelledby="tab-activity" hidden>
+    <section class="panel console" aria-labelledby="studentc-title" data-agent="student">
+      <header class="panel-head">
+        <h2 id="studentc-title">Student agent</h2>
+        <span class="role">A2A client of the university</span>
+      </header>
+      <ol class="log console-log" id="studentc-log"></ol>
+    </section>
+    <section class="panel console" aria-labelledby="hub-title" data-agent="hub">
+      <header class="panel-head">
+        <h2 id="hub-title">University Hub</h2>
+        <span class="role" id="hub-role">Front door, router and relay</span>
+      </header>
+      <div class="skills-box" id="hub-box"></div>
+      <ol class="log console-log" id="hub-log"></ol>
+    </section>
     <section class="panel console" aria-labelledby="tutor-title" data-agent="tutor">
       <header class="panel-head">
         <h2 id="tutor-title">Tutor Agent</h2>
-        <span class="role">A2A server</span>
+        <span class="role" id="tutor-role">Specialist behind the Hub</span>
         <button type="button" class="gear" data-agent="tutor" aria-label="Edit agent skills — Tutor Agent" title="Edit skills">⚙</button>
       </header>
       <div class="skills-box" id="tutor-skills"></div>
-      <ol class="log console-log" id="tutor-log" aria-live="polite"></ol>
+      <ol class="log console-log" id="tutor-log"></ol>
     </section>
-
     <section class="panel console" aria-labelledby="library-title" data-agent="library">
       <header class="panel-head">
         <h2 id="library-title">Library Agent</h2>
-        <span class="role" id="library-role">A2A server</span>
+        <span class="role" id="library-role">Specialist behind the Hub</span>
         <button type="button" class="gear" data-agent="library" aria-label="Edit agent skills — Library Agent" title="Edit skills">⚙</button>
       </header>
       <div class="skills-box" id="library-skills"></div>
-      <ol class="log console-log" id="library-log" aria-live="polite"></ol>
+      <ol class="log console-log" id="library-log"></ol>
     </section>
-  </main>
+  </section>
 
-  <details class="timeline-panel" open>
-    <summary><h2 id="timeline-title">Activity timeline</h2> <span class="run-id" id="run-id">no run yet</span></summary>
-    <ol class="timeline" id="timeline"></ol>
-    <p class="timeline-error" id="timeline-error" role="alert"></p>
-  </details>
+  <!-- Topology: the live switchboard -->
+  <section class="view view-topology" id="view-topology" role="tabpanel" aria-labelledby="tab-topology" hidden>
+    <div class="topo-stage">
+      <div class="topo-toolbar" role="group" aria-label="Topology controls">
+        <label class="check"><input type="checkbox" id="topo-heartbeats"> Show heartbeats</label>
+        <label class="check"><input type="checkbox" id="topo-reduce"> Reduce motion</label>
+        <label class="check"><input type="checkbox" id="topo-pause"> Pause animation</label>
+        <label class="trace-pick">Trace
+          <select id="topo-trace"><option value="">All traffic</option></select>
+        </label>
+        <span class="topo-clock" id="topo-clock" aria-live="off"></span>
+      </div>
+      <svg id="topo" class="topo" viewBox="0 0 1100 540" role="group" aria-label="Live topology: Student, University Hub, Tutor Agent and Library Agent, each with its own model box (the Student has none). Use Tab to reach a node or connection, Enter to open its details.">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9 z" fill="currentColor"></path></marker>
+          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="b"></feGaussianBlur><feMerge><feMergeNode in="b"></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge></filter>
+        </defs>
+        <g id="topo-edges"></g>
+        <g id="topo-pulses" aria-hidden="true"></g>
+        <g id="topo-nodes"></g>
+      </svg>
+      <ul class="legend" aria-label="Legend">
+        <li><span class="glyph" data-shape="request"></span>Question or answer</li>
+        <li><span class="glyph" data-shape="form"></span>Form or form action</li>
+        <li><span class="glyph" data-shape="registration"></span>Registration</li>
+        <li><span class="glyph" data-shape="card"></span>Agent Card</li>
+        <li><span class="glyph" data-shape="heartbeat"></span>Heartbeat</li>
+        <li><span class="glyph" data-shape="model"></span>Model call (dashed line = HTTPS, not A2A)</li>
+        <li class="sep"><span class="glyph phase" data-phase="attempted"></span>Sent</li>
+        <li><span class="glyph phase" data-phase="accepted"></span>Received</li>
+        <li><span class="glyph phase" data-phase="completed"></span>Result returned</li>
+        <li><span class="glyph phase" data-phase="failed"></span>Failed</li>
+        <li><span class="glyph phase" data-phase="unknown"></span>Outcome unknown</li>
+        <li class="sep legend-note">Color = the agent that sent it. Pulses appear only for events the agents reported.</li>
+      </ul>
+    </div>
+    <aside class="topo-side" aria-labelledby="topo-detail-title">
+      <h2 id="topo-detail-title">Details</h2>
+      <div id="topo-detail" class="topo-detail"><p class="hint">Select a node, a connection or a trace.</p></div>
+      <h2 id="topo-events-title">Events <span class="count" id="topo-count"></span></h2>
+      <p class="truncated" id="topo-truncated" hidden></p>
+      <ol class="topo-events" id="topo-events" aria-labelledby="topo-events-title"></ol>
+    </aside>
+  </section>
 
   <dialog id="skills-dialog" aria-labelledby="skills-dialog-title">
     <form method="dialog" id="skills-form" novalidate>
       <header class="dialog-head">
         <h2 id="skills-dialog-title">Edit skills</h2>
         <p class="dialog-note" id="skills-identity"></p>
-        <p class="dialog-note warn">Local developer control. Edits skills only — not identity, endpoints, credentials, or security. Saving updates what this agent advertises and permits.</p>
+        <p class="dialog-note warn">Local developer control. Edits skills only — not identity, endpoints, credentials, or security. Saving updates what this service advertises to the university Hub and permits.</p>
       </header>
       <div class="dialog-scroll">
         <div class="dialog-errors" id="skills-errors" role="alert"></div>

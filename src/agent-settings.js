@@ -1,22 +1,18 @@
 // Skill settings for a service agent (Tutor or Library): the single skill configuration,
 // its atomic save, the settings HTTP API (local developer controls), and the A2A
-// "agent_card_changed" notification to Student Agent.
+// "agent_card_changed" notification — sent to the University Hub (Part 7), never to the Student.
 //
 // The settings API edits skills only. Identity, endpoint URLs, security and protocol
 // capabilities are not part of the configuration and cannot be changed here.
-import { randomUUID } from 'node:crypto';
 import express from 'express';
-import { Role } from '@a2a-js/sdk';
-import { ClientFactory } from '@a2a-js/sdk/client';
 import { sameOriginGuard } from './local-guard.js';
 import {
-  CARD_CHANGED_MEDIA_TYPE, SCOPE_EXTENSION_URI, buildCardSkills, buildScopeExtension, configHash,
+  SCOPE_EXTENSION_URI, buildCardSkills, buildScopeExtension, configHash,
   policyFromConfig, validateSkillConfig,
 } from './skills.js';
 
-const NOTIFY_TIMEOUT_MS = 3000;
-
-export function createSkillService({ agentId, agentName, defaults, rules, card, emit, log, studentUrl }) {
+// notify({ revision, reason }) → { notificationId, outcome, detail }: the Hub link's card-change notice.
+export function createSkillService({ agentId, agentName, defaults, rules, card, emit, log, notify }) {
   const initial = validateSkillConfig(defaults, rules);
   if (!initial.ok) throw new Error(`Invalid default skills for ${agentId}: ${JSON.stringify(initial.errors)}`);
   const testedHash = configHash(initial.config); // the defaults are what the automated tests cover
@@ -48,33 +44,12 @@ export function createSkillService({ agentId, agentName, defaults, rules, card, 
     return etag;
   }
 
-  // One attempt, no retry loop. Student refreshes all cards on its own startup/reconnect, so a
-  // notification that can't be delivered now is reported as pending, not resent forever.
-  async function notifyStudent(reason) {
-    const notificationId = randomUUID();
-    const notice = { type: 'agent_card_changed', notificationId, agentId, revision, reason, changedAt: new Date().toISOString() };
-    let outcome;
-    let detail;
-    try {
-      const client = await new ClientFactory().createFromUrl(studentUrl);
-      const result = await client.sendMessage({
-        tenant: '', configuration: undefined, metadata: undefined,
-        message: {
-          messageId: randomUUID(), contextId: '', taskId: '', role: Role.ROLE_USER,
-          parts: [{ content: { $case: 'data', value: notice }, metadata: undefined, filename: '', mediaType: CARD_CHANGED_MEDIA_TYPE }],
-          metadata: { notification: 'agent_card_changed' }, extensions: [], referenceTaskIds: [],
-        },
-      }, { signal: AbortSignal.timeout(NOTIFY_TIMEOUT_MS) });
-      // Student's A2A reply is the delivery receipt; its own status says what it did with it.
-      const ack = result.parts?.find((p) => p.content?.$case === 'data')?.content.value ?? {};
-      outcome = ack.status === 'received' || ack.status === 'duplicate' ? 'delivered' : 'rejected';
-      detail = ack.status === 'received' ? 'Student acknowledged; it will re-fetch the card' : ack.reason ?? ack.status ?? 'unrecognized reply';
-    } catch (err) {
-      outcome = 'pending';
-      detail = err.cause?.code === 'ECONNREFUSED' ? 'Student Agent is offline — it will refresh cards when it starts' : `Not delivered (${err.name === 'TimeoutError' ? 'timeout' : err.message}) — Student refreshes on startup/reconnect or via Refresh skills`;
-    }
-    lastNotification = { notificationId, revision, reason, outcome, detail, at: new Date().toISOString() };
-    log('card change notification', { notificationId, revision, reason, outcome });
+  // One attempt, no retry loop. The Hub re-fetches cards when an agent registers, so a notice that
+  // can't be delivered now is reported as pending, not resent forever.
+  async function notifyHub(reason) {
+    const sent = await notify({ revision, reason });
+    lastNotification = { ...sent, revision, reason, at: new Date().toISOString() };
+    log('card change notification', { notificationId: sent.notificationId, revision, reason, outcome: sent.outcome });
     emit('card_notification', lastNotification);
     return lastNotification;
   }
@@ -120,7 +95,7 @@ export function createSkillService({ agentId, agentName, defaults, rules, card, 
       log('skills saved', saved);
       emit('skills_saved', saved);
       res.json({ ...saved, card });
-      notifyStudent('skills_saved'); // reported separately via card_notification
+      notifyHub('skills_saved'); // reported separately via card_notification
     });
     return r;
   }
@@ -130,13 +105,12 @@ export function createSkillService({ agentId, agentName, defaults, rules, card, 
     revision: () => revision,
     describe,
     router,
-    notifyStudent,
+    notifyHub,
     async started(actualPort, cardUrl) {
       port = actualPort;
       selfCardUrl = cardUrl;
       await refreshOwnEtag();
-      // Tell Student this agent (re)started with its current card; harmless if Student is offline.
-      notifyStudent('startup');
+      // No startup notice: registering with the Hub makes it fetch the current card.
     },
   };
 }

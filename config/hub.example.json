@@ -1,0 +1,16 @@
+{
+  "agentId": "csuf-hub",
+  "name": "California State University Fullerton",
+  "peers": [
+    { "agentId": "tutor", "expectedName": "Tutor Agent", "displayName": "Tutor Agent", "baseUrl": "http://127.0.0.1:41241" },
+    { "agentId": "library", "expectedName": "Library Agent", "displayName": "Library Agent", "baseUrl": "http://127.0.0.1:41242" }
+  ],
+  "destinations": {
+    "tutoring": { "worker": "tutor", "description": "Academic tutoring and in-person tutoring requests." },
+    "library": { "worker": "library", "description": "Library services: hours, borrowing, renewals, returns, finding resources, group study rooms." }
+  },
+  "students": ["student-alex"],
+  "heartbeatExpiryMs": 10000,
+  "timeouts": { "dispatchMs": 60000, "formActionMs": 8000, "cardFetchMs": 3000 },
+  "model": { "name": "claude-haiku-5-5", "apiKeyEnv": "ANTHROPIC_API_KEY" }
+}

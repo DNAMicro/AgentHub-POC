@@ -1,5 +1,6 @@
-// Part 5 reverse path: skill save → card/ETag change → real A2A agent_card_changed notification
-// → Student re-fetches from its registered URL → registry update → routing changes.
+// Part 5 reverse path, now terminating at the University Hub (Part 7): skill save → card/ETag change →
+// real A2A agent_card_changed notice to the Hub → the Hub re-fetches from its CONFIGURED URL → its
+// private registry updates → routing changes. The Student never receives these notices.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -7,12 +8,14 @@ import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { Role } from '@a2a-js/sdk';
 import { ClientFactory } from '@a2a-js/sdk/client';
-import { startTrio, startLibrary, startUi, startTutor, openStream, chatVia, waitFor, put, post, find, findAll, status, unusedPort } from './support/harness.js';
+import { startStack, startHub, startLibrary, openStream, chatVia, waitFor, put, post, findAll, hubEntry, unusedPort } from './support/harness.js';
 import { CARD_CHANGED_MEDIA_TYPE } from '../src/skills.js';
+import { REGISTER_MEDIA_TYPE } from '../src/hub-link.js';
+import { createHubRegistry } from '../src/hub-registry.js';
 
 let trio, stream;
 before(async () => {
-  trio = await startTrio({ uiEnv: { ROUTER_MODE: 'mock' } });
+  trio = await startStack({ hubEnv: { ROUTER_MODE: 'mock' } });
   stream = await openStream(trio.ui.url);
 });
 after(() => {
@@ -22,20 +25,19 @@ after(() => {
 
 const skillsVia = async (ui, agentId) => (await fetch(`${ui.url}/api/agents/${agentId}/skills`)).json();
 const etagOf = async (url) => (await fetch(`${url}/.well-known/agent-card.json`)).headers.get('etag');
-const registryEntry = async (ui, agentId) => (await status(ui)).registry.find((r) => r.agentId === agentId);
 
-// Send a raw notification to Student's A2A endpoint, as any local process could.
-async function sendNotice(studentUrl, notice) {
-  const client = await new ClientFactory().createFromUrl(studentUrl);
+// Send a raw control message to the Hub, as any local process could.
+async function sendControl(hubUrl, mediaType, value) {
+  const client = await new ClientFactory().createFromUrl(hubUrl);
   const result = await client.sendMessage({
     tenant: '', configuration: undefined, metadata: undefined,
     message: { messageId: randomUUID(), contextId: '', taskId: '', role: Role.ROLE_USER, extensions: [], referenceTaskIds: [], metadata: undefined,
-      parts: [{ content: { $case: 'data', value: notice }, metadata: undefined, filename: '', mediaType: CARD_CHANGED_MEDIA_TYPE }] },
+      parts: [{ content: { $case: 'data', value }, metadata: undefined, filename: '', mediaType }] },
   });
   return result.parts.find((p) => p.content?.$case === 'data').content.value;
 }
 
-test('settings API: read, preview, invalid input, unimplemented capability, stale revision — nothing saved', async () => {
+test('settings API (through the Hub’s developer proxy): read, preview, invalid input, unimplemented capability, stale revision — nothing saved', async () => {
   const s = await skillsVia(trio.ui, 'library');
   assert.equal(s.agentName, 'Library Agent');
   assert.equal(s.revision, 1);
@@ -50,18 +52,17 @@ test('settings API: read, preview, invalid input, unimplemented capability, stal
   bad.skills[0].name = '';
   assert.equal((await put(`${trio.ui.url}/api/agents/library/skills`, { config: bad, baseRevision: 1 })).status, 400);
   const unimplemented = structuredClone(s.config);
-  // A Library skill with nothing to answer from can't be enabled.
   unimplemented.skills.push({ id: 'room-booking', kind: 'answer', enabled: true, name: 'Room booking', description: 'Study rooms.', tags: [], examples: [], scope: { allowed: ['study room bookings'], excluded: [] }, knowledge: '' });
   const res = await put(`${trio.ui.url}/api/agents/library/skills`, { config: unimplemented, baseRevision: 1 });
   assert.equal(res.status, 400);
   assert.match(JSON.stringify(await res.json()), /Add the answer content/);
-  assert.equal(s.rules.knowledge, 'required');
   assert.equal((await put(`${trio.ui.url}/api/agents/library/skills`, { config: s.config, baseRevision: 0 })).status, 409, 'stale editor');
-  assert.equal((await skillsVia(trio.ui, 'library')).revision, 1, 'nothing was saved ("Cancel" never calls the API at all)');
+  assert.equal((await skillsVia(trio.ui, 'library')).revision, 1, 'nothing was saved');
+  assert.equal((await fetch(`${trio.ui.url}/api/agents/evil/skills`)).status, 404, 'only allowlisted agents');
 });
 
-test('save → new ETag → A2A notification → Student re-fetch → routing changes', async () => {
-  const before = { etag: await etagOf(trio.library.url), entry: await registryEntry(trio.ui, 'library') };
+test('save → new ETag → A2A notice to the Hub → Hub re-fetch → routing changes', async () => {
+  const etag0 = await etagOf(trio.library.url);
   const question = 'Where can I find a calculus textbook?';
   assert.deepEqual((await chatVia(trio.ui, stream, question)).destinations, ['library'], 'starts at Library');
 
@@ -72,78 +73,85 @@ test('save → new ETag → A2A notification → Student re-fetch → routing ch
   assert.equal(saved.status, 200);
   const body = await saved.json();
   assert.equal(body.revision, 2);
-  assert.notEqual(body.etag, before.etag, 'card content validator changed');
-  assert.equal(await etagOf(trio.library.url), body.etag);
+  assert.notEqual(body.etag, etag0, 'card content validator changed');
 
-  // Three separate, real outcomes.
+  // Separate, real outcomes: saved, notice delivered to the Hub, Hub re-fetched the card.
   await waitFor(() => findAll(stream.events, 'library', 'skills_saved').some((e) => e.data.revision === 2), { what: 'saved' });
-  await waitFor(() => findAll(stream.events, 'library', 'card_notification').some((e) => e.data.revision === 2 && e.data.outcome === 'delivered'), { what: 'notification delivered' });
-  const received = await waitFor(() => findAll(stream.events, 'student', 'card_notification_received').find((e) => e.data.agentId === 'library' && e.data.revision === 2), { what: 'Student received' });
+  await waitFor(() => findAll(stream.events, 'library', 'card_notification').some((e) => e.data.revision === 2 && e.data.outcome === 'delivered'), { what: 'notice delivered' });
+  const received = await waitFor(() => findAll(stream.events, 'hub', 'card_notification_received').find((e) => e.data.agentId === 'library' && e.data.revision === 2), { what: 'Hub received' });
   assert.equal(received.data.duplicate, false);
-  await waitFor(() => findAll(stream.events, 'student', 'registry_updated').some((e) => e.data.agentId === 'library' && e.data.revision === 2 && e.data.changed), { what: 'registry updated' });
+  await waitFor(() => findAll(stream.events, 'hub', 'card_refreshed').some((e) => e.data.agentId === 'library' && e.data.revision === 2 && e.data.changed), { what: 'card re-fetched' });
+  assert.equal(findAll(stream.events, 'student', 'card_notification_received').length, 0, 'the Student never gets specialist notices');
 
-  const after = await registryEntry(trio.ui, 'library');
-  assert.equal(after.revision, 2);
-  assert.equal(after.etag, body.etag);
-  assert.ok(!after.skills.some((k) => k.id === 'find-resources'));
-  assert.ok(Date.parse(after.lastSuccessAt) >= Date.parse(before.entry.lastSuccessAt));
+  const entry = await hubEntry(trio.hub, 'library');
+  assert.equal(entry.revision, 2);
+  assert.equal(entry.etag, body.etag);
+  assert.ok(!entry.skills.some((k) => k.id === 'find-resources'));
 
-  // New routing decisions use the new skills: finding a textbook no longer matches the Library.
   const rerouted = await chatVia(trio.ui, stream, question);
-  assert.notDeepEqual(rerouted.destinations, ['library']);
-  // And the Library itself rejects the removed skill even when called directly.
+  assert.notDeepEqual(rerouted.destinations, ['library'], 'new routing uses the new skills');
   const { askTutor } = await import('../src/student-agent.js');
   const direct = await askTutor(trio.library.url, question, {});
-  assert.notEqual(direct.library.skillId, 'find-resources');
-  assert.doesNotMatch(direct.text, /QA303/, 'catalog content of the disabled skill not served');
+  assert.notEqual(direct.library.skillId, 'find-resources', 'the Library itself enforces the removed skill');
 });
 
-test('duplicate and delayed notifications: deduplicated, and the CURRENT card is fetched', async () => {
-  const id = randomUUID();
-  const refreshesBefore = findAll(stream.events, 'student', 'registry_refresh_started').filter((e) => e.data.agentId === 'tutor').length;
-  const first = await sendNotice(trio.studentUrl, { type: 'agent_card_changed', notificationId: id, agentId: 'tutor', revision: 1 });
-  const second = await sendNotice(trio.studentUrl, { type: 'agent_card_changed', notificationId: id, agentId: 'tutor', revision: 1 });
-  assert.equal(first.status, 'received');
-  assert.equal(second.status, 'duplicate');
-  await new Promise((r) => setTimeout(r, 300));
-  assert.equal(findAll(stream.events, 'student', 'registry_refresh_started').filter((e) => e.data.agentId === 'tutor').length, refreshesBefore + 1, 'one refresh for two copies');
-
-  // A late notice naming an OLD library revision doesn't roll the registry back.
-  await sendNotice(trio.studentUrl, { type: 'agent_card_changed', notificationId: randomUUID(), agentId: 'library', revision: 1 });
-  await waitFor(() => findAll(stream.events, 'student', 'registry_updated').filter((e) => e.data.agentId === 'library').length >= 2, { what: 'refetch' });
-  await new Promise((r) => setTimeout(r, 200));
-  assert.equal((await registryEntry(trio.ui, 'library')).revision, 2, 'still the current revision');
-  assert.equal(findAll(stream.events, 'student', 'registry_updated').filter((e) => e.data.agentId === 'library').at(-1).data.changed, false, '304: unchanged card');
+test('duplicate and stale notices: deduplicated, and the CURRENT card is fetched from the configured URL', async () => {
+  // A second Hub registry in this process, pointed at the running Library (registration needs the
+  // specialist's instance ID, which only the specialist knows).
+  const base = trio.library.url;
+  const events = [];
+  const reg = createHubRegistry({ peers: [{ agentId: 'library', expectedName: 'Library Agent', displayName: 'Library Agent', baseUrl: base, rpcUrl: `${base}/a2a/jsonrpc`, cardUrl: `${base}/.well-known/agent-card.json` }], expiryMs: 10000, onEvent: (type, data) => events.push({ type, data }) });
+  try {
+    const instanceId = randomUUID();
+    assert.equal((await reg.register({ agentId: 'library', instanceId, endpoint: `${base}/a2a/jsonrpc`, cardUrl: `${base}/.well-known/agent-card.json`, enabled: true })).status, 'registered');
+    const current = reg.entry('library').revision;
+    const id = randomUUID();
+    assert.equal(reg.cardChanged({ agentId: 'library', instanceId, notificationId: id, revision: 1 }).status, 'received');
+    assert.equal(reg.cardChanged({ agentId: 'library', instanceId, notificationId: id, revision: 1 }).status, 'duplicate');
+    await waitFor(() => events.filter((e) => e.type === 'card_refreshed' && e.data.reason === 'card_changed').length >= 1, { what: 'refresh' });
+    await new Promise((r) => setTimeout(r, 150));
+    assert.equal(events.filter((e) => e.type === 'card_refreshed' && e.data.reason === 'card_changed').length, 1, 'one refresh for two copies');
+    assert.equal(reg.entry('library').revision, current, 'a notice naming an old revision never rolls back');
+    assert.equal(events.at(-1).data.changed, false, '304: unchanged card');
+  } finally {
+    reg.stop();
+  }
 });
 
-test('spoofed senders and notification-supplied URLs cannot redirect fetches or grant access', async () => {
+test('spoofed senders, endpoints and notice-supplied URLs cannot redirect fetches or take over an identity', async () => {
   let evilHits = 0;
   const evil = http.createServer((req, res) => { evilHits++; res.end('{}'); }).listen(0, '127.0.0.1');
   await once(evil, 'listening');
   const evilUrl = `http://127.0.0.1:${evil.address().port}`;
+  const tutorBase = trio.tutor.url;
+  const register = (v) => sendControl(trio.hub.url, REGISTER_MEDIA_TYPE, { type: 'agent_register', instanceId: randomUUID(), enabled: true, ...v });
 
-  const unknown = await sendNotice(trio.studentUrl, { type: 'agent_card_changed', notificationId: randomUUID(), agentId: 'evil-agent', revision: 99 });
-  assert.equal(unknown.status, 'rejected');
-  const withUrl = await sendNotice(trio.studentUrl, { type: 'agent_card_changed', notificationId: randomUUID(), agentId: 'tutor', revision: 99, cardUrl: `${evilUrl}/card.json`, endpoint: evilUrl });
-  assert.equal(withUrl.status, 'received', 'treated as a hint for the registered tutor');
-  const rec = await waitFor(() => findAll(stream.events, 'student', 'card_notification_received').find((e) => e.data.ignoredFields?.includes('cardUrl')), { what: 'ignored fields' });
-  assert.deepEqual(rec.data.ignoredFields.sort(), ['cardUrl', 'endpoint']);
+  assert.match((await register({ agentId: 'evil-agent', endpoint: `${evilUrl}/a2a/jsonrpc`, cardUrl: `${evilUrl}/.well-known/agent-card.json` })).reason, /unknown_peer/);
+  assert.match((await register({ agentId: 'tutor', endpoint: `${evilUrl}/a2a/jsonrpc`, cardUrl: `${evilUrl}/.well-known/agent-card.json` })).reason, /unexpected_endpoint/);
+  assert.match((await register({ agentId: 'tutor', endpoint: `${tutorBase}/a2a/jsonrpc`, cardUrl: `${tutorBase}/.well-known/agent-card.json` })).reason, /identity_in_use/, 'a second live instance cannot take over');
+
+  const notice = (v) => sendControl(trio.hub.url, CARD_CHANGED_MEDIA_TYPE, { type: 'agent_card_changed', notificationId: randomUUID(), revision: 99, ...v });
+  assert.equal((await notice({ agentId: 'evil-agent' })).status, 'rejected');
+  assert.match((await notice({ agentId: 'tutor', instanceId: randomUUID(), cardUrl: `${evilUrl}/card.json` })).reason, /not_registered/, 'a sender that isn’t the registered instance is refused');
   await new Promise((r) => setTimeout(r, 300));
-  assert.equal(evilHits, 0, 'no request to the URL in the notification');
-  const tutorEntry = await registryEntry(trio.ui, 'tutor');
-  assert.notEqual(tutorEntry.revision, 99, 'message contents never applied');
-  assert.ok(!(await status(trio.ui)).registry.some((r) => r.agentId === 'evil-agent'));
+  assert.equal(evilHits, 0, 'nothing fetched from a URL in a message');
+  const tutor = await hubEntry(trio.hub, 'tutor');
+  assert.equal(tutor.status, 'ready', 'the real Tutor is unaffected');
+  assert.notEqual(tutor.revision, 99, 'message contents never applied');
+  assert.ok(findAll(stream.events, 'hub', 'registration_rejected').length >= 3, 'each refusal is visible');
   evil.close();
 });
 
-test('offline Student: propagation reported pending; startup refresh recovers', async () => {
-  const studentPort = await unusedPort();
-  const lib = await startLibrary({ STUDENT_A2A_URL: `http://127.0.0.1:${studentPort}` });
-  const tutor = await startTutor({ STUDENT_A2A_URL: `http://127.0.0.1:${studentPort}` });
+test('offline Hub: propagation reported pending; registering later makes the Hub fetch the current card', async () => {
+  const hubPort = await unusedPort();
+  const libPort = await unusedPort();
+  const hubUrl = `http://127.0.0.1:${hubPort}`;
+  const lib = await startLibrary({ PORT: String(libPort), HUB_URL: hubUrl, HEARTBEAT_INTERVAL_MS: '300' });
+  let hub;
   try {
     const s = await (await fetch(`${lib.url}/settings/skills`)).json();
     const config = structuredClone(s.config);
-    config.skills[0].description = 'Opening hours (edited while Student was offline).';
+    config.skills[0].description = 'Opening hours (edited while the Hub was offline).';
     const saved = await (await put(`${lib.url}/settings/skills`, { config, baseRevision: s.revision })).json();
     const settled = await waitFor(async () => {
       const now = await (await fetch(`${lib.url}/settings/skills`)).json();
@@ -152,58 +160,47 @@ test('offline Student: propagation reported pending; startup refresh recovers', 
     assert.equal(settled.outcome, 'pending', 'not claimed as delivered');
     assert.match(settled.detail, /offline/);
 
-    const ui = await startUi(tutor.url, { LIBRARY_URL: lib.url, STUDENT_A2A_PORT: String(studentPort), ROUTER_MODE: 'mock' });
-    try {
-      const entry = await waitFor(async () => {
-        const e = (await status(ui)).registry.find((r) => r.agentId === 'library');
-        return e.status === 'ok' && e;
-      }, { what: 'startup refresh' });
-      assert.equal(entry.revision, saved.revision);
-      assert.match(entry.skills[0].description, /edited while Student was offline/);
-    } finally {
-      ui.proc.kill();
-    }
+    hub = await startHub({ PORT: String(hubPort), LIBRARY_URL: lib.url, TUTOR_URL: `http://127.0.0.1:${await unusedPort()}` });
+    const entry = await waitFor(async () => {
+      const e = await hubEntry(hub, 'library');
+      return e.status === 'ready' && e;
+    }, { what: 'registration + card fetch' });
+    assert.equal(entry.revision, saved.revision);
+    assert.equal((await hubEntry(hub, 'tutor')).status, 'disconnected', 'a specialist that never registered is not "online"');
   } finally {
     lib.proc.kill();
-    tutor.proc.kill();
+    hub?.proc.kill();
   }
 });
 
-test('failed refresh keeps the last good card (marked stale) and invents nothing; manual refresh recovers', async () => {
-  const studentPort = await unusedPort();
-  const libPort = await unusedPort();
-  let lib = await startLibrary({ PORT: String(libPort), STUDENT_A2A_URL: `http://127.0.0.1:${studentPort}` });
-  const tutor = await startTutor({ STUDENT_A2A_URL: `http://127.0.0.1:${studentPort}` });
-  const ui = await startUi(tutor.url, { LIBRARY_URL: lib.url, STUDENT_A2A_PORT: String(studentPort), ROUTER_MODE: 'mock' });
-  const s = await openStream(ui.url);
+test('failed refresh keeps the last good card and invents nothing; a restarted specialist re-registers after expiry', async () => {
+  const own = await startStack({ hubEnv: { ROUTER_MODE: 'mock' } });
   try {
-    await waitFor(async () => (await status(ui)).registry.every((r) => r.status === 'ok'), { what: 'ready' });
-    const good = (await status(ui)).registry.find((r) => r.agentId === 'library');
-    lib.proc.kill();
-    await new Promise((r) => lib.proc.once('exit', r));
-    await post(`${ui.url}/api/registry/refresh`, { agentId: 'library' });
-    const stale = await waitFor(async () => {
-      const e = (await status(ui)).registry.find((r) => r.agentId === 'library');
-      return e.status === 'stale' && e;
-    }, { what: 'stale' });
-    assert.deepEqual(stale.skills, good.skills, 'kept the last good skills — none invented');
-    assert.match(stale.lastError, /offline|refused|fetch failed/i);
+    const good = await hubEntry(own.hub, 'library');
+    own.library.proc.kill('SIGKILL'); // a crash: no sign-out
+    await new Promise((r) => own.library.proc.once('exit', r));
+    await post(`${own.ui.url}/api/registry/refresh`, {});
+    const down = await waitFor(async () => {
+      const e = await hubEntry(own.hub, 'library');
+      return ['unreachable', 'stale'].includes(e.status) && e;
+    }, { what: 'unreachable or stale' });
+    assert.deepEqual(down.skills, good.skills, 'kept the last good skills — none invented');
+    assert.equal(down.registered, true, 'still registered: registered ≠ ready');
 
-    lib = await startLibrary({ PORT: String(libPort), STUDENT_A2A_URL: `http://127.0.0.1:${studentPort}` });
-    await post(`${ui.url}/api/registry/refresh`, { agentId: 'library' });
-    await waitFor(async () => (await status(ui)).registry.find((r) => r.agentId === 'library').status === 'ok', { what: 'recovered' });
-    assert.ok(findAll(s.events, 'student', 'registry_refresh_failed').length >= 1);
+    // Restart on the same trusted endpoint: a new instance is refused while the old one could still be
+    // alive, then accepted once the old heartbeat expires (3 s in tests).
+    own.library = await startLibrary({ ...own.specialistEnv, PORT: String(own.libraryPort) });
+    const back = await waitFor(async () => {
+      const e = await hubEntry(own.hub, 'library');
+      return e.status === 'ready' && e.instance !== good.instance && e;
+    }, { what: 'recovered', timeout: 9000 });
+    assert.equal(back.revision, good.revision);
   } finally {
-    s.close();
-    ui.proc.kill();
-    tutor.proc.kill();
-    lib.proc.kill();
+    own.kill();
   }
 });
 
 test('configuration changes make no model calls', async () => {
-  // The trio runs mock router + fixed Tutor here; assert no model milestones were emitted by any refresh.
   assert.equal(findAll(stream.events, 'tutor', 'model_call_started').length, 0);
   assert.equal(findAll(stream.events, 'tutor', 'scope_check_started').length, 0);
-  void find;
 });

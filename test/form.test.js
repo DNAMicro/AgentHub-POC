@@ -1,4 +1,4 @@
-// Parts 3 + 6 end to end: real Tutor + UI server processes. Forms appear only because the Tutor
+// Parts 3 + 6 end to end, through the University Hub (Part 7): real Hub, Tutor and UI server processes. Forms appear only because the Tutor
 // decided, from a chat message, to send one. The browser is stood in for by the event-stream reader
 // and HTTP calls; actions are built exactly as the renderer emits them (see a2ui-render.test.js).
 import { test, before, after } from 'node:test';
@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import {
-  startTutor, startUi, waitFor, openStream, post, put, find, findAll, formVia, formAction, lifecycleOf, lastLifecycle, waitLifecycle, actionResults,
+  startStack, waitFor, openStream, post, put, find, findAll, formVia, formAction, lifecycleOf, lastLifecycle, waitLifecycle, actionResults,
 } from './support/harness.js';
 import { askTutor, sendFormAction } from '../src/student-agent.js';
 import { TUTORING_ACK } from '../src/tutor-agent.js';
@@ -25,16 +25,15 @@ const ASK = 'I want to arrange in-person help with calculus';
 const submit = (ui, formId, context = ALEX, operationId) => formAction(ui, formId, 'submitTutoringRequest', 'submit_button', context, operationId);
 const countIn = (text, needle) => text.split(needle).length - 1;
 
-let tutor, ui;
+// Content is shown in the Hub's telemetry here so the tests can compare received values.
+const SHOW = { HUB_TELEMETRY_SHOW_CONTENT: '1' };
+const STUDENT = { studentId: 'student-alex' };
+let stack, tutor, ui;
 before(async () => {
-  tutor = await startTutor();
-  ui = await startUi(tutor.url);
-  await waitFor(async () => (await (await fetch(`${ui.url}/api/status`)).json()).tutorFeedConnected, { what: 'tutor feed' });
+  stack = await startStack({ library: false, hubEnv: SHOW });
+  ({ tutor, ui } = stack);
 });
-after(() => {
-  ui?.proc.kill();
-  tutor?.proc.kill();
-});
+after(() => stack?.kill());
 
 test('no request-form shortcut: no button in the page, no endpoint that creates a form', async () => {
   const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
@@ -90,8 +89,9 @@ test('valid round trip: editable form removed at once → pending → read-only 
   await waitFor(() => findAll(stream.events, 'tutor', 'form_action_result').some((e) => e.data.formId === form.formId), { what: 'tutor event' });
   const received = findAll(stream.events, 'tutor', 'form_action_received').find((e) => e.data.formId === form.formId).data;
   assert.deepEqual(received.receivedValues, ALEX, 'Tutor received exactly the submitted values');
-  assert.equal(received.resumedTask, true, 'submission resumed the form’s own task');
-  assert.equal(received.contextId, form.contextId);
+  assert.equal(received.resumedTask, true, 'the Hub resumed the Tutor’s own form task');
+  assert.notEqual(received.contextId, form.contextId, 'the Tutor sees the Hub’s downstream context, not the Student’s');
+  assert.match(form.formRef, /^hf-/, 'the Student holds an opaque Hub form reference');
   assert.equal(countIn(tutor.output(), `requestId: '${receipt.requestId}'`), 1, 'recorded once');
   // After acceptance nothing can be submitted again.
   assert.equal((await submit(ui, form.formId)).status, 409);
@@ -151,11 +151,12 @@ test('duplicate operations: double-click sends once; an identical retry returns 
   await waitLifecycle(stream, form.formId, ['accepted']);
   const first = lastLifecycle(stream.events, form.formId).receipt;
 
-  const again = await sendFormAction(tutor.url, { form, operationId, action: { name: 'submitTutoringRequest', surfaceId: form.formId, sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context: ALEX } });
+  // The identical retry goes where the Student's retries go: to the Hub, which returns its stored result.
+  const again = await sendFormAction(stack.hub.url, { form, operationId, metadata: STUDENT, action: { name: 'submitTutoringRequest', surfaceId: form.formId, sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context: ALEX } });
   assert.equal(again.duplicate, true);
   assert.deepEqual(again.body.receipt, first, 'same receipt, nothing re-executed');
   assert.equal(again.taskId, null, 'the completed task was not resumed (new message referencing it)');
-  const different = await sendFormAction(tutor.url, { form, operationId, action: { name: 'submitTutoringRequest', surfaceId: form.formId, sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context: { ...ALEX, firstName: 'Sam' } } });
+  const different = await sendFormAction(stack.hub.url, { form, operationId, metadata: STUDENT, action: { name: 'submitTutoringRequest', surfaceId: form.formId, sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context: { ...ALEX, firstName: 'Sam' } } });
   assert.match(JSON.stringify(different.body.errors), /already used with different values/);
   assert.equal(countIn(tutor.output(), `requestId: '${first.requestId}'`), 1, 'recorded once');
   stream.close();
@@ -218,10 +219,9 @@ test('Cancel removes the form without calling the handler; New conversation clos
 });
 
 test('a disabled workflow can neither send nor accept forms', async () => {
-  const t = await startTutor();
-  const u = await startUi(t.url);
+  const own = await startStack({ library: false });
+  const u = own.ui;
   try {
-    await waitFor(async () => (await (await fetch(`${u.url}/api/status`)).json()).tutorFeedConnected, { what: 'feed' });
     const stream = await openStream(u.url);
     const { form } = await formVia(u, stream, ASK);
     const cfg = await (await fetch(`${u.url}/api/agents/tutor/skills`)).json();
@@ -235,16 +235,14 @@ test('a disabled workflow can neither send nor accept forms', async () => {
     assert.match(r.reply.text, /aren’t offered/);
     stream.close();
   } finally {
-    u.proc.kill();
-    t.proc.kill();
+    own.kill();
   }
 });
 
 test('known failure → explicit “Edit and retry” restores the values; an unavailable Tutor is reported, never claimed', async () => {
-  const t = await startTutor();
-  const u = await startUi(t.url);
+  const own = await startStack({ library: false });
+  const { tutor: t, ui: u } = own;
   try {
-    await waitFor(async () => (await (await fetch(`${u.url}/api/status`)).json()).tutorFeedConnected, { what: 'feed' });
     const stream = await openStream(u.url);
     const { form } = await formVia(u, stream, ASK);
     t.proc.kill();
@@ -260,22 +258,23 @@ test('known failure → explicit “Edit and retry” restores the values; an un
     await waitLifecycle(stream, form.formId, ['editing']);
     assert.deepEqual(lastLifecycle(stream.events, form.formId).values, ALEX, 'the reopen event itself carries the values (reload/other tabs)');
     assert.equal(lastLifecycle(stream.events, form.formId).restored, true);
-    // With the Tutor gone, a new request fails visibly too.
+    // With the Tutor gone (it signed out), the Hub says so for a new request instead of dispatching it.
     const r = await post(`${u.url}/api/runs`, { text: ASK });
     const { runId } = await r.json();
-    await waitFor(() => find(stream.events.filter((e) => e.runId === runId), 'student', 'request_failed'), { what: 'failure' });
+    const reply = await waitFor(() => find(stream.events.filter((e) => e.runId === runId), 'student', 'reply_received'), { what: 'unavailable reply' });
+    assert.equal(reply.data.hub.decision, 'unavailable');
     stream.close();
   } finally {
-    u.proc.kill();
+    own.kill();
   }
 });
 
 test('unknown outcome → “Confirmation pending”: no blind resubmission; reconcile with the same operation ID records once', async () => {
   // A Tutor that takes 1.2 s on its first form action, and a Student that gives up after 400 ms.
-  const slow = await startTutor({ TUTOR_TEST_DELAY_FIRST_SUBMISSION_MS: '1200' });
-  const impatient = await startUi(slow.url, { SUBMIT_TIMEOUT_MS: '400' });
+  // The Student↔Hub leg times out; the Hub (patient) still gets the Tutor's result and stores it.
+  const own = await startStack({ library: false, hubEnv: SHOW, tutorEnv: { TUTOR_TEST_DELAY_FIRST_SUBMISSION_MS: '1200' }, uiEnv: { SUBMIT_TIMEOUT_MS: '400' } });
+  const { tutor: slow, ui: impatient } = own;
   try {
-    await waitFor(async () => (await (await fetch(`${impatient.url}/api/status`)).json()).tutorFeedConnected, { what: 'feed' });
     const stream = await openStream(impatient.url);
     const { form } = await formVia(impatient, stream, ASK);
     const operationId = randomUUID();
@@ -297,8 +296,7 @@ test('unknown outcome → “Confirmation pending”: no blind resubmission; rec
     assert.equal(countIn(slow.output(), 'recorded tutoring request'), 1, 'recorded once');
     stream.close();
   } finally {
-    impatient.proc.kill();
-    slow.proc.kill();
+    own.kill();
   }
 });
 
@@ -343,6 +341,7 @@ test('privacy: contact details stay out of Tutor logs; drafts never leave the br
   await waitLifecycle(stream, form.formId, ['accepted']);
   assert.ok(!tutor.output().includes(marker), 'email not logged by the Tutor');
   assert.ok(!ui.output().includes(marker), 'email not logged by the UI server');
+  assert.ok(!stack.hub.output().includes(marker), 'email not logged by the Hub');
   stream.close();
 });
 
@@ -359,6 +358,8 @@ test('localhost guards: foreign Host headers (DNS rebinding) and cross-origin PO
   assert.equal(await statusWithHost(ui.url, '/api/events', 'attacker.example:3000'), 421);
   assert.equal(await statusWithHost(tutor.url, '/.well-known/agent-card.json', 'attacker.example'), 421);
   assert.equal(await statusWithHost(tutor.url, '/viz/events', 'attacker.example'), 421);
+  assert.equal(await statusWithHost(stack.hub.url, '/.well-known/agent-card.json', 'attacker.example'), 421);
+  assert.equal(await statusWithHost(stack.hub.url, '/viz/events', 'attacker.example'), 421);
   const crossOrigin = await post(`${ui.url}/api/runs`, { text: ASK }, { Origin: 'http://attacker.example' });
   assert.equal(crossOrigin.status, 403);
   const sameOrigin = await fetch(`${ui.url}/api/status`, { headers: { Origin: ui.url } });

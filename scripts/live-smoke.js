@@ -6,11 +6,16 @@
 // The key is read from ANTHROPIC_API_KEY (or .env / TUTOR_ENV_FILE) and is never printed.
 import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import { DEFAULT_MODEL, MODELS } from '../src/models.js';
 
-const MODEL = 'claude-haiku-5-5';
-// Official pricing, prompts up to 100,000 tokens (https://platform.claude.com/docs/en/about-claude/pricing),
-// checked 2026-10-25. Re-check before relying on it.
-const PRICE = { inputPerMTok: 0.10, outputPerMTok: 0.50 };
+// The Tutor's model (TUTOR_MODEL, as for the Tutor itself). Pricing from src/models.js
+// (https://platform.claude.com/docs/en/about-claude/pricing) — re-check before relying on it.
+const MODEL = process.env.TUTOR_MODEL || DEFAULT_MODEL;
+const PRICE = MODELS[MODEL];
+if (!PRICE) {
+  console.log(`Not run: TUTOR_MODEL "${MODEL}" is not a supported model (${Object.keys(MODELS).join(', ')}).`);
+  process.exit(2);
+}
 const QUESTIONS = [
   'What is the derivative of x^2, and why? Keep it short.',
   'Can you show the same idea for x^3?',
@@ -28,7 +33,7 @@ const usd = (n) => `$${n.toFixed(6)}`;
 console.log('Live smoke test plan');
 console.log(`  model:            ${MODEL} (no substitution: stops if unavailable)`);
 console.log(`  calls:            1 model-availability check (Models API, not billed) + ${PAID_CALLS} paid Messages calls`);
-console.log(`  pricing:          $${PRICE.inputPerMTok}/MTok input, $${PRICE.outputPerMTok}/MTok output (prompts ≤ 100K tokens)`);
+console.log(`  pricing:          $${PRICE.inputPerMTok}/MTok input, $${PRICE.outputPerMTok}/MTok output (${PRICE.label})`);
 console.log(`  output cap:       ${MAX_OUTPUT} tokens per answer, no retries`);
 console.log(`  worst case:       ${usd(worstCallUsd)} per call, ${usd(worstCallUsd * PAID_CALLS)} total`);
 

@@ -7,7 +7,7 @@
 //                    return the exact supporting lines ("evidence"); code checks every one appears
 //                    in that skill's saved content before the answer is released. Unverifiable
 //                    answers are withheld; questions the content doesn't cover get a fixed reply.
-import { LlmError, MODEL, callModel, keyConfigured, loadDotenvOnce, toLlmError } from './llm.js';
+import { LlmError, modelName, callModel, keyConfigured, loadDotenvOnce, toLlmError } from './llm.js';
 import { nearWord } from './text-match.js';
 import { mockLibraryIntent } from './form-intent.js';
 
@@ -16,7 +16,7 @@ if (!['mock', 'live'].includes(LIBRARY_MODE)) throw new Error(`Unknown LIBRARY_M
 if (LIBRARY_MODE === 'live') loadDotenvOnce();
 
 const LIMITS = { maxOutputTokens: 600, timeoutMs: Number(process.env.LIBRARY_MODEL_TIMEOUT_MS ?? 30000), maxAnswer: 1500 };
-export const libraryStatus = () => ({ mode: LIBRARY_MODE, model: LIBRARY_MODE === 'live' ? MODEL : 'mock extraction', keyConfigured: LIBRARY_MODE === 'live' ? keyConfigured() : null });
+export const libraryStatus = () => ({ mode: LIBRARY_MODE, model: LIBRARY_MODE === 'live' ? modelName() : 'mock extraction', keyConfigured: LIBRARY_MODE === 'live' ? keyConfigured() : null });
 
 const SCHEMA = {
   type: 'object',
@@ -96,7 +96,7 @@ function mockDecide(question, policy) {
 // `recent`: this conversation's last exchanges [{ question, answer }], only for short follow-ups like "yes".
 export async function answerFromKnowledge({ question, policy, workflow = { enabled: false }, recent = [], emit = () => {} }) {
   if (!policy.skills.length && !workflow.enabled) return { verdict: 'disabled', text: REPLIES.disabled(), evidence: [], model: null, usage: null };
-  const base = { model: LIBRARY_MODE === 'live' ? MODEL : 'mock extraction', usage: null, requestId: null };
+  const base = { model: LIBRARY_MODE === 'live' ? modelName() : 'mock extraction', usage: null, requestId: null };
   const formOutcome = (intent, meta) => {
     emit('intent_decided', { outcome: intent, by: LIBRARY_MODE === 'live' ? 'model' : 'heuristic' });
     const verdict = intent === 'offer' ? (workflow.enabled ? 'offer_form' : 'workflow_disabled') : intent === 'info' ? 'workflow_info' : 'needs_clarification';
@@ -116,7 +116,7 @@ export async function answerFromKnowledge({ question, policy, workflow = { enabl
   }
 
   if (!keyConfigured()) throw new LlmError('missing_credentials');
-  emit('model_call_started', { model: MODEL, mode: 'live', earlierMessages: 0 });
+  emit('model_call_started', { model: modelName(), mode: 'live', earlierMessages: 0 });
   const started = Date.now();
   let result;
   try {

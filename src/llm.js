@@ -1,14 +1,26 @@
-// Shared Anthropic access for the processes that call a model (Tutor answers and scope checks,
-// Student routing). Every call: explicit API key from this process's environment, no SDK retries,
-// effort "low", sanitized errors. The key is never logged or returned.
+// Anthropic access for the processes that call a model (the Hub's router; the Tutor's answers, scope
+// checks and form review; the Library's answers and form review). Each agent is its own process and
+// picks its own model and key variable from its configuration (useModel, called once at startup).
+// Every call: explicit API key from this process's environment, no SDK retries, effort "low",
+// sanitized errors. The key is never logged or returned.
 import Anthropic from '@anthropic-ai/sdk';
 import { existsSync } from 'node:fs';
+import { DEFAULT_KEY_ENV, DEFAULT_MODEL, MODELS } from './models.js';
 
-export const MODEL = 'claude-haiku-5-5';
-// Official pricing for prompts up to 100K tokens, checked 2026-10-25.
-export const PRICE = { inputPerMTok: 0.10, outputPerMTok: 0.50 };
+export { MODELS, DEFAULT_MODEL };
+let current = { name: DEFAULT_MODEL, apiKeyEnv: DEFAULT_KEY_ENV };
+let client = null;
+// This process's model. No substitution: an unlisted name is a startup error, never a fallback.
+export function useModel({ name = DEFAULT_MODEL, apiKeyEnv = DEFAULT_KEY_ENV } = {}) {
+  if (!MODELS[name]) throw new Error(`Unknown model "${name}". Allowed: ${Object.keys(MODELS).join(', ')}.`);
+  current = { name, apiKeyEnv };
+  client = null;
+}
+export const modelName = () => current.name;
+export const keyEnvName = () => current.apiKeyEnv;
+export const priceOf = (name = current.name) => MODELS[name];
 
-// Live mode may read ANTHROPIC_API_KEY from a dotenv file the user created locally.
+// Live mode may read the API key variable from a dotenv file the user created locally.
 // Variables already set in the environment win over the file.
 let dotenvLoaded = false;
 export function loadDotenvOnce() {
@@ -18,7 +30,8 @@ export function loadDotenvOnce() {
   if (existsSync(file)) process.loadEnvFile(file);
 }
 
-export const keyConfigured = () => Boolean(process.env.ANTHROPIC_API_KEY?.trim());
+const apiKey = () => process.env[current.apiKeyEnv]?.trim();
+export const keyConfigured = () => Boolean(apiKey());
 // Where model calls go: the SDK honours ANTHROPIC_BASE_URL, which a parent environment (e.g. a
 // local proxy) can set without you noticing. Shown at startup as host only.
 export const apiHost = () => {
@@ -30,10 +43,10 @@ export const apiHost = () => {
 };
 
 const ERROR_MESSAGES = {
-  missing_credentials: 'Live mode is on, but ANTHROPIC_API_KEY is not set in this agent’s environment.',
+  missing_credentials: 'Live mode is on, but {keyEnv} is not set in this agent’s environment.',
   authentication_failed: 'Anthropic rejected the API key (authentication failed).',
-  permission_denied: `The API key is not permitted to use ${MODEL}.`,
-  model_unavailable: `The model ${MODEL} is not available for this account. No other model was substituted.`,
+  permission_denied: 'The API key is not permitted to use {model}.',
+  model_unavailable: 'The model {model} is not available for this account. No other model was substituted.',
   rate_limited: 'Anthropic’s rate limit was reached. Wait a moment, then ask again.',
   timeout: 'The model call timed out.',
   provider_unavailable: 'Anthropic is temporarily unavailable (server error or overloaded).',
@@ -50,7 +63,7 @@ const ERROR_MESSAGES = {
 
 export class LlmError extends Error {
   constructor(code, { requestId = null, rateLimit = null } = {}) {
-    super(ERROR_MESSAGES[code] ?? ERROR_MESSAGES.internal_error);
+    super((ERROR_MESSAGES[code] ?? ERROR_MESSAGES.internal_error).replace('{model}', current.name).replace('{keyEnv}', current.apiKeyEnv));
     this.code = code;
     this.requestId = requestId; // Anthropic's request ID, safe to show and useful for support
     this.rateLimit = rateLimit; // numbers from the 429's anthropic-ratelimit-* headers (no secrets)
@@ -101,18 +114,17 @@ export function sumUsage(list) {
   return { inputTokens: add('inputTokens'), outputTokens: add('outputTokens'), cacheReadInputTokens: add('cacheReadInputTokens'), cacheCreationInputTokens: add('cacheCreationInputTokens') };
 }
 
-let client = null;
 
 // One Messages API call. With `schema`, the response is constrained to that JSON schema
 // (structured outputs) and returned parsed; code must still validate the parsed value.
 export async function callModel({ system, messages, maxTokens, timeoutMs, schema }) {
   if (!keyConfigured()) throw new LlmError('missing_credentials');
   // Explicit apiKey: the SDK then ignores other credential sources. maxRetries 0: no hidden retries.
-  client ??= new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY.trim(), maxRetries: 0 });
+  client ??= new Anthropic({ apiKey: apiKey(), maxRetries: 0 });
   const response = await client.messages.create({
-    model: MODEL,
+    model: current.name,
     max_tokens: maxTokens,
-    // Low effort suits chat/classification; on this model thinking counts toward max_tokens.
+    // Low effort suits chat/classification; thinking counts toward max_tokens on every listed model.
     output_config: { effort: 'low', ...(schema ? { format: { type: 'json_schema', schema } } : {}) },
     system,
     messages,
@@ -132,4 +144,4 @@ export async function callModel({ system, messages, maxTokens, timeoutMs, schema
   return { text, parsed, model: response.model, stopReason: response.stop_reason, truncated: response.stop_reason === 'max_tokens', usage: pickUsage(response.usage), requestId };
 }
 
-export const costOf = (u) => ((u?.inputTokens ?? 0) * PRICE.inputPerMTok + (u?.outputTokens ?? 0) * PRICE.outputPerMTok) / 1e6;
+export const costOf = (u, name = current.name) => ((u?.inputTokens ?? 0) * MODELS[name].inputPerMTok + (u?.outputTokens ?? 0) * MODELS[name].outputPerMTok) / 1e6;

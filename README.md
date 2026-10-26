@@ -1,4 +1,4 @@
-# A2A Spike: Student Agent ↔ Tutor Agent & Library Agent
+# A2A Spike: Student Agent ↔ University Hub ↔ Tutor Agent & Library Agent
 
 A localhost spike built in parts:
 
@@ -6,7 +6,9 @@ A localhost spike built in parts:
 2. A browser monitor shows each exchange as it happens.
 3. The Tutor sends an **A2UI** form, which the student fills in and submits.
 4. The Tutor can answer with **Claude Haiku 5.5**.
-5. The Student **routes** each question to the Tutor Agent (calculus by default; its subjects are configurable) or the Library Agent based on their advertised skills. Each service **enforces** its own scope, and editing a service's skills **notifies** the Student, which updates its routing.
+5. Questions are **routed** to the Tutor Agent (calculus by default; its subjects are configurable) or the Library Agent based on their advertised skills. Each service **enforces** its own scope, and editing a service's skills **notifies** the router, which updates its routing.
+6. The agents send **forms when asked in chat** (in-person tutoring requests, group study-room bookings).
+7. A **University Hub** (“California State University Fullerton”, fictional local demo) sits between the Student and the specialists: the Student talks only to the Hub, which keeps a private registry, routes, forwards and relays over A2A. A **live topology** view animates the real traffic. See [Part 7](#part-7-the-university-hub-and-the-live-topology).
 
 - SDK: [`@a2a-js/sdk`](https://www.npmjs.com/package/@a2a-js/sdk) **1.3.0** (pinned exactly)
 - Protocol: **A2A v1.0** ([spec](https://a2a-protocol.org/v1.0.0/specification/)), JSON-RPC binding
@@ -30,31 +32,43 @@ npm run student
 
 Use `PORT=...` to change the Tutor's port and `TUTOR_URL=http://127.0.0.1:...` to point the Student elsewhere.
 
-### Browser monitor: all three agents (Part 5)
+### Browser monitor: all four agents (Part 7)
 
 ```bash
-npm run tutor:mock    # terminal 1 — Tutor Agent on 127.0.0.1:41241 (mock model; or tutor:live, or tutor = Part 1 fixed reply)
-npm run library       # terminal 2 — Library Agent on 127.0.0.1:41242 (mock: answers from saved skill content, no model)
-                      #   or: npm run library:live — Haiku 5.5 reads the saved content (paid; uses the same .env key)
-npm run ui            # terminal 3 — UI + Student Agent on 127.0.0.1:3000, Student's A2A endpoint on 127.0.0.1:41240
+npm run demo:live     # all four processes, Hub router + Tutor + Library on Claude Haiku 5.5 (paid; key from env or .env)
+npm run demo          # the same with mock models and the mock router (no network, no cost)
 ```
 
-Then open **http://127.0.0.1:3000**.
+`demo` runs `scripts/start-all.js`, which starts the four processes and prefixes their output; Ctrl+C stops them all (each specialist signs out from the Hub). To run them separately instead:
 
-**UI variants.** `npm run ui` uses the **mock** router, a keyword heuristic that makes no external calls. `npm run ui:live` routes with **Claude Haiku 5.5**, which is paid and needs your key. `npm run ui:direct` turns routing off and sends everything to the Tutor, as in Parts 2–4.
+```bash
+npm run hub:live      # University Hub on 127.0.0.1:41243 (live router; or hub = mock router, hub:direct = everything to tutoring)
+npm run tutor:live    # Tutor Agent on 127.0.0.1:41241 (or tutor:mock / tutor) — registers with the Hub
+npm run library:live  # Library Agent on 127.0.0.1:41242 (or library = mock) — registers with the Hub
+npm run ui            # UI + Student Agent on 127.0.0.1:3000 — connects only to the Hub
+```
 
-**Build step.** Each `ui` script first builds `public/vendor/a2ui.js`, the bundled A2UI renderer; `npm run build:ui` builds it on its own.
+Then open **http://127.0.0.1:3000**. Start order doesn't matter: specialists keep retrying registration, and the Student re-reads the Hub's card when the Hub appears.
 
-**Environment variables:**
+**Build step.** `ui` and `demo` first build `public/vendor/a2ui.js`, the bundled A2UI renderer; `npm run build:ui` builds it on its own.
+
+**Configuration.** Each agent reads an optional JSON file named by `STUDENT_CONFIG`, `HUB_CONFIG`, `TUTOR_CONFIG` or `LIBRARY_CONFIG` over built-in localhost defaults; examples are in `config/*.example.json`. Configuration is validated at startup and a bad file stops the process with a clear message. Secrets never go in these files: the Hub's model key is named by `model.apiKeyEnv`.
+
+**Environment variables** (single-value overrides, mainly for tests):
 
 | Variable | Changes |
 | --- | --- |
-| `UI_PORT` | The UI's port |
-| `TUTOR_URL`, `LIBRARY_URL` | Where the Student finds each agent (trusted registry) |
-| `STUDENT_A2A_PORT` | Port of the Student's A2A endpoint |
-| `STUDENT_A2A_URL` | Where the Tutor and Library send notifications |
+| `UI_PORT`, `PORT` | The UI's port; an agent's port |
+| `HUB_URL` | Where the Student and the specialists find the Hub |
+| `TUTOR_URL`, `LIBRARY_URL` | The Hub's trusted endpoint for each specialist |
+| `HEARTBEAT_INTERVAL_MS`, `HEARTBEAT_EXPIRY_MS` | Specialist heartbeat period; how long the Hub waits before marking one stale |
+| `SPECIALIST_ENABLED=0` | Register a specialist as disabled (no requests are routed to it) |
+| `HUB_TELEMETRY_SHOW_CONTENT=1` | Stop redacting message text and form values in the Hub's telemetry (off by default) |
+| `ROUTER_MODE` | The Hub's router: `direct`, `mock` or `live` |
+| `STUDENT_MODE` | The Student's own model: `off` (default), `mock` or `live`. It clarifies unclear questions and picks the capability for non-obvious ones (`demo` uses mock, `demo:live` live) |
+| `STUDENT_MODEL`, `HUB_MODEL`, `TUTOR_MODEL`, `LIBRARY_MODEL` | Each agent's own model (overrides `model.name` in its config file). Supported: `claude-haiku-5-5` (default), `claude-sonnet-5-5`, `claude-opus-5-5`; anything else stops that agent at startup. Example: `TUTOR_MODEL=claude-sonnet-5-5 npm run demo:live` |
 
-In the browser, **Send** asks a question, which is routed to one service or none. There is no form button: ask for something in plain words — “I’d like to arrange in-person help with calculus” or “I want to reserve a group study room” — and the receiving agent sends its form (Part 6). The ⚙ button on the Tutor and Library panels opens their skill settings, and **Refresh skills** re-fetches both agents' cards.
+In the browser, the **Conversation** tab is your chat with the university; **Agent activity** shows one console per agent; **Topology** is the live graph. **Send** asks a question, which the Hub routes to one service or none. There is no form button: ask for something in plain words — “I’d like to arrange in-person help with calculus” or “I want to reserve a group study room” — and the receiving agent sends its form (Part 6). The ⚙ button on the Tutor and Library consoles opens their skill settings (proxied through the Hub's developer endpoint), and **Refresh skills** makes the Hub re-fetch both cards.
 
 ```bash
 npm test   # starts the Tutor (and UI server) as child processes, runs all checks, stops them
@@ -72,18 +86,26 @@ npm test   # starts the Tutor (and UI server) as child processes, runs all check
 | `src/demo-store.js` | Part 6: in-memory demo records — tutoring requests, and the fictional room schedule with an atomic check-and-reserve. |
 | `public/forms-ui.js` | Part 6: forms in the Student view — renders, removes on submit (`deleteSurface`), shows pending/receipt/recovery states, refreshes room availability, rebuilds the current state after a replay. |
 | `src/tutor-model.js` | The Tutor's tutoring logic. Part 4 added the mode switch, system prompt, per-conversation history, request ledger and one-at-a-time rule. Part 5 added the scope layers: policy check, scope check, scope-bounded instructions, answer check and release check. |
-| `src/llm.js` | Shared Anthropic access: explicit key, no retries, `effort: low`, optional JSON-schema structured output, and the mapping from SDK errors to sanitized codes. |
+| `src/llm.js` | Anthropic access for each model-using process: that agent's own model and key variable (`useModel`, set from its config at startup), explicit key, no retries, `effort: low`, optional JSON-schema structured output, and the mapping from SDK errors to sanitized codes. |
+| `src/student-assistant.js` | The Student's own model step. Obvious questions (the words match exactly one of the Hub's public capabilities) go on as-is and the Hub routes them. For the rest, the Student's model either names a capability (tutoring / library) for the Hub to use, or asks you one clarifying question first and sends your question and answer together. |
+| `src/models.js` | The models an agent may choose (each accepts exactly what `llm.js` sends) with their official prices; no dependencies, so the config loader validates names without the SDK. |
 | `src/skills.js` | Part 5: the single skill configuration, its validation, and everything derived from it. That's the Agent Card skills, the documented scope extension and the runtime policy. |
-| `src/agent-settings.js` | Part 5: one agent's skill settings. Holds the live configuration (swapped atomically on save), the local settings API (read, preview, save) and the `agent_card_changed` A2A notification to the Student. |
+| `src/agent-settings.js` | Part 5: one agent's skill settings. Holds the live configuration (swapped atomically on save), the local settings API (read, preview, save) and the `agent_card_changed` A2A notification (Part 7: sent to the Hub). |
 | `src/library-agent.js`, `src/library-model.js`, `src/library-fixture.js` | Part 5: the **Library Agent**. Answers only from the saved **answer content** of its enabled skills (defaults are fictional sample data in the fixture). `LIBRARY_MODE=mock` (default) extracts the matching lines; `live` asks Haiku 5.5 and releases the answer only if its quoted evidence is found in that content. It performs no transactions. |
-| `src/student-registry.js` | Part 5: the Student's **trusted registry**. A fixed allowlist of agents, conditional card fetches, strict card validation, and refreshes that merge when they overlap. |
-| `src/router.js` | Part 5: the routing decision. Live mode uses Haiku with structured output, mock mode a labelled heuristic, and code validates every decision against the registry. |
-| `src/student-endpoint.js` | Part 5: the Student's **A2A receiving endpoint**. Accepts only `agent_card_changed` notices and handles them in code. |
+| `src/router.js` | Part 5: the routing decision, run by the Hub since Part 7. Live mode uses Haiku with structured output, mock mode a labelled heuristic, and code validates every decision against the registry. |
+| `src/hub-agent.js` | Part 7: the **University Hub** — public card, control messages, routing, forwarding, form references, operation dedupe, telemetry relay (redacted) and the developer settings proxy. |
+| `src/hub-registry.js` | Part 7: the Hub's **private registry** — allowlisted specialists, registration and takeover checks, heartbeats and expiry, card fetch/validation from the configured URL, separate readiness states. |
+| `src/hub-link.js` | Part 7: a specialist's side of the Hub connection — register, heartbeat, sign out, card-change notice. |
+| `src/cards.js` | Agent Card fetching (`node:http`, conditional, size-capped) and validation, used for specialist cards and the Hub's public card. |
+| `src/config.js`, `config/*.example.json` | Part 7: per-agent configuration with startup validation. |
+| `src/topology.js` | Part 7: labels each telemetry event with its connection, direction, category and phase for the topology view. |
+| `public/topology.js` | Part 7: the live topology graph (SVG), traces, details, event list. |
+| `scripts/start-all.js` | Part 7: starts all four processes (`npm run demo` / `demo:live`). |
 | `scripts/live-eval.js` | Part 5's opt-in live spot check of routing and scope decisions. Paid; off unless `LIVE_EVAL_MAX_USD` is set. |
 | `scripts/live-smoke.js` | The paid live smoke test, off unless `LIVE_SMOKE_MAX_USD` is set. |
 | `.env.example` | Placeholder for your local `.env` (git-ignored). |
 | `src/local-guard.js` | Host and Origin checks for both servers. They block DNS rebinding and cross-site POSTs to the localhost services. |
-| `src/ui-server.js` | **UI backend.** Serves the page and hosts the Student Agent (router, registry, receiving endpoint). Its routes: `POST /api/runs` (a routed or direct chat), `POST /api/forms/:id/actions`, `…/edit` and `…/reconcile` (always to the form's issuing agent; there is no route that creates a form), `GET`/`PUT /api/agents/:id/skills` (a proxy to the registered agent's settings) and `POST /api/registry/refresh`. It also relays both agents' feeds and decides each run's state. |
+| `src/ui-server.js` | **UI backend.** Serves the page and hosts the Student Agent, which connects only to the Hub. Its routes: `POST /api/runs` (a chat to the Hub), `POST /api/forms/:id/actions`, `…/edit` and `…/reconcile` (to the Hub with the form reference; there is no route that creates a form), `GET`/`PUT /api/agents/:id/skills` (through the Hub's developer proxy) and `POST /api/registry/refresh`. It relays the Hub's telemetry, labels it for the topology, and decides each run's state. |
 | `src/browser/a2ui-entry.js` | Entry point for the renderer bundle that esbuild writes to `public/vendor/a2ui.js` (generated, not committed). |
 | `public/` | The browser page: `index.html`, `styles.css` and `app.js`. It shows only events the server sent and renders the received A2UI messages with the official renderer. Its own text goes through `textContent`. |
 | `test/a2a.test.js` | The original A2A tests: the Agent Card, the exact reply, traceable process ↔ process logs, and a clear failure when the Tutor is down. |
@@ -345,6 +367,8 @@ It checks that `claude-haiku-5-5` is available to your account. That check uses 
 
 ## Part 5: routing, editable skills, card-change notifications, scope enforcement
 
+> **Part 7 moved three things out of the Student into the University Hub:** the router, the trusted registry, and the endpoint that receives `agent_card_changed` notices. The mechanics below are unchanged; read “Student” as “Hub” for them. The router modes are now set on the Hub (`npm run hub`, `hub:live`, `hub:direct`).
+
 ```
 Browser ─▶ UI server :3000 ── hosts ──▶ Student Agent (router + trusted registry)
                                          ├── A2A client ══▶ Tutor Agent    :41241 (scope-checked; mock/live model)
@@ -568,6 +592,75 @@ After a submission passes the code checks, the issuing agent reviews **every fie
 - **Decision accuracy:** live intent decisions are probabilistic. The mock heuristics are labelled stand-ins that prove the plumbing, not language understanding.
 - **"Superseded" is per conversation:** two open browser tabs in the same conversation see the same lifecycle, because the UI server owns it.
 
+## Part 7: the University Hub and the live topology
+
+```
+Browser ── SSE telemetry ── UI server (Student agent)
+                                 │ A2A — the Student's only connection
+                                 ▼
+                 University Hub :41243  “California State University Fullerton”
+                 private registry · router · destinations · form references · dedupe
+                   │ A2A                              │ A2A
+                   ▼                                  ▼
+            Tutor Agent :41241                 Library Agent :41242
+```
+
+### Who knows what
+
+- **The Student** knows one thing: the university's public card URL. It validates that card (name, one JSON-RPC 1.0 endpoint equal to the configured one, no security changes) and sends every chat message and form action there with its student ID (`student-alex`, fictional).
+- **The Hub's public card** describes one skill, “University assistance”. Specialist names, cards and endpoints never appear on it or in anything the Student receives — replies carry only an attribution (`servedBy`).
+- **The Hub's private registry** allowlists each specialist's identity, expected card name and trusted endpoint (configuration). It tracks registered, enabled, reachable, heartbeat freshness and card validity **separately**; only `ready` specialists receive work. Statuses: `ready`, `stale` (heartbeats stopped), `unreachable`, `disconnected` (never registered or signed out), `disabled`, `invalid_card`.
+- **Destinations are server-owned.** `tutoring → tutor` and `library → library` come from the Hub's configuration. The router (Part 5's, moved into the Hub) picks a service and skill from the registry view; code validates the choice and maps it to its destination. A specialist can only be reached through its own destination; a new skill on it is routed only there.
+
+### Registration, heartbeats and card changes
+
+These are this application's conventions carried as typed A2A data parts (`src/hub-link.js`), not built-in A2A features:
+
+1. A specialist starts, then sends `agent_register` with its configured identity, endpoint, card URL and a per-process instance ID.
+2. The Hub checks the identity and endpoint against its allowlist, refuses a second live instance of the same identity (`identity_in_use`), then **fetches the card from its own configured URL** and validates it before marking the specialist ready.
+3. Heartbeats follow every 3 s; after 10 s without one the specialist becomes `stale` and gets no new requests. A heartbeat from an instance the Hub doesn't know returns `not_registered`, and the specialist registers again (e.g. after a Hub restart).
+4. A clean shutdown sends `agent_deregister`; a crash is caught by heartbeat expiry.
+5. Saving skills sends `agent_card_changed` to the **Hub** (no longer to the Student). It is only a hint: the Hub re-fetches the current card from the configured URL, never applying anything from the message.
+
+Identity on localhost is self-declared. The allowlist, configured endpoints and instance check limit what a local process can do, but this is not authentication.
+
+### One request, hop by hop
+
+1. Student → Hub: `message/send` in the Student↔Hub context (the conversation).
+2. The Hub decides: **route**, **clarify**, **unsupported**, or **unavailable** (a supported request for a specialist that isn't ready). Only “route” dispatches.
+3. Hub → specialist: a new A2A message with its own ID, in a separate Hub↔specialist context kept per conversation and specialist. The Hub's operation ID travels in metadata.
+4. Specialist → Hub: an answer, or a form (a task in `INPUT_REQUIRED`).
+5. Hub → Student: the answer as a message with attribution, or the form as the Hub's **own** task, carrying an opaque Hub form reference (`hf-…`).
+
+A form action goes to the Hub with the form reference and an operation ID. The Hub checks that the reference exists, belongs to this student and this conversation, isn't expired or superseded, and matches the form, then forwards to the **issuing** specialist through the recorded mapping. It never re-routes by meaning. Operation IDs are deduplicated at the Hub (a stored result for an identical retry; a refusal for reuse with other values) and again at the specialist, which owns the effect. If the specialist doesn't confirm in time, the Hub reports `outcome_unknown`. The Student then shows “Confirmation pending” and offers only a reconcile with the same operation ID. Nothing retries on its own.
+
+A repeated chat request (same Student request ID) is answered from the Hub's ledger: no second routing decision, no second dispatch.
+
+### The browser: three tabs
+
+Each tab has its own address, so you can open any of them in its own browser tab (Cmd/Ctrl-click or middle-click), bookmark it, or use Back/Forward: http://127.0.0.1:3000/conversation, http://127.0.0.1:3000/activity and http://127.0.0.1:3000/topology. The plain address http://127.0.0.1:3000/ always opens Conversation. Every browser tab follows the same live event stream.
+
+- **Conversation:** you and the university. Replies are labelled with the service that produced them (“California State University Fullerton · Library Agent”), and the Hub's own replies (clarifying questions, “not supported”, “unavailable”) in its own color. The hop-by-hop strip below the chat shows the true flow of the current question and resets for the next one: nine steps (Student checked → … → Student received), the one in progress highlighted, each finished step filled in the color of the agent that did it with its time, and steps the flow didn't take marked skipped with the reason (for example “Hub answered itself (not supported)” or “not sent — your Student agent asked you first”). Failures show ✕, unknown outcomes ?.
+- **Agent activity:** one console per agent — Student, Hub, Tutor, Library.
+- **Topology:** a live switchboard. The Student is on the left, the Hub in the centre, and the Tutor and Library behind it; there is no Student↔specialist connection. Each connection has one lane per direction.
+  - **Pulses** are drawn only for events the UI server labelled (`src/topology.js`) with a connection, a direction, a category (question/answer, form, registration, Agent Card, heartbeat) and a phase (sent, received, working, result returned, failed, outcome unknown). The color is the agent that sent it.
+  - **Ordering:** the agents' feeds reach the browser on separate connections, so live events wait about 350 ms and play in the order the agents timestamped them. Replayed history fills the lists without animating.
+  - **Nodes** show their status in words and icons, not color alone, plus heartbeat age and in-flight work.
+  - **Each agent's own model** is a small box joined to that agent by a dashed HTTPS line: the Student's and the Hub router's models above them, the Tutor's and the Library's to their right. Each agent chooses its own mode, keeps its own key in its own process and calls the provider directly, so these are separate connections. A box shows the model ID and mode its agent reported, and pulses only for a real call that agent made (call started → replied / failed / timed out). Mock models run inside their agent, and a missing key fails before any call, so neither draws traffic. Status, calls in flight, and the last call's outcome, latency and tokens come only from calls that actually happened; nothing is sent just to check. The Student's model (`STUDENT_MODE=live`) runs only for questions whose words don't point to exactly one capability: it clarifies or picks the capability, and the Hub still owns the destination (it accepts only its own public capability IDs and still checks readiness).
+  - **Details:** click or press Enter on a node to see its details (the Hub's include its destination map); on a connection, its event timeline; pick a trace to highlight only the connections that request used.
+  - **Controls:** heartbeats are hidden unless you ask for them. There are Reduce motion (on automatically with the OS setting) and Pause controls, and the event list is a readable alternative to the graph.
+- **Live state:** if the browser's stream drops, a “Live view disconnected” banner appears and the graph greys out — separately from agent status. Events have IDs (`<boot>:<seq>`), so a reconnect gets only what it missed. Heartbeats aren't kept in history, and a notice says when history was truncated.
+
+### Telemetry privacy
+
+The Hub redacts message text, form values, review flags and errors from the specialists' telemetry before relaying it (`HUB_TELEMETRY_SHOW_CONTENT=1` turns that off for debugging). Topology labels carry only IDs and fixed text. The Hub logs no message text. Your own conversation still shows your messages and receipts, because it's yours.
+
+### Limits, honestly
+
+- **In memory:** a Hub restart forgets registrations (specialists re-register within a heartbeat), conversations, form references and dedupe records. Forms opened before a restart can't be used afterwards.
+- **One Hub, one student identity** in the example configuration. Identities are self-declared on localhost.
+- **Event timing:** live pulses are ordered by each agent's clock (all on one machine). Telemetry can lag the A2A reply by a few milliseconds; nothing is shown that didn't happen.
+
 ## Deliberately not included
 
-Token streaming, push notifications, multi-agent fan-out, authentication or authorization, a Hub, mailboxes, a database, actually sending email, model-driven tools, and deployment. Each chat goes to at most one service as one A2A request and one response. Each form is one A2A task, opened by the agent's reply to a chat message and acted on only by its own allowlisted actions.
+Token streaming, push notifications, multi-agent fan-out (the Hub forwards each request to at most one specialist), authentication or authorization, mailboxes, a database, actually sending email, model-driven tools, and deployment. Each chat goes to at most one service as one A2A request and one response. Each form is one A2A task, opened by the agent's reply to a chat message and acted on only by its own allowlisted actions.

@@ -10,7 +10,8 @@ import {
 
 export const STUDENT_MESSAGE = 'Hello Tutor Agent. Can you help me with calculus?';
 
-const log = (...args) => console.log('[Student Agent]', ...args);
+// The Hub reuses this client for its downstream leg and relabels its log lines (A2A_CLIENT_LABEL).
+const log = (...args) => console.log(process.env.A2A_CLIENT_LABEL ?? '[Student Agent]', ...args);
 const textOf = (message) =>
   message.parts.filter((p) => p.content?.$case === 'text').map((p) => p.content.value).join('');
 
@@ -27,10 +28,11 @@ const shown = (text) => (logContent() ? text : `[${text.length} chars, content n
 // for the result of that request again instead of a new answer (no second model call).
 // `card`: an already-validated Agent Card (from Student's trusted registry). When given, it is used
 // as-is instead of fetching the card again, so the destination is the registry's vetted endpoint.
-export async function askTutor(baseUrl, text = STUDENT_MESSAGE, { runId, contextId = '', messageId = randomUUID(), timeoutMs = CHAT_TIMEOUT_MS, card, onEvent = () => {} } = {}) {
+// metadata: extra A2A message metadata (Part 7: the Student's identity to the Hub; the Hub's operation ID downstream).
+export async function askTutor(baseUrl, text = STUDENT_MESSAGE, { runId, contextId = '', messageId = randomUUID(), timeoutMs = CHAT_TIMEOUT_MS, card, metadata = {}, onEvent = () => {} } = {}) {
   let sendStarted = false;
   try {
-    return await exchange(baseUrl, text, { runId, contextId, messageId, timeoutMs, card }, onEvent, () => (sendStarted = true));
+    return await exchange(baseUrl, text, { runId, contextId, messageId, timeoutMs, card, metadata }, onEvent, () => (sendStarted = true));
   } catch (err) {
     if (err.tutorError) throw err; // A2A worked; the Tutor reported its own failure (already emitted)
     const outcome = deliveryOutcome(err, sendStarted);
@@ -39,7 +41,7 @@ export async function askTutor(baseUrl, text = STUDENT_MESSAGE, { runId, context
   }
 }
 
-async function exchange(baseUrl, text, { runId, contextId, messageId, timeoutMs, card: knownCard }, onEvent, markSendStarted) {
+async function exchange(baseUrl, text, { runId, contextId, messageId, timeoutMs, card: knownCard, metadata: extra = {} }, onEvent, markSendStarted) {
   // 1. Discovery: GET <baseUrl>/.well-known/agent-card.json
   const card = knownCard ?? (await new DefaultAgentCardResolver().resolve(baseUrl));
   const discovered = {
@@ -59,7 +61,7 @@ async function exchange(baseUrl, text, { runId, contextId, messageId, timeoutMs,
     role: Role.ROLE_USER,
     parts: [{ content: { $case: 'text', value: text }, metadata: undefined, filename: '', mediaType: 'text/plain' }],
     // Declares what UI this client can render, so the receiving agent may answer with a form (Part 6).
-    metadata: { ...(runId ? { runId } : {}), a2uiClientCapabilities: A2UI_CAPABILITIES },
+    metadata: { ...extra, ...(runId ? { runId } : {}), a2uiClientCapabilities: A2UI_CAPABILITIES },
     extensions: [],
     referenceTaskIds: [],
   };
@@ -84,7 +86,7 @@ async function exchange(baseUrl, text, { runId, contextId, messageId, timeoutMs,
     onEvent('tutor_error', { ...ids, ...tutorError, tutorMode: result.metadata?.tutorMode ?? null });
     throw Object.assign(new Error(tutorError.message), { tutorError, outcome: 'answered_with_error' });
   }
-  const reply = { ...ids, text: textOf(result), servedBy: result.metadata?.agentId ?? null, tutorMode: result.metadata?.tutorMode ?? null, tutor: result.metadata?.tutor ?? null, library: result.metadata?.library ?? null };
+  const reply = { ...ids, text: textOf(result), servedBy: result.metadata?.agentId ?? null, servedByName: result.metadata?.servedByName ?? null, tutorMode: result.metadata?.tutorMode ?? null, tutor: result.metadata?.tutor ?? null, library: result.metadata?.library ?? null, hub: result.metadata?.hub ?? null };
   log('received reply', { ...reply, text: shown(reply.text) });
   onEvent('reply_received', { ...reply, runId: result.metadata?.runId ?? null });
   return reply;
@@ -131,6 +133,7 @@ function formFromTask(task, { messageId, onEvent }) {
     formVersion: meta.formVersion ?? null,
     issuer: meta.issuer ?? meta.agentId ?? null,
     supersedes: typeof meta.supersedes === 'string' ? meta.supersedes : null,
+    formRef: typeof meta.formRef === 'string' ? meta.formRef : null, // Part 7: the Hub's opaque reference for this form
     prefilled: Array.isArray(meta.prefilled) ? meta.prefilled : [],
     taskId: task.id,
     contextId: task.contextId,
@@ -138,10 +141,10 @@ function formFromTask(task, { messageId, onEvent }) {
     a2uiMessages,
   };
   const ids = { messageId: msg.messageId, contextId: task.contextId, taskId: task.id, inReplyTo: messageId };
-  const reply = { ...ids, text: textOf(msg), servedBy: meta.agentId ?? null, tutorMode: null, tutor: null, library: null, form };
+  const reply = { ...ids, text: textOf(msg), servedBy: meta.agentId ?? null, servedByName: meta.servedByName ?? null, tutorMode: null, tutor: null, library: null, hub: meta.hub ?? null, form };
   log('received form', { formId: form.formId, workflowId: form.workflowId, taskId: form.taskId, contextId: form.contextId });
   // The checked A2UI messages ride along so the UI server can deliver them to the browser renderer.
-  onEvent('form_received', { ...ids, formId: form.formId, workflowId: form.workflowId, formVersion: form.formVersion, issuer: form.issuer, supersedes: form.supersedes, prefilled: form.prefilled, taskState: 'input-required', text: reply.text, a2uiMessages });
+  onEvent('form_received', { ...ids, formId: form.formId, formRef: form.formRef, workflowId: form.workflowId, formVersion: form.formVersion, issuer: form.issuer, servedByName: reply.servedByName, supersedes: form.supersedes, prefilled: form.prefilled, taskState: 'input-required', text: reply.text, a2uiMessages });
   return reply;
 }
 
@@ -161,16 +164,17 @@ function deliveryOutcome(err, sendStarted) {
 // (e.g. a retry after an uncertain outcome), resuming would be illegal, so a new message in the same
 // context references the task instead; the agent returns the stored result for a repeated operationId.
 // acknowledgeReview: the student chose "Send anyway" after the agent's review flagged these values.
-export async function sendFormAction(baseUrl, { form, action, operationId, runId, card, acknowledgeReview = false, onEvent = () => {} }) {
+// metadata: extra A2A metadata (Part 7: the Student's identity). The Hub's formRef is sent when present.
+export async function sendFormAction(baseUrl, { form, action, operationId, runId, card, acknowledgeReview = false, timeoutMs = SUBMIT_TIMEOUT_MS, metadata = {}, onEvent = () => {} }) {
   let sendStarted = false;
   try {
     const client = await connect(baseUrl, card);
-    const task = await client.getTask({ tenant: '', id: form.taskId }, { signal: AbortSignal.timeout(SUBMIT_TIMEOUT_MS) });
+    const task = await client.getTask({ tenant: '', id: form.taskId }, { signal: AbortSignal.timeout(timeoutMs) });
     const resume = task.status?.state === TaskState.TASK_STATE_INPUT_REQUIRED;
     const message = userMessage([a2uiDataPart([{ version: A2UI_VERSION, action }])], {
       contextId: form.contextId,
       ...(resume ? { taskId: form.taskId } : { referenceTaskIds: [form.taskId] }),
-      metadata: { runId, operationId, formId: form.formId, formVersion: form.formVersion ?? undefined, ...(acknowledgeReview ? { reviewAcknowledged: true } : {}) },
+      metadata: { ...metadata, runId, operationId, formId: form.formId, formVersion: form.formVersion ?? undefined, ...(form.formRef ? { formRef: form.formRef } : {}), ...(acknowledgeReview ? { reviewAcknowledged: true } : {}) },
     });
     const mode = resume ? 'resume-task' : 'new-message-referencing-task';
     log('sending form action', { operationId, action: action.name, formId: form.formId, messageId: message.messageId, mode });
@@ -179,10 +183,14 @@ export async function sendFormAction(baseUrl, { form, action, operationId, runId
     sendStarted = true;
     const result = await client.sendMessage(
       { tenant: '', message, configuration: undefined, metadata: undefined },
-      { ...A2UI_REQUEST_OPTIONS, signal: AbortSignal.timeout(SUBMIT_TIMEOUT_MS) },
+      { ...A2UI_REQUEST_OPTIONS, signal: AbortSignal.timeout(timeoutMs) },
     );
     const reply = statusMessage(result);
     const body = jsonData(reply) ?? { status: 'rejected', errors: { _form: 'Unrecognized reply.' } };
+    // Part 7: the Hub reports that the specialist's outcome is unknown (e.g. it timed out downstream).
+    if (body.status === 'outcome_unknown') throw Object.assign(new Error(body.message ?? 'The outcome is unknown.'), { outcome: 'uncertain' });
+    // …or that the specialist was unreachable, so nothing was submitted (safe to edit and retry).
+    if (body.status === 'not_delivered') throw Object.assign(new Error(body.message ?? 'Not delivered.'), { outcome: 'not_delivered' });
     // Any UI update (slot options, review screen, removal) must target this form and pass the allowlist.
     const update = reply?.parts.find(isA2uiPart)?.content.value ?? [];
     const updateError = update.length ? checkFormUpdatePolicy(update, form.formId) : null;

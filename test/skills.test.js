@@ -6,7 +6,8 @@ import { validateSkillConfig, buildCardSkills, buildScopeExtension, policyFromCo
 import { TUTOR_DEFAULT_SKILLS } from '../src/tutor-agent.js';
 import { LIBRARY_DEFAULT_SKILLS } from '../src/library-fixture.js';
 import { validateDecision } from '../src/router.js';
-import { validateCard, trustedPeers } from '../src/student-registry.js';
+import { validateCard } from '../src/cards.js';
+import { loadHubConfig } from '../src/config.js';
 
 const TUTOR_RULES = { answer: { knowledge: 'optional' }, form: { id: 'in-person-tutoring-request' } };
 const LIBRARY_RULES = { answer: { knowledge: 'required' }, form: { id: 'study-room-booking' } };
@@ -109,8 +110,8 @@ test('router decisions are validated against the live registry view; anything el
   assert.ok(!('url' in d));
 });
 
-test('Student rejects fetched cards that change identity, endpoint, protocol, or security', () => {
-  const peer = trustedPeers().tutor;
+test('the Hub rejects fetched specialist cards that change identity, endpoint, protocol, or security', () => {
+  const peer = loadHubConfig().peers.find((p) => p.agentId === 'tutor');
   const good = { name: 'Tutor Agent', supportedInterfaces: [{ url: peer.rpcUrl, protocolBinding: 'JSONRPC', protocolVersion: '1.0' }], securitySchemes: {}, securityRequirements: [], skills: [], capabilities: { extensions: [] } };
   assert.equal(validateCard(good, peer).ok, true);
   const bad = [

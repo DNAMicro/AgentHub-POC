@@ -4,13 +4,22 @@
 // Forms (Parts 3 and 6) are drawn by the official A2UI v0.9 Lit renderer from the A2UI messages an
 // agent sent over A2A in reply to a chat message (delivered here by the event stream); see
 // forms-ui.js. Draft values live only in the renderer's local data model until Submit.
+// Part 7: three tabs. Conversation (you and the university), Agent activity (one console per agent)
+// and Topology (the live switchboard, public/topology.js).
 import { createFormsUi } from './forms-ui.js';
+import { createTopology } from './topology.js';
 import { WORKFLOWS, prettyDate } from '/shared/forms.js';
 
 const $ = (id) => document.getElementById(id);
 const els = {
   browserFeed: $('browser-feed'),
-  tutorFeed: $('tutor-feed'),
+  hubFeed: $('hub-feed'),
+  liveBanner: $('live-banner'),
+  universityName: $('university-name'),
+  studentConsole: $('studentc-log'),
+  hubLog: $('hub-log'),
+  hubBox: $('hub-box'),
+  tabPulse: $('tab-pulse'),
   state: $('state'),
   studentLog: $('student-log'),
   tutorLog: $('tutor-log'),
@@ -25,7 +34,6 @@ const els = {
   timeline: $('timeline'),
   timelineError: $('timeline-error'),
   libraryLog: $('library-log'),
-  libraryFeed: $('library-feed'),
   routerMode: $('router-mode'),
   refreshSkills: $('refresh-skills'),
   skillsBox: { tutor: $('tutor-skills'), library: $('library-skills') },
@@ -42,44 +50,53 @@ const els = {
   skillsDirty: $('skills-dirty'),
 };
 
+const topology = createTopology({
+  svg: $('topo'), detail: $('topo-detail'), list: $('topo-events'), count: $('topo-count'), traceSelect: $('topo-trace'),
+  truncatedNote: $('topo-truncated'), clockEl: $('topo-clock'),
+  controls: { heartbeats: $('topo-heartbeats'), reduce: $('topo-reduce'), pause: $('topo-pause') },
+  agentColor: (id) => ({ student: 'var(--student)', hub: 'var(--hub)', tutor: 'var(--tutor)', library: 'var(--library)', model: 'var(--model)' })[id] ?? 'var(--muted)',
+  // A small dot on the Topology tab when traffic happens while another tab is showing.
+  onActivity: () => { if ($('view-topology').hidden) $('tab-pulse').dataset.on = 'true'; },
+});
+
 const STATE_LABELS = {
-  idle: 'idle', routing: 'routing', sending: 'sending', waiting: 'waiting for response', completed: 'completed', failed: 'failed',
+  idle: 'idle', sending: 'sending', waiting: 'waiting for response', completed: 'completed', failed: 'failed',
   uncertain: 'outcome uncertain',
 };
-const BUSY = new Set(['routing', 'sending', 'waiting']); // blocks Send
+const BUSY = new Set(['sending', 'waiting']); // blocks Send
 
-// Timeline steps per run kind: [key, label, note]. A step is marked only when its real event arrives.
+// Timeline steps per run kind: [key, label, note]. A key is "<who>:<event>" where who is student, hub or
+// specialist (whichever service the Hub chose). A step is marked only when its real event arrives; steps
+// the flow really didn't take (the Hub answered itself, the Student asked you first, a failure) are
+// marked skipped with the reason. The strip resets for every new question or form action.
 const STEPS = {
   chat: [
-    ['request_sent', 'Request sent', 'send started by Student'],
-    ['message_received', 'Tutor Agent received', 'confirmed by Tutor process'],
-    ['reply_published', 'Response sent', 'published by Tutor'],
-    ['reply_received', 'Student Agent received', 'A2A result returned'],
+    ['student:request_planned', 'Student checked', 'what the question needs'],
+    ['student:request_sent', 'Student sent', 'to the university Hub, over A2A'],
+    ['hub:message_received', 'Hub received', 'confirmed by the Hub'],
+    ['hub:route_decided', 'Hub routed', 'destination chosen and checked'],
+    ['hub:forward_attempted', 'Hub forwarded', 'to the specialist, over A2A'],
+    ['specialist:message_received', 'Specialist received', 'confirmed by that service'],
+    ['specialist:reply_published', 'Specialist replied', 'answer or form, over A2A'],
+    ['hub:forward_completed', 'Hub got the reply', 'relayed back to the Student'],
+    ['student:reply_received', 'Student received', 'A2A result from the Hub'],
   ],
-  // Chat when the Tutor uses a model (mock or live): the model call shows as its own steps.
-  chatModel: [
-    ['request_sent', 'Request sent', 'send started by Student'],
-    ['message_received', 'Tutor Agent received', 'confirmed by Tutor process'],
-    ['model_call_started', 'Model call started', 'Tutor → model provider'],
-    ['model_response_received', 'Model response received', 'reported by Tutor'],
-    ['reply_published', 'Response sent', 'published by Tutor over A2A'],
-    ['reply_received', 'A2A response received', 'by Student Agent'],
-  ],
-  // Routed chat (Part 5): the router decides first; the receiving service checks scope itself.
-  chatRouted: [
-    ['route_decided', 'Routing decision', 'Student router (code-validated)'],
-    ['request_sent', 'Request sent', 'over A2A to the chosen service'],
-    ['message_received', 'Service received', 'confirmed by that service'],
-    ['scope_checked', 'Scope check', 'by the receiving service'],
-    ['reply_published', 'Response sent', 'by the service over A2A'],
-    ['reply_received', 'Student received', 'A2A result returned'],
-  ],
-  // One action on a form (Part 6), always sent to the agent that issued the form.
+  // One action on a form, always forwarded to the service that issued it.
   form_action: [
-    ['form_action_sent', 'Action sent', 'over A2A to the issuing agent'],
-    ['form_action_received', 'Agent received', 'confirmed by that agent'],
-    ['form_action_result', 'Result returned', 'from the agent’s handler, over A2A'],
+    ['student:form_action_sent', 'Action sent', 'to the Hub, with its form reference'],
+    ['hub:form_action_received', 'Hub received', 'reference checked'],
+    ['hub:form_forwarded', 'Hub forwarded', 'to the issuing service'],
+    ['specialist:form_action_received', 'Issuer received', 'confirmed by that service'],
+    ['specialist:form_reply_sent', 'Issuer replied', 'authoritative result'],
+    ['hub:form_result_relayed', 'Hub relayed', 'back to the Student'],
+    ['student:form_action_result', 'Student received', 'result over A2A'],
   ],
+};
+const STEP_ALIASES = { 'student:tutor_error': 'student:reply_received', 'student:form_received': 'student:reply_received', 'specialist:form_sent': 'specialist:reply_published' };
+const stepKey = (source, type) => {
+  const who = source === 'tutor' || source === 'library' ? 'specialist' : source;
+  const key = `${who}:${type}`;
+  return STEP_ALIASES[key] ?? key;
 };
 
 let bootId = null;
@@ -87,7 +104,7 @@ let seen = new Set(); // event seq numbers already rendered (history is replayed
 let currentRunId = null;
 let currentState = 'idle';
 let awaitingRunId = null; // set between clicking Send and that run leaving a busy state
-const formsUi = createFormsUi({ log: els.studentLog, agentName: (id) => AGENT_NAMES[id] ?? id, onChange: () => renderState() });
+const formsUi = createFormsUi({ log: els.studentLog, agentName: (id) => viaUniversity(id), onChange: () => renderState() });
 let currentContextId = null; // the chat conversation follow-up questions belong to (null → start a new one)
 
 const MODE_TEXT = {
@@ -171,25 +188,142 @@ function resetTimeline(runId, kind) {
   els.timeline.replaceChildren(...STEPS[kind].map(([key, label, note]) => {
     const li = document.createElement('li');
     li.dataset.step = key;
-    li.dataset.done = 'false';
+    li.dataset.state = 'pending'; // pending → done | skipped | failed | unknown
+    li.dataset.actor = key.split(':')[0]; // colors the step by the agent that does it
     const l = document.createElement('span');
     l.className = 'step-label';
     l.textContent = label;
     const n = document.createElement('span');
     n.className = 'step-note';
     n.textContent = note;
-    li.append(l, n, document.createElement('time'));
+    const status = document.createElement('span');
+    status.className = 'step-status';
+    li.append(l, n, status);
     return li;
   }));
+  updateActiveStep();
 }
 
-function markStep(step, at) {
-  const li = els.timeline.querySelector(`[data-step="${step}"]`);
+const STEP_STATUS = { done: '✓', failed: '✕ failed', unknown: '? outcome unknown', skipped: 'skipped' };
+// Mark one step from its real event. Never moves a step that is already settled back to pending.
+function markStep(step, at, { state = 'done', note } = {}) {
+  const li = [...els.timeline.children].find((x) => x.dataset.step === step);
   if (!li) return;
-  li.dataset.done = 'true';
-  const t = li.querySelector('time');
-  t.dateTime = at;
-  t.textContent = shortTime(at);
+  li.dataset.state = state;
+  if (note) li.querySelector('.step-note').textContent = note;
+  const status = li.querySelector('.step-status');
+  status.replaceChildren();
+  if (state === 'done' && at) {
+    const t = document.createElement('time');
+    t.dateTime = at;
+    t.textContent = shortTime(at);
+    status.append(t);
+  } else status.textContent = STEP_STATUS[state] ?? '';
+  updateActiveStep();
+}
+// Steps the flow really didn't take: marked skipped with the reason (only if not already observed).
+function skipSteps(keys, reason) {
+  for (const key of keys) {
+    const li = [...els.timeline.children].find((x) => x.dataset.step === key);
+    if (li && li.dataset.state === 'pending') markStep(key, null, { state: 'skipped', note: reason });
+  }
+}
+// The specialist steps take the color of the service the Hub actually chose.
+function setSpecialist(agentId) {
+  for (const li of els.timeline.children) if (li.dataset.actor === 'specialist') li.dataset.agent = agentId;
+}
+// While the run is in flight, the first step not yet settled is the one happening now.
+function updateActiveStep() {
+  const busy = BUSY.has(currentState) || awaitingRunId !== null;
+  const next = busy ? [...els.timeline.children].find((x) => x.dataset.state === 'pending') : null;
+  for (const li of els.timeline.children) {
+    const on = li === next;
+    li.dataset.active = String(on);
+    if (on) li.setAttribute('aria-current', 'step');
+    else li.removeAttribute('aria-current');
+    if (li.dataset.state === 'pending') li.querySelector('.step-status').textContent = on ? 'in progress…' : 'not yet';
+  }
+}
+
+const CHAT_AFTER = (key) => STEPS.chat.slice(STEPS.chat.findIndex(([k]) => k === key) + 1).map(([k]) => k);
+const SPECIALIST_LEG = ['hub:forward_attempted', 'specialist:message_received', 'specialist:reply_published', 'hub:forward_completed'];
+const FORM_LEG = ['hub:form_forwarded', 'specialist:form_action_received', 'specialist:form_reply_sent', 'hub:form_result_relayed'];
+const DECISION_TEXT = { clarify: 'it asked a clarifying question', unsupported: 'not supported', unavailable: 'service unavailable', rejected: 'request refused', failed: 'routing failed' };
+
+// One real event of the current run → its step, with what actually happened.
+function flowStep(source, type, data, at) {
+  const key = stepKey(source, type);
+  const name = (id) => AGENT_NAMES[id] ?? id;
+  switch (key) {
+    case 'student:request_planned': {
+      const how = data.action === 'clarify' ? 'asked you to clarify first'
+        : data.capability ? `needs ${data.capabilityName ?? data.capability} (${data.by === 'model' ? 'its model' : data.by})`
+          : { rule: 'obvious — the Hub routes it', context: 'reply to the university — sent as-is', off: 'sent as-is (Student model off)', heuristic: 'the Hub decides', model: 'the Hub decides', model_failed: 'its model failed — the Hub decides' }[data.by] ?? 'sent as-is';
+      markStep(key, at, { note: how });
+      if (data.action === 'clarify') skipSteps(CHAT_AFTER(key), 'not sent — your Student agent asked you first');
+      return;
+    }
+    case 'student:request_failed':
+      markStep('student:request_sent', at, { state: data.outcome === 'uncertain' ? 'unknown' : 'failed', note: data.outcome === 'uncertain' ? 'no reply in time' : 'not delivered' });
+      skipSteps(CHAT_AFTER('student:request_sent'), data.outcome === 'uncertain' ? 'outcome unknown' : 'not delivered');
+      return;
+    case 'hub:route_decided':
+      if (data.decision === 'route') {
+        setSpecialist(data.agentId);
+        markStep(key, at, { note: `→ ${data.destination}${data.decidedBy === 'student' ? ' (Student’s choice)' : ''}` });
+        for (const k of ['specialist:message_received', 'specialist:reply_published']) {
+          const li = [...els.timeline.children].find((x) => x.dataset.step === k);
+          if (li && li.dataset.state === 'pending') li.querySelector('.step-note').textContent = name(data.agentId);
+        }
+      } else {
+        markStep(key, at, { note: `not routed: ${DECISION_TEXT[data.decision] ?? data.decision}` });
+        skipSteps(SPECIALIST_LEG, `Hub answered itself (${DECISION_TEXT[data.decision] ?? data.decision})`);
+      }
+      return;
+    case 'hub:route_failed':
+      markStep('hub:route_decided', at, { state: 'failed', note: 'routing failed' });
+      skipSteps(SPECIALIST_LEG, 'not forwarded — routing failed');
+      return;
+    case 'hub:forward_failed': {
+      const unknown = data.outcome === 'unknown';
+      if (data.outcome === 'answered_with_error') {
+        markStep('hub:forward_completed', at, { state: 'failed', note: `${name(data.agentId)} reported an error` });
+        return;
+      }
+      markStep('hub:forward_attempted', at, { state: unknown ? 'unknown' : 'failed', note: unknown ? `${name(data.agentId)} didn’t answer in time` : `${name(data.agentId)} unreachable` });
+      skipSteps(['specialist:message_received', 'specialist:reply_published'], unknown ? 'outcome unknown' : 'not delivered');
+      markStep('hub:forward_completed', at, { state: unknown ? 'unknown' : 'failed', note: 'the Hub told the Student' });
+      return;
+    }
+    case 'student:reply_received':
+      markStep(key, at, type === 'tutor_error' ? { state: 'failed', note: 'a service error came back' } : {});
+      return;
+    case 'hub:form_action_rejected':
+      markStep('hub:form_action_received', at, { state: 'failed', note: 'reference refused' });
+      skipSteps(FORM_LEG, 'not forwarded — refused by the Hub');
+      return;
+    case 'hub:form_action_duplicate':
+      markStep('hub:form_action_received', at, { note: 'same operation ID — stored result' });
+      skipSteps(FORM_LEG, 'not forwarded — stored result returned');
+      return;
+    case 'hub:form_forwarded':
+      setSpecialist(data.agentId);
+      markStep(key, at, { note: `to ${name(data.agentId)}` });
+      return;
+    case 'hub:form_forward_failed': {
+      const unknown = data.outcome === 'unknown';
+      markStep('hub:form_forwarded', at, { state: unknown ? 'unknown' : 'failed', note: unknown ? 'issuer didn’t confirm in time' : 'issuer unreachable' });
+      skipSteps(['specialist:form_action_received', 'specialist:form_reply_sent'], unknown ? 'outcome unknown' : 'not delivered');
+      markStep('hub:form_result_relayed', at, { state: unknown ? 'unknown' : 'failed', note: 'the Hub told the Student' });
+      return;
+    }
+    case 'student:form_action_failed':
+      markStep('student:form_action_sent', at, { state: data.outcome === 'uncertain' ? 'unknown' : 'failed' });
+      skipSteps(STEPS.form_action.slice(1).map(([k]) => k), data.outcome === 'uncertain' ? 'outcome unknown' : 'not delivered');
+      return;
+    default:
+      markStep(key, at);
+  }
 }
 
 function setBadge(el, ok, text) {
@@ -202,9 +336,11 @@ function renderState() {
   els.state.textContent = STATE_LABELS[currentState] ?? currentState;
   const busy = awaitingRunId !== null || BUSY.has(currentState);
   els.send.disabled = busy;
+  topology.studentBusy(BUSY.has(currentState));
   // Offered whenever there's something on screen to clear; unavailable mid-request.
-  els.newConversation.hidden = !currentContextId && ![els.studentLog, els.tutorLog, els.libraryLog].some((log) => log.children.length);
+  els.newConversation.hidden = !currentContextId && ![els.studentLog, els.tutorLog, els.libraryLog, els.hubLog, els.studentConsole].some((log) => log.children.length);
   els.newConversation.disabled = busy || formsUi.busy;
+  updateActiveStep();
 }
 
 // Empty every conversation panel and forget the current conversation (not the event
@@ -216,6 +352,8 @@ function clearScreen() {
   els.studentLog.replaceChildren();
   els.tutorLog.replaceChildren();
   els.libraryLog.replaceChildren();
+  els.hubLog.replaceChildren();
+  els.studentConsole.replaceChildren();
   els.runId.textContent = 'no run yet';
   els.timeline.replaceChildren();
   els.timelineError.textContent = '';
@@ -227,6 +365,7 @@ function clearScreen() {
 function resetAll() {
   seen = new Set();
   clearScreen();
+  topology.reset();
 }
 
 function reconcileButton(runId) {
@@ -234,7 +373,7 @@ function reconcileButton(runId) {
   button.type = 'button';
   button.className = 'inline-action';
   button.textContent = 'Check for answer';
-  button.title = 'Re-sends the same request ID; the Tutor returns its earlier result instead of calling the model again.';
+  button.title = 'Re-sends the same request ID; the university returns its earlier result instead of routing or calling a service again.';
   button.addEventListener('click', async () => {
     button.disabled = true;
     const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/reconcile`, { method: 'POST' });
@@ -250,7 +389,10 @@ const errorText = (errors) => Object.entries(errors ?? {}).map(([field, msg]) =>
 
 // ---- Part 5: advertised skills, Student's cached view, propagation ---------
 
-const AGENT_NAMES = { tutor: 'Tutor Agent', library: 'Library Agent' };
+const AGENT_NAMES = { tutor: 'Tutor Agent', library: 'Library Agent', hub: 'University Hub', student: 'Student agent' };
+let universityName = 'California State University Fullerton';
+// Replies come from the university; the specialist that produced one is shown as attribution.
+const viaUniversity = (id) => (id && id !== 'hub' ? `${universityName} · ${AGENT_NAMES[id] ?? id}` : universityName);
 // Per agent: what it advertises (its own settings), the last save, the notification outcome,
 // what Student received, and Student's cached registry view. Each comes from a real event.
 const agents = {
@@ -291,21 +433,21 @@ function renderSkillsBox(agentId) {
   const r = a.registry;
   if (r) {
     const chips = r.skills.map((s) => el('span', { className: 'chip', textContent: s.name, title: s.id }));
-    rows.push(el('div', { className: 'skills-row' }, el('span', { className: 'label', textContent: `Student’s view (rev ${r.revision ?? '?'}, ${r.status}):` }), ...(chips.length ? chips : [el('span', { textContent: 'none' })])));
+    rows.push(el('div', { className: 'skills-row' }, el('span', { className: 'label', textContent: `Hub’s view (rev ${r.revision ?? '?'}, ${r.status}):` }), ...(chips.length ? chips : [el('span', { textContent: 'none' })])));
   }
   if (a.saved) {
     const n = a.notification?.revision === a.saved.revision ? a.notification : null;
-    const updated = r && r.revision === a.saved.revision && (r.status === 'ok');
+    const updated = r && r.revision === a.saved.revision && r.status === 'ready';
     rows.push(el('ul', { className: 'propagation', ariaLabel: 'Save and propagation' },
       el('li', { dataset: { status: 'ok' }, textContent: `Configuration saved — revision ${a.saved.revision} (${clock(a.saved.at)})` }),
       el('li', { dataset: { status: !n ? 'wait' : n.outcome === 'delivered' ? 'ok' : n.outcome === 'pending' ? 'pending' : 'bad' }, textContent: !n ? 'Notification: not sent yet' : `Notification ${n.outcome}: ${n.detail}` }),
-      el('li', { dataset: { status: updated ? 'ok' : r?.status === 'stale' ? 'bad' : 'wait' }, textContent: updated ? `Student routing updated — revision ${r.revision} (${clock(r.lastSuccessAt)})` : `Student routing not updated yet${r?.lastError ? ` (${r.lastError})` : ''}` }),
+      el('li', { dataset: { status: updated ? 'ok' : r?.status === 'stale' ? 'bad' : 'wait' }, textContent: updated ? `Hub routing updated — revision ${r.revision} (${clock(r.lastSuccessAt)})` : `Hub routing not updated yet${r?.lastError ? ` (${r.lastError})` : ''}` }),
     ));
   }
   const details = el('details', {}, el('summary', { textContent: 'Card details' }),
     definitionList('ids', [
       ['card revision', a.advertised?.revision], ['card ETag', a.advertised?.etag],
-      ['Student cached revision', r?.revision], ['Student cached ETag', r?.etag],
+      ['Hub cached revision', r?.revision], ['Hub cached ETag', r?.etag],
       ['last successful refresh', r?.lastSuccessAt && new Date(r.lastSuccessAt).toLocaleString()],
       ['last refresh error', r?.lastError], ['last notification', a.notification && `${a.notification.outcome} (${a.notification.notificationId})`],
     ]));
@@ -544,62 +686,61 @@ els.refreshSkills.addEventListener('click', async () => {
   setTimeout(() => { els.refreshSkills.disabled = false; }, 800);
 });
 
-const ROUTER_TEXT = { direct: 'Router: off (everything to Tutor)', mock: 'Router: mock heuristic (no external calls)', live: 'Router: live (claude-haiku-5-5)' };
+const ROUTER_TEXT = { direct: 'Router: off (everything to tutoring)', mock: 'Router: mock heuristic (no external calls)' };
 function renderRouter(router) {
   if (!router) return;
   els.routerMode.dataset.mode = router.mode === 'live' ? 'live' : router.mode === 'mock' ? 'mock' : 'direct';
-  els.routerMode.textContent = ROUTER_TEXT[router.mode] ?? `Router: ${router.mode}`;
+  els.routerMode.textContent = router.mode === 'live' ? `Router: live (${router.model ?? 'model not reported'})` : ROUTER_TEXT[router.mode] ?? `Router: ${router.mode}`;
 }
 
-// In the chat, color says who spoke and position says direction: your messages on the right,
-// agents' replies on the left, routing/system lines small in the middle.
-function chatRole({ label = '', dir }) {
-  if (/^Sent/.test(label)) return { speaker: 'student' };
-  if (/Tutor Agent/.test(label) && /^Received|Tutor error/.test(label)) return { speaker: 'tutor' };
-  if (/Library Agent/.test(label) && /^Received/.test(label)) return { speaker: 'library' };
-  if (/^(Routing|No matching|Clarification needed|Routing failed)/.test(label)) return { speaker: 'router', kind: dir === 'error' ? undefined : 'note' };
-  return {};
-}
+// In the chat, color says who produced the line and position says direction: your messages on the
+// right, the university's replies on the left (colored by the specialist that answered, or the Hub's
+// own color when it answered itself — a clarifying question, or "can't help" / "unavailable").
 
 // ---- event handling -----------------------------------------------------
 
-function handle(event) {
+function handle(event, { live = true } = {}) {
   const { source, type, runId, at, data } = event;
   const run = runId ? runId.slice(0, 8) : null;
   const isCurrent = runId === currentRunId;
-  const student = (item) => appendTo(els.studentLog, messageItem({ at, ...chatRole(item), ...item }));
+  const student = (item) => appendTo(els.studentLog, messageItem({ at, ...item }));
+  const studentConsole = (item) => appendTo(els.studentConsole, messageItem({ at, speaker: 'student', ...item }));
+  const hub = (item) => appendTo(els.hubLog, messageItem({ at, speaker: 'hub', ...item }));
   const tutor = (item) => appendTo(els.tutorLog, messageItem({ at, speaker: 'tutor', ...item }));
   const library = (item) => appendTo(els.libraryLog, messageItem({ at, speaker: 'library', ...item }));
   const agentName = (id) => AGENT_NAMES[id] ?? id;
 
+  topology.event(event, { live });
   if (source === 'system') {
-    if (type === 'tutor_feed') {
-      setBadge(els.tutorFeed, data.connected, data.connected ? 'Tutor feed: connected' : 'Tutor feed: offline');
+    if (type === 'hub_feed') {
+      setBadge(els.hubFeed, data.connected, data.connected ? 'Hub telemetry: connected' : 'Hub telemetry: lost');
+      topology.hubFeed(data.connected);
+      hub({ dir: data.connected ? 'received' : 'error', label: data.connected ? 'Telemetry connected' : 'Telemetry lost', text: data.connected ? 'Following the Hub’s event feed.' : 'The Hub’s event feed is unreachable; its state below may be out of date.', ids: {} });
+    } else if (type === 'topology') {
+      applyTopology(data);
     } else if (type === 'conversation_reset') {
       // Replayed in order on reload too, so a cleared screen stays cleared.
       clearScreen();
-    } else if (type === 'tutor_status') {
-      renderMode(data);
     } else if (type === 'agent_status') {
+      topology.agentMode(data.agentId, { mode: data.mode, model: data.model, keyConfigured: data.keyConfigured });
+      if (data.agentId === 'tutor') renderMode(data);
       if (data.agentId === 'library') {
-        document.getElementById('library-role').textContent = `A2A server, answers from saved content (${data.mode === 'live' ? `live, ${data.model}` : 'mock, no model'})`;
+        document.getElementById('library-role').textContent = `Specialist behind the Hub · answers from saved content (${data.mode === 'live' ? `live, ${data.model}` : 'mock, no model'})`;
       }
       if (agents[data.agentId] && data.skills) {
         agents[data.agentId].advertised = data.skills;
         renderSkillsBox(data.agentId);
       }
-    } else if (type === 'agent_feed') {
-      if (data.agentId === 'library') setBadge(els.libraryFeed, data.connected, data.connected ? 'Library feed: connected' : 'Library feed: offline');
     } else if (type === 'run_started') {
       currentRunId = runId;
-      const kind = data.kind === 'chat' && data.routerMode && data.routerMode !== 'direct' ? 'chatRouted'
-        : data.kind === 'chat' && data.tutorMode && data.tutorMode !== 'fixed' ? 'chatModel' : data.kind ?? 'chat';
-      resetTimeline(runId, kind);
+      topology.runStarted(runId, data);
+      resetTimeline(runId, data.kind ?? 'chat');
       if (data.kind === 'chat') {
         currentContextId = data.contextId;
         renderConversation();
       }
     } else if (type === 'state') {
+      topology.runState(runId, data.state);
       if (isCurrent) currentState = data.state;
       if (runId === awaitingRunId && !BUSY.has(data.state)) awaitingRunId = null;
     } else if (type === 'form_lifecycle') {
@@ -612,45 +753,54 @@ function handle(event) {
     }
   } else if (source === 'student') {
     switch (type) {
-      // chat
-      case 'route_decided': {
-        const d = data;
-        if (d.decision === 'route') {
-          student({ dir: 'sent', label: `Routing → ${agentName(d.agentId)}`, text: d.reason, ids: { skill: d.skillId, router: d.model, routerUsage: d.usage ? `${d.usage.inputTokens} in / ${d.usage.outputTokens} out tokens` : null, run } });
-        } else {
-          student({ dir: 'info', label: d.decision === 'clarify' ? 'Clarification needed' : 'No matching service', text: d.decision === 'clarify' ? d.clarificationQuestion : d.reason, ids: { router: d.model, rejectedChoice: d.rejectedChoice ? `${d.rejectedChoice.agentId} / ${d.rejectedChoice.skillId}` : null, run } });
-          if (isCurrent) els.timelineError.textContent = 'No service was called for this message.';
-        }
+      case 'card_discovered':
+        topology.studentCard(true);
+        if (data.reason) studentConsole({ dir: 'received', label: 'University card verified', text: `${data.name}: name, endpoint and protocol match this Student’s configuration.`, ids: { endpoint: data.url, skills: data.skills?.join(', ') } });
+        break;
+      case 'hub_card_failed':
+        topology.studentCard(false);
+        studentConsole({ dir: 'error', label: 'University card not available', text: data.error, ids: { reason: data.reason } });
+        break;
+      // The Student's own model (STUDENT_MODE): its plan before anything is sent, and its calls.
+      case 'request_planned': {
+        const how = { rule: 'obvious from the words — the Hub routes it', model: 'decided by the Student’s model', heuristic: 'mock heuristic', context: 'reply to the university’s question', off: 'Student model off', model_failed: 'Student model failed' }[data.by] ?? data.by;
+        const text = data.action === 'clarify' ? 'Not clear enough to send yet — asking you first.' : data.capability ? `Needs ${data.capabilityName ?? data.capability}; the Hub will be asked for that capability.` : 'No capability chosen; the Hub routes it.';
+        studentConsole({ dir: data.error ? 'error' : 'info', label: `Plan: ${data.action === 'clarify' ? 'clarify first' : data.capability ? `send to ${data.capabilityName ?? data.capability}` : 'send as-is'}`, text: `${text} ${data.reason ?? ''}`.trim(), ids: { how, matched: data.matched?.map((m) => `${m.id}: ${m.terms.join(', ')}`).join('; ') || null, model: data.usage ? `${data.model} · ${data.usage.inputTokens} in / ${data.usage.outputTokens} out tokens` : null, run } });
         break;
       }
-      case 'route_failed':
-        student({ dir: 'error', label: 'Routing failed', text: `${data.message} No service was called.`, ids: { code: data.code, run } });
-        if (isCurrent) els.timelineError.textContent = `Routing failed: ${data.message}`;
+      case 'clarification_asked':
+        student({ dir: 'sent', speaker: 'student', label: 'You (held by your Student agent, not sent yet)', text: data.question, ids: { contextId: data.contextId, run } });
+        student({ dir: 'received', speaker: 'student', label: 'Your Student agent asks', text: data.text, ids: { note: 'Your answer is sent to the university together with your question.', run } });
+        break;
+      case 'model_call_started':
+        studentConsole({ dir: 'sent', label: 'Model call', text: `Calling ${data.model} to ${data.purpose}.`, ids: { mode: data.mode, run } });
+        break;
+      case 'model_response_received':
+        studentConsole({ dir: 'received', label: 'Model reply', text: `${data.model} responded in ${(data.latencyMs / 1000).toFixed(1)} s (${data.usage?.inputTokens ?? '?'} input / ${data.usage?.outputTokens ?? '?'} output tokens).`, ids: { anthropicRequest: data.requestId, run } });
+        break;
+      case 'model_call_failed':
+        studentConsole({ dir: 'error', label: 'Model error', text: data.message, ids: { code: data.code, anthropicRequest: data.requestId, run } });
         break;
       case 'request_sent':
-        student({ dir: 'sent', label: data.agentId ? `Sent to ${agentName(data.agentId)}` : 'Sent', text: data.text, ids: { messageId: data.messageId, contextId: data.contextId, run } });
+        student({ dir: 'sent', speaker: 'student', label: `Sent to ${universityName}`, text: data.text, ids: { messageId: data.messageId, contextId: data.contextId, run } });
+        studentConsole({ dir: 'sent', label: 'A2A request to the Hub', text: `message/send (${data.text?.length ?? 0} characters)`, ids: { messageId: data.messageId, contextId: data.contextId, run } });
         break;
-      case 'reply_received':
-        student({ dir: 'received', label: data.servedBy ? `Received from ${agentName(data.servedBy)}` : 'Received', text: data.text, ids: { model: fmtUsage(data.tutor), outcome: data.tutor?.outcome ?? data.library?.outcome, messageId: data.messageId, inReplyTo: data.inReplyTo, contextId: data.contextId, taskId: data.taskId || '(none — direct Message reply)', anthropicRequest: data.tutor?.requestId, run } });
+      case 'reply_received': {
+        const decision = data.hub?.decision;
+        const own = decision && decision !== 'route';
+        const label = own ? `${universityName}${decision === 'clarify' ? ' asks' : decision === 'unavailable' ? ' — service unavailable' : decision === 'unsupported' ? ' — not supported' : ''}` : viaUniversity(data.servedBy);
+        student({ dir: own && decision !== 'clarify' ? 'info' : 'received', speaker: own ? 'hub' : data.servedBy ?? 'hub', label, text: data.text, ids: { answeredBy: own ? 'the Hub itself (no service called)' : agentName(data.servedBy), destination: data.hub?.destination, model: fmtUsage(data.tutor), outcome: data.tutor?.outcome ?? data.library?.outcome, messageId: data.messageId, inReplyTo: data.inReplyTo, contextId: data.contextId, taskId: data.taskId || '(none — direct Message reply)', run } });
+        studentConsole({ dir: 'received', label: 'A2A reply from the Hub', text: own ? `Answered by the Hub (${decision}).` : `Relayed from ${agentName(data.servedBy)}.`, ids: { messageId: data.messageId, contextId: data.contextId, run } });
         break;
-      case 'registry_updated':
-      case 'registry_refresh_failed':
-        if (agents[data.agentId]) {
-          agents[data.agentId].registry = data;
-          renderSkillsBox(data.agentId);
-        }
-        break;
-      case 'card_notification_received':
-        if (agents[data.agentId]) agents[data.agentId].received = data;
-        break;
+      }
       case 'tutor_error':
-        student({ dir: 'error', label: 'Tutor error', text: data.message, ids: { code: data.code, anthropicRequest: data.requestId, messageId: data.messageId, contextId: data.contextId, run } });
+        student({ dir: 'error', speaker: 'hub', label: `${universityName} — service error`, text: data.message, ids: { code: data.code, anthropicRequest: data.requestId, messageId: data.messageId, contextId: data.contextId, run } });
         if (isCurrent) els.timelineError.textContent = `The Tutor could not answer: ${data.message}`;
         break;
       case 'request_failed': {
         const detail = data.code ? `${data.error} (${data.code})` : data.error;
         if (data.outcome === 'uncertain') {
-          const item = messageItem({ at, dir: 'error', label: 'Uncertain', text: `No reply in time — the Tutor may still be answering. ${detail}`, ids: { request: data.messageId, run } });
+          const item = messageItem({ at, dir: 'error', label: 'Uncertain', text: `No reply in time — the university may still be working on it. ${detail}`, ids: { request: data.messageId, run } });
           item.insertBefore(reconcileButton(runId), item.querySelector('details'));
           appendTo(els.studentLog, item);
           if (isCurrent) els.timelineError.textContent = 'Outcome uncertain: use “Check for answer” to fetch the result of the same request (no new model call).';
@@ -666,8 +816,10 @@ function handle(event) {
       // Lookups and review steps stay inside the form (and in the agent's panel), not in the chat.
       case 'form_received':
         formsUi.received({ ...data, at });
+        studentConsole({ dir: 'received', label: 'Form relayed by the Hub', text: `${data.workflowId} from ${agentName(data.issuer)} (task awaiting input).`, ids: { form: data.formId, formRef: data.formRef, taskId: data.taskId, run } });
         break;
       case 'form_action_sent':
+        studentConsole({ dir: 'sent', label: 'Form action to the Hub', text: `“${data.actionName}” with the Hub’s form reference.`, ids: { form: data.formId, operation: data.operationId, run } });
         break;
       case 'form_action_result': {
         formsUi.actionResult(data);
@@ -677,7 +829,7 @@ function handle(event) {
           ? { 'Booking ID': r.bookingId, Room: r.room, Date: prettyDate(r.date), Time: `${r.start}–${r.end}`, 'Group size': r.groupSize, Timezone: r.timezone, Note: r.note }
           : r?.requestId ? { 'Request ID': r.requestId, Status: r.status, 'Preferred date': prettyDate(r.preferences.preferredDate), 'Time of day': r.preferences.period, 'Specific time': r.preferences.specificTime ?? 'none', Timezone: r.timezone, Note: r.note } : undefined;
         const flagged = data.body?.status === 'needs_review';
-        student({ dir: data.body?.status === 'rejected' || data.body?.status === 'conflict' ? 'error' : 'received', label: `Received from ${agentName(data.agentId)}${data.duplicate ? ' (already recorded)' : ''}${flagged ? ' (please check)' : ''}`, text: data.text || data.body?.status, values, ids: { form: data.formId, operation: data.operationId, messageId: data.messageId, taskId: data.taskId ? `${data.taskId}` : '(direct Message reply)', a2uiUpdate: data.a2uiUpdate?.length ? `${data.a2uiUpdate.length} message(s)` : null, run } });
+        student({ dir: data.body?.status === 'rejected' || data.body?.status === 'conflict' ? 'error' : 'received', speaker: data.agentId, label: `${viaUniversity(data.agentId)}${data.duplicate ? ' (already recorded)' : ''}${flagged ? ' (please check)' : ''}`, text: data.text || data.body?.status, values, ids: { form: data.formId, operation: data.operationId, messageId: data.messageId, taskId: data.taskId ? `${data.taskId}` : '(direct Message reply)', a2uiUpdate: data.a2uiUpdate?.length ? `${data.a2uiUpdate.length} message(s)` : null, run } });
         break;
       }
       case 'form_action_failed':
@@ -689,8 +841,10 @@ function handle(event) {
         formsUi.actionFailed(data);
         break;
     }
-    // A Tutor-reported error still arrived as an A2A response; a form is the A2A response of a chat run.
-    if (isCurrent) markStep(type === 'tutor_error' || type === 'form_received' ? 'reply_received' : type, at);
+    if (isCurrent) flowStep(source, type, data, at);
+  } else if (source === 'hub') {
+    hubEvent(hub, type, data, run);
+    if (isCurrent) flowStep(source, type, data, at);
   } else if (source === 'library') {
     switch (type) {
       case 'message_received':
@@ -713,7 +867,7 @@ function handle(event) {
       default:
         formAgentEvent(library, type, data, run);
     }
-    if (isCurrent) markStep(type === 'form_sent' ? 'reply_published' : type === 'intent_decided' ? 'scope_checked' : type, at);
+    if (isCurrent) flowStep(source, type, data, at);
   } else if (source === 'tutor') {
     switch (type) {
       case 'skills_saved':
@@ -752,9 +906,119 @@ function handle(event) {
       default:
         formAgentEvent(tutor, type, data, run);
     }
-    if (isCurrent) markStep(type === 'form_sent' ? 'reply_published' : type === 'intent_decided' ? 'scope_checked' : type, at);
+    if (isCurrent) flowStep(source, type, data, at);
   }
   renderState();
+}
+
+// The Hub's own events, in its console. Specialist registry state also feeds the skills boxes.
+function hubEvent(panel, type, data, run) {
+  const name = (id) => AGENT_NAMES[id] ?? id;
+  switch (type) {
+    case 'message_received':
+      panel({ dir: 'received', label: 'Received from Student', text: `Question (${data.chars} characters).`, ids: { operation: data.operationId, messageId: data.messageId, contextId: data.contextId, run } });
+      break;
+    case 'request_repeat':
+      panel({ dir: 'info', label: 'Repeat request', text: data.note, ids: { messageId: data.messageId, run } });
+      break;
+    case 'route_decided':
+      panel({ dir: data.decision === 'route' ? 'sent' : 'info', label: data.decision === 'route' ? `Routed → ${data.destination}${data.decidedBy === 'student' ? ' (Student’s choice)' : ''}` : `Not routed: ${data.decision}`, text: data.decision === 'clarify' ? `Asks: ${data.clarificationQuestion}` : data.reason, ids: { decidedBy: data.decidedBy === 'student' ? 'the Student (capability checked by the Hub; no Hub router call)' : null, worker: data.agentId ? name(data.agentId) : null, skill: data.skillId, router: data.model, routerUsage: data.usage ? `${data.usage.inputTokens} in / ${data.usage.outputTokens} out tokens` : null, invalidChoice: data.invalid ? 'model choice refused by code' : null, operation: data.operationId, run } });
+      break;
+    case 'capability_rejected':
+      panel({ dir: 'error', label: 'Capability not recognised', text: data.reason, ids: { requested: data.capability, operation: data.operationId, run } });
+      break;
+    case 'route_failed':
+      panel({ dir: 'error', label: 'Routing failed', text: `${data.message} No service was called.`, ids: { code: data.code, run } });
+      break;
+    case 'forward_attempted':
+      panel({ dir: 'sent', label: `Forwarding to ${name(data.agentId)}`, text: `A2A message/send to the configured ${data.destination} endpoint.`, ids: { operation: data.operationId, downstreamContext: data.downstreamContextId, downstreamMessage: data.downstreamMessageId, upstreamContext: data.upstreamContextId, run } });
+      break;
+    case 'forward_completed':
+      panel({ dir: 'received', label: `Reply from ${name(data.agentId)}`, text: data.kind === 'form_offer' ? `A form (${data.workflowId}); relayed with Hub reference ${data.formRef?.slice(0, 11)}…` : 'Answer; relaying to the Student.', ids: { operation: data.operationId, downstreamTask: data.downstreamTaskId, formRef: data.formRef, run } });
+      break;
+    case 'forward_failed':
+      panel({ dir: 'error', label: `${name(data.agentId)}: ${data.outcome.replaceAll('_', ' ')}`, text: data.message, ids: { code: data.code, operation: data.operationId, run } });
+      break;
+    case 'relay_sent':
+      panel({ dir: 'sent', label: 'Sent to Student', text: data.repeat ? 'The earlier result, again.' : data.kind === 'form_offer' ? 'Form, as a task awaiting input.' : `Reply (${data.kind}).`, ids: { servedBy: data.servedBy, operation: data.operationId, run } });
+      break;
+    case 'form_ref_created':
+      panel({ dir: 'info', label: 'Form reference created', text: `${data.workflowId} from ${name(data.agentId)}: bound to this student, conversation and downstream task.`, ids: { formRef: data.formRef, downstreamTask: data.downstreamTaskId } });
+      break;
+    case 'form_action_received':
+      panel({ dir: 'received', label: 'Form action from Student', text: `“${data.actionName}”`, ids: { formRef: data.formRef, operation: data.operationId, issuer: data.agentId, run } });
+      break;
+    case 'form_action_rejected':
+      panel({ dir: 'error', label: 'Form action refused', text: data.reason, ids: { formRef: data.formRef, operation: data.operationId, run } });
+      break;
+    case 'form_action_duplicate':
+      panel({ dir: 'info', label: 'Duplicate operation', text: `Same operation ID — returned the stored ${data.status} result; nothing forwarded.`, ids: { operation: data.operationId, run } });
+      break;
+    case 'form_forwarded':
+      panel({ dir: 'sent', label: `Forwarded to issuer ${name(data.agentId)}`, text: `“${data.actionName}” — follows the recorded mapping, no re-routing.`, ids: { formRef: data.formRef, downstreamTask: data.downstreamTaskId, operation: data.operationId, run } });
+      break;
+    case 'form_result_relayed':
+      panel({ dir: ['rejected', 'conflict'].includes(data.status) ? 'error' : 'received', label: `Result from ${name(data.agentId)}: ${data.status}`, text: data.receipt?.id ? `Receipt ${data.receipt.id}.` : 'Relayed to the Student.', ids: { operation: data.operationId, formRef: data.formRef, run } });
+      break;
+    case 'form_forward_failed':
+      panel({ dir: 'error', label: `Issuer ${data.outcome === 'unknown' ? 'outcome unknown' : 'unreachable'}`, text: data.message, ids: { operation: data.operationId, run } });
+      break;
+    case 'registration_accepted':
+      panel({ dir: 'received', label: `${name(data.agentId)} registered`, text: `Instance ${data.instance}; verifying its card from the configured URL before dispatch.`, ids: { enabled: String(data.enabled) } });
+      break;
+    case 'registration_rejected':
+      panel({ dir: 'error', label: 'Registration refused', text: data.reason, ids: { claimed: data.claimedAgentId } });
+      break;
+    case 'deregistered':
+      panel({ dir: 'info', label: `${name(data.agentId)} signed out`, text: 'No new requests will be sent to it.', ids: {} });
+      break;
+    case 'registry_status':
+      panel({ dir: data.status === 'ready' ? 'received' : 'error', label: `${name(data.agentId)}: ${data.status.replaceAll('_', ' ')}`, text: `Was ${data.from.replaceAll('_', ' ')} (${data.reason.replaceAll('_', ' ')}).${data.lastError && data.status !== 'ready' ? ` ${data.lastError}` : ''}`, ids: { revision: data.revision } });
+      if (agents[data.agentId]) {
+        agents[data.agentId].registry = { ...agents[data.agentId].registry, status: data.status, revision: data.revision, etag: data.etag, skills: data.skills, lastError: data.lastError, lastSuccessAt: agents[data.agentId].registry?.lastSuccessAt ?? null };
+        renderSkillsBox(data.agentId);
+      }
+      break;
+    case 'card_refreshed':
+      if (data.changed) panel({ dir: 'received', label: `${name(data.agentId)} card fetched`, text: `Revision ${data.revision}: ${data.skills.map((k) => k.name).join(', ')}.`, ids: { reason: data.reason } });
+      if (agents[data.agentId]) {
+        const r = agents[data.agentId].registry ?? {};
+        agents[data.agentId].registry = { ...r, revision: data.revision ?? r.revision, etag: data.etag ?? r.etag, skills: data.skills ?? r.skills ?? [], lastSuccessAt: new Date().toISOString(), lastError: null, status: r.status ?? 'ready' };
+        renderSkillsBox(data.agentId);
+      }
+      break;
+    case 'card_refresh_failed':
+      panel({ dir: 'error', label: `${name(data.agentId)} card fetch failed`, text: data.error, ids: { reason: data.reason } });
+      break;
+    case 'card_notification_received':
+      panel({ dir: 'received', label: `Card-change notice from ${name(data.agentId)}`, text: data.duplicate ? 'Duplicate notice — ignored.' : 'A hint only: re-fetching the card from the configured URL.', ids: { notification: data.notificationId, revision: data.revision } });
+      break;
+    case 'card_notification_rejected':
+      panel({ dir: 'error', label: 'Card-change notice refused', text: data.reason, ids: { claimed: data.agentId } });
+      break;
+    case 'specialist_feed':
+      panel({ dir: data.connected ? 'received' : 'error', label: `${name(data.agentId)} telemetry ${data.connected ? 'connected' : 'lost'}`, text: data.connected ? 'The Hub is relaying this service’s events.' : 'The Hub can’t read this service’s events right now.', ids: {} });
+      break;
+  }
+}
+
+function applyTopology(snap) {
+  if (!snap) return;
+  topology.snapshot(snap);
+  if (snap.hub?.name) {
+    universityName = snap.hub.name;
+    els.universityName.textContent = universityName;
+  }
+  renderRouter(snap.hub?.router);
+  if (snap.hub?.router) topology.agentMode('hub', { mode: snap.hub.router.mode === 'live' ? 'live' : snap.hub.router.mode, model: snap.hub.router.model, keyConfigured: snap.hub.router.keyConfigured });
+  const hubBox = [el('div', { className: 'skills-row' }, el('span', { className: 'label', textContent: 'Destinations:' }),
+    ...(snap.hub?.destinations ?? []).map((d) => el('span', { className: 'chip', textContent: `${d.destination} → ${d.workerName}` })))];
+  els.hubBox.replaceChildren(...hubBox);
+  for (const s of snap.specialists ?? []) {
+    if (!agents[s.agentId]) continue;
+    agents[s.agentId].registry = { status: s.status, revision: s.revision, etag: s.etag, skills: s.skills, lastError: s.lastError, lastSuccessAt: s.registeredAt };
+    renderSkillsBox(s.agentId);
+  }
 }
 
 // Part 6 events from the issuing agent (Tutor or Library), shown in that agent's panel.
@@ -791,32 +1055,82 @@ function formAgentEvent(panel, type, data, run) {
 
 // ---- connections --------------------------------------------------------
 
-// Visualization stream only. EventSource reconnects automatically with a GET;
-// that can never start an A2A request or submit a form (only the POST endpoints can).
+// Visualization stream only. EventSource reconnects automatically with a GET and the last event ID,
+// so the server replays only what was missed; that can never start an A2A request or submit a form.
+let replaying = false;
 const stream = new EventSource('/api/events');
-stream.addEventListener('open', () => setBadge(els.browserFeed, true, 'Browser stream: connected'));
-stream.addEventListener('error', () => setBadge(els.browserFeed, false, 'Browser stream: reconnecting…'));
+function liveView(connected) {
+  setBadge(els.browserFeed, connected, connected ? 'Live view: connected' : 'Live view: reconnecting…');
+  els.liveBanner.hidden = connected;
+  els.liveBanner.textContent = connected ? '' : 'Live view disconnected — reconnecting. What you see is the last known state; the agents may still be working.';
+  topology.liveView(connected);
+}
+stream.addEventListener('open', () => liveView(true));
+stream.addEventListener('error', () => liveView(false));
 stream.addEventListener('hello', (e) => {
   const hello = JSON.parse(e.data);
-  formsUi.setReplaying(true); // history follows; forms are reconstructed when it ends
   if (bootId !== null && hello.bootId !== bootId) resetAll(); // UI server restarted: seq numbers restart too
   bootId = hello.bootId;
-  setBadge(els.tutorFeed, hello.tutorFeedConnected, hello.tutorFeedConnected ? 'Tutor feed: connected' : 'Tutor feed: offline');
-  renderMode(hello.tutorStatus);
-  renderRouter(hello.router);
-  const lib = hello.agents?.library;
-  if (lib) setBadge(els.libraryFeed, lib.feedConnected, lib.feedConnected ? 'Library feed: connected' : 'Library feed: offline');
-  for (const [id, a] of Object.entries(hello.agents ?? {})) if (agents[id] && a.status?.skills) agents[id].advertised = a.status.skills;
-  for (const r of hello.registry ?? []) if (agents[r.agentId]) agents[r.agentId].registry = r;
-  for (const id of Object.keys(agents)) renderSkillsBox(id);
+  replaying = !hello.resumed;
+  if (replaying) formsUi.setReplaying(true); // full history follows; forms are reconstructed when it ends
+  setBadge(els.hubFeed, hello.hubFeedConnected, hello.hubFeedConnected ? 'Hub telemetry: connected' : 'Hub telemetry: lost');
+  topology.hubFeed(hello.hubFeedConnected);
+  topology.studentCard(hello.university?.cardValid ?? null);
+  renderMode(hello.agents?.tutor);
+  for (const [id, a] of Object.entries(hello.agents ?? {})) {
+    if (agents[id] && a?.skills) agents[id].advertised = a.skills;
+    if (a?.mode) topology.agentMode(id, { mode: a.mode, model: a.model, keyConfigured: a.keyConfigured });
+  }
+  applyTopology(hello.topology);
+  for (const id of ['tutor', 'library']) renderSkillsBox(id);
 });
-stream.addEventListener('replayed', () => formsUi.replayDone());
+stream.addEventListener('truncated', (e) => topology.truncated(JSON.parse(e.data)));
+stream.addEventListener('replayed', () => {
+  if (replaying) formsUi.replayDone();
+  replaying = false;
+});
 stream.addEventListener('message', (e) => {
   const event = JSON.parse(e.data);
   if (seen.has(event.seq)) return;
   seen.add(event.seq);
-  handle(event);
+  handle(event, { live: !replaying });
 });
+
+// ---- tabs (WAI-ARIA tabs: arrow keys move between them) ---------------------------------
+// Each tab is a link with its own address (/conversation, /activity, /topology), so it can be opened in
+// its own browser tab and bookmarked. The plain address / always opens Conversation.
+const tabs = [...document.querySelectorAll('[role="tab"]')];
+const tabForPath = (path) => tabs.find((t) => t.getAttribute('href') === path) ?? tabs[0];
+function showTab(tab, { focus = false, history: how = null } = {}) {
+  for (const t of tabs) {
+    const on = t === tab;
+    t.setAttribute('aria-selected', String(on));
+    t.tabIndex = on ? 0 : -1;
+    document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+  }
+  if (tab.id === 'tab-topology') els.tabPulse.dataset.on = 'false';
+  if (focus) tab.focus();
+  const path = tab.getAttribute('href');
+  if (how && location.pathname !== path) window.history[how === 'push' ? 'pushState' : 'replaceState'](null, '', path);
+}
+for (const t of tabs) {
+  t.addEventListener('click', (e) => {
+    // Cmd/Ctrl/Shift/middle-click: let the browser open the link in a new tab or window.
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    showTab(t, { history: 'push' });
+  });
+  t.addEventListener('keydown', (e) => {
+    const i = tabs.indexOf(t);
+    const next = e.key === 'ArrowRight' ? tabs[(i + 1) % tabs.length] : e.key === 'ArrowLeft' ? tabs[(i - 1 + tabs.length) % tabs.length] : e.key === 'Home' ? tabs[0] : e.key === 'End' ? tabs.at(-1) : null;
+    if (next) {
+      e.preventDefault();
+      showTab(next, { focus: true, history: 'replace' });
+    }
+  });
+}
+showTab(tabForPath(location.pathname));
+window.addEventListener('popstate', () => showTab(tabForPath(location.pathname))); // Back / Forward
 
 async function startRun(path, body) {
   els.formError.textContent = '';

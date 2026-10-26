@@ -1,4 +1,5 @@
-// Part 5 routing: Student picks one registered service, sends over A2A, or calls none.
+// Part 5 routing, moved into the University Hub (Part 7): the Hub picks one registered service and
+// forwards over A2A, or calls none (clarify / unsupported / unavailable) and answers the Student itself.
 // The live router runs against a local fake Anthropic API with scripted decisions (no paid calls):
 // these tests prove the plumbing — validation, destination, isolation — not the model's accuracy.
 // The mock-router section exercises the labeled keyword heuristic.
@@ -32,7 +33,7 @@ before(async () => {
     return messageReply(JSON.stringify(full(scripted.get(latest) ?? { decision: 'unsupported' })));
   });
   trio = await startTrio({
-    uiEnv: { ROUTER_MODE: 'live', ANTHROPIC_API_KEY: 'sk-ant-test-router-placeholder', ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0' },
+    hubEnv: { ROUTER_MODE: 'live', ANTHROPIC_API_KEY: 'sk-ant-test-router-placeholder', ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0' },
   });
   stream = await openStream(trio.ui.url);
 });
@@ -52,9 +53,10 @@ test('every routing example reaches exactly the expected A2A destination — or 
       assert.equal(run.reply.servedBy, expected, `${question}: reply came from ${expected}`);
       assert.equal(run.decision.agentId, expected);
     } else {
-      assert.equal(find(run.events, 'student', 'request_sent'), undefined, `${question}: no service was called`);
-      const finalState = forRun(stream.events, run.runId).filter((e) => e.type === 'state').at(-1).data;
-      assert.deepEqual([finalState.state, finalState.noServiceCalled], ['completed', true]);
+      assert.equal(find(run.events, 'hub', 'forward_attempted'), undefined, `${question}: no service was called`);
+      assert.equal(run.reply.hub.decision, decision.decision, 'the Hub answered the Student itself');
+      assert.equal(run.reply.servedBy, null);
+      assert.equal(stateOf(stream.events, run.runId), 'completed');
     }
   }
 });
@@ -140,29 +142,33 @@ test('reconnecting browsers do not trigger routing or service calls again', asyn
   assert.equal(findAll(stream.events, 'tutor', 'message_received').length, tutorReceived);
 });
 
-test('an offline selected service is reported — the question is not redirected elsewhere', async () => {
-  trio.library.proc.kill();
+test('an offline selected service is reported as unavailable — the question is not redirected elsewhere', async () => {
+  trio.library.proc.kill(); // SIGTERM: the Library signs out from the Hub
   await new Promise((r) => trio.library.proc.once('exit', r));
+  await waitFor(async () => (await (await fetch(`${trio.hub.url}/viz/topology`)).json()).specialists.find((x) => x.agentId === 'library').status !== 'ready', { what: 'library not ready' });
   scripted.set('How do I renew a borrowed book?', { decision: 'route', agent_id: 'library', skill_id: 'renewals' });
   const run = await chatVia(trio.ui, stream, 'How do I renew a borrowed book?');
-  assert.equal(stateOf(stream.events, run.runId), 'failed');
-  assert.equal(find(run.events, 'student', 'request_failed').data.outcome, 'not_delivered');
+  assert.equal(run.decision.decision, 'unavailable', 'a supported request for a service that is not ready');
+  assert.equal(run.reply.hub.decision, 'unavailable');
+  assert.match(run.reply.text, /Library Agent is not available right now/);
+  assert.equal(find(run.events, 'hub', 'forward_attempted'), undefined, 'nothing dispatched');
   assert.deepEqual(run.destinations, [], 'not redirected to the Tutor');
 });
 
 test('router provider failure or missing key: clear error, neither service called', async () => {
   stub.respondWith(() => ({ status: 529 }));
   const run = await chatVia(trio.ui, stream, 'Explain the derivative of x squared');
-  assert.equal(find(run.events, 'student', 'route_failed').data.code, 'provider_unavailable');
+  assert.equal(find(run.events, 'hub', 'route_failed').data.code, 'provider_unavailable');
+  assert.equal(find(run.events, 'student', 'tutor_error').data.code, 'provider_unavailable', 'the Student is told the request failed');
   assert.deepEqual(run.destinations, []);
   assert.equal(stateOf(stream.events, run.runId), 'failed');
 
-  const keyless = await startTrio({ uiEnv: { ROUTER_MODE: 'live', ANTHROPIC_API_KEY: '', ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0' } });
+  const keyless = await startTrio({ hubEnv: { ROUTER_MODE: 'live', ANTHROPIC_API_KEY: '', ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0' } });
   try {
     const s = await openStream(keyless.ui.url);
     const before = stub.requests.length;
     const r = await chatVia(keyless.ui, s, 'Explain the derivative of x squared');
-    assert.equal(find(r.events, 'student', 'route_failed').data.code, 'missing_credentials');
+    assert.equal(find(r.events, 'hub', 'route_failed').data.code, 'missing_credentials');
     assert.deepEqual(r.destinations, []);
     assert.equal(stub.requests.length, before, 'no provider call without a key');
     s.close();
@@ -172,7 +178,7 @@ test('router provider failure or missing key: clear error, neither service calle
 });
 
 test('mock router (labeled heuristic) on the routing examples', async () => {
-  const mockTrio = await startTrio({ uiEnv: { ROUTER_MODE: 'mock' } });
+  const mockTrio = await startTrio({ hubEnv: { ROUTER_MODE: 'mock' } });
   try {
     const s = await openStream(mockTrio.ui.url);
     for (const [question, , expected] of EXAMPLES) {
@@ -180,7 +186,7 @@ test('mock router (labeled heuristic) on the routing examples', async () => {
       assert.deepEqual(run.destinations, expected ? [expected] : [], `${question} (heuristic)`);
     }
     const r = await status(mockTrio.ui);
-    assert.equal(r.router.mode, 'mock');
+    assert.equal(r.topology.hub.router.mode, 'mock');
     s.close();
   } finally {
     mockTrio.kill();

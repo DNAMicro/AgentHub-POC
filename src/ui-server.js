@@ -1,41 +1,47 @@
-// UI backend. Hosts the Student Agent (its A2A client, router, trusted registry, and A2A
-// receiving endpoint) and serves a browser page that visualizes the exchange.
+// UI backend. Hosts the Student Agent and serves the browser page that visualizes the exchange.
+//
+// Part 7: the Student connects ONLY to its university — the "California State University Fullerton"
+// Hub. It discovers the Hub's public card, sends every chat message and form action to the Hub over
+// A2A, and never learns specialist endpoints. The Hub routes, forwards to the Tutor or Library and
+// relays their replies.
+//
+// The Student's own model (src/student-assistant.js, STUDENT_MODE): before sending, it picks which of
+// the university's public capabilities a non-obvious question needs, or asks the student a clarifying
+// question first. It only names a capability ID from the Hub's card; the Hub owns the destinations.
 //
 // Keep these distinct:
-//   * A2A:           Student → Tutor/Library JSON-RPC (questions, form actions), and Tutor/Library →
-//                    Student's endpoint (agent_card_changed notifications). All agent messages.
-//   * Routing:       this application's choice of service (src/router.js), not an A2A feature.
-//   * A2UI:          a form an agent decides to send inside A2A (Part 6: only in reply to a chat
-//                    request — there is no "request form" shortcut), rendered by the browser.
-//   * Visualization: agents' /viz/events → this server → browser /api/events (SSE). Reports real
-//                    events and delivers received A2UI payloads; never carries agent messages.
-//   * Settings:      local developer controls proxied to each agent's /settings/skills (HTTP, not A2A).
+//   * A2A:           Student → Hub JSON-RPC (questions, form actions). All agent messages.
+//   * A2UI:          forms a specialist decided to send, relayed inside A2A by the Hub, rendered here.
+//   * Telemetry:     Hub /viz/events (its own events plus the specialists' feeds, redacted by the Hub)
+//                    → this server → browser /api/events (SSE). Reports real events only; each is
+//                    labelled for the topology graph (src/topology.js). Never carries agent messages.
+//   * Settings:      local developer controls proxied through the Hub's /dev endpoints (HTTP, not A2A).
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { askTutor, sendFormAction } from './student-agent.js';
 import { hostGuard, sameOriginGuard } from './local-guard.js';
 import { A2UI_VERSION, WORKFLOWS, checkAction, validateBookingCriteria, validateFinal } from './forms.js';
-import { createRegistry, trustedPeers } from './student-registry.js';
-import { ROUTER_MODE, decideRoute, routerStatus } from './router.js';
-import { startStudentEndpoint } from './student-endpoint.js';
+import { loadStudentConfig } from './config.js';
+import { getCard, validateCard } from './cards.js';
+import { topologyLabel } from './topology.js';
+import { apiHost, keyEnvName, useModel } from './llm.js';
+import { planRequest, studentAssistantStatus } from './student-assistant.js';
 
 const HOST = '127.0.0.1';
 const MAX_TEXT_LENGTH = 2000;
-const MAX_HISTORY = 1000;
+const MAX_HISTORY = Number(process.env.UI_HISTORY_LIMIT ?? 1000); // bounded; older events are dropped with a notice
 const FEED_RETRY_MS = 1000;
 const PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url));
 const SHARED_FORM_MODULE = fileURLToPath(new URL('./forms.js', import.meta.url));
 const ACTION_KEYS = ['name', 'surfaceId', 'sourceComponentId', 'timestamp', 'context'];
 const CONTEXT_ID_PATTERN = /^[\w-]{8,100}$/;
-const CONFIG_EVENTS = new Set(['skills_saved', 'card_notification']); // agent events not tied to a run
-const MAX_CONVERSATIONS = 100;
-const ROUTING_TURNS = 6;
+const CONFIG_EVENTS = new Set(['skills_saved', 'card_notification', 'hub_registration']); // specialist events not tied to a run
+const EPHEMERAL = new Set(['heartbeat']); // shown live (if the viewer wants them) but not kept in history
 
 // Allowed forward transitions per run kind. Late events can never move a run backwards.
 const NEXT_STATES = {
   chat: {
-    routing: ['sending', 'completed', 'failed'],
     sending: ['waiting', 'completed', 'failed', 'uncertain'],
     waiting: ['completed', 'failed', 'uncertain'],
     // A timeout leaves the outcome unknown; "check for answer" re-sends the same request ID.
@@ -57,23 +63,47 @@ const NEXT_STATES = {
 // rejected → editing (explicit "Edit and retry");  confirmation_pending → submitting (reconcile, same operation ID)
 const CLOSED_FORM_STATES = new Set(['accepted', 'cancelled', 'superseded']);
 
-export async function startUiServer({ port = 3000, tutorUrl = 'http://127.0.0.1:41241', libraryUrl = 'http://127.0.0.1:41242', studentPort = 41240 } = {}) {
+export async function startUiServer({ port = 3000 } = {}) {
+  const cfg = loadStudentConfig(); // throws a clear error on invalid configuration
+  useModel(cfg.model); // the Student's own model and key variable (used only when STUDENT_MODE=live)
+  const hub = { name: cfg.university.name, baseUrl: cfg.university.hubUrl, cardUrl: cfg.university.cardUrl, rpcUrl: `${cfg.university.hubUrl}/a2a/jsonrpc`, vizUrl: `${cfg.university.hubUrl}/viz/events`, devUrl: `${cfg.university.hubUrl}/dev` };
+  const identity = { studentId: cfg.agentId };
   const bootId = randomUUID();
   const history = []; // every published event, replayed to (re)connecting browsers
+  let dropped = 0; // events that fell out of the bounded history
   const clients = new Set();
   const runs = new Map(); // runId → { kind, state, ... }
-  const forms = new Map(); // formId → { workflowId, agentId, conversationId, contextId, taskId, state, … }
-  const conversations = new Map(); // conversationId → { turns, contexts: { agentId → A2A contextId } }
+  const forms = new Map(); // formId → { workflowId, agentId, conversationId, contextId, taskId, formRef, state, … }
   let activeRunId = null; // a chat run or form request in flight (one at a time)
   let seq = 0;
 
-  const peers = trustedPeers({ tutorUrl, libraryUrl });
-  const feeds = Object.fromEntries(Object.keys(peers).map((id) => [id, { connected: false, status: null }]));
+  // Telemetry state shown on (re)connect: Hub feed, the Hub's topology snapshot, specialist modes.
+  const feeds = { hub: { connected: false } };
+  const agentStatus = {}; // agentId → the specialist's own status (mode, skills), relayed by the Hub
+  let topology = null;
+  let hubCard = null; // the validated public card of the university Hub
+  let capabilities = []; // its public capability skills (validated view): { id, name, description, tags, examples }
+  // Per conversation (Student↔Hub contextId): recent turns for the Student's planner, and a question
+  // held back while the student answers our clarifying question.
+  const conversations = new Map(); // contextId → { turns: [{ question, capability, answer }], pending: { original } | null }
+  const conversationFor = (contextId) => {
+    if (!conversations.has(contextId)) conversations.set(contextId, { turns: [], pending: null });
+    return conversations.get(contextId);
+  };
+  let hubCardError = null;
 
   function publish(event) {
-    const stamped = { seq: ++seq, at: new Date().toISOString(), ...event };
-    history.push(stamped);
-    if (history.length > MAX_HISTORY) history.shift();
+    seq += 1;
+    const stamped = { seq, id: `${bootId}:${seq}`, at: new Date().toISOString(), ...event };
+    const topo = topologyLabel(stamped);
+    if (topo) stamped.topo = topo;
+    if (!EPHEMERAL.has(event.type)) {
+      history.push(stamped);
+      if (history.length > MAX_HISTORY) {
+        history.shift();
+        dropped += 1;
+      }
+    }
     for (const res of clients) writeEvent(res, stamped);
   }
 
@@ -85,73 +115,81 @@ export async function startUiServer({ port = 3000, tutorUrl = 'http://127.0.0.1:
     return true;
   }
 
-  // Student's trusted registry. Its events (refresh started/updated/failed) are real outcomes.
-  const registry = createRegistry({ peers, onEvent: (type, data) => publish({ source: 'student', type, runId: null, data }) });
-
-  function setFeedConnected(agentId, connected) {
-    if (feeds[agentId].connected === connected) return;
-    feeds[agentId].connected = connected;
-    if (agentId === 'tutor') publish({ source: 'system', type: 'tutor_feed', runId: null, data: { connected } });
-    publish({ source: 'system', type: 'agent_feed', runId: null, data: { agentId, connected } });
-    // An agent that (re)appears may have restarted with different skills: refresh its card.
-    if (connected) registry.refresh(agentId, 'reconnect');
+  // Discover and validate the Hub's PUBLIC card (the Student's only destination).
+  async function discoverHub(reason) {
+    try {
+      const res = await getCard(hub.cardUrl, null);
+      if (res.status !== 200) throw new Error(`HTTP ${res.status} from the university card URL`);
+      const card = JSON.parse(res.body);
+      const checked = validateCard(card, { expectedName: hub.name, rpcUrl: hub.rpcUrl });
+      if (!checked.ok) throw new Error(checked.error);
+      hubCard = card;
+      capabilities = checked.view.skills;
+      hubCardError = null;
+      publish({ source: 'student', type: 'card_discovered', runId: null, data: { name: card.name, url: hub.rpcUrl, skills: checked.view.skills.map((s) => s.id), reason } });
+    } catch (err) {
+      hubCardError = err.code === 'ECONNREFUSED' ? 'University Hub offline (connection refused)' : err.message;
+      publish({ source: 'student', type: 'hub_card_failed', runId: null, data: { error: hubCardError, reason } });
+    }
+    return hubCard;
   }
 
-  // Subscribe to each agent's visualization feed; reconnect while the server runs.
+  function setFeedConnected(connected) {
+    if (feeds.hub.connected === connected) return;
+    feeds.hub.connected = connected;
+    publish({ source: 'system', type: 'hub_feed', runId: null, data: { connected } });
+    if (connected) discoverHub('reconnect'); // the Hub may have restarted
+  }
+
+  // Follow the Hub's telemetry feed (its events plus the specialists' redacted feeds).
   const feedAbort = new AbortController();
-  for (const peer of Object.values(peers)) {
-    (async function followFeed() {
-      while (!feedAbort.signal.aborted) {
-        try {
-          const res = await fetch(peer.vizUrl, { signal: feedAbort.signal });
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          setFeedConnected(peer.agentId, true);
-          let buffer = '';
-          for await (const chunk of res.body.pipeThrough(new TextDecoderStream())) {
-            buffer += chunk;
-            let end;
-            while ((end = buffer.indexOf('\n\n')) !== -1) {
-              const frame = buffer.slice(0, end);
-              buffer = buffer.slice(end + 2);
-              const data = frame.split('\n').find((line) => line.startsWith('data: '));
-              if (data) relayAgentEvent(peer.agentId, JSON.parse(data.slice(6)));
-            }
+  (async function followFeed() {
+    while (!feedAbort.signal.aborted) {
+      try {
+        const res = await fetch(hub.vizUrl, { signal: feedAbort.signal });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        setFeedConnected(true);
+        let buffer = '';
+        for await (const chunk of res.body.pipeThrough(new TextDecoderStream())) {
+          buffer += chunk;
+          let end;
+          while ((end = buffer.indexOf('\n\n')) !== -1) {
+            const frame = buffer.slice(0, end);
+            buffer = buffer.slice(end + 2);
+            const data = frame.split('\n').find((line) => line.startsWith('data: '));
+            if (data) relayEvent(JSON.parse(data.slice(6)));
           }
-        } catch {
-          // Agent not running or connection dropped; reported through agent_feed below.
         }
-        setFeedConnected(peer.agentId, false);
-        if (!feedAbort.signal.aborted) await new Promise((r) => setTimeout(r, FEED_RETRY_MS));
+      } catch {
+        // Hub not running or connection dropped; reported through hub_feed below.
       }
-    })();
-  }
+      setFeedConnected(false);
+      if (!feedAbort.signal.aborted) await new Promise((r) => setTimeout(r, FEED_RETRY_MS));
+    }
+  })();
 
-  function relayAgentEvent(agentId, event) {
-    if (event.type === 'status') {
-      // Mode, whether a key is present (boolean), current skills. Sent once per feed connection.
-      feeds[agentId].status = event.data;
-      if (agentId === 'tutor') publish({ source: 'system', type: 'tutor_status', runId: null, data: event.data });
-      publish({ source: 'system', type: 'agent_status', runId: null, data: { agentId, ...event.data } });
+  function relayEvent(event) {
+    const { source, type } = event;
+    if (source === 'hub' && type === 'status') {
+      topology = event.data;
+      publish({ source: 'system', type: 'topology', runId: null, data: topology });
       return;
     }
-    if (event.runId == null && CONFIG_EVENTS.has(event.type)) {
-      publish({ source: agentId, type: event.type, runId: null, data: event.data, at: event.at });
+    if (type === 'status') {
+      // A specialist's mode, whether a key is present (boolean), current skills.
+      agentStatus[source] = event.data;
+      publish({ source: 'system', type: 'agent_status', runId: null, data: { agentId: source, ...event.data } });
       return;
     }
-    if (!runs.has(event.runId)) return; // only runs started from this UI (CLI runs have no runId)
+    if (event.runId == null) {
+      // Hub configuration/registry events, and specialists' configuration events.
+      if (source === 'hub' || CONFIG_EVENTS.has(type)) publish({ source, type, runId: null, data: event.data, at: event.at });
+      return;
+    }
+    if (!runs.has(event.runId)) return; // only runs started from this UI
     // Keep the agent's own timestamp: it records when the agent observed the event.
-    publish({ source: agentId, type: event.type, runId: event.runId, data: event.data, at: event.at });
-    if (event.type === 'message_received') setState(event.runId, 'waiting');
-  }
-
-  function conversation(id) {
-    let c = conversations.get(id);
-    if (!c) {
-      c = { turns: [], contexts: {} };
-      conversations.set(id, c);
-      if (conversations.size > MAX_CONVERSATIONS) conversations.delete(conversations.keys().next().value);
-    }
-    return c;
+    publish({ source, type, runId: event.runId, data: event.data, at: event.at });
+    if (source === 'hub' && type === 'message_received') setState(event.runId, 'waiting');
   }
 
   const startRun = (kind, state) => {
@@ -168,56 +206,78 @@ export async function startUiServer({ port = 3000, tutorUrl = 'http://127.0.0.1:
   app.use((req, res, next) => guardHost(req, res, next));
   app.use(express.json({ limit: '64kb' }));
   app.get('/shared/forms.js', (req, res) => res.type('text/javascript').sendFile(SHARED_FORM_MODULE));
+  // Each tab has its own address; the page picks the tab from the path. Only these three exist.
+  app.get(['/conversation', '/activity', '/topology'], (req, res) => res.sendFile('index.html', { root: PUBLIC_DIR }));
   app.use(express.static(PUBLIC_DIR));
 
+  agentStatus.student = studentAssistantStatus(); // the Student's own model (mode, model, key present)
+  publish({ source: 'system', type: 'agent_status', runId: null, data: { agentId: 'student', ...agentStatus.student } });
   const statusBody = () => ({
-    tutorUrl, tutorFeedConnected: feeds.tutor.connected, activeRunId, tutorStatus: feeds.tutor.status,
-    agents: Object.fromEntries(Object.entries(feeds).map(([id, f]) => [id, { feedConnected: f.connected, status: f.status }])),
-    router: routerStatus(), registry: registry.summaries(), studentEndpoint: studentEndpointUrl,
+    student: { agentId: cfg.agentId, displayName: cfg.displayName, relationship: cfg.university.relationship },
+    university: { name: hub.name, cardUrl: hub.cardUrl, cardValid: Boolean(hubCard), cardError: hubCardError, capabilities: capabilities.map((c) => ({ id: c.id, name: c.name })) },
+    hubFeedConnected: feeds.hub.connected, activeRunId, topology, agents: agentStatus,
+    tutorStatus: agentStatus.tutor ?? null,
   });
   app.get('/api/status', (req, res) => res.json(statusBody()));
-  app.get('/api/registry', (req, res) => res.json(registry.summaries()));
 
   const apiPost = express.Router();
   apiPost.use((req, res, next) => guardOrigin(req, res, next));
 
-  // Send one chat request over A2A to the run's service. `run` holds the per-service A2A
-  // contextId and the request ID (messageId); a reconcile re-sends the same ones.
-  function sendChat(runId, run) {
+  // Send one chat request over A2A to the Hub. `run` holds the conversation's A2A contextId and the
+  // request ID (messageId); a reconcile re-sends the same ones.
+  async function sendChat(runId, run) {
     activeRunId = runId;
-    const agentId = run.agentId ?? 'tutor';
-    const peer = registry.peer(agentId);
-    let card;
-    if (run.routed) {
-      card = registry.entry(agentId)?.card;
-      if (!card) {
-        publish({ source: 'student', type: 'request_failed', runId, data: { error: `${peer.displayName} has no validated Agent Card right now, so nothing was sent.`, outcome: 'not_delivered', agentId } });
-        setState(runId, 'failed', { agentId });
-        activeRunId = null;
-        return;
-      }
+    const card = hubCard ?? (await discoverHub('send'));
+    if (!card) {
+      publish({ source: 'student', type: 'request_failed', runId, data: { error: `${hub.name} is not reachable (${hubCardError}), so nothing was sent.`, outcome: 'not_delivered' } });
+      setState(runId, 'failed');
+      activeRunId = null;
+      return;
     }
-    askTutor(peer.baseUrl, run.text, {
-      runId,
-      card, // routed: the registry's validated card (vetted endpoint); direct: fetched as in Parts 2–4
-      contextId: run.agentContextId ?? run.contextId,
-      messageId: run.messageId,
+    askTutor(hub.baseUrl, run.text, {
+      runId, card, contextId: run.contextId, messageId: run.messageId, timeoutMs: cfg.timeouts.chatMs,
+      metadata: { ...identity, ...(run.requestedCapability ? { requestedCapability: run.requestedCapability } : {}) },
       onEvent: (type, data) => {
-        // A form decided by the agent: register it (issuer, workflow, conversation) before showing it.
-        const extra = type === 'form_received' ? registerForm(data, { agentId, conversationId: run.contextId, runId }) : {};
-        publish({ source: 'student', type, runId, data: { ...data, agentId, ...extra } });
+        // A relayed form: register it (issuer, workflow, conversation, Hub reference) before showing it.
+        const extra = type === 'form_received' ? registerForm(data, { conversationId: run.contextId, runId }) : {};
+        publish({ source: 'student', type, runId, data: { ...data, ...(type === 'form_received' ? { agentId: data.issuer } : {}), ...extra } });
       },
     })
       .then((reply) => {
-        // Remember a snippet of the service's reply, so a short follow-up ("yes") can be routed.
-        const turn = conversations.get(run.contextId)?.turns.at(-1);
-        if (run.routed && turn && turn.question === run.text) turn.answer = String(reply?.text ?? '').slice(0, 300);
-        setState(runId, 'completed', { agentId });
+        const conv = conversationFor(run.contextId);
+        conv.turns = [...conv.turns, { question: run.text, capability: reply?.hub?.destination ?? null, answer: String(reply?.text ?? '').slice(0, 300) }].slice(-6);
+        setState(runId, 'completed', { servedBy: reply?.servedBy ?? null, decision: reply?.hub?.decision ?? null });
       })
-      .catch((err) => setState(runId, err.outcome === 'uncertain' ? 'uncertain' : 'failed', { agentId, ...(err.tutorError ? { tutorError: err.tutorError.code } : {}) }))
+      .catch((err) => setState(runId, err.outcome === 'uncertain' ? 'uncertain' : 'failed', err.tutorError ? { tutorError: err.tutorError.code } : {}))
       .finally(() => {
         if (activeRunId === runId) activeRunId = null;
       });
+  }
+
+  // The Student's own step before sending: pick a capability for a non-obvious question, or ask the
+  // student to clarify (then nothing is sent until they answer).
+  async function planAndSend(runId, run) {
+    activeRunId = runId;
+    const conv = conversationFor(run.contextId);
+    if (hubCard || (await discoverHub('send'))) {
+      const last = conv.turns.at(-1);
+      const plan = await planRequest({
+        question: run.text, capabilities, recentTurns: conv.turns, clarifiedAlready: run.clarified,
+        followsQuestion: Boolean(last && /\?\s*$/.test(last.answer ?? '')),
+        onModelEvent: (type, data) => publish({ source: 'student', type, runId, data }),
+      });
+      const name = capabilities.find((c) => c.id === plan.capability)?.name ?? null;
+      publish({ source: 'student', type: 'request_planned', runId, data: { action: plan.action, capability: plan.capability, capabilityName: name, by: plan.by, reason: plan.reason, matched: plan.matched?.map((m) => ({ id: m.id, terms: m.terms })) ?? [], model: plan.model ?? null, usage: plan.usage ?? null, error: plan.error ?? null } });
+      if (plan.action === 'clarify') {
+        conv.pending = { original: run.text };
+        publish({ source: 'student', type: 'clarification_asked', runId, data: { question: run.text, text: plan.clarificationQuestion, contextId: run.contextId } });
+        setState(runId, 'completed', { decision: 'student_clarify' });
+        activeRunId = null;
+        return;
+      }
+      run.requestedCapability = plan.capability;
+    }
+    sendChat(runId, run);
   }
 
   // ---- Part 6: forms the agents decided to send --------------------------------------------
@@ -229,14 +289,16 @@ export async function startUiServer({ port = 3000, tutorUrl = 'http://127.0.0.1:
   }
 
   // Returns { lifecycle } for the form_received event: 'editing' to render it, anything else to not.
-  function registerForm(data, { agentId, conversationId, runId }) {
+  function registerForm(data, { conversationId, runId }) {
+    const agentId = data.issuer;
     const workflow = WORKFLOWS[data.workflowId];
-    // Form-origin check: an agent may only issue its own workflows.
+    // Form-origin check: a service may only issue its own workflows, and a relayed form needs the Hub's reference.
     if (!workflow || workflow.agentId !== agentId) return { lifecycle: 'refused', refusedReason: `${agentId} can’t issue the “${data.workflowId}” workflow.` };
+    if (!data.formRef) return { lifecycle: 'refused', refusedReason: 'The form has no university reference, so its actions could not be routed.' };
     const known = forms.get(data.formId);
     if (known) return { lifecycle: known.state, repeat: true }; // the same form re-sent (retry): never a second copy
     const record = {
-      formId: data.formId, workflowId: data.workflowId, agentId, conversationId, contextId: data.contextId, taskId: data.taskId,
+      formId: data.formId, workflowId: data.workflowId, agentId, conversationId, contextId: data.contextId, taskId: data.taskId, formRef: data.formRef,
       formVersion: data.formVersion, a2uiMessages: data.a2uiMessages, updates: [], state: 'editing', inFlight: false,
       lastOperation: null, lastSubmitted: null, issuedRunId: runId,
     };
@@ -261,9 +323,9 @@ export async function startUiServer({ port = 3000, tutorUrl = 'http://127.0.0.1:
     form.inFlight = true;
     publish({ source: 'system', type: 'run_started', runId, data: { kind: 'form_action', formId: form.formId, workflowId: form.workflowId, actionName: action.name, operationId, agentId: form.agentId } });
     publish({ source: 'system', type: 'state', runId, data: { state: 'sending' } });
-    const peer = registry.peer(form.agentId);
-    sendFormAction(peer.baseUrl, {
-      form, action, operationId, runId, acknowledgeReview, card: registry.entry(form.agentId)?.card,
+    // Always to the Hub, with its opaque form reference; the Hub forwards to the issuing specialist.
+    sendFormAction(hub.baseUrl, {
+      form, action, operationId, runId, acknowledgeReview, card: hubCard ?? undefined, metadata: identity, timeoutMs: cfg.timeouts.formActionMs,
       onEvent: (type, data) => publish({ source: 'student', type, runId, data: { ...data, agentId: form.agentId, workflowId: form.workflowId } }),
     })
       .then((result) => {
@@ -287,7 +349,7 @@ export async function startUiServer({ port = 3000, tutorUrl = 'http://127.0.0.1:
         if (!spec.final) return; // lookups/review/cancel: the browser shows the failure; nothing to reconcile
         // Possibly accepted: never offer a blind resubmission — only a reconcile with the same operation ID.
         if (err.outcome === 'uncertain') setLifecycle(form.formId, 'confirmation_pending', { runId, operationId });
-        else setLifecycle(form.formId, 'rejected', { runId, notDelivered: true, errors: { _form: /task not found/i.test(err.message) ? 'The agent no longer knows this form (it keeps records in memory, so a restart clears them).' : `Not delivered: ${err.message}` } });
+        else setLifecycle(form.formId, 'rejected', { runId, notDelivered: true, errors: { _form: /task not found/i.test(err.message) ? 'The university no longer knows this form (records are in memory, so a restart clears them).' : `Not delivered: ${err.message}` } });
       })
       .finally(() => {
         form.inFlight = false;
@@ -351,36 +413,6 @@ export async function startUiServer({ port = 3000, tutorUrl = 'http://127.0.0.1:
     res.status(202).json({ runId, operationId: form.lastOperation.operationId });
   });
 
-  // Routed chat: decide (model or heuristic), validate, then send to exactly one service — or none.
-  async function routeAndSend(runId, run) {
-    activeRunId = runId;
-    const conv = conversation(run.contextId);
-    const services = registry.routingView();
-    publish({ source: 'student', type: 'route_requested', runId, data: { routerMode: ROUTER_MODE, services: services.map((s) => ({ agentId: s.agentId, skills: s.skills.map((k) => k.id), stale: s.stale })) } });
-    let decision;
-    try {
-      decision = await decideRoute({ question: run.text, recentTurns: conv.turns, services });
-    } catch (err) {
-      publish({ source: 'student', type: 'route_failed', runId, data: { code: err.code ?? 'internal_error', message: err.message } });
-      setState(runId, 'failed', { noServiceCalled: true });
-      activeRunId = null;
-      return;
-    }
-    publish({ source: 'student', type: 'route_decided', runId, data: decision });
-    conv.turns = [...conv.turns, { question: run.text, agentId: decision.agentId, skillId: decision.skillId, answer: decision.decision === 'clarify' ? decision.clarificationQuestion ?? '' : '' }].slice(-ROUTING_TURNS);
-    if (decision.decision !== 'route') {
-      setState(runId, 'completed', { noServiceCalled: true, decision: decision.decision });
-      activeRunId = null;
-      return;
-    }
-    run.agentId = decision.agentId;
-    run.skillId = decision.skillId;
-    // Separate A2A context per service: never reuse one service's context/task IDs with another.
-    run.agentContextId = conv.contexts[decision.agentId] ??= randomUUID();
-    setState(runId, 'sending', { agentId: decision.agentId });
-    sendChat(runId, run);
-  }
-
   // Chat run. Only POSTs start A2A requests; reconnecting browsers use GET /api/events.
   apiPost.post('/runs', (req, res) => {
     const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
@@ -392,17 +424,22 @@ export async function startUiServer({ port = 3000, tutorUrl = 'http://127.0.0.1:
     }
     if (activeRunId) return res.status(409).json({ error: 'A request is already in progress.', activeRunId });
 
-    // contextId names the student's conversation. Direct mode uses it as the Tutor's A2A contextId
-    // (Part 4); routed mode keeps a separate A2A contextId per service under it.
-    const routed = ROUTER_MODE !== 'direct';
-    const run = { kind: 'chat', state: routed ? 'routing' : 'sending', routed, text, contextId: requestedContext ?? randomUUID(), messageId: randomUUID(), agentId: routed ? null : 'tutor' };
+    // contextId names the student's conversation: it is the Student↔Hub A2A contextId. The Hub keeps
+    // separate downstream contexts per specialist under it.
+    const run = { kind: 'chat', state: 'sending', text, contextId: requestedContext ?? randomUUID(), messageId: randomUUID(), clarified: false };
+    // Answering the Student's own clarifying question: send the held-back question together with it.
+    const conv = requestedContext ? conversations.get(requestedContext) : null;
+    if (conv?.pending) {
+      run.text = `${conv.pending.original}\n${text}`.slice(0, MAX_TEXT_LENGTH);
+      run.clarified = true;
+      conv.pending = null;
+    }
     const runId = randomUUID();
     runs.set(runId, run);
-    publish({ source: 'system', type: 'run_started', runId, data: { kind: 'chat', text, contextId: run.contextId, newConversation: !requestedContext, messageId: run.messageId, tutorMode: feeds.tutor.status?.mode ?? null, routerMode: ROUTER_MODE } });
+    publish({ source: 'system', type: 'run_started', runId, data: { kind: 'chat', text, contextId: run.contextId, newConversation: !requestedContext, messageId: run.messageId, routerMode: topology?.hub?.router?.mode ?? null, studentMode: agentStatus.student.mode, clarifies: run.clarified } });
     publish({ source: 'system', type: 'state', runId, data: { state: run.state } });
     res.status(202).json({ runId, contextId: run.contextId });
-    if (routed) routeAndSend(runId, run);
-    else sendChat(runId, run);
+    planAndSend(runId, run);
   });
 
   // "New conversation": a visualization-only marker. Browsers clear their panels when they see it,
@@ -416,42 +453,43 @@ export async function startUiServer({ port = 3000, tutorUrl = 'http://127.0.0.1:
     res.status(202).json({});
   });
 
-  // After an uncertain outcome: ask the SAME service again for the result of the same request.
-  // No new routing decision; the service returns its stored or in-flight answer (no new model call).
+  // After an uncertain outcome: ask the Hub again for the result of the same request (same request ID).
+  // The Hub returns its stored or in-flight result — no second routing decision or dispatch.
   apiPost.post('/runs/:runId/reconcile', (req, res) => {
     const run = runs.get(req.params.runId);
     if (!run || run.kind !== 'chat') return res.status(404).json({ error: 'Unknown chat run.' });
     if (run.state !== 'uncertain') return res.status(409).json({ error: `Nothing to reconcile: the run is ${run.state}.` });
     if (activeRunId) return res.status(409).json({ error: 'A request is already in progress.', activeRunId });
-    setState(req.params.runId, 'sending', { reconcile: true, messageId: run.messageId, agentId: run.agentId });
+    setState(req.params.runId, 'sending', { reconcile: true, messageId: run.messageId });
     res.status(202).json({ runId: req.params.runId, messageId: run.messageId });
     sendChat(req.params.runId, run);
   });
 
-  // Manual "Refresh skills": re-fetch registered cards (conditional, coalesced). No model calls.
-  apiPost.post('/registry/refresh', (req, res) => {
-    const agentId = req.body?.agentId;
-    if (agentId !== undefined && !registry.has(agentId)) return res.status(404).json({ error: 'Unknown agent.' });
-    if (agentId) registry.refresh(agentId, 'manual');
-    else registry.refreshAll('manual');
-    res.status(202).json({});
+  // Manual "Refresh skills": the Hub re-fetches specialist cards; the Student re-reads the Hub's card.
+  apiPost.post('/registry/refresh', async (req, res) => {
+    discoverHub('manual');
+    try {
+      await fetch(`${hub.devUrl}/registry/refresh`, { method: 'POST', signal: AbortSignal.timeout(3000) });
+      res.status(202).json({});
+    } catch {
+      res.status(502).json({ error: `${hub.name} is not reachable.` });
+    }
   });
 
-  // Skill settings: proxied to the registered agent's own settings API (local developer controls).
-  // The destination comes from the trusted registry; the browser can't choose a URL.
+  // Skill settings: local developer controls, proxied through the Hub to the specialist's own settings
+  // API. The Hub picks the destination from its configuration; the browser can't choose a URL.
   async function proxySettings(req, res, path, method) {
-    const peer = registry.peer(req.params.agentId);
-    if (!peer) return res.status(404).json({ error: 'Unknown agent.' });
+    if (!/^[a-z][a-z0-9-]{1,40}$/.test(req.params.agentId)) return res.status(404).json({ error: 'Unknown agent.' });
     try {
-      const upstream = await fetch(peer.settingsUrl + path, {
+      const upstream = await fetch(`${hub.devUrl}/agents/${req.params.agentId}/skills${path}`, {
         method,
         headers: method === 'GET' ? {} : { 'Content-Type': 'application/json' },
         body: method === 'GET' ? undefined : JSON.stringify(req.body ?? {}),
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(6000),
       });
       res.status(upstream.status).json(await upstream.json());
     } catch {
-      res.status(502).json({ error: `${peer.displayName} is not reachable, so its settings can’t be read or saved.` });
+      res.status(502).json({ error: `${hub.name} is not reachable, so settings can’t be read or saved.` });
     }
   }
   app.get('/api/agents/:agentId/skills', (req, res) => proxySettings(req, res, '', 'GET'));
@@ -460,10 +498,20 @@ export async function startUiServer({ port = 3000, tutorUrl = 'http://127.0.0.1:
 
   app.use('/api', apiPost);
 
+  // Event IDs are "<bootId>:<seq>". A reconnecting browser sends Last-Event-ID (or ?after=) and gets only
+  // what it missed; a different bootId (server restarted) or a cursor older than the kept history gets
+  // a full replay plus a truncation notice. The browser also dedupes by seq.
   app.get('/api/events', (req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
-    res.write(`event: hello\ndata: ${JSON.stringify({ bootId, ...statusBody() })}\n\n`);
-    for (const event of history) writeEvent(res, event);
+    const cursor = String(req.headers['last-event-id'] ?? req.query.after ?? '');
+    const [cursorBoot, cursorSeq] = cursor.split(':');
+    const after = cursorBoot === bootId && Number.isInteger(Number(cursorSeq)) ? Number(cursorSeq) : null;
+    const oldest = history[0]?.seq ?? seq + 1;
+    const resumed = after !== null && after >= oldest - 1;
+    res.write(`event: hello\ndata: ${JSON.stringify({ bootId, resumed, ...statusBody() })}\n\n`);
+    if (!resumed && dropped > 0) res.write(`event: truncated\ndata: ${JSON.stringify({ missed: dropped, kept: history.length })}\n\n`);
+    if (after !== null && !resumed) res.write(`event: truncated\ndata: ${JSON.stringify({ missed: oldest - after - 1, kept: history.length })}\n\n`);
+    for (const event of history) if (!resumed || event.seq > after) writeEvent(res, event);
     // End of replay: the browser now reconstructs each form's CURRENT lifecycle state (rendering only
     // forms that are still editable) instead of re-rendering old form-creation events one by one.
     res.write(`event: replayed\ndata: {}\n\n`);
@@ -471,21 +519,8 @@ export async function startUiServer({ port = 3000, tutorUrl = 'http://127.0.0.1:
     req.on('close', () => clients.delete(res));
   });
 
-  // Student's A2A receiving endpoint for agent_card_changed notifications (localhost only).
-  const emitStudent = (type, data) => publish({ source: 'student', type, runId: null, data });
-  let endpoint;
-  try {
-    endpoint = await startStudentEndpoint({ port: studentPort, registry, emit: emitStudent });
-  } catch (err) {
-    if (err.code !== 'EADDRINUSE' || studentPort === 0) throw err;
-    // Port taken (e.g. another UI server). Agents configured for that port can't reach this
-    // Student, so their notifications will show as pending; startup/manual refresh still work.
-    endpoint = await startStudentEndpoint({ port: 0, registry, emit: emitStudent });
-    console.warn(`[UI] Student A2A port ${studentPort} is in use; listening on ${endpoint.baseUrl} instead. Agents notifying ${studentPort} won't reach this Student.`);
-  }
-  const studentEndpointUrl = endpoint.baseUrl;
-  // Startup: fetch every registered card (also recovers updates sent while Student was offline).
-  registry.refreshAll('startup');
+  // Startup: discover the university's public card (retried on send and when the Hub feed reconnects).
+  discoverHub('startup');
 
   return new Promise((resolve, reject) => {
     const server = app.listen(port, HOST, (err) => {
@@ -497,29 +532,24 @@ export async function startUiServer({ port = 3000, tutorUrl = 'http://127.0.0.1:
       const close = () => {
         feedAbort.abort();
         for (const res of clients) res.end();
-        endpoint.server.close();
         return new Promise((r) => server.close(r));
       };
-      resolve({ server, baseUrl, close, studentEndpointUrl });
+      resolve({ server, baseUrl, close, hubUrl: hub.baseUrl, universityName: hub.name });
     });
     server.on('error', reject);
   });
 }
 
 function writeEvent(res, event) {
-  res.write(`id: ${event.seq}\ndata: ${JSON.stringify(event)}\n\n`);
+  res.write(`id: ${event.id}\ndata: ${JSON.stringify(event)}\n\n`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const port = process.env.UI_PORT === undefined ? 3000 : Number(process.env.UI_PORT);
-  const tutorUrl = process.env.TUTOR_URL ?? 'http://127.0.0.1:41241';
-  const libraryUrl = process.env.LIBRARY_URL ?? 'http://127.0.0.1:41242';
-  const studentPort = process.env.STUDENT_A2A_PORT === undefined ? 41240 : Number(process.env.STUDENT_A2A_PORT);
   process.env.STUDENT_LOG_CONTENT ??= '0'; // keep chat text out of this server's logs by default
-  const { baseUrl, studentEndpointUrl } = await startUiServer({ port, tutorUrl, libraryUrl, studentPort });
+  const { baseUrl, hubUrl, universityName } = await startUiServer({ port });
   console.log(`[UI] listening on ${baseUrl}`);
-  console.log(`[UI] Student Agent will contact Tutor Agent at ${tutorUrl} and Library Agent at ${libraryUrl}`);
-  console.log(`[UI] Student Agent A2A endpoint (card-change notifications): ${studentEndpointUrl}`);
-  const r = routerStatus();
-  console.log(`[UI] router: ${r.mode}${r.model ? ` (${r.model})` : ''}${r.mode === 'live' ? `, API key: ${r.keyConfigured ? 'configured' : 'NOT SET'}` : ''}`);
+  console.log(`[UI] Student Agent connects only to ${universityName} at ${hubUrl}`);
+  const s = studentAssistantStatus();
+  console.log(`[UI] Student model: ${s.mode}${s.model ? ` (${s.model})` : ''}${s.mode === 'live' ? `, API key (${keyEnvName()}): ${s.keyConfigured ? 'configured' : 'NOT SET'}, API host: ${apiHost()}` : ''}`);
 }

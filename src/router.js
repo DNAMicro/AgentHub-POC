@@ -1,5 +1,6 @@
-// Student Agent's routing decision. A2A carries messages; choosing WHICH registered service
-// gets a question is this application's job, done here.
+// The Hub's routing decision (Part 5's router, run by the Hub since Part 7). A2A carries messages;
+// choosing WHICH registered service gets a question is this application's job, done here. The Student
+// may name a public capability first (src/student-assistant.js); the Hub then skips this router.
 //
 // ROUTER_MODE:
 //   direct (code default) — Parts 2–4 behaviour: every chat goes to the Tutor, no routing.
@@ -8,7 +9,7 @@
 //
 // Every decision is validated in code against the live registry view. The model only picks
 // an agent ID and skill ID from that view; endpoints come from trusted configuration.
-import { LlmError, MODEL, callModel, keyConfigured, loadDotenvOnce, toLlmError } from './llm.js';
+import { LlmError, modelName, callModel, keyConfigured, loadDotenvOnce, toLlmError } from './llm.js';
 
 export const ROUTER_MODE = process.env.ROUTER_MODE ?? 'direct';
 if (!['direct', 'mock', 'live'].includes(ROUTER_MODE)) throw new Error(`Unknown ROUTER_MODE "${ROUTER_MODE}" (use direct, mock, or live).`);
@@ -16,7 +17,7 @@ if (ROUTER_MODE === 'live') loadDotenvOnce();
 
 const LIMITS = { maxOutputTokens: 400, timeoutMs: Number(process.env.ROUTER_TIMEOUT_MS ?? 30000), recentTurns: 4 };
 
-export const routerStatus = () => ({ mode: ROUTER_MODE, model: ROUTER_MODE === 'live' ? MODEL : ROUTER_MODE === 'mock' ? 'mock heuristic' : null, keyConfigured: ROUTER_MODE === 'live' ? keyConfigured() : null });
+export const routerStatus = () => ({ mode: ROUTER_MODE, model: ROUTER_MODE === 'live' ? modelName() : ROUTER_MODE === 'mock' ? 'mock heuristic' : null, keyConfigured: ROUTER_MODE === 'live' ? keyConfigured() : null });
 
 const DECISION_SCHEMA = {
   type: 'object',
@@ -70,8 +71,8 @@ export function validateDecision(raw, services) {
 // A labeled heuristic for offline demos and tests. It reads the registry's CURRENT skill tags,
 // so editing skills changes its behaviour; it is not evidence of real routing accuracy.
 const STOP = new Set('the a an and or of to in on for with my me i do does is are can could you how what where when why please want need help question something about this that it'.split(' '));
-const tokenize = (s) => s.toLowerCase().replace(/[’']/g, '').split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !STOP.has(w));
-const near = (w, t) => w === t || (Math.min(w.length, t.length) >= 5 && (w.startsWith(t.slice(0, 5)) || t.startsWith(w.slice(0, 5))));
+export const tokenize = (s) => s.toLowerCase().replace(/[’']/g, '').split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !STOP.has(w));
+export const near = (w, t) => w === t || (Math.min(w.length, t.length) >= 5 && (w.startsWith(t.slice(0, 5)) || t.startsWith(w.slice(0, 5))));
 const LIBRARY_ACTIONS = /\b(renew\w*|borrow\w*|return\w*|check ?out|opening hours|open on|when is the library)\b/i;
 const TUTOR_ACTIONS = /\b(explain\w*|differentiat\w*|integrat\w*|solve|compute|calculate|teach)\b/i;
 const LEADS_LIBRARY = /^\s*(where (can|do) i (find|get|borrow)|find\b|locate\b|when is|is the library|how (do|can) i (renew|borrow|return))/i;

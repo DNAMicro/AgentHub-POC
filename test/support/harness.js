@@ -4,7 +4,8 @@ import { createServer } from 'node:net';
 import { once } from 'node:events';
 
 export function startProcess(script, env, readyPattern) {
-  const proc = spawn(process.execPath, [script], { env: { ...process.env, ...env } });
+  // HUB_URL defaults to a closed port so a test specialist never registers with a real local Hub.
+  const proc = spawn(process.execPath, [script], { env: { HUB_URL: 'http://127.0.0.1:9', ...process.env, ...env } });
   let output = '';
   proc.stdout.on('data', (c) => (output += c));
   proc.stderr.on('data', (c) => (output += c));
@@ -27,10 +28,18 @@ export async function startTutor(env = {}) {
   return tutor;
 }
 
-export async function startUi(tutorUrl, env = {}) {
-  const ui = startProcess('src/ui-server.js', { UI_PORT: '0', TUTOR_URL: tutorUrl, ...env }, UI_READY);
+// Part 7: the Student UI connects only to the university Hub.
+export async function startUi(hubUrl, env = {}) {
+  const ui = startProcess('src/ui-server.js', { UI_PORT: '0', HUB_URL: hubUrl, ...env }, UI_READY);
   ui.url = await ui.ready;
   return ui;
+}
+
+export const HUB_READY = /\[Hub\] listening on (http:\/\/127\.0\.0\.1:\d+)/;
+export async function startHub(env = {}) {
+  const hub = startProcess('src/hub-agent.js', { PORT: '0', ...env }, HUB_READY);
+  hub.url = await hub.ready;
+  return hub;
 }
 
 export async function waitFor(check, { timeout = 5000, what = 'condition' } = {}) {
@@ -44,10 +53,11 @@ export async function waitFor(check, { timeout = 5000, what = 'condition' } = {}
 }
 
 // Minimal SSE reader for the browser-facing /api/events stream.
-export async function openStream(baseUrl) {
+// headers: e.g. { 'Last-Event-ID': '<bootId>:<seq>' } to resume like a reconnecting EventSource.
+export async function openStream(baseUrl, headers = {}) {
   const abort = new AbortController();
-  const res = await fetch(`${baseUrl}/api/events`, { signal: abort.signal });
-  const stream = { events: [], hello: null, close: () => abort.abort() };
+  const res = await fetch(`${baseUrl}/api/events`, { signal: abort.signal, headers });
+  const stream = { events: [], hello: null, truncated: null, close: () => abort.abort() };
   (async () => {
     let buffer = '';
     try {
@@ -61,6 +71,7 @@ export async function openStream(baseUrl) {
           if (!data) continue;
           if (lines.includes('event: hello')) stream.hello = JSON.parse(data);
           else if (lines.includes('event: replayed')) stream.replayed = (stream.replayed ?? 0) + 1;
+          else if (lines.includes('event: truncated')) stream.truncated = JSON.parse(data);
           else stream.events.push(JSON.parse(data));
         }
       }
@@ -96,22 +107,46 @@ export async function startLibrary(env = {}) {
   return library;
 }
 
-// Tutor + Library + UI (Student) wired together with a known Student A2A endpoint port.
-// Agents notify that endpoint; pass studentPort to reuse a port across restarts.
-export async function startTrio({ tutorEnv = {}, libraryEnv = {}, uiEnv = {}, studentPort } = {}) {
-  const port = studentPort ?? (await unusedPort());
-  const studentUrl = `http://127.0.0.1:${port}`;
-  const tutor = await startTutor({ STUDENT_A2A_URL: studentUrl, ...tutorEnv });
-  const library = await startLibrary({ STUDENT_A2A_URL: studentUrl, ...libraryEnv });
-  const ui = await startUi(tutor.url, { LIBRARY_URL: library.url, STUDENT_A2A_PORT: String(port), ...uiEnv });
-  await waitFor(async () => {
-    const s = await (await fetch(`${ui.url}/api/status`)).json();
-    return s.registry.every((r) => r.status === 'ok') && s.agents.tutor.feedConnected && s.agents.library.feedConnected;
-  }, { what: 'registry ready' });
-  return { tutor, library, ui, studentUrl, kill: () => [ui, tutor, library].forEach((p) => p.proc.kill()) };
+// Part 7: the whole stack — Hub, Tutor, Library and the Student UI. The specialists' ports are picked
+// first so the Hub's configuration (its trusted endpoints) can name them; the specialists then register
+// with the Hub. Pass tutorPort/libraryPort to restart a specialist on the same trusted endpoint.
+// library: false starts only the Tutor (the Library stays registered-but-absent, i.e. disconnected).
+// readyAgents: which specialists must be 'ready' before returning (e.g. ['tutor'] when the Library is disabled).
+export async function startStack({ tutorEnv = {}, libraryEnv = {}, hubEnv = {}, uiEnv = {}, library = true, tutorPort, libraryPort, waitReady = true, readyAgents } = {}) {
+  const tPort = tutorPort ?? (await unusedPort());
+  const lPort = libraryPort ?? (await unusedPort());
+  const hub = await startHub({ TUTOR_URL: `http://127.0.0.1:${tPort}`, LIBRARY_URL: `http://127.0.0.1:${lPort}`, HEARTBEAT_EXPIRY_MS: '3000', ...hubEnv });
+  const specialistEnv = { HUB_URL: hub.url, HEARTBEAT_INTERVAL_MS: '500' };
+  const tutor = await startTutor({ ...specialistEnv, PORT: String(tPort), ...tutorEnv });
+  const lib = library ? await startLibrary({ ...specialistEnv, PORT: String(lPort), ...libraryEnv }) : null;
+  const ui = await startUi(hub.url, uiEnv);
+  const stack = {
+    hub, tutor, library: lib, ui, tutorPort: tPort, libraryPort: lPort, specialistEnv,
+    // Uses the stack's current processes, so a test that restarts one (stack.library = …) still cleans up.
+    kill() { [this.ui, this.tutor, this.library, this.hub].filter(Boolean).forEach((p) => p.proc.kill()); },
+  };
+  const mustBeReady = readyAgents ?? (library ? ['tutor', 'library'] : ['tutor']);
+  if (waitReady) {
+    await waitFor(async () => {
+      const s = await status(ui);
+      const ready = (id) => s.topology?.specialists?.find((x) => x.agentId === id)?.status === 'ready';
+      // The UI learns state from the Hub's telemetry snapshot (sent on connect); poll the Hub directly too.
+      const t = await (await fetch(`${hub.url}/viz/topology`)).json();
+      const hubReady = (id) => t.specialists.find((x) => x.agentId === id)?.status === 'ready';
+      // …and the Hub must be following each specialist's telemetry, or early events would be missed.
+      return s.hubFeedConnected && s.university.cardValid && mustBeReady.every((id) => hubReady(id) && t.feeds[id]) && (!library || t.feeds.library) && (ready('tutor') || hubReady('tutor'));
+    }, { what: 'stack ready', timeout: 8000 }).catch((err) => {
+      stack.kill(); // never leave processes behind (they would keep the test runner alive)
+      throw err;
+    });
+  }
+  return stack;
 }
+export const startTrio = startStack;
 
 export const status = async (ui) => (await fetch(`${ui.url}/api/status`)).json();
+// The Hub's private registry view (developer telemetry endpoint).
+export const hubEntry = async (hub, agentId) => (await (await fetch(`${hub.url}/viz/topology`)).json()).specialists.find((s) => s.agentId === agentId);
 export const put = (url, body) => fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
 // Ask through the browser-facing API and wait for the run to finish.
@@ -121,14 +156,14 @@ export async function chatVia(ui, stream, text, contextId) {
   const { runId, contextId: ctx } = await res.json();
   await waitFor(() => ['completed', 'failed', 'uncertain'].includes(stateOf(stream.events, runId)), { what: `run ${runId}` });
   // Agents' feed events travel separately from the A2A reply; wait for the destination's own reply event.
-  const routed = find(forRun(stream.events, runId), 'student', 'route_decided')?.data;
+  const routed = find(forRun(stream.events, runId), 'hub', 'route_decided')?.data;
   const target = routed?.decision === 'route' ? routed.agentId : null;
   if (target) await waitFor(() => find(forRun(stream.events, runId), target, 'reply_published') || find(forRun(stream.events, runId), target, 'form_sent') || stateOf(stream.events, runId) !== 'completed', { what: 'agent reply event' }).catch(() => {});
   await new Promise((r) => setTimeout(r, 40));
   const events = forRun(stream.events, runId);
   return {
     runId, contextId: ctx, events,
-    decision: find(events, 'student', 'route_decided')?.data,
+    decision: find(events, 'hub', 'route_decided')?.data,
     reply: find(events, 'student', 'reply_received')?.data,
     destinations: ['tutor', 'library'].filter((a) => find(events, a, 'message_received')),
   };
