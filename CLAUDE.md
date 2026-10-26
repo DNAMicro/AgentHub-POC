@@ -47,6 +47,7 @@ Plain ESM JavaScript (`"type": "module"`), no lint/TypeScript. The only build st
 - **Validation runs in three places** from one module (`src/forms.js`): browser (A2UI `checks` + `validateFinal`), UI server, issuing agent (authoritative). `forms.js` must stay dependency-free — the browser imports it from `/shared/forms.js`.
 - **Run state lives in the UI server** (`NEXT_STATES`, forward-only). Tutor viz events arrive on a separate connection and may land *after* the A2A reply; tests must wait for them rather than assume ordering. Only POST endpoints start A2A requests; `GET /api/events` replays history (browser dedupes by `seq`, resets on new `bootId`).
 - Browser renders its own text via `textContent` — don't introduce `innerHTML`.
+- Logs scroll only through `followBottom` (`public/app.js`): never set `scrollTop` directly; call `follow.get(log).pin()` for the student's own actions. Re-check with `scripts/browser-checks/chat-scroll.js` (playwright-cli) after chat/form UI changes.
 
 ## Part 4 (model) notes
 

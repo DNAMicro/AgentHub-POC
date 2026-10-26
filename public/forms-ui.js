@@ -41,10 +41,12 @@ const button = (text, onClick, className = 'inline-action') => {
 const shortTime = (iso) => new Date(iso ?? Date.now()).toLocaleTimeString([], { hour12: false });
 const one = (v) => (Array.isArray(v) ? v[0] : v);
 
-export function createFormsUi({ log, agentName = (id) => id, onChange = () => {} }) {
+// pinToBottom(): bring the chat to its newest item (used when the student's own action moves a form to
+// the bottom). Ordinary growth is followed by the chat's own bottom-follower in app.js.
+export function createFormsUi({ log, agentName = (id) => id, onChange = () => {}, pinToBottom = () => {} }) {
   const views = new Map(); // formId → view
   let replaying = false;
-  const scroll = () => { log.scrollTop = log.scrollHeight; };
+  const scroll = () => pinToBottom();
 
   // ---- the chat item ---------------------------------------------------------------------------
 
@@ -62,7 +64,6 @@ export function createFormsUi({ log, agentName = (id) => id, onChange = () => {}
       view.intro, view.body, view.notice, view.details);
     role(view, 'received');
     log.append(view.card);
-    scroll();
   }
   // received: the agent's form; sent: what the student submitted (the agent's reply follows it).
   function role(view, dir) {

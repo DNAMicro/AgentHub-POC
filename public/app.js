@@ -106,7 +106,10 @@ let currentRunId = null;
 let currentRunKind = null;
 let currentState = 'idle';
 let awaitingRunId = null; // set between clicking Send and that run leaving a busy state
-const formsUi = createFormsUi({ log: els.studentLog, agentName: (id) => viaUniversity(id), onChange: () => renderState() });
+const follow = new Map([els.studentLog, els.studentConsole, els.hubLog, els.tutorLog, els.libraryLog].map((log) => [log, followBottom(log)]));
+const chatFollow = follow.get(els.studentLog);
+window.__chatFollow = chatFollow; // read-only hook for browser tests (following state)
+const formsUi = createFormsUi({ log: els.studentLog, agentName: (id) => viaUniversity(id), onChange: () => renderState(), pinToBottom: () => chatFollow.pin() });
 let currentContextId = null; // the chat conversation follow-up questions belong to (null → start a new one)
 
 const MODE_TEXT = {
@@ -182,7 +185,47 @@ function messageItem({ dir, label, at, text, values, ids, speaker, kind }) {
 function appendTo(log, item) {
   log.append(item);
   if (pending.el && log === els.studentLog && item !== pending.el) log.append(pending.el); // the indicator stays last
-  log.scrollTop = log.scrollHeight;
+}
+
+// A log follows its newest item while the reader is at the bottom — including when an item keeps
+// growing after it was added (A2UI surfaces render asynchronously, receipts and reopened forms expand,
+// a replay after a reload adds many items). Scrolling up stops following, so a reader is never pulled
+// away from what they're reading; scrolling back to the bottom, sending a message or starting a new
+// conversation follows again. Works while the log is hidden too: it catches up when its tab is shown.
+const BOTTOM_SLACK_PX = 40;
+function followBottom(log) {
+  const state = { following: true, lastTop: 0 };
+  const nearBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight <= BOTTOM_SLACK_PX;
+  const toBottom = () => {
+    if (!state.following) return;
+    log.scrollTop = log.scrollHeight;
+    state.lastTop = log.scrollTop;
+  };
+  log.addEventListener('scroll', () => {
+    // Content growth never lowers scrollTop; only the reader scrolling up does (or content shrinking,
+    // which leaves us at the bottom anyway).
+    if (log.scrollTop < state.lastTop - 1) state.following = nearBottom();
+    else if (nearBottom()) state.following = true;
+    state.lastTop = log.scrollTop;
+  }, { passive: true });
+  // The reader's intent to go up stops following at once (before the scroll event, so growth arriving
+  // in between can't pull them back down).
+  log.addEventListener('wheel', (e) => { if (e.deltaY < 0) state.following = false; }, { passive: true });
+  let touchY = null;
+  log.addEventListener('touchstart', (e) => { touchY = e.touches[0]?.clientY ?? null; }, { passive: true });
+  log.addEventListener('touchmove', (e) => { const y = e.touches[0]?.clientY; if (touchY !== null && y > touchY + 4) state.following = false; }, { passive: true });
+  log.addEventListener('keydown', (e) => { if (['ArrowUp', 'PageUp', 'Home'].includes(e.key)) state.following = false; });
+  const sizes = new ResizeObserver(toBottom);
+  sizes.observe(log);
+  for (const child of log.children) sizes.observe(child);
+  new MutationObserver((records) => {
+    for (const r of records) for (const node of r.addedNodes) if (node.nodeType === 1) sizes.observe(node);
+    toBottom();
+  }).observe(log, { childList: true });
+  return {
+    pin() { state.following = true; toBottom(); },
+    get following() { return state.following; },
+  };
 }
 
 // "Waiting for an answer…": a small in-chat spinner when a chat question has been in flight for more than
@@ -395,6 +438,7 @@ function clearScreen() {
   els.studentConsole.replaceChildren();
   els.inspectorLog.replaceChildren();
   inspections.clear();
+  for (const f of follow.values()) f.pin();
   els.runId.textContent = 'no run yet';
   els.timeline.replaceChildren();
   els.timelineError.textContent = '';
@@ -1229,6 +1273,7 @@ els.form.addEventListener('submit', async (e) => {
   const text = els.message.value;
   if (els.send.disabled || !text.trim()) return;
   els.message.value = ''; // cleared on send…
+  chatFollow.pin(); // your own message: always show the newest part of the conversation
   const started = await startRun('/api/runs', { text, contextId: currentContextId });
   if (!started && !els.message.value) els.message.value = text; // …and given back if the request never started
 });
