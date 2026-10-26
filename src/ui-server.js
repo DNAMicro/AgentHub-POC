@@ -262,14 +262,16 @@ export async function startUiServer({ port = 3000 } = {}) {
     if (hubCard || (await discoverHub('send'))) {
       const last = conv.turns.at(-1);
       const plan = await planRequest({
-        question: run.text, capabilities, recentTurns: conv.turns, clarifiedAlready: run.clarified, clarificationAnswer: run.clarified ? run.typed : '',
+        question: run.text, capabilities, recentTurns: conv.turns, pending: run.pending,
         followsQuestion: Boolean(last && /\?\s*$/.test(last.answer ?? '')),
         onModelEvent: (type, data) => publish({ source: 'student', type, runId, data }),
       });
+      run.text = plan.text ?? run.text; // the held-back question + this answer, or this message alone
+      run.clarified = plan.relation === 'answers_question';
       const name = capabilities.find((c) => c.id === plan.capability)?.name ?? null;
-      publish({ source: 'student', type: 'request_planned', runId, data: { action: plan.action, capability: plan.capability, capabilityName: name, by: plan.by, reason: plan.reason, matched: plan.matched?.map((m) => ({ id: m.id, terms: m.terms })) ?? [], model: plan.model ?? null, usage: plan.usage ?? null, error: plan.error ?? null } });
+      publish({ source: 'student', type: 'request_planned', runId, data: { action: plan.action, capability: plan.capability, capabilityName: name, by: plan.by, reason: plan.reason, relation: plan.relation ?? null, matched: plan.matched?.map((m) => ({ id: m.id, terms: m.terms })) ?? [], model: plan.model ?? null, usage: plan.usage ?? null, error: plan.error ?? null } });
       if (plan.action === 'clarify') {
-        conv.pending = { original: run.text };
+        conv.pending = { original: run.text, clarificationQuestion: plan.clarificationQuestion };
         publish({ source: 'student', type: 'clarification_asked', runId, data: { question: run.text, text: plan.clarificationQuestion, contextId: run.contextId } });
         setState(runId, 'completed', { decision: 'student_clarify' });
         activeRunId = null;
@@ -437,17 +439,17 @@ export async function startUiServer({ port = 3000 } = {}) {
 
     // contextId names the student's conversation: it is the Student↔Hub A2A contextId. The Hub keeps
     // separate downstream contexts per specialist under it.
-    const run = { kind: 'chat', state: 'sending', text, typed: text, contextId: requestedContext ?? randomUUID(), messageId: randomUUID(), clarified: false };
-    // Answering the Student's own clarifying question: send the held-back question together with it.
+    const run = { kind: 'chat', state: 'sending', text, typed: text, contextId: requestedContext ?? randomUUID(), messageId: randomUUID(), clarified: false, pending: null };
+    // Our clarifying question is waiting: the planner decides whether this message answers it (then the
+    // held-back question is sent with it) or is a new request (sent on its own).
     const conv = requestedContext ? conversations.get(requestedContext) : null;
     if (conv?.pending) {
-      run.text = `${conv.pending.original}\n${text}`.slice(0, MAX_TEXT_LENGTH);
-      run.clarified = true;
+      run.pending = conv.pending;
       conv.pending = null;
     }
     const runId = randomUUID();
     runs.set(runId, run);
-    publish({ source: 'system', type: 'run_started', runId, data: { kind: 'chat', text, contextId: run.contextId, newConversation: !requestedContext, messageId: run.messageId, routerMode: topology?.hub?.router?.mode ?? null, studentMode: agentStatus.student.mode, clarifies: run.clarified } });
+    publish({ source: 'system', type: 'run_started', runId, data: { kind: 'chat', text, contextId: run.contextId, newConversation: !requestedContext, messageId: run.messageId, routerMode: topology?.hub?.router?.mode ?? null, studentMode: agentStatus.student.mode, pendingClarification: Boolean(run.pending) } });
     publish({ source: 'system', type: 'state', runId, data: { state: run.state } });
     res.status(202).json({ runId, contextId: run.contextId });
     planAndSend(runId, run);

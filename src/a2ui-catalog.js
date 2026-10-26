@@ -12,7 +12,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
-import { A2UI_VERSION, BASIC_CATALOG_ID, GENERATED_COMPONENTS, GENERATED_FUNCTIONS, WORKFLOWS, checkFormPayloadPolicy } from './forms.js';
+import { A2UI_VERSION, BASIC_CATALOG_ID, GENERATED_COMPONENTS, GENERATED_FUNCTIONS, WORKFLOWS, addDays, checkFormPayloadPolicy } from './forms.js';
 
 const dir = fileURLToPath(new URL('../node_modules/@a2ui/web_core/src/v0_9/schemas/', import.meta.url));
 const load = (name) => JSON.parse(readFileSync(dir + name, 'utf8'));
@@ -118,11 +118,15 @@ export function datesIn(text) {
   return found;
 }
 const md = (iso) => iso.slice(5);
-// Every date the response may mention: from the backend, plus dates the student wrote themselves.
+// Every date the response may mention: from the backend, plus dates the student wrote themselves. Any
+// day inside a loan's backend-computed renewal range counts too (e.g. "due date + two weeks"): the range
+// is authoritative, and a chosen date is range-checked again at submission.
 export function allowedDatesFrom({ loans, today, studentText = [] }) {
   const set = new Set([md(today)]);
   for (const l of loans) {
     for (const d of [l.dueDate, l.checkedOut, l.permittedReturnDates?.earliest, l.permittedReturnDates?.latest]) if (d) set.add(md(d));
+    const r = l.permittedReturnDates;
+    if (r) for (let d = r.earliest; d <= r.latest; d = addDays(d, 1)) set.add(md(d));
   }
   for (const t of studentText) for (const d of datesIn(t)) set.add(d);
   return set;

@@ -133,13 +133,16 @@ export function createFormsUi({ log, agentName = (id) => id, onChange = () => {}
   function renderIds(view) {
     view.details.replaceChildren(el('summary', { textContent: 'IDs' }), dl([
       ['form / surface', view.formId], ['workflow', view.workflowId], ['issued by', view.agentId], ['form version', view.formVersion],
-      ['A2A task', view.taskId], ['A2A context', view.contextId], ['last operation', view.operationId], ['receipt', view.receipt ? (view.receipt.requestId ?? view.receipt.bookingId) : null],
+      ['A2A task', view.taskId], ['A2A context', view.contextId], ['last operation', view.operationId], ['receipt', view.receipt ? (view.receipt.requestId ?? view.receipt.bookingId ?? view.receipt.renewalId) : null],
     ]));
   }
   function setState(view, state) {
     view.state = state;
     view.card.dataset.state = state;
-    view.badge.textContent = STATE_TEXT[state] ?? state;
+    // A generated surface with no buttons is an overview: nothing waits for the student.
+    const readOnly = state === 'editing' && !view.a2uiMessages?.some((m) => m.updateComponents?.components?.some((c) => c.component === 'Button'));
+    view.card.dataset.readOnly = String(readOnly);
+    view.badge.textContent = readOnly ? 'Read-only' : STATE_TEXT[state] ?? state;
     renderIds(view);
     onChange();
   }

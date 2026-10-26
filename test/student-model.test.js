@@ -35,6 +35,14 @@ test('obvious requests are decided by rule (no model); unclear ones are not', as
     const p = await planRequest({ question: `I need help\n${unsure}`, capabilities: CAPABILITIES, clarifiedAlready: true, clarificationAnswer: unsure });
     assert.deepEqual([p.action, p.capability, p.by], ['send', null, 'uncertain'], `“${unsure}” after our question goes to the Hub`);
   }
+  // A clarifying question is pending: an answer is joined to the earlier message; a new request isn't.
+  const pending = { original: 'I need help', clarificationQuestion: 'Tutoring or library?' };
+  const answer = await planRequest({ question: 'the library one', capabilities: CAPABILITIES, pending });
+  assert.deepEqual([answer.relation, answer.text], ['answers_question', 'I need help\nthe library one']);
+  const fresh = await planRequest({ question: 'Please explain the derivative of a product', capabilities: CAPABILITIES, pending });
+  assert.deepEqual([fresh.relation, fresh.text], ['new_request', 'Please explain the derivative of a product']);
+  const unsure = await planRequest({ question: 'not sure', capabilities: CAPABILITIES, pending });
+  assert.deepEqual([unsure.relation, unsure.by, unsure.text], ['answers_question', 'uncertain', 'I need help\nnot sure']);
   const reply = await planRequest({ question: 'yes', capabilities: CAPABILITIES, followsQuestion: true });
   assert.deepEqual([reply.action, reply.capability, reply.by], ['send', null, 'context'], 'a reply to the university’s question goes on as-is');
 });
@@ -201,6 +209,16 @@ test('live mode: clearly not a university service → the Student answers itself
     assert.equal(find(a.events, 'student', 'request_planned').data.by, 'uncertain');
     assert.equal(find(a.events, 'student', 'request_sent').data.text, 'Can you help me with chapter five?\nI don’t know');
     assert.ok(!find(a.events, 'student', 'request_declined'));
+
+    // Asked first, then a different, self-contained request: the model says so and it's sent on its own.
+    stub.respondWith(() => messageReply(JSON.stringify({ action: 'clarify', capability: 'none', reason: 'Could be either.', clarification_question: 'Is this for a class or a library book?' })));
+    const c2 = await chatVia(live.ui, stream, 'Can you help me with chapter six?', c.contextId);
+    assert.ok(find(c2.events, 'student', 'clarification_asked'));
+    stub.respondWith(() => messageReply(JSON.stringify({ relation: 'new_request', action: 'send', capability: 'library', reason: 'A library hours question.', clarification_question: '' })));
+    const n = await chatVia(live.ui, stream, 'What time does the library open on Sunday?', c.contextId);
+    assert.equal(stub.requests.at(-1).body.output_config.format.schema.properties.relation.enum.join(), 'answers_question,new_request', 'the model is asked whether it answers the question');
+    assert.equal(find(n.events, 'student', 'request_planned').data.relation, 'new_request');
+    assert.equal(find(n.events, 'student', 'request_sent').data.text, 'What time does the library open on Sunday?', 'sent on its own, not joined to “chapter six”');
   } finally {
     live.kill();
     await stub.close();

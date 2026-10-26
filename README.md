@@ -681,7 +681,7 @@ Ask the Library about **your own loans** (synthetic demo records) and its model 
 
 ### What the model can use: the catalog
 
-The installed renderer (`@a2ui/lit` 0.14.0) registers the official A2UI **v0.9 basic catalog**. The model gets 15 of its 18 components, with their real properties built from the shipped JSON Schemas so they can't drift: Text, Icon, Row, Column, List, Card, Tabs, Modal, Divider, Button, TextField, CheckBox, ChoicePicker (with `filterable`, a search box the renderer really implements), Slider and DateTimeInput. It also gets the pure catalog functions (validation and formatting). **Not available:** Image, Video and AudioPlayer (they load URLs) and `openUrl`. No custom components were added. Text renders plain text (no Markdown renderer is configured), so the model is told not to use Markdown.
+The installed renderer (`@a2ui/lit` 0.14.0) registers the official A2UI **v0.9 basic catalog**. (A generated surface with no buttons is an overview and is labelled Read-only.) The model gets 15 of its 18 components, with their real properties built from the shipped JSON Schemas so they can't drift: Text, Icon, Row, Column, List, Card, Tabs, Modal, Divider, Button, TextField, CheckBox, ChoicePicker (with `filterable`, a search box the renderer really implements), Slider and DateTimeInput. It also gets the pure catalog functions (validation and formatting). **Not available:** Image, Video and AudioPlayer (they load URLs) and `openUrl`. No custom components were added. Text renders plain text (no Markdown renderer is configured), so the model is told not to use Markdown.
 
 ### What validation rejects
 

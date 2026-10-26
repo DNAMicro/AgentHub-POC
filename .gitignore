@@ -8,3 +8,4 @@ public/vendor/
 !.env.example
 .temp
 data/
+.playwright-cli/

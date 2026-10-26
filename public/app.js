@@ -808,7 +808,8 @@ function handle(event, { live = true } = {}) {
       case 'request_planned': {
         const how = { uncertain: 'your answer didn’t settle it — the Hub decides', rule: 'obvious from the words — the Hub routes it', model: 'decided by the Student’s model', heuristic: 'mock heuristic', context: 'reply to the university’s question', off: 'Student model off', model_failed: 'Student model failed' }[data.by] ?? data.by;
         const text = data.action === 'clarify' ? 'Not clear enough to send yet — asking you first.' : data.action === 'decline' ? 'Clearly not a university service — answering you here; nothing sent.' : data.capability ? `Needs ${data.capabilityName ?? data.capability}; the Hub will be asked for that capability.` : 'No capability chosen; the Hub routes it.';
-        studentConsole({ dir: data.error ? 'error' : 'info', label: `Plan: ${data.action === 'clarify' ? 'clarify first' : data.action === 'decline' ? 'answer here (not offered)' : data.capability ? `send to ${data.capabilityName ?? data.capability}` : 'send as-is'}`, text: `${text} ${data.reason ?? ''}`.trim(), ids: { how, matched: data.matched?.map((m) => `${m.id}: ${m.terms.join(', ')}`).join('; ') || null, model: data.usage ? `${data.model} · ${data.usage.inputTokens} in / ${data.usage.outputTokens} out tokens` : null, run } });
+        const relation = data.relation === 'new_request' ? ' (A new request — my earlier question was dropped.)' : data.relation === 'answers_question' ? ' (Your answer to my question — sent together with your earlier message.)' : '';
+        studentConsole({ dir: data.error ? 'error' : 'info', label: `Plan: ${data.action === 'clarify' ? 'clarify first' : data.action === 'decline' ? 'answer here (not offered)' : data.capability ? `send to ${data.capabilityName ?? data.capability}` : 'send as-is'}`, text: `${text} ${data.reason ?? ''}${relation}`.trim(), ids: { how, matched: data.matched?.map((m) => `${m.id}: ${m.terms.join(', ')}`).join('; ') || null, model: data.usage ? `${data.model} · ${data.usage.inputTokens} in / ${data.usage.outputTokens} out tokens` : null, run } });
         break;
       }
       case 'clarification_asked':
@@ -1090,7 +1091,13 @@ function formAgentEvent(panel, type, data, run) {
       panel({ dir: 'received', label: 'Form action', text: `“${data.actionName}”${data.lookup ? ' — scheduling fields only:' : data.receivedValues && Object.keys(data.receivedValues).length ? ' — values exactly as received:' : ''}`, values: data.receivedValues ?? data.criteria ?? undefined, ids: { form: data.formId, operation: data.operationId, messageId: data.messageId, taskId: data.taskId, resumedTask: data.resumedTask, run } });
       break;
     case 'form_review':
-      panel({ dir: data.flags?.length ? 'info' : 'received', label: 'Review', text: data.acknowledged ? 'Student chose to send anyway; the flagged values were not re-reviewed.' : data.unavailable ? `Review unavailable (${data.unavailable}); the submission continues.` : data.flags?.length ? `${data.reviewer} flagged: ${data.flags.map((f) => f.message).join(' ')}` : `${data.reviewer} found nothing to flag.`, ids: { form: data.formId, run } });
+      {
+        // The Hub redacts review flags by default: a list arrives as "[n items redacted]".
+        const hidden = typeof data.flags === 'string' ? Number(/^\[(\d+) items? redacted\]$/.exec(data.flags)?.[1] ?? 0) : null;
+        const count = Array.isArray(data.flags) ? data.flags.length : hidden ?? 0;
+        const what = Array.isArray(data.flags) ? data.flags.map((f) => f.message).join(' ') : `${count} item${count === 1 ? '' : 's'} (details hidden by the Hub's redaction)`;
+        panel({ dir: count ? 'info' : 'received', label: 'Review', text: data.acknowledged ? 'Student chose to send anyway; the flagged values were not re-reviewed.' : data.unavailable ? `Review unavailable (${data.unavailable}); the submission continues.` : count ? `${data.reviewer} flagged: ${what}` : `${data.reviewer} found nothing to flag.`, ids: { form: data.formId, run } });
+      }
       break;
     case 'form_reply_sent': {
       const r = data.receipt;
