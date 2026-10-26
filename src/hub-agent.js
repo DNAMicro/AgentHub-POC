@@ -40,18 +40,35 @@ const a2uiPart = (messages) => ({ content: { $case: 'data', value: messages }, m
 const statusOf = (state, message) => ({ state, message, timestamp: new Date().toISOString() });
 const trim = (map) => { if (map.size > MAX_RECORDS) map.delete(map.keys().next().value); };
 
-// Specialist telemetry fields that may carry personal content; redacted before relaying (Part 7 §12).
-const SENSITIVE = new Set(['receivedValues', 'values', 'text', 'context', 'criteria', 'flags', 'errors']);
-function redact(data) {
-  if (process.env.HUB_TELEMETRY_SHOW_CONTENT === '1' || !data || typeof data !== 'object') return data;
+// Redaction of specialist telemetry before relaying (Part 7 §12): an ALLOWLIST, so a field added
+// later is masked until someone decides it is safe. Run events keep only IDs, statuses, codes, modes,
+// timings and token counts; message text, form values, review flags, errors, model-written reasons
+// and anything unknown are masked. A receipt is reduced to its ID and status (the student's own
+// conversation still shows the full receipt, which arrives over A2A). Events not tied to a question
+// (status, saved skills, registration, card notices) carry operator configuration, not student
+// content, and pass unchanged. HUB_TELEMETRY_SHOW_CONTENT=1 turns redaction off for debugging.
+const SAFE_FIELDS = new Set([
+  'runId', 'operationId', 'hubOperationId', 'formId', 'formRef', 'workflowId', 'taskId', 'contextId', 'messageId', 'inReplyTo', 'requestId',
+  'agentId', 'skillId', 'actionName', 'policyRevision', 'revision', 'status', 'outcome', 'verdict', 'stage', 'decision', 'mode', 'model',
+  'purpose', 'by', 'code', 'kind', 'final', 'lookup', 'duplicate', 'repeat', 'acknowledged', 'unavailable', 'truncated', 'stopReason',
+  'taskState', 'resumedTask', 'violates', 'handler', 'reviewer', 'latencyMs', 'earlierMessages', 'chars',
+  'usage', 'inputTokens', 'outputTokens', 'cacheReadInputTokens', 'cacheCreationInputTokens', 'tutor', 'library',
+]);
+const mask = (v) => (typeof v === 'string' ? `[${v.length} chars redacted]` : Array.isArray(v) ? `[${v.length} items redacted]`
+  : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).map((f) => [f, '[redacted]'])) : v === null || v === undefined ? v : '[redacted]');
+function redactFields(data, depth = 0) {
   const out = {};
   for (const [k, v] of Object.entries(data)) {
-    if (!SENSITIVE.has(k)) out[k] = v;
-    else if (v && typeof v === 'object') out[k] = Object.fromEntries(Object.keys(v).map((f) => [f, '[redacted]']));
-    else if (typeof v === 'string') out[k] = `[${v.length} chars redacted]`;
+    if (k === 'receipt' && v && typeof v === 'object') out[k] = { requestId: v.requestId, bookingId: v.bookingId, status: v.status };
+    else if (!SAFE_FIELDS.has(k)) out[k] = mask(v);
+    else if (v && typeof v === 'object') out[k] = Array.isArray(v) || depth >= 2 ? mask(v) : redactFields(v, depth + 1);
     else out[k] = v;
   }
   return out;
+}
+export function redactTelemetry(event) {
+  if (process.env.HUB_TELEMETRY_SHOW_CONTENT === '1' || event.runId == null || !event.data || typeof event.data !== 'object') return event.data;
+  return redactFields(event.data);
 }
 
 export function startHubServer({ port } = {}) {
@@ -357,7 +374,7 @@ export function startHubServer({ port } = {}) {
               if (!line) continue;
               const ev = JSON.parse(line.slice(6));
               if (ev.type === 'status') lastStatus[peer.agentId] = { source: peer.agentId, type: 'status', runId: null, at: ev.at, data: ev.data };
-              viz.emit('event', { source: peer.agentId, type: ev.type, runId: ev.runId ?? null, at: ev.at, data: redact(ev.data) });
+              viz.emit('event', { source: peer.agentId, type: ev.type, runId: ev.runId ?? null, at: ev.at, data: redactTelemetry(ev) });
             }
           }
         } catch {

@@ -14,6 +14,7 @@ import {
 import { askTutor, sendFormAction } from '../src/student-agent.js';
 import { addDays, todayIn } from '../src/forms.js';
 import { topologyLabel } from '../src/topology.js';
+import { redactTelemetry } from '../src/hub-agent.js';
 
 const weekday = (() => {
   for (let n = 2; ; n++) {
@@ -265,3 +266,19 @@ test('a model line appears only for real (live) calls, on the calling agent’s 
   for (const type of ['request_sent', 'reply_received', 'form_action_sent']) assert.equal(label('student', type, {}).edge, 'student-hub');
 });
 
+
+test('telemetry redaction is an allowlist: receipts reduce to their ID, model reasons and unknown fields are masked', () => {
+  const ev = (data, runId = 'run-1') => redactTelemetry({ runId, data });
+  const booking = ev({ formId: 'f1', status: 'accepted', receipt: { bookingId: 'BK-1', room: 'Room C', date: '2026-11-02', start: '10:00', end: '12:00', groupSize: 6, note: 'Demo booking' } });
+  assert.deepEqual(booking.receipt, { bookingId: 'BK-1', requestId: undefined, status: undefined }, 'no date, time, room or group size');
+  const tutoring = ev({ receipt: { requestId: 'TR-1', status: 'received', preferences: { preferredDate: '2026-11-03', period: ['morning'] } } });
+  assert.deepEqual(tutoring.receipt, { requestId: 'TR-1', bookingId: undefined, status: 'received' });
+  const scope = ev({ verdict: 'in_scope', reason: 'The student asks about alex@example.com’s limits homework', usage: { inputTokens: 5, outputTokens: 2 } });
+  assert.equal(scope.verdict, 'in_scope');
+  assert.match(scope.reason, /chars redacted/);
+  assert.deepEqual(scope.usage, { inputTokens: 5, outputTokens: 2 });
+  assert.equal(ev({ someFutureField: 'Alex Student' }).someFutureField, '[12 chars redacted]', 'unknown fields are masked by default');
+  assert.deepEqual(ev({ tutor: { model: 'claude-haiku-5-5', note: 'secret' } }).tutor, { model: 'claude-haiku-5-5', note: '[6 chars redacted]' }, 'nested objects follow the same rules');
+  const config = { skills: [{ id: 'calculus', name: 'Calculus' }], reason: 'save' };
+  assert.deepEqual(redactTelemetry({ runId: null, data: config }), config, 'configuration events (no run) pass unchanged');
+});

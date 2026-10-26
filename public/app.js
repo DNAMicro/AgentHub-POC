@@ -1038,7 +1038,8 @@ function formAgentEvent(panel, type, data, run) {
       break;
     case 'form_reply_sent': {
       const r = data.receipt;
-      const detail = r?.bookingId ? ` Booking ${r.bookingId}: ${r.room}, ${r.date} ${r.start}–${r.end} (${r.timezone}).` : r?.requestId ? ` Request ${r.requestId}: ${r.status}.` : '';
+      // The Hub reduces relayed receipts to their ID and status unless content is shown for debugging.
+      const detail = r?.bookingId ? ` Booking ${r.bookingId}${r.room ? `: ${r.room}, ${r.date} ${r.start}–${r.end} (${r.timezone})` : ''}.` : r?.requestId ? ` Request ${r.requestId}: ${r.status}.` : '';
       panel({ dir: data.status === 'rejected' || data.status === 'conflict' ? 'error' : 'sent', label: data.duplicate ? 'Sent (stored result again)' : 'Sent', text: `${data.text}${detail}`, ids: { form: data.formId, operation: data.operationId, action: data.actionName, task: data.taskState, contextId: data.contextId, run } });
       break;
     }
