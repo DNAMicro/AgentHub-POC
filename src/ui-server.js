@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { askTutor, sendFormAction } from './student-agent.js';
 import { hostGuard, sameOriginGuard } from './local-guard.js';
-import { A2UI_VERSION, WORKFLOWS, checkAction, validateBookingCriteria, validateFinal } from './forms.js';
+import { A2UI_VERSION, WORKFLOWS, checkAction, surfaceButtons, validateBookingCriteria, validateFinal } from './forms.js';
 import { loadStudentConfig } from './config.js';
 import { getCard, validateCard } from './cards.js';
 import { topologyLabel } from './topology.js';
@@ -375,7 +375,8 @@ export async function startUiServer({ port = 3000 } = {}) {
     if (typeof acknowledgeReview !== 'boolean') return res.status(400).json({ errors: { _form: 'acknowledgeReview must be true or false.' } });
     if (typeof operationId !== 'string' || !/^[\w-]{8,100}$/.test(operationId)) return res.status(400).json({ errors: { _form: 'Missing or malformed operation ID.' } });
     if (!action || typeof action !== 'object' || Object.keys(action).some((k) => !ACTION_KEYS.includes(k))) return res.status(400).json({ errors: { _form: 'Unexpected action fields.' } });
-    const checked = checkAction({ version: A2UI_VERSION, action }, { workflowId: form.workflowId, surfaceId: form.formId });
+    // Generated surfaces: only buttons that exist in the surface the agent sent can act.
+    const checked = checkAction({ version: A2UI_VERSION, action }, { workflowId: form.workflowId, surfaceId: form.formId, buttons: surfaceButtons(form.a2uiMessages) });
     if (!checked.ok) return res.status(400).json({ errors: { _form: checked.error } });
     if (form.inFlight) return res.status(409).json({ error: 'This form already has a request in progress.' });
     if (form.state === 'confirmation_pending') return res.status(409).json({ error: 'The outcome of the last submission is unknown. Use “Check status” first; nothing is resent automatically.' });

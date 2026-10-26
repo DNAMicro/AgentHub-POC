@@ -41,6 +41,12 @@ export function mockLibraryIntent(question) {
   return null;
 }
 
+// Part 8 (mock only, labelled heuristic): the student is asking about their OWN current loans — not
+// how borrowing works in general ("How do I renew my book?" stays a how-to question).
+const OWN_LOANS = /\b(my loans?|my (books?|items?) (is |are )?due|when (is|are) (my|the) [\w\s:'’-]{0,60}\bdue|everything i (have )?borrowed|what (did|have) i borrow|(books?|items?) i (have )?borrowed|extend (the|my|it)|keep (it|the|my)|why can'?t i renew|renew (the|my|this|that) [\w\s:'’-]{0,40}\bbook)\b/;
+const HOW_DO_I = /^\s*how (do|can|should|would|does) (i|you|one|a student)\b/;
+export const mockOwnLoans = (question) => OWN_LOANS.test(lower(question)) && !HOW_DO_I.test(lower(question));
+
 // "replace the form", "start over" → the student explicitly wants a fresh form.
 export const wantsReplacement = (question) => /\b(replace|start over|start again|new form|fresh form|discard)\b/.test(lower(question));
 

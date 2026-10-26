@@ -65,6 +65,7 @@ Then open **http://127.0.0.1:3000**. Start order doesn't matter: specialists kee
 | `SPECIALIST_ENABLED=0` | Register a specialist as disabled (no requests are routed to it) |
 | `HUB_TELEMETRY_SHOW_CONTENT=1` | Stop redacting message text and form values in the Hub's telemetry (off by default) |
 | `ROUTER_MODE` | The Hub's router: `direct`, `mock` or `live` |
+| `LOAN_STORE_FILE` | Part 8: where the Library's synthetic loan records and renewal outcomes are saved (default `data/library-loans.json`, git-ignored; delete it to reset the demo loans) |
 | `STUDENT_MODE` | The Student's own model: `off` (default), `mock` or `live`. It clarifies unclear questions and picks the capability for non-obvious ones (`demo` uses mock, `demo:live` live) |
 | `STUDENT_MODEL`, `HUB_MODEL`, `TUTOR_MODEL`, `LIBRARY_MODEL` | Each agent's own model (overrides `model.name` in its config file). Supported: `claude-haiku-5-5` (default), `claude-sonnet-5-5`, `claude-opus-5-5`; anything else stops that agent at startup. Example: `TUTOR_MODEL=claude-sonnet-5-5 npm run demo:live` |
 
@@ -92,6 +93,9 @@ npm test   # starts the Tutor (and UI server) as child processes, runs all check
 | `src/skills.js` | Part 5: the single skill configuration, its validation, and everything derived from it. That's the Agent Card skills, the documented scope extension and the runtime policy. |
 | `src/agent-settings.js` | Part 5: one agent's skill settings. Holds the live configuration (swapped atomically on save), the local settings API (read, preview, save) and the `agent_card_changed` A2A notification (Part 7: sent to the Hub). |
 | `src/library-agent.js`, `src/library-model.js`, `src/library-fixture.js` | Part 5: the **Library Agent**. Answers only from the saved **answer content** of its enabled skills (defaults are fictional sample data in the fixture). `LIBRARY_MODE=mock` (default) extracts the matching lines; `live` asks Haiku 5.5 and releases the answer only if its quoted evidence is found in that content. It performs no transactions. |
+| `src/loan-store.js` | Part 8: the synthetic loan service — authoritative loans, eligibility, the permitted return-date range, and idempotent renewals saved to disk. |
+| `src/a2ui-catalog.js` | Part 8: the model-visible catalog (built from the installed renderer's official schemas) and the validation every generated surface must pass. |
+| `src/loan-model.js` | Part 8: the Library's model call for loan questions — answer, clarify or compose UI — with bounded repair and a truthful fallback; labelled mock mode. |
 | `src/router.js` | Part 5: the routing decision, run by the Hub since Part 7. Live mode uses Haiku with structured output, mock mode a labelled heuristic, and code validates every decision against the registry. |
 | `src/hub-agent.js` | Part 7: the **University Hub** — public card, control messages, routing, forwarding, form references, operation dedupe, telemetry relay (redacted) and the developer settings proxy. |
 | `src/hub-registry.js` | Part 7: the Hub's **private registry** — allowlisted specialists, registration and takeover checks, heartbeats and expiry, card fetch/validation from the configured URL, separate readiness states. |
@@ -661,6 +665,54 @@ The Hub redacts message text, form values, review flags and errors from the spec
 - **One Hub, one student identity** in the example configuration. Identities are self-declared on localhost.
 - **Event timing:** live pulses are ordered by each agent's clock (all on one machine). Telemetry can lag the A2A reply by a few milliseconds; nothing is shown that didn't happen.
 
+## Part 8: model-generated UI for your book loans
+
+Ask the Library about **your own loans** (synthetic demo records) and its model decides what is useful: a plain answer, one focused question, or an interface it **composes itself** from the A2UI component catalog. Room booking and the Tutor's forms are unchanged; they still use their fixed templates.
+
+### From a sentence to a renewal
+
+1. You ask, for example, “Can I keep the calculus book until after my exam?”. As always it goes Student → Hub → Library over A2A. The Hub adds the conversation's **verified student** as trusted context; that's the borrower. The model never supplies it.
+2. The Library's first model call recognises a question about your own loans (`my_loans`); general questions like “How do I renew my book?” are still answered from its saved guidance.
+3. The **loan service** (`src/loan-store.js`) returns your loans with everything it computed: due dates, whether each can be renewed and why not, and the permitted return dates.
+4. The Library's model gets the conversation, those authoritative loans, the **operation contracts** (`renewLoan(loanId, returnDate)`, `cancelForm`) and the **catalog**. It answers (“due 2026-10-30”), asks (“What is the date of your exam?”), or writes an interface: the components, their layout, bindings and the button actions.
+5. Code wraps the components in a surface and **validates** them (`src/a2ui-catalog.js`) before anything is sent. If a check fails, the model gets the errors and up to two repair attempts. If it still fails, you get an honest text reply saying so; no prewritten form is substituted.
+6. The surface travels back through the Hub, unchanged, as the Library's form task. The Student checks it again (generated surfaces may use the wider catalog set; fixed forms keep the small one).
+7. You pick a date and press the button the model made. The Student and the Library both check that the action came from a button that **exists in that surface** and names a registered operation. The Library then re-checks **ownership, record version, eligibility and the permitted range** and renews. The receipt appears only after the loan service confirms.
+
+### What the model can use: the catalog
+
+The installed renderer (`@a2ui/lit` 0.14.0) registers the official A2UI **v0.9 basic catalog**. The model gets 15 of its 18 components, with their real properties built from the shipped JSON Schemas so they can't drift: Text, Icon, Row, Column, List, Card, Tabs, Modal, Divider, Button, TextField, CheckBox, ChoicePicker (with `filterable`, a search box the renderer really implements), Slider and DateTimeInput. It also gets the pure catalog functions (validation and formatting). **Not available:** Image, Video and AudioPlayer (they load URLs) and `openUrl`. No custom components were added. Text renders plain text (no Markdown renderer is configured), so the model is told not to use Markdown.
+
+### What validation rejects
+
+The official v0.9 JSON Schema first, then the app's rules: components or functions outside the set; local function actions; buttons that call anything but a registered operation, or with the wrong inputs; a renew button for an **ineligible** loan; a date picker whose min/max isn't exactly the backend's permitted range for that loan; a slider or text field supplying the date or loan; an input pre-filled with a backend due date; any date that isn't in the loan data or your own words; Markdown; missing references, cycles, no root; more than 80 components, nesting deeper than 10, or a surface over 48 KB.
+
+### Demo loan policy
+
+Up to **2 renewals** per loan. A renewal moves the due date to a date **you choose**, from the day after the current due date to **21 days after it**. Not renewable: another borrower has a hold, the renewal limit is reached, the item is overdue, or it's a course-reserve copy. The fixture (student-alex) has six loans: two renewable, one with a hold, one at its renewal limit, one renewable marketing title (so “the marketing book” is ambiguous) and a course-reserve copy; another borrower has one loan you can never see. Due dates are set relative to the day the store is first created.
+
+### Safety and reliability
+
+- Renewals are **idempotent by operation ID**, and outcomes are **saved to disk** (`LOAN_STORE_FILE`, default `data/library-loans.json`, git-ignored). A double-click, retry, reload or reconnect can't renew twice, even across a Library restart.
+- A record that changed after the form was made (for example someone placed a hold) is refused as **stale**; nothing is renewed.
+- A new interface in the same conversation replaces the open one (never two active), with a new **revision**. Actions on a replaced surface are refused.
+- Hidden fields and model instructions are not security: every rule above is enforced in code at submission.
+- **The borrower is signed by the Hub.** Each specialist gives the Hub a random signing key when it registers (in memory only; a restart makes a new one). The Hub signs the student it forwards, and the Library ignores any `studentId` without a valid signature. Another program on your machine calling the Library directly can't claim to be you.
+
+### Watching it: the Generated UI inspector
+
+**Agent activity → Generated UI inspector** shows each loan reply in three separate parts. **Model output** is the decision and the exact components and data the model wrote. **Application validation** has the catalog and version, each attempt's result with its errors, and the surface, revision, issuing agent and task IDs. **Backend** lists every loan's due date, eligibility, permitted dates and version, which is where the facts came from. No prompts, hidden reasoning or keys are shown. The topology and consoles show the same steps as real events.
+
+### Tests, and what they prove
+
+`test/loans.test.js` covers the loan service (eligibility, range, ownership, idempotency across a restart, stale versions); the catalog matching the installed renderer; the validator accepting a valid composition and rejecting each unsafe one; the Student's checks; and, through the real Hub, answers, repair of an invented date, clarification, an eligible renewal with a verified receipt that can't happen twice, a forged button, a hold placed behind the form's back, an ineligible renewal repaired into an explanation, an unrepairable surface degrading to text, and no loan data without a verified student. **The model's output in those tests is scripted** (the fake Messages API): they prove plumbing, validation and safety, not judgment. Judgment was checked live in a browser with Haiku 5.5. It answered a due date directly, gave an overview, asked for a missing exam date and then built a bounded date picker, renewed after a click, asked which of two marketing books, explained a hold and a renewal limit without a renew button, ordered loans by due date, and preselected the latest date when asked for it.
+
+### Limits, honestly
+
+- **Live judgment is probabilistic.** The checks stop unsafe or misleading output, but the model can still choose a less helpful layout or wording.
+- **Values typed into a replaced surface aren't carried over:** the Library doesn't see unsent input, so a new revision starts from what the model knows.
+- **Mock mode** (`LIBRARY_MODE=mock`) answers loan questions with a labelled text overview and never generates UI.
+
 ## Deliberately not included
 
-Token streaming, push notifications, multi-agent fan-out (the Hub forwards each request to at most one specialist), authentication or authorization, mailboxes, a database, actually sending email, model-driven tools, and deployment. Each chat goes to at most one service as one A2A request and one response. Each form is one A2A task, opened by the agent's reply to a chat message and acted on only by its own allowlisted actions.
+Token streaming, push notifications, multi-agent fan-out (the Hub forwards each request to at most one specialist), authentication or authorization, mailboxes, a database (Part 8's loan store is a JSON file), actually sending email, model-driven tools, model-generated code or HTML, and deployment. Model-generated UI exists only in Part 8, only from the validated catalog. Each chat goes to at most one service as one A2A request and one response. Each form is one A2A task, opened by the agent's reply to a chat message and acted on only by its own allowlisted actions.

@@ -50,7 +50,34 @@ export const WORKFLOWS = {
       cancelForm: { button: 'cancel_button', fields: [], cancel: true },
     },
   },
+  // Part 8: a GENERATED workflow. The Library's model composes the surface at runtime from the catalog,
+  // so there are no fixed buttons: these are the operation contracts a generated button may call. An
+  // action is valid only if it comes from a Button that exists in that very surface and names one of
+  // these operations with exactly these inputs. The backend re-checks everything at submission.
+  'loan-renewal': {
+    id: 'loan-renewal', agentId: 'library', skillId: 'book-loans', generated: true,
+    title: 'Library loans', finalAction: 'renewLoan', pendingText: 'Renewing…',
+    actions: {
+      renewLoan: { fields: ['loanId', 'returnDate'], required: ['loanId', 'returnDate'], final: true },
+      cancelForm: { fields: [], cancel: true },
+    },
+  },
 };
+// Components and functions a GENERATED surface may use: the installed renderer's official v0.9 basic
+// catalog, minus media components that load URLs (Image, Video, AudioPlayer) and the openUrl function.
+// src/a2ui-catalog.js checks these against the catalog the renderer registers.
+export const GENERATED_COMPONENTS = ['Text', 'Icon', 'Row', 'Column', 'List', 'Card', 'Tabs', 'Modal', 'Divider', 'Button', 'TextField', 'CheckBox', 'ChoicePicker', 'Slider', 'DateTimeInput'];
+export const GENERATED_FUNCTIONS = ['required', 'regex', 'length', 'numeric', 'email', 'formatString', 'formatNumber', 'formatCurrency', 'formatDate', 'pluralize', 'and', 'or', 'not'];
+// Buttons in a surface: id → { name, context } of the server event each one sends.
+export function surfaceButtons(messages) {
+  const buttons = new Map();
+  for (const m of messages ?? []) {
+    for (const c of m?.updateComponents?.components ?? []) {
+      if (c?.component === 'Button' && c.action?.event?.name) buttons.set(c.id, { name: c.action.event.name, context: c.action.event.context ?? {} });
+    }
+  }
+  return buttons;
+}
 export const workflowOfSkill = (skillId) => Object.values(WORKFLOWS).find((w) => w.skillId === skillId) ?? null;
 
 // ---- dates and times in the configured timezone -------------------------------------------
@@ -204,15 +231,28 @@ export function validateBooking(input, { now = new Date() } = {}) {
   return Object.keys(errors).length ? { ok: false, errors } : { ok: true, values };
 }
 
+// Shape only: the Library re-checks ownership, version, eligibility and the permitted date range.
+export function validateLoanRenewal(input) {
+  const keyError = checkKeys(input, WORKFLOWS['loan-renewal'].actions.renewLoan.fields);
+  if (keyError) return { ok: false, errors: { _form: keyError } };
+  const errors = {};
+  if (typeof input.loanId !== 'string' || !/^L-\d{4}$/.test(input.loanId)) errors._form = 'This form doesn’t name a valid loan.';
+  if (typeof input.returnDate !== 'string' || !DATE_RE.test(input.returnDate)) errors.returnDate = 'Choose a return date.';
+  return Object.keys(errors).length ? { ok: false, errors } : { ok: true, values: { loanId: input.loanId, returnDate: input.returnDate } };
+}
+
 export function validateFinal(workflowId, context, opts) {
   if (workflowId === 'tutoring-request') return validateTutoringRequest(context, opts);
   if (workflowId === 'study-room-booking') return validateBooking(context, opts);
+  if (workflowId === 'loan-renewal') return validateLoanRenewal(context);
   return { ok: false, errors: { _form: 'Unknown workflow.' } };
 }
 
 // Validate an A2UI client-to-server `action` against the form's workflow. Field values are
 // validated per action by the caller (final actions with validateFinal, lookups with criteria).
-export function checkAction(message, { workflowId, surfaceId }) {
+// Generated workflows have no fixed buttons: pass `buttons` (surfaceButtons of that surface) and the
+// action must come from one of them, sending the operation that button declares.
+export function checkAction(message, { workflowId, surfaceId, buttons }) {
   const action = message?.action;
   const workflow = WORKFLOWS[workflowId];
   if (message?.version !== A2UI_VERSION || !action || typeof action !== 'object') return { ok: false, error: 'Not an A2UI v0.9 action message.' };
@@ -220,7 +260,10 @@ export function checkAction(message, { workflowId, surfaceId }) {
   const spec = workflow.actions[action.name];
   if (!spec) return { ok: false, error: `Unknown action "${action.name}" for this form.` };
   if (action.surfaceId !== surfaceId) return { ok: false, error: 'Action is for a different form.' };
-  if (action.sourceComponentId !== spec.button) return { ok: false, error: 'Action did not come from that form’s own button.' };
+  if (workflow.generated) {
+    const button = buttons?.get(action.sourceComponentId);
+    if (!button || button.name !== action.name) return { ok: false, error: 'Action did not come from a button in that form.' };
+  } else if (action.sourceComponentId !== spec.button) return { ok: false, error: 'Action did not come from that form’s own button.' };
   const context = action.context ?? {};
   const keyError = checkKeys(context, spec.fields);
   if (keyError) return { ok: false, error: keyError };
@@ -380,29 +423,29 @@ const ALLOWED_COMPONENTS = new Set(['Column', 'Row', 'Text', 'TextField', 'Butto
 // Pure, side-effect-free catalog functions a form needs. Anything else (openUrl, formatters, …) is refused.
 const ALLOWED_FUNCTIONS = new Set(['required', 'regex', 'length', 'email', 'and', 'or', 'not']);
 
-function findForbidden(value, path) {
+function findForbidden(value, path, functions = ALLOWED_FUNCTIONS) {
   if (Array.isArray(value)) {
     for (let i = 0; i < value.length; i++) {
-      const found = findForbidden(value[i], `${path}[${i}]`);
+      const found = findForbidden(value[i], `${path}[${i}]`, functions);
       if (found) return found;
     }
     return null;
   }
   if (value === null || typeof value !== 'object') return null;
   if ('functionCall' in value) return `Local function call at ${path} is not allowed.`;
-  if ('call' in value && !ALLOWED_FUNCTIONS.has(value.call)) return `Function "${value.call}" at ${path} is not allowed.`;
+  if ('call' in value && !functions.has(value.call)) return `Function "${value.call}" at ${path} is not allowed.`;
   if ('action' in value) {
     const keys = value.action && typeof value.action === 'object' ? Object.keys(value.action) : [];
     if (keys.length !== 1 || keys[0] !== 'event') return `Action at ${path} must be a server event only.`;
   }
   for (const [key, child] of Object.entries(value)) {
-    const found = findForbidden(child, `${path}.${key}`);
+    const found = findForbidden(child, `${path}.${key}`, functions);
     if (found) return found;
   }
   return null;
 }
 
-function checkMessages(messages, surfaceId, allowedKeys) {
+function checkMessages(messages, surfaceId, allowedKeys, components = ALLOWED_COMPONENTS) {
   for (const m of messages) {
     if (m?.version !== A2UI_VERSION) return `Unsupported A2UI version "${m?.version}".`;
     const keys = Object.keys(m).filter((k) => k !== 'version');
@@ -410,29 +453,36 @@ function checkMessages(messages, surfaceId, allowedKeys) {
     if (m[keys[0]].surfaceId !== surfaceId) return 'All messages must target the same surface.';
     if (m.createSurface && m.createSurface.catalogId !== BASIC_CATALOG_ID) return 'Only the basic catalog is accepted.';
     for (const c of m.updateComponents?.components ?? []) {
-      if (!ALLOWED_COMPONENTS.has(c.component)) return `Component "${c.component}" is not allowed.`;
+      if (!components.has(c.component)) return `Component "${c.component}" is not allowed.`;
     }
   }
   return null;
 }
 
-// A new form: exactly one createSurface first, plain form components only, server-event actions
+// Fixed workflow forms use the small form set; generated surfaces (Part 8) the wider generated set.
+const policyFor = (workflowId) => (WORKFLOWS[workflowId]?.generated
+  ? { components: new Set(GENERATED_COMPONENTS), functions: new Set(GENERATED_FUNCTIONS) }
+  : { components: ALLOWED_COMPONENTS, functions: ALLOWED_FUNCTIONS });
+
+// A new form: exactly one createSurface first, allowlisted components only, server-event actions
 // only, no non-allowlisted function anywhere, one surface, bounded size. Returns an error or null.
-export function checkFormPayloadPolicy(messages) {
+export function checkFormPayloadPolicy(messages, { workflowId } = {}) {
+  const { components, functions } = policyFor(workflowId);
   if (!Array.isArray(messages) || messages.length === 0) return 'A2UI payload must be a non-empty array of messages.';
   if (JSON.stringify(messages).length > MAX_A2UI_PAYLOAD_BYTES) return 'A2UI payload is too large.';
   const creates = messages.filter((m) => m?.createSurface);
   if (creates.length !== 1 || messages[0] !== creates[0]) return 'Payload must start with exactly one createSurface.';
   const surfaceId = creates[0].createSurface.surfaceId;
   if (typeof surfaceId !== 'string' || !/^[\w-]{1,100}$/.test(surfaceId)) return 'Malformed surfaceId.';
-  return checkMessages(messages, surfaceId, new Set(['createSurface', 'updateComponents', 'updateDataModel'])) ?? findForbidden(messages, 'payload');
+  return checkMessages(messages, surfaceId, new Set(['createSurface', 'updateComponents', 'updateDataModel']), components) ?? findForbidden(messages, 'payload', functions);
 }
 
 // An update to an existing form (slot options, review screen, removal): same rules, no createSurface.
-export function checkFormUpdatePolicy(messages, surfaceId) {
+export function checkFormUpdatePolicy(messages, surfaceId, { workflowId } = {}) {
   if (!Array.isArray(messages) || messages.length === 0) return 'A2UI update must be a non-empty array of messages.';
   if (JSON.stringify(messages).length > MAX_A2UI_PAYLOAD_BYTES) return 'A2UI update is too large.';
-  return checkMessages(messages, surfaceId, new Set(['updateComponents', 'updateDataModel', 'deleteSurface'])) ?? findForbidden(messages, 'update');
+  const { components, functions } = policyFor(workflowId);
+  return checkMessages(messages, surfaceId, new Set(['updateComponents', 'updateDataModel', 'deleteSurface']), components) ?? findForbidden(messages, 'update', functions);
 }
 
 export const isA2uiPart = (part) => part?.content?.$case === 'data' && (part.mediaType === A2UI_MIME_TYPE || part.metadata?.mimeType === A2UI_MIME_TYPE);

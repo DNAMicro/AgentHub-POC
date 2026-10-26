@@ -2,6 +2,9 @@
 // enabled skills (src/library-model.js): mock mode extracts matching lines deterministically;
 // live mode uses Claude Haiku 5.5 with code-verified evidence. Part 6: when asked to reserve a group
 // study room it sends its booking form (A2UI) and makes DEMO bookings in memory; no real transactions.
+// Part 8: questions about the student's OWN loans go to the loan service (synthetic records) and the
+// Library's model, which answers, asks, or composes an interface from the catalog (src/loan-model.js);
+// renewals are executed only by the loan service, re-checked at submission.
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import express from 'express';
@@ -23,6 +26,10 @@ import { createFormHost } from './form-host.js';
 import { reviewGate } from './form-review.js';
 import { createRoomStore } from './demo-store.js';
 import { bookingPrefill, wantsReplacement } from './form-intent.js';
+import { createLoanStore } from './loan-store.js';
+import { mockLoanReply, replyAboutLoans } from './loan-model.js';
+import { CATALOG_INFO, wrapSurface } from './a2ui-catalog.js';
+import { validateLoanRenewal } from './forms.js';
 
 export { LIBRARY_DEFAULT_SKILLS };
 
@@ -43,7 +50,8 @@ const textOf = (message) => message.parts.filter((p) => p.content?.$case === 'te
 // Every Library answer skill is answered from its own saved content, so that content is required.
 // Group study-room booking is a built-in form skill handled by code.
 const WORKFLOW_ID = 'study-room-booking';
-const LIBRARY_RULES = { answer: { knowledge: 'required' }, form: { id: WORKFLOWS[WORKFLOW_ID].skillId } };
+const LOAN_WORKFLOW_ID = 'loan-renewal';
+const LIBRARY_RULES = { answer: { knowledge: 'required' }, form: { ids: [WORKFLOWS[WORKFLOW_ID].skillId, WORKFLOWS[LOAN_WORKFLOW_ID].skillId] } };
 const WORKFLOW_TEXT = {
   offer: 'Here is the group study room booking form. Choose your details to see demo availability, review, then confirm.',
   info: `Group study rooms (demo): ask here — for example “I want to reserve a group study room” — and I’ll send a booking form. You choose group size, date, room and duration, pick from demo availability, review, then confirm. ${ROOMS.map((r) => `${r.name} holds up to ${r.capacity}`).join('; ')}. Bookable ${BOOKING.open}–${BOOKING.close} ${TIMEZONE_LABEL}, 1 or 2 hours, up to ${BOOKING.maxDaysAhead} days ahead. Demo bookings only.`,
@@ -55,7 +63,9 @@ const LOG_CONTENT = process.env.LIBRARY_LOG_CONTENT !== undefined ? process.env.
 
 let skillService = null;
 const rooms = createRoomStore();
+const loans = createLoanStore();
 const workflowEnabled = () => skillService.policy().skills.some((s) => s.id === WORKFLOWS[WORKFLOW_ID].skillId);
+const loansEnabled = () => skillService.policy().skills.some((s) => s.id === WORKFLOWS[LOAN_WORKFLOW_ID].skillId);
 const roomName = (id) => ROOMS.find((r) => r.id === id)?.name ?? id;
 
 // Opaque, per-form slot IDs: only times this form was actually offered can be reviewed or confirmed.
@@ -93,7 +103,7 @@ const summary = (v, slot) => [
 
 const formHost = createFormHost({
   agentId: 'library',
-  isEnabled: (workflowId) => workflowId === WORKFLOW_ID && workflowEnabled(),
+  isEnabled: (workflowId) => (workflowId === WORKFLOW_ID ? workflowEnabled() : workflowId === LOAN_WORKFLOW_ID ? loansEnabled() : false),
   emitViz, log,
   logValues: (v) => (v ? { ...v, firstName: '[redacted]', lastName: '[redacted]', email: '[redacted]' } : v),
   workflows: {
@@ -155,6 +165,32 @@ const formHost = createFormHost({
         },
       },
     },
+    // Part 8: generated surfaces only (no template). The handler trusts nothing from the surface: the
+    // borrower comes from the Hub's verified context, and the loan service re-checks ownership, record
+    // version, eligibility and the permitted range before it renews (idempotent by operation ID).
+    [LOAN_WORKFLOW_ID]: {
+      build: () => { throw new Error('loan surfaces are generated, never built from a template'); },
+      actions: {
+        async renewLoan(form, context, { operationId, trusted, emit }) {
+          const v = validateLoanRenewal(context);
+          if (!v.ok) return { status: 'rejected', message: 'Choose a return date.', errors: v.errors };
+          // Only a student the Hub signed for this request counts (a bare metadata studentId is ignored).
+          if (hubLink.verifiedStudent(trusted, form.contextId) !== form.data.borrowerId) return { status: 'rejected', message: 'This form belongs to another student.', errors: { _form: 'This form belongs to another student.' } };
+          const expectedVersion = form.data.renewable?.[v.values.loanId];
+          if (expectedVersion === undefined) return { status: 'rejected', message: 'This form can’t renew that loan.', errors: { _form: 'This form can’t renew that loan.' } };
+          const r = loans.renewLoan({ borrowerId: form.data.borrowerId, loanId: v.values.loanId, returnDate: v.values.returnDate, expectedVersion, operationId });
+          emit('loan_operation', { operation: 'renewLoan', loanId: v.values.loanId, ok: r.ok, code: r.ok ? 'renewed' : r.code, duplicate: Boolean(r.duplicate) });
+          if (r.ok) {
+            log('renewed demo loan', { loanId: r.receipt.loanId, renewalId: r.receipt.renewalId, newDueDate: r.receipt.newDueDate });
+            return { status: 'accepted', message: `Renewed. ${r.receipt.title} is now due ${prettyDate(r.receipt.newDueDate)}.`, values: v.values, receipt: { ...r.receipt, demo: true, note: 'Demo renewal — synthetic library records.' } };
+          }
+          return { status: 'rejected', message: r.reason, errors: ['out_of_range', 'invalid_date'].includes(r.code) ? { returnDate: r.reason } : { _form: r.reason } };
+        },
+        async cancelForm() {
+          return { status: 'cancelled', message: 'Closed. Nothing was renewed.' };
+        },
+      },
+    },
   },
 });
 
@@ -173,6 +209,80 @@ function offerWorkflow(ctx, bus, runId, question, metadata) {
   formHost.issue(ctx, bus, { workflowId: WORKFLOW_ID, prefill: bookingPrefill(question), runId, intro: WORKFLOW_TEXT.offer, supersedes: open === same ? null : open });
 }
 const recentByContext = new Map(); // contextId → last few { question, answer } (in memory; only for short follow-ups)
+const loanLedger = new Map(); // `${contextId}|${messageId}` → Promise<loan reply>; a repeat request reuses it (no second paid call)
+const revisions = new Map(); // contextId → generated loan surfaces issued so far (the surface revision)
+const remember = (ctx, question, answer) => {
+  const turns = [...(recentByContext.get(ctx.contextId) ?? []), { question, answer }].slice(-4);
+  recentByContext.delete(ctx.contextId);
+  recentByContext.set(ctx.contextId, turns);
+  if (recentByContext.size > MAX_LEDGER) recentByContext.delete(recentByContext.keys().next().value);
+};
+
+// Part 8: the student's own loans. The borrower is the Hub's verified student for this conversation.
+async function handleLoans(ctx, bus, runId, question, metadata) {
+  const incoming = ctx.userMessage;
+  const send = (text, outcome, extra = {}) => {
+    const message = reply(ctx, text, { ...metadata, library: { outcome, ...extra } });
+    bus.publish(AgentEvent.message(message));
+    bus.finished();
+    emitViz('reply_published', runId, { messageId: message.messageId, contextId: ctx.contextId, inReplyTo: incoming.messageId, text, library: { outcome, ...extra } });
+    remember(ctx, question, text);
+  };
+  if (!loansEnabled()) return send('Looking up your loans isn’t offered by the Library Agent right now.', 'workflow_disabled');
+  // The borrower is the student the Hub vouched for with a valid signature — never a bare claim.
+  const borrowerId = hubLink.verifiedStudent(incoming.metadata, ctx.contextId);
+  if (!borrowerId) return send('I can only look up loans for a student who asks through the university.', 'loan_no_identity');
+  const view = loans.listLoans(borrowerId);
+  const policy = loans.policy();
+  const openId = formHost.openForm(ctx.contextId, LOAN_WORKFLOW_ID);
+  const open = openId ? formHost.form(openId) : null;
+  const key = `${ctx.contextId}|${incoming.messageId}`;
+  let pending = loanLedger.get(key);
+  if (!pending) {
+    pending = LIBRARY_MODE === 'live'
+      ? replyAboutLoans({ question, recent: recentByContext.get(ctx.contextId) ?? [], loans: view, policy, openSurface: open ? { formId: openId, revision: open.version, renewableLoans: Object.keys(open.data.renewable ?? {}) } : null, emit: (type, data) => emitViz(type, runId, data) })
+      : Promise.resolve(mockLoanReply({ loans: view }));
+    loanLedger.set(key, pending);
+    pending.catch(() => {});
+    if (loanLedger.size > MAX_LEDGER) loanLedger.delete(loanLedger.keys().next().value);
+  } else emitViz('model_call_reused', runId, { contextId: ctx.contextId, messageId: incoming.messageId });
+  let result;
+  try {
+    result = await pending;
+  } catch (err) {
+    const failure = err instanceof LlmError ? err : new LlmError('internal_error');
+    return send(`The Library Agent could not answer: ${failure.message}`, 'error', { code: failure.code });
+  }
+  const showUi = result.kind === 'ui' && formHost.clientSupportsForms(incoming);
+  const revision = showUi ? (formHost.formForRequest(ctx) ? (revisions.get(ctx.contextId) ?? 1) : (revisions.get(ctx.contextId) ?? 0) + 1) : null;
+  // The inspector (developer view): model output, application validation and backend facts, kept apart.
+  const inspect = (surface) => emitViz('ui_generated', runId, {
+    kind: result.kind, fallback: Boolean(result.fallback), model: result.model, usage: result.usage,
+    inspector: {
+      decision: result.fallback ? `${result.kind} (fallback after failed validation)` : result.kind,
+      catalog: { catalogId: CATALOG_INFO.catalogId, version: CATALOG_INFO.version, renderer: CATALOG_INFO.renderer },
+      validation: result.attempts,
+      surface,
+      modelOutput: result.kind === 'ui' ? { components: result.components, dataModel: result.dataModel } : { text: result.text },
+      authoritative: view.map((l) => ({ loanId: l.loanId, dueDate: l.dueDate, eligible: l.eligible, code: l.eligibilityCode, permittedReturnDates: l.permittedReturnDates, version: l.version, source: 'loan store (synthetic)' })),
+      loanIds: result.loanIds,
+    },
+  });
+  if (!showUi) {
+    inspect(null);
+    const text = result.kind === 'ui' ? `${result.text} (Your client can’t show forms, so here it is as text.)` : result.text;
+    return send(text, result.kind === 'clarify' ? 'loan_clarify' : 'loan_answer', { mode: LIBRARY_MODE, model: result.model, usage: result.usage, generated: false });
+  }
+  revisions.set(ctx.contextId, revision);
+  // A new interface replaces the conversation's open loan surface (never two active ones).
+  const formId = formHost.issue(ctx, bus, {
+    workflowId: LOAN_WORKFLOW_ID, runId, intro: result.text, supersedes: open && openId !== formHost.formForRequest(ctx) ? openId : null,
+    payload: (id) => wrapSurface(id, result.components, result.dataModel), version: revision,
+    data: { borrowerId, renewable: result.renewable }, extra: { generated: true, revision },
+  });
+  inspect({ formId, revision, supersedes: open && openId !== formId ? openId : null, issuer: 'library', taskId: ctx.taskId, contextId: ctx.contextId, renewable: result.renewable });
+  remember(ctx, question, `${result.text} [showed an interface]`);
+}
 const ledger = new Map(); // `${contextId}|${messageId}` → Promise<result>; a repeat request reuses it (no second paid call)
 
 async function answerOnce(ctx, question, runId) {
@@ -185,7 +295,7 @@ async function answerOnce(ctx, question, runId) {
     const current = skillService.policy();
     const policy = { revision: current.revision, skills: current.skills.filter((s) => s.kind === 'answer') };
     const recent = recentByContext.get(ctx.contextId) ?? [];
-    const result = await answerFromKnowledge({ question, policy, workflow: { enabled: workflowEnabled() }, recent, emit: (type, data) => emitViz(type, runId, data) });
+    const result = await answerFromKnowledge({ question, policy, workflow: { enabled: workflowEnabled() }, loans: { enabled: loansEnabled() }, recent, emit: (type, data) => emitViz(type, runId, data) });
     // Release check: skills changed while answering → don't release under the old policy.
     if (skillService.revision() !== policy.revision) return { ...result, verdict: 'changed', text: 'The Library Agent’s skills changed while your question was being answered, so that answer wasn’t released. Please ask again.', policyRevision: skillService.revision() };
     return { ...result, policyRevision: policy.revision };
@@ -219,6 +329,7 @@ const libraryExecutor = {
       const r = await answerOnce(ctx, question, runId);
       emitViz('scope_checked', runId, { stage: 'request', verdict: r.verdict, skillId: r.skillId ?? null, policyRevision: r.policyRevision, evidenceLines: r.evidence.length });
       if (r.verdict === 'offer_form') return offerWorkflow(ctx, bus, runId, question, metadata);
+      if (r.verdict === 'my_loans') return handleLoans(ctx, bus, runId, question, metadata);
       text = r.verdict === 'answered' ? `${r.text}\n\n(From the Library Agent’s saved information.)`
         : r.verdict === 'workflow_info' ? WORKFLOW_TEXT.info : r.verdict === 'workflow_disabled' ? WORKFLOW_TEXT.disabled : r.text;
       metadata.library = { outcome: r.verdict, skillId: r.skillId ?? null, policyRevision: r.policyRevision, mode: LIBRARY_MODE, model: r.model, usage: r.usage, requestId: r.requestId ?? null, evidence: r.evidence, duplicate: Boolean(r.duplicate) };
@@ -234,10 +345,7 @@ const libraryExecutor = {
     bus.publish(AgentEvent.message(message));
     bus.finished();
     emitViz('reply_published', runId, sent);
-    const turns = [...(recentByContext.get(ctx.contextId) ?? []), { question, answer: text }].slice(-4);
-    recentByContext.delete(ctx.contextId);
-    recentByContext.set(ctx.contextId, turns);
-    if (recentByContext.size > MAX_LEDGER) recentByContext.delete(recentByContext.keys().next().value);
+    remember(ctx, question, text);
   },
   async cancelTask() {},
 };
@@ -253,7 +361,7 @@ function serveVizEvents(req, res) {
 function buildAgentCard(port) {
   return {
     name: 'Library Agent',
-    description: 'Library help from its saved information (fictional sample data by default): hours, borrowing, renewal and return guidance, and finding resources. Guidance only — no real transactions.',
+    description: 'Library help from its saved information (fictional sample data by default): hours, borrowing, renewal and return guidance, finding resources, demo study-room bookings, and your own demo loans and renewals (synthetic records). No real transactions.',
     version: '0.1.0',
     supportedInterfaces: [{ url: `http://${HOST}:${port}${JSONRPC_PATH}`, protocolBinding: 'JSONRPC', protocolVersion: A2A_PROTOCOL_VERSION, tenant: '' }],
     provider: undefined,
@@ -293,6 +401,10 @@ export function startLibraryServer({ port = 41242 } = {}) {
       app.use(JSONRPC_PATH, jsonRpcHandler({ requestHandler, userBuilder: UserBuilder.noAuthentication }));
       app.get(VIZ_PATH, serveVizEvents);
       app.use(skillService.router());
+      // Test hook only: change a loan behind an open form's back (e.g. another borrower places a hold).
+      if (process.env.LIBRARY_TEST_HOOKS === '1') {
+        app.post('/test/loans/:loanId/hold', express.json(), (req, res) => res.json({ ok: loans._setHold(req.params.loanId, req.body?.hold !== false) }));
+      }
       skillService.started(actualPort, `${baseUrl}/${AGENT_CARD_PATH}`);
       hubLink.start(); // retries until the Hub accepts the registration
       resolve({ server, baseUrl, hubLink });

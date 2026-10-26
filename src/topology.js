@@ -95,6 +95,8 @@ const SPECIALIST = {
   form_review: (a) => inside(a, 'model', 'processing', 'Submission reviewed'),
   form_action_result: (a, d) => inside(a, 'form', ['rejected', 'conflict'].includes(d.status) ? 'failed' : 'processing', `Handler result: ${d.status}`),
   form_reply_sent: (a) => hop(a, 'hub', 'form', 'attempted', 'Specialist sent the form result'),
+  ui_generated: (a, d) => inside(a, 'form', d.fallback ? 'failed' : 'processing', d.kind === 'ui' ? 'Generated an interface (validated)' : d.fallback ? 'Generated UI failed checks — answered in text' : d.kind === 'clarify' ? 'Asked a clarifying question' : 'Answered from loan records'),
+  loan_operation: (a, d) => inside(a, 'form', d.ok ? 'completed' : 'failed', d.ok ? `Loan service renewed ${d.loanId}${d.duplicate ? ' (stored result)' : ''}` : `Loan service refused (${d.code})`),
   hub_registration: (a, d) => hop(a, 'hub', 'registration', d.status === 'registered' ? 'completed' : 'failed', d.status === 'registered' ? 'Registered with the Hub' : d.status === 'not_delivered' ? 'Hub not reachable for registration' : 'Registration refused'),
   skills_saved: (a) => inside(a, 'card', 'processing', 'Skills saved'),
   card_notification: (a, d) => hop(a, 'hub', 'card', d.outcome === 'delivered' ? 'completed' : d.outcome === 'pending' ? 'unknown' : 'failed', `Card-change notice ${d.outcome}`),

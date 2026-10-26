@@ -124,9 +124,10 @@ function formFromTask(task, { messageId, onEvent }) {
     throw new Error(`Expected an agent Message or a form task, got: ${textOf(msg ?? { parts: [] }) || 'unexpected reply'}`);
   }
   const a2uiMessages = part.content.value;
-  const policyError = checkFormPayloadPolicy(a2uiMessages);
-  if (policyError) throw new Error(`Rejected A2UI payload: ${policyError}`);
   const meta = msg.metadata ?? {};
+  // Generated surfaces (Part 8) may use the wider generated catalog set; fixed forms keep the form set.
+  const policyError = checkFormPayloadPolicy(a2uiMessages, { workflowId: meta.workflowId });
+  if (policyError) throw new Error(`Rejected A2UI payload: ${policyError}`);
   const form = {
     formId: a2uiMessages[0].createSurface.surfaceId,
     workflowId: meta.workflowId ?? null,
@@ -193,7 +194,7 @@ export async function sendFormAction(baseUrl, { form, action, operationId, runId
     if (body.status === 'not_delivered') throw Object.assign(new Error(body.message ?? 'Not delivered.'), { outcome: 'not_delivered' });
     // Any UI update (slot options, review screen, removal) must target this form and pass the allowlist.
     const update = reply?.parts.find(isA2uiPart)?.content.value ?? [];
-    const updateError = update.length ? checkFormUpdatePolicy(update, form.formId) : null;
+    const updateError = update.length ? checkFormUpdatePolicy(update, form.formId, { workflowId: form.workflowId }) : null;
     if (updateError) throw Object.assign(new Error(`Rejected A2UI update: ${updateError}`), { outcome: 'rejected' });
     const ids = { operationId, actionName: action.name, formId: form.formId, messageId: reply?.messageId, contextId: result.contextId, taskId: 'messageId' in result ? null : result.id, duplicate: Boolean(reply?.metadata?.duplicate) };
     log('form action result', { ...ids, status: body.status });

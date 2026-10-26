@@ -49,19 +49,26 @@ const trim = (map) => { if (map.size > MAX_RECORDS) map.delete(map.keys().next()
 // configuration, not student content. Whether an event has a runId decides nothing: a request sent
 // without one must not get its content relayed. HUB_TELEMETRY_SHOW_CONTENT=1 turns redaction off.
 const CONFIG_EVENT_TYPES = new Set(['status', 'skills_saved', 'card_notification', 'hub_registration']);
+// Part 8: the Generated UI inspector's payload (model output, validation results, synthetic loan facts).
+// It holds agent output and backend data, never values a student typed, so this one field passes.
+const INSPECTOR_FIELDS = { ui_generated: ['inspector'] };
 const SAFE_FIELDS = new Set([
   'runId', 'operationId', 'hubOperationId', 'formId', 'formRef', 'workflowId', 'taskId', 'contextId', 'messageId', 'inReplyTo', 'requestId',
   'agentId', 'skillId', 'actionName', 'policyRevision', 'revision', 'status', 'outcome', 'verdict', 'stage', 'decision', 'mode', 'model',
   'purpose', 'by', 'code', 'kind', 'final', 'lookup', 'duplicate', 'repeat', 'acknowledged', 'unavailable', 'truncated', 'stopReason',
-  'taskState', 'resumedTask', 'violates', 'handler', 'reviewer', 'latencyMs', 'earlierMessages', 'chars',
+  'taskState', 'resumedTask', 'violates', 'handler', 'reviewer', 'latencyMs', 'earlierMessages', 'chars', 'fallback', 'operation', 'loanId', 'ok', 'generated', 'revision',
   'usage', 'inputTokens', 'outputTokens', 'cacheReadInputTokens', 'cacheCreationInputTokens', 'tutor', 'library',
 ]);
+// Lists of field NAMES (never values) that may pass, e.g. which fields a form prefilled.
+const NAME_LIST_FIELDS = new Set(['prefilled']);
+const isNameList = (v) => Array.isArray(v) && v.length <= 30 && v.every((x) => typeof x === 'string' && /^[A-Za-z][\w-]{0,40}$/.test(x));
 const mask = (v) => (typeof v === 'string' ? `[${v.length} chars redacted]` : Array.isArray(v) ? `[${v.length} items redacted]`
   : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).map((f) => [f, '[redacted]'])) : v === null || v === undefined ? v : '[redacted]');
 function redactFields(data, depth = 0) {
   const out = {};
   for (const [k, v] of Object.entries(data)) {
-    if (k === 'receipt' && v && typeof v === 'object') out[k] = { requestId: v.requestId, bookingId: v.bookingId, status: v.status };
+    if (k === 'receipt' && v && typeof v === 'object') out[k] = { requestId: v.requestId, bookingId: v.bookingId, renewalId: v.renewalId, status: v.status };
+    else if (NAME_LIST_FIELDS.has(k) && isNameList(v)) out[k] = v;
     else if (!SAFE_FIELDS.has(k)) out[k] = mask(v);
     else if (v && typeof v === 'object') out[k] = Array.isArray(v) || depth >= 2 ? mask(v) : redactFields(v, depth + 1);
     else out[k] = v;
@@ -70,7 +77,9 @@ function redactFields(data, depth = 0) {
 }
 export function redactTelemetry(event) {
   if (process.env.HUB_TELEMETRY_SHOW_CONTENT === '1' || CONFIG_EVENT_TYPES.has(event.type) || !event.data || typeof event.data !== 'object') return event.data;
-  return redactFields(event.data);
+  const out = redactFields(event.data);
+  for (const field of INSPECTOR_FIELDS[event.type] ?? []) if (field in event.data) out[field] = event.data[field];
+  return out;
 }
 
 export function startHubServer({ port } = {}) {
@@ -228,7 +237,9 @@ export function startHubServer({ port } = {}) {
     try {
       const reply = await askTutor(peer.baseUrl, question, {
         runId, contextId: downstreamContextId, messageId: downstreamMessageId, card: registry.entry(agentId).card,
-        timeoutMs: cfg.timeouts.dispatchMs, metadata: { hubOperationId: operationId, via: cfg.agentId },
+        // studentId: the conversation's verified owner (Part 8: the Library resolves the borrower from it).
+        timeoutMs: cfg.timeouts.dispatchMs,
+        metadata: { hubOperationId: operationId, via: cfg.agentId, studentId: conv.studentId, hubSignature: registry.signFor(agentId, { studentId: conv.studentId, contextId: downstreamContextId, operationId }) },
       });
       registry.markReachable(agentId, true);
       conv.turns = [...conv.turns, { question, agentId, skillId: decision.skillId, answer: String(reply.text ?? '').slice(0, 300) }].slice(-ROUTING_TURNS);
@@ -324,7 +335,8 @@ export function startHubServer({ port } = {}) {
     try {
       const result = await sendFormAction(peer.baseUrl, {
         form: m.downstream, action: action.action, operationId, runId, card: registry.entry(m.agentId)?.card ?? undefined,
-        acknowledgeReview: md.reviewAcknowledged === true, timeoutMs: cfg.timeouts.formActionMs, metadata: { hubOperationId: operationId, via: cfg.agentId },
+        acknowledgeReview: md.reviewAcknowledged === true, timeoutMs: cfg.timeouts.formActionMs,
+        metadata: { hubOperationId: operationId, via: cfg.agentId, studentId: m.studentId, hubSignature: registry.signFor(m.agentId, { studentId: m.studentId, contextId: m.downstream.contextId, operationId }) },
       });
       registry.markReachable(m.agentId, true);
       const closed = ['accepted', 'cancelled'].includes(result.body.status);

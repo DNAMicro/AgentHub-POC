@@ -34,6 +34,7 @@ const els = {
   timeline: $('timeline'),
   timelineError: $('timeline-error'),
   libraryLog: $('library-log'),
+  inspectorLog: $('inspector-log'),
   routerMode: $('router-mode'),
   refreshSkills: $('refresh-skills'),
   skillsBox: { tutor: $('tutor-skills'), library: $('library-skills') },
@@ -392,6 +393,8 @@ function clearScreen() {
   els.libraryLog.replaceChildren();
   els.hubLog.replaceChildren();
   els.studentConsole.replaceChildren();
+  els.inspectorLog.replaceChildren();
+  inspections.clear();
   els.runId.textContent = 'no run yet';
   els.timeline.replaceChildren();
   els.timelineError.textContent = '';
@@ -869,7 +872,9 @@ function handle(event, { live = true } = {}) {
         formsUi.actionResult(data);
         if (!WORKFLOWS[data.workflowId]?.actions[data.actionName]?.final) break;
         const r = data.body?.receipt;
-        const values = r?.bookingId
+        const values = r?.renewalId
+          ? { 'Renewal ID': r.renewalId, Book: r.title, 'Loan ID': r.loanId, 'Previous due date': prettyDate(r.previousDueDate), 'New due date': prettyDate(r.newDueDate), 'Renewals used': r.renewalsUsed, Note: r.note }
+          : r?.bookingId
           ? { 'Booking ID': r.bookingId, Room: r.room, Date: prettyDate(r.date), Time: `${r.start}–${r.end}`, 'Group size': r.groupSize, Timezone: r.timezone, Note: r.note }
           : r?.requestId ? { 'Request ID': r.requestId, Status: r.status, 'Preferred date': prettyDate(r.preferences.preferredDate), 'Time of day': r.preferences.period, 'Specific time': r.preferences.specificTime ?? 'none', Timezone: r.timezone, Note: r.note } : undefined;
         const flagged = data.body?.status === 'needs_review';
@@ -890,6 +895,7 @@ function handle(event, { live = true } = {}) {
     hubEvent(hub, type, data, run);
     if (isCurrent) flowStep(source, type, data, at);
   } else if (source === 'library') {
+    if (type === 'ui_generated' || type === 'loan_operation' || (type === 'form_action_result' && data.workflowId === 'loan-renewal')) inspectorEvent(type, data, runId, at);
     switch (type) {
       case 'message_received':
         library({ dir: 'received', label: 'Received', text: data.text, ids: { messageId: data.messageId, contextId: data.contextId, run } });
@@ -1069,10 +1075,16 @@ function applyTopology(snap) {
 function formAgentEvent(panel, type, data, run) {
   switch (type) {
     case 'intent_decided':
-      panel({ dir: 'info', label: 'Intent', text: { offer: 'Workflow request → send the form', info: 'Question about the workflow → explain it', clarify: 'Unclear → ask a question' }[data.outcome] ?? data.outcome, ids: { decidedBy: data.by, reason: data.reason, run } });
+      panel({ dir: 'info', label: 'Intent', text: { offer: 'Workflow request → send the form', info: 'Question about the workflow → explain it', clarify: 'Unclear → ask a question', my_loans: 'About the student’s own loans → loan service + model' }[data.outcome] ?? data.outcome, ids: { decidedBy: data.by, reason: data.reason, run } });
+      break;
+    case 'ui_generated':
+      panel({ dir: data.fallback ? 'error' : 'sent', label: data.kind === 'ui' ? 'Generated an interface' : data.fallback ? 'Generated UI failed checks' : data.kind === 'clarify' ? 'Asked a question' : 'Answered', text: data.kind === 'ui' ? `Composed from the catalog and validated (revision ${data.inspector?.surface?.revision ?? '?'}). See the Generated UI inspector.` : data.fallback ? 'The generated interface didn’t pass the checks; the student got a text reply instead.' : 'Replied in text from the loan records.', ids: { model: data.model, attempts: data.inspector?.validation?.length ?? null, run } });
+      break;
+    case 'loan_operation':
+      panel({ dir: data.ok ? 'received' : 'error', label: data.ok ? 'Loan service: renewed' : 'Loan service: refused', text: `${data.operation} ${data.loanId}: ${data.code}${data.duplicate ? ' (stored outcome — nothing renewed twice)' : ''}`, ids: { form: data.formId, run } });
       break;
     case 'form_sent':
-      panel({ dir: 'sent', label: data.repeat ? 'Sent (same form again)' : 'Sent form', text: `${data.workflowId}: A2UI form in a task awaiting input${data.prefilled?.length ? ` (prefilled: ${data.prefilled.join(', ')})` : ''}${data.supersedes ? ` — replaces ${data.supersedes}` : ''}.`, ids: { form: data.formId, taskId: data.taskId, contextId: data.contextId, messageId: data.messageId, run } });
+      panel({ dir: 'sent', label: data.repeat ? 'Sent (same form again)' : 'Sent form', text: `${data.workflowId}: A2UI form in a task awaiting input${Array.isArray(data.prefilled) && data.prefilled.length ? ` (prefilled: ${data.prefilled.join(', ')})` : ''}${data.supersedes ? ` — replaces ${data.supersedes}` : ''}.`, ids: { form: data.formId, taskId: data.taskId, contextId: data.contextId, messageId: data.messageId, run } });
       break;
     case 'form_action_received':
       panel({ dir: 'received', label: 'Form action', text: `“${data.actionName}”${data.lookup ? ' — scheduling fields only:' : data.receivedValues && Object.keys(data.receivedValues).length ? ' — values exactly as received:' : ''}`, values: data.receivedValues ?? data.criteria ?? undefined, ids: { form: data.formId, operation: data.operationId, messageId: data.messageId, taskId: data.taskId, resumedTask: data.resumedTask, run } });
@@ -1090,7 +1102,7 @@ function formAgentEvent(panel, type, data, run) {
     case 'form_action_result': {
       const r = data.receipt;
       const text = data.duplicate ? `Same operation ID as before — returned the stored ${data.status} result; nothing re-executed.`
-        : data.status === 'accepted' ? (r?.requestId ? `Recorded request ${r.requestId} (${r.status}).` : `Reserved demo booking ${r?.bookingId}.`)
+        : data.status === 'accepted' ? (r?.requestId ? `Recorded request ${r.requestId} (${r.status}).` : r?.renewalId ? `Renewed loan ${r.loanId ?? ''} (${r.renewalId}).` : `Reserved demo booking ${r?.bookingId}.`)
           : data.status === 'rejected' || data.status === 'conflict' ? `${data.status}: ${errorText(data.errors)}` : `${data.actionName}: ${data.status}`;
       panel({ dir: data.status === 'rejected' || data.status === 'conflict' ? 'error' : 'sent', label: data.status === 'accepted' ? 'Accepted' : 'Result', text, values: data.status === 'accepted' && !data.duplicate ? data.values ?? undefined : undefined, ids: { form: data.formId, operation: data.operationId, run } });
       break;
@@ -1223,3 +1235,51 @@ els.newConversation.addEventListener('click', async () => {
 
 renderConversation();
 renderState();
+
+// ---- Part 8: Generated UI inspector ---------------------------------------------------------------
+// One entry per Library loan reply. Three separate sections: what the MODEL produced, what the
+// APPLICATION's validation decided, and what the BACKEND (loan service) holds and did. Built only from
+// the Library's real telemetry; no hidden reasoning, prompts or keys are shown.
+const inspections = new Map(); // formId or runId → { results }
+const pre = (value) => el('pre', { className: 'inspector-json', textContent: JSON.stringify(value, null, 2) });
+const section = (title, ...children) => el('section', { className: 'inspector-part' }, el('h4', { textContent: title }), ...children);
+function inspectorEvent(type, data, runId, at) {
+  if (type !== 'ui_generated') {
+    const entry = inspections.get(data.formId);
+    if (!entry) return;
+    const line = type === 'loan_operation'
+      ? `${clock(at)} — loan service ${data.ok ? 'renewed' : 'refused'} ${data.loanId} (${data.code}${data.duplicate ? ', stored outcome' : ''})`
+      : `${clock(at)} — form result: ${data.status}${data.receipt?.renewalId ? ` (${data.receipt.renewalId})` : ''}${data.duplicate ? ' (duplicate operation, nothing re-executed)' : ''}`;
+    entry.results.append(el('li', { textContent: line }));
+    return;
+  }
+  const i = data.inspector ?? {};
+  const s = i.surface;
+  const decision = el('span', { className: 'inspector-kind', dataset: { kind: data.fallback ? 'fallback' : data.kind }, textContent: i.decision ?? data.kind });
+  const results = el('ol', { className: 'inspector-results' });
+  const rows = (pairs) => {
+    const d = el('dl', { className: 'kv' });
+    for (const [k, v] of pairs) if (v !== undefined && v !== null && v !== '') d.append(el('dt', { textContent: k }), el('dd', { textContent: String(v) }));
+    return d;
+  };
+  const attempts = el('ol', { className: 'inspector-attempts' }, ...(i.validation ?? []).map((a) => el('li', { dataset: { ok: String(a.ok) } },
+    el('span', { textContent: `Attempt ${a.attempt} (${a.kind ?? 'invalid'}): ${a.ok ? 'passed' : 'rejected'}` }),
+    ...(a.ok ? [] : [el('ul', {}, ...a.errors.map((e) => el('li', { textContent: e })))]))));
+  const facts = el('table', { className: 'inspector-facts' },
+    el('thead', {}, el('tr', {}, ...['Loan', 'Due', 'Renewable', 'Permitted return dates', 'Version', 'Source'].map((h) => el('th', { textContent: h })))),
+    el('tbody', {}, ...(i.authoritative ?? []).map((l) => el('tr', { className: i.loanIds?.includes(l.loanId) ? 'is-subject' : '' },
+      el('td', { textContent: l.loanId }), el('td', { textContent: l.dueDate }), el('td', { textContent: l.eligible ? 'yes' : `no (${l.code})` }),
+      el('td', { textContent: l.permittedReturnDates ? `${l.permittedReturnDates.earliest} → ${l.permittedReturnDates.latest}` : '—' }),
+      el('td', { textContent: l.version }), el('td', { textContent: l.source })))));
+  const item = el('li', { className: 'inspector-entry' }, el('details', { open: true },
+    el('summary', {}, el('time', { textContent: clock(at) }), decision, el('span', { textContent: s ? `surface ${s.formId} · revision ${s.revision}` : 'no surface (text reply)' })),
+    el('div', { className: 'inspector-grid' },
+      section('Model output', rows([['decision', i.decision], ['model', data.model], ['tokens', data.usage ? `${data.usage.inputTokens} in / ${data.usage.outputTokens} out` : null], ['about loans', i.loanIds?.join(', ')]]), pre(i.modelOutput ?? {})),
+      section('Application validation', rows([['catalog', i.catalog?.catalogId], ['A2UI version', i.catalog?.version], ['renderer', i.catalog?.renderer]]), attempts,
+        rows(s ? [['surface', s.formId], ['revision', s.revision], ['replaces', s.supersedes], ['issuing agent', s.issuer], ['Library task', s.taskId], ['Library context', s.contextId], ['renew actions bound to', Object.entries(s.renewable ?? {}).map(([k, v]) => `${k} @ v${v}`).join(', ') || 'none']] : [['surface', 'none — replied in text']])),
+      section('Backend (loan service)', el('p', { className: 'hint', textContent: 'Due dates, eligibility and permitted dates come only from here. Highlighted rows are the loans this reply is about.' }), facts,
+        el('h4', { textContent: 'Results' }), results))));
+  if (s?.formId) inspections.set(s.formId, { results });
+  els.inspectorLog.prepend(item);
+  while (els.inspectorLog.children.length > 20) els.inspectorLog.lastChild.remove();
+}

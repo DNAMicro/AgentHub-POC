@@ -79,6 +79,12 @@ export function createFormsUi({ log, agentName = (id) => id, onChange = () => {}
     return list;
   }
   function summaryList(view, values) {
+    // Part 8: a generated loan surface — the loan's title as the surface showed it, and the chosen date.
+    if (view.workflowId === 'loan-renewal') {
+      const texts = view.a2uiMessages.flatMap((m) => m.updateComponents?.components ?? []).filter((c) => c.component === 'Text' && typeof c.text === 'string').map((c) => c.text);
+      const title = texts.find((t) => t.includes(values.loanId)) ?? null;
+      return dl([['Loan', title ? `${values.loanId} — ${title}` : values.loanId], ['New return date', values.returnDate && prettyDate(String(values.returnDate).slice(0, 10))]]);
+    }
     const name = `${values.firstName ?? ''} ${values.lastName ?? ''}`.trim();
     if (view.workflowId === 'tutoring-request') {
       return dl([['Name', name], ['Email', values.email], ['Preferred date', values.preferredDate && prettyDate(String(values.preferredDate).slice(0, 10))],

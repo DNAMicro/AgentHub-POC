@@ -10,7 +10,8 @@ import { validateCard } from '../src/cards.js';
 import { loadHubConfig } from '../src/config.js';
 
 const TUTOR_RULES = { answer: { knowledge: 'optional' }, form: { id: 'in-person-tutoring-request' } };
-const LIBRARY_RULES = { answer: { knowledge: 'required' }, form: { id: 'study-room-booking' } };
+// Part 8: the Library has two built-in workflow skills (room booking and the student's own loans).
+const LIBRARY_RULES = { answer: { knowledge: 'required' }, form: { ids: ['study-room-booking', 'book-loans'] } };
 const clone = (v) => structuredClone(v);
 const newSkill = (extra = {}) => ({ id: 'opening-events', kind: 'answer', enabled: true, name: 'Events', description: 'Library events.', tags: [], examples: [], scope: { allowed: ['library events'], excluded: [] }, knowledge: 'Book club: first Monday, 18:00.', ...extra });
 
@@ -86,7 +87,7 @@ test('Library skills must carry the answer content they answer from; any number 
   // Only the Library's own built-in workflow can be a form.
   const form = clone(LIBRARY_DEFAULT_SKILLS);
   form.skills[0].kind = 'form';
-  assert.match(validateSkillConfig(form, LIBRARY_RULES).errors[0].message, /Only the built-in "study-room-booking" skill can be a form/);
+  assert.match(validateSkillConfig(form, LIBRARY_RULES).errors[0].message, /Only the built-in "study-room-booking" and "book-loans" skills can be forms/);
 });
 
 test('router decisions are validated against the live registry view; anything else sends nothing', () => {

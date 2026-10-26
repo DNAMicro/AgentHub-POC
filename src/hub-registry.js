@@ -7,6 +7,7 @@
 // separately — registration alone never means "online".
 //
 // Storage is a plain in-memory Map behind this small interface, so a durable store could replace it.
+import { signStudent } from './hub-link.js';
 import { getCard, validateCard } from './cards.js';
 
 export const STATUS = { ready: 'ready', stale: 'stale', unreachable: 'unreachable', disconnected: 'disconnected', disabled: 'disabled', invalid: 'invalid_card' };
@@ -96,6 +97,11 @@ export function createHubRegistry({ peers, expiryMs, cardFetchMs = 3000, onEvent
     has: (agentId) => entries.has(agentId),
     peer: (agentId) => entries.get(agentId)?.peer ?? null,
     entry: (agentId) => entries.get(agentId) ?? null,
+    // Sign the student identity forwarded to a registered specialist (null if it gave no key).
+    signFor(agentId, fields) {
+      const key = entries.get(agentId)?.callKey;
+      return key ? signStudent(key, fields) : null;
+    },
     isReady: (agentId) => entries.get(agentId)?.status === STATUS.ready,
     status: (agentId) => entries.get(agentId)?.status ?? null,
     snapshot: () => [...entries.values()].map(snapshotOf),
@@ -114,7 +120,9 @@ export function createHubRegistry({ peers, expiryMs, cardFetchMs = 3000, onEvent
       if (e.registered && e.instanceId !== msg.instanceId && !expired(e)) {
         return { status: 'rejected', reason: 'identity_in_use: another instance with this identity is registered and alive.' };
       }
-      Object.assign(e, { registered: true, instanceId: msg.instanceId, enabled: msg.enabled !== false, registeredAt: now(), lastHeartbeatAt: now(), reachable: null });
+      // The specialist's signing key for forwarded identities (in memory only; never in snapshots or events).
+      const callKey = typeof msg.callKey === 'string' && /^[\w-]{40,64}$/.test(msg.callKey) ? msg.callKey : null;
+      Object.assign(e, { registered: true, instanceId: msg.instanceId, enabled: msg.enabled !== false, registeredAt: now(), lastHeartbeatAt: now(), reachable: null, callKey });
       onEvent('registration_accepted', { agentId: e.peer.agentId, instance: msg.instanceId.slice(0, 8), enabled: e.enabled });
       // Verify before enabling dispatch: fetch the card from the CONFIGURED URL and validate it.
       await refresh(e.peer.agentId, 'registration');

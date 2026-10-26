@@ -59,5 +59,15 @@ export const LIBRARY_DEFAULT_SKILLS = {
       scope: { allowed: ['booking group study rooms'], excluded: ['real university reservations'] },
       knowledge: '',
     },
+    // Part 8 built-in workflow: the student's own loans (synthetic demo records) and renewals. The
+    // Library's model answers, asks, or composes an interface; the loan service owns every fact.
+    {
+      id: 'book-loans', kind: 'form', enabled: true, name: 'My loans and renewals',
+      description: 'Looks up your own current loans (demo records): due dates, what you borrowed, whether and until when an item can be renewed, and renews it when you confirm.',
+      tags: ['my loans', 'renew my book', 'due date', 'extend a loan', 'borrowed books'],
+      examples: ['When is my calculus book due?', 'Can I keep it until after my exam?', 'Show me everything I borrowed'],
+      scope: { allowed: ['the student’s own current loans and renewals'], excluded: ['real library accounts', 'fines and payments'] },
+      knowledge: '',
+    },
   ],
 };

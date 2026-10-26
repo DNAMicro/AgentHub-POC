@@ -7,7 +7,7 @@
 import express from 'express';
 import { sameOriginGuard } from './local-guard.js';
 import {
-  SCOPE_EXTENSION_URI, buildCardSkills, buildScopeExtension, configHash,
+  SCOPE_EXTENSION_URI, buildCardSkills, buildScopeExtension, configHash, formIdsOf,
   policyFromConfig, validateSkillConfig,
 } from './skills.js';
 
@@ -57,7 +57,7 @@ export function createSkillService({ agentId, agentName, defaults, rules, card, 
   const describe = () => ({
     agentId, agentName, revision, etag, config,
     // What the editor needs to know: is answer content required, and which skill is the built-in form.
-    rules: { knowledge: rules.answer.knowledge, builtInFormId: rules.form?.id ?? null },
+    rules: { knowledge: rules.answer.knowledge, builtInFormId: formIdsOf(rules)[0] ?? null, builtInFormIds: formIdsOf(rules) },
     matchesTestedDefault: configHash(config) === testedHash,
     lastNotification,
     note: 'Local developer controls. Edits skills only — not identity, endpoints, security, or protocol settings.',

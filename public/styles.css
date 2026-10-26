@@ -307,6 +307,28 @@ h2 { margin: 0; font-size: 1.07rem; font-weight: 700; color: var(--agent, var(--
 .notice button { margin-top: 6px; }
 
 /* ---- activity timeline: a real sequence, so numbered ---- */
+/* Part 8: Generated UI inspector (spans the Agent activity grid) */
+.view-activity > .inspector { grid-column: 1 / -1; }
+.inspector-log { list-style: none; margin: 0; padding: 0 12px 12px; display: grid; gap: 10px; }
+.inspector-log:empty::before { content: "Ask the Library about your loans (for example “Can I keep the calculus book until after my exam?”). Each reply appears here."; color: var(--muted); font-size: 0.86rem; }
+.inspector-entry > details { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; background: var(--surface); }
+.inspector-entry summary { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; cursor: pointer; font-size: 0.86rem; }
+.inspector-entry summary time { font-family: var(--mono); color: var(--muted); }
+.inspector-kind { font-weight: 700; padding: 1px 8px; border-radius: 999px; background: var(--field); }
+.inspector-kind[data-kind="ui"] { background: color-mix(in srgb, var(--library) 16%, var(--surface)); color: var(--library); }
+.inspector-kind[data-kind="fallback"] { background: var(--bad-bg); color: var(--bad); }
+.inspector-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 8px; }
+.inspector-part { min-width: 0; font-size: 0.82rem; }
+.inspector-part h4 { margin: 0 0 4px; font-size: 0.86rem; }
+.inspector-json { max-height: 320px; overflow: auto; margin: 6px 0 0; padding: 8px; background: var(--field); border-radius: 8px; font: 0.74rem/1.35 var(--mono); white-space: pre; }
+.inspector-attempts { margin: 6px 0; padding-left: 18px; }
+.inspector-attempts li[data-ok="false"] { color: var(--bad); }
+.inspector-facts { width: 100%; border-collapse: collapse; font-size: 0.76rem; }
+.inspector-facts th, .inspector-facts td { text-align: left; padding: 3px 4px; border-bottom: 1px solid var(--border); }
+.inspector-facts tr.is-subject td { background: color-mix(in srgb, var(--library) 10%, transparent); }
+.inspector-results { margin: 4px 0 0; padding-left: 18px; }
+@media (max-width: 900px) { .inspector-grid { grid-template-columns: 1fr; } }
+
 /* in-chat "Waiting for an answer…" (shown after 1 s; reduced motion keeps the ring still) */
 .chat-pending { list-style: none; align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font-size: 0.86rem; animation: pending-in 0.25s ease-out; }
 .chat-pending .spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--border-strong); border-top-color: var(--hub); animation: spin 0.8s linear infinite; }

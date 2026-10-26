@@ -9,7 +9,7 @@
 import { randomUUID } from 'node:crypto';
 import { Role, TaskState } from '@a2a-js/sdk';
 import { AgentEvent } from '@a2a-js/sdk/server';
-import { A2UI_MIME_TYPE, A2UI_VERSION, BASIC_CATALOG_ID, WORKFLOWS, buildDelete, checkAction } from './forms.js';
+import { A2UI_MIME_TYPE, A2UI_VERSION, BASIC_CATALOG_ID, WORKFLOWS, buildDelete, checkAction, surfaceButtons } from './forms.js';
 
 const FORM_VERSION = 1;
 const MAX_RECORDS = 1000;
@@ -38,7 +38,9 @@ export function createFormHost({ agentId, workflows, isEnabled, emitViz, log, lo
 
   // Send a new form. `supersedes`: an open form of the same workflow the student explicitly asked to replace.
   // The same chat request seen again (retry/reconcile) gets the same open form back, never a second one.
-  function issue(ctx, bus, { workflowId, prefill = {}, runId, intro, supersedes = null }) {
+  // Part 8: `payload(formId)` supplies a generated surface instead of the workflow's template; `version`
+  // is its revision in this conversation and `data` the issuing context the handlers need.
+  function issue(ctx, bus, { workflowId, prefill = {}, runId, intro, supersedes = null, payload = null, version = FORM_VERSION, data = {}, extra = {} }) {
     const requestKey = `${ctx.contextId}|${ctx.userMessage.messageId}`;
     const earlier = forms.get(byRequest.get(requestKey));
     if (earlier?.state === 'awaiting_input') {
@@ -50,14 +52,14 @@ export function createFormHost({ agentId, workflows, isEnabled, emitViz, log, lo
     }
     const wf = workflows[workflowId];
     const formId = `${workflowId}-${randomUUID().slice(0, 8)}`;
-    const a2ui = wf.build(formId, { prefill, now: new Date() });
+    const a2ui = payload ? payload(formId) : wf.build(formId, { prefill, now: new Date() });
     const prior = supersedes ? forms.get(supersedes) : null;
     if (prior) prior.state = 'superseded';
-    const metadata = { runId, agentId, formId, workflowId, formVersion: FORM_VERSION, issuer: agentId, supersedes: prior ? supersedes : null, prefilled: Object.keys(prefill) };
+    const metadata = { runId, agentId, formId, workflowId, formVersion: version, issuer: agentId, supersedes: prior ? supersedes : null, prefilled: Object.keys(prefill), ...extra };
     // The removal of a replaced form travels with the new one, as the standard A2UI deleteSurface.
     const parts = [textPart(intro), a2uiPart(a2ui), ...(prior ? [jsonPart({ supersedes, a2uiDelete: buildDelete(supersedes) })] : [])];
     const message = agentMessage(ctx, parts, { taskId: ctx.taskId, metadata });
-    forms.set(formId, { workflowId, version: FORM_VERSION, taskId: ctx.taskId, contextId: ctx.contextId, state: 'awaiting_input', stage: 'edit', data: {}, message, a2uiCount: a2ui.length });
+    forms.set(formId, { workflowId, version, taskId: ctx.taskId, contextId: ctx.contextId, state: 'awaiting_input', stage: 'edit', data, message, a2ui, a2uiCount: a2ui.length });
     byRequest.set(requestKey, formId);
     trim(forms);
     trim(byRequest);
@@ -144,11 +146,12 @@ export function createFormHost({ agentId, workflows, isEnabled, emitViz, log, lo
       if (form.state !== 'awaiting_input') return reject({ _form: `This form is ${form.state === 'accepted' ? 'already submitted' : form.state}.` });
       // Checked against the CURRENT skills, not those in force when the form was issued.
       if (!isEnabled(form.workflowId)) return reject({ _form: 'This workflow is no longer offered (its skill is disabled).' });
-      const checked = checkAction(actionMsg, { workflowId: form.workflowId, surfaceId: formId });
+      // Generated surfaces: the action must come from a button that exists in the surface this agent sent.
+      const checked = checkAction(actionMsg, { workflowId: form.workflowId, surfaceId: formId, buttons: surfaceButtons(form.a2ui) });
       if (!checked.ok) return reject({ _form: checked.error });
 
       const handler = workflows[form.workflowId].actions[checked.name];
-      const result = await handler(form, checked.context, { formId, runId, reviewAcknowledged: incoming.metadata?.reviewAcknowledged === true, emit: (type, data) => emitViz(type, runId, { formId, ...data }) });
+      const result = await handler(form, checked.context, { formId, runId, operationId, trusted: incoming.metadata ?? {}, reviewAcknowledged: incoming.metadata?.reviewAcknowledged === true, emit: (type, data) => emitViz(type, runId, { formId, ...data }) });
       if (checked.spec.final && result.status === 'accepted') form.state = 'accepted';
       if (checked.spec.cancel) form.state = 'cancelled';
       const closed = form.state !== 'awaiting_input';

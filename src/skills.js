@@ -37,6 +37,8 @@ export function validateSkillConfig(input, rules) {
   if (input.skills.length > SKILL_LIMITS.skills) err('skills', `At most ${SKILL_LIMITS.skills} skills.`);
 
   const seenIds = new Set();
+  // Built-in workflow skills: rules.form = { id } (one) or { ids: [...] } (Part 8: several).
+  const formIds = formIdsOf(rules);
   const skills = input.skills.map((raw, i) => {
     const p = `skills[${i}]`;
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -52,11 +54,11 @@ export function validateSkillConfig(input, rules) {
 
     const kind = raw.kind ?? 'answer';
     if (kind === 'form') {
-      if (!rules.form) err(`${p}.kind`, 'This agent has no built-in form.');
-      else if (id !== rules.form.id) err(`${p}.kind`, `Only the built-in "${rules.form.id}" skill can be a form.`);
+      if (!formIds.length) err(`${p}.kind`, 'This agent has no built-in form.');
+      else if (!formIds.includes(id)) err(`${p}.kind`, formIds.length === 1 ? `Only the built-in "${formIds[0]}" skill can be a form.` : `Only the built-in ${formIds.map((f) => `"${f}"`).join(' and ')} skills can be forms.`);
     } else if (kind !== 'answer') {
       err(`${p}.kind`, 'Unknown skill kind.');
-    } else if (rules.form && id === rules.form.id) {
+    } else if (formIds.includes(id)) {
       err(`${p}.id`, `"${id}" is reserved for the built-in form.`);
     }
     if (typeof raw.enabled !== 'boolean') err(`${p}.enabled`, 'enabled must be true or false.');
@@ -90,9 +92,11 @@ export function validateSkillConfig(input, rules) {
     } else if (kind === 'form' && knowledge) err(`${p}.knowledge`, 'The built-in form has no answer content.');
     return { id, kind, enabled: raw.enabled, name, description, tags, examples, scope: { allowed, excluded }, knowledge: knowledge ?? '' };
   });
-  if (rules.form && skills.filter((s) => s?.kind === 'form').length > 1) err('skills', 'The built-in form can appear only once.');
+  if (formIds.length && skills.filter((s) => s?.kind === 'form').length > formIds.length) err('skills', 'Each built-in form can appear only once.');
   return errors.length ? { ok: false, errors } : { ok: true, config: { skills } };
 }
+
+export const formIdsOf = (rules) => (rules.form ? rules.form.ids ?? [rules.form.id] : []);
 
 export const configHash = (config) => createHash('sha256').update(JSON.stringify(config)).digest('hex').slice(0, 16);
 

@@ -5,7 +5,16 @@
 // Trust model (localhost spike): the agentId/endpoint in these messages are claims. The Hub checks
 // them against its allowlist, fetches the card from its own configured URL, and refuses takeovers,
 // but nothing here is authentication.
-import { randomUUID } from 'node:crypto';
+//
+// Part 8: the reverse direction IS checked. Each specialist process makes a random in-memory signing
+// key and gives it to the Hub when it registers (only to the Hub URL in its own configuration). The
+// Hub signs the student identity it forwards; verifiedStudent() accepts a studentId only with a valid
+// signature, so another local process can't claim to be a student. Not persisted, never logged; a
+// restart makes a new key.
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+
+// HMAC over the forwarded student, the downstream A2A context and the Hub's operation ID.
+export const signStudent = (key, { studentId, contextId, operationId }) => createHmac('sha256', key).update(`${studentId}|${contextId}|${operationId}`).digest('base64url');
 import { Role } from '@a2a-js/sdk';
 import { ClientFactory } from '@a2a-js/sdk/client';
 import { CARD_CHANGED_MEDIA_TYPE } from './skills.js';
@@ -19,6 +28,7 @@ const SEND_TIMEOUT_MS = 3000;
 
 export function createHubLink({ agentId, hubUrl, endpoint, cardUrl, enabled, heartbeatIntervalMs, emit = () => {}, log = () => {} }) {
   const instanceId = randomUUID(); // this process; a restart is a new instance
+  const callKey = randomBytes(32).toString('base64url'); // signing key for the Hub's forwarded identity
   let client = null;
   let timer = null;
   let stopped = false;
@@ -44,7 +54,7 @@ export function createHubLink({ agentId, hubUrl, endpoint, cardUrl, enabled, hea
   const offline = (err) => (err.cause?.code === 'ECONNREFUSED' ? 'Hub is offline' : err.name === 'TimeoutError' ? 'Hub did not answer in time' : err.message);
 
   async function register() {
-    const value = { type: 'agent_register', agentId, instanceId, endpoint, cardUrl, enabled, heartbeatIntervalMs, at: new Date().toISOString() };
+    const value = { type: 'agent_register', agentId, instanceId, endpoint, cardUrl, enabled, heartbeatIntervalMs, callKey, at: new Date().toISOString() };
     try {
       const ack = await send(REGISTER_MEDIA_TYPE, value);
       state.registered = ack.status === 'registered';
@@ -77,6 +87,14 @@ export function createHubLink({ agentId, hubUrl, endpoint, cardUrl, enabled, hea
   return {
     state,
     instanceId,
+    // The student the Hub vouches for on this request, or null if the signature is missing or wrong.
+    verifiedStudent(metadata, contextId) {
+      const { studentId, hubOperationId, hubSignature } = metadata ?? {};
+      if (typeof studentId !== 'string' || typeof hubOperationId !== 'string' || typeof hubSignature !== 'string') return null;
+      const expected = Buffer.from(signStudent(callKey, { studentId, contextId, operationId: hubOperationId }));
+      const given = Buffer.from(hubSignature);
+      return given.length === expected.length && timingSafeEqual(given, expected) ? studentId : null;
+    },
     async start() {
       await register();
       timer = setInterval(() => { if (!stopped) beat(); }, heartbeatIntervalMs);

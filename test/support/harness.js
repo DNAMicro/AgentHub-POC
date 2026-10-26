@@ -2,6 +2,9 @@
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { once } from 'node:events';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 export function startProcess(script, env, readyPattern) {
   // HUB_URL defaults to a closed port so a test specialist never registers with a real local Hub.
@@ -101,8 +104,10 @@ export const stateOf = (events, runId) => forRun(events, runId).filter((e) => e.
 
 export const LIBRARY_READY = /\[Library Agent\] listening on (http:\/\/127\.0\.0\.1:\d+)/;
 
+// Each test Library gets its own fresh loan store (Part 8), never the demo's data/library-loans.json.
+export const freshLoanStore = () => join(mkdtempSync(join(tmpdir(), 'a2a-loans-')), 'loans.json');
 export async function startLibrary(env = {}) {
-  const library = startProcess('src/library-agent.js', { PORT: '0', ...env }, LIBRARY_READY);
+  const library = startProcess('src/library-agent.js', { PORT: '0', LOAN_STORE_FILE: freshLoanStore(), ...env }, LIBRARY_READY);
   library.url = await library.ready;
   return library;
 }
