@@ -13,6 +13,7 @@ import { Role, TaskState, AGENT_CARD_PATH, A2A_PROTOCOL_VERSION } from '@a2a-js/
 import { AgentEvent, DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
 import { hostGuard } from './local-guard.js';
+import { createSkillService } from './agent-settings.js';
 import { LOG_CONTENT, MODE, TutorError, answer, status as tutorStatus } from './tutor-model.js';
 import {
   A2UI_EXTENSION_URI, A2UI_MIME_TYPE, A2UI_VERSION, BASIC_CATALOG_ID, FORM_REQUEST,
@@ -24,6 +25,8 @@ const JSONRPC_PATH = '/a2a/jsonrpc';
 export const TUTOR_REPLY = 'Hello Student Agent. Yes, I can help you with calculus.';
 
 const VIZ_PATH = '/viz/events';
+// Student Agent's A2A endpoint for agent_card_changed notifications (trusted local configuration).
+const STUDENT_A2A_URL = process.env.STUDENT_A2A_URL ?? 'http://127.0.0.1:41240';
 let firstSubmissionDelayMs = Number(process.env.TUTOR_TEST_DELAY_FIRST_SUBMISSION_MS ?? 0);
 
 const log = (...args) => console.log('[Tutor Agent]', ...args);
@@ -42,7 +45,7 @@ const submissions = new Map(); // submissionId → { formId, values, ack }
 function buildAgentCard(port) {
   return {
     name: 'Tutor Agent',
-    description: 'Deterministic tutor used to verify A2A connectivity.',
+    description: 'Calculus tutor. Its advertised skills come from its saved skill configuration and are enforced on every request.',
     version: '0.1.0',
     supportedInterfaces: [
       {
@@ -69,31 +72,49 @@ function buildAgentCard(port) {
     securityRequirements: [],
     defaultInputModes: ['text/plain', A2UI_MIME_TYPE],
     defaultOutputModes: ['text/plain', A2UI_MIME_TYPE, 'application/json'],
-    skills: [
-      {
-        id: 'calculus-help',
-        name: 'Calculus help',
-        description: 'Confirms it can help with calculus.',
-        tags: ['calculus'],
-        examples: ['Can you help me with calculus?'],
-        inputModes: [],
-        outputModes: [],
-        securityRequirements: [],
-      },
-      {
-        id: 'student-details-form',
-        name: 'Student details form',
-        description: `Send metadata.request="${FORM_REQUEST}" to receive an A2UI form; submit it with an A2UI action.`,
-        tags: ['a2ui', 'form'],
-        examples: [],
-        inputModes: [A2UI_MIME_TYPE],
-        outputModes: [A2UI_MIME_TYPE, 'application/json'],
-        securityRequirements: [],
-      },
-    ],
+    skills: [], // filled from the skill configuration (src/agent-settings.js)
     signatures: [],
   };
 }
+
+// What this Tutor can actually do. A skill must name one of these handlers.
+const TUTOR_HANDLERS = {
+  'llm-tutoring': { label: 'Tutoring answered by the model, limited to this skill’s scope', multiple: true },
+  'a2ui-student-form': { label: 'A2UI student-details form (Part 3)' },
+};
+
+// Initial skills. Edited through the gear dialog; in memory only (a restart restores these).
+export const TUTOR_DEFAULT_SKILLS = {
+  skills: [
+    {
+      id: 'calculus-tutoring', handler: 'llm-tutoring', enabled: true,
+      name: 'Calculus tutoring',
+      description: 'Explains calculus concepts and works through calculus exercises: limits, derivatives, and integrals.',
+      tags: ['calculus', 'limits', 'derivatives', 'integrals', 'exercises'],
+      examples: ['Explain the derivative of x squared', 'What is the limit of sin(x)/x as x approaches 0?', 'Integrate 2x from 0 to 3'],
+      scope: {
+        allowed: ['limits and continuity', 'derivatives and differentiation rules', 'integrals and integration', 'calculus exercises and worked examples', 'algebra steps needed inside a calculus explanation'],
+        excluded: ['standalone physics lessons (Newton’s laws, mechanics, electrical circuits)', 'standalone math outside calculus', 'non-academic topics such as home repair or plumbing', 'library services such as borrowing or renewals'],
+      },
+    },
+    {
+      id: 'student-details-form', handler: 'a2ui-student-form', enabled: true,
+      name: 'Student details form',
+      description: `Sends an A2UI form for first name, last name, email, and notes (request with metadata.request="${FORM_REQUEST}"), then validates and acknowledges the submission.`,
+      tags: ['a2ui', 'form'],
+      examples: [],
+      scope: { allowed: ['collect and acknowledge first name, last name, email, and optional notes'], excluded: [] },
+    },
+  ],
+};
+
+let skillService = null; // set when the server starts
+// The tutoring part of the current policy: enabled skills served by the model.
+const tutoringPolicy = () => {
+  const policy = skillService.policy();
+  return { revision: policy.revision, skills: policy.skills.filter((s) => s.handler === 'llm-tutoring') };
+};
+const formEnabled = () => skillService.policy().handlers.has('a2ui-student-form');
 
 // ---- message construction ---------------------------------------------------
 
@@ -118,17 +139,26 @@ async function handleChat(ctx, bus, runId) {
   emitViz('message_received', runId, received);
 
   let text = TUTOR_REPLY;
-  const metadata = { ...(runId ? { runId } : {}), tutorMode: MODE };
-  if (MODE !== 'fixed') {
+  const metadata = { ...(runId ? { runId } : {}), agentId: 'tutor', tutorMode: MODE };
+  if (MODE === 'fixed') {
+    // Part 1 connectivity reply. Still subject to the code-level check: no enabled tutoring skill → decline.
+    const policy = tutoringPolicy();
+    if (!policy.skills.length) {
+      text = 'This Tutor has no tutoring skills enabled right now, so it isn’t answering questions.';
+      metadata.tutor = { outcome: 'disabled', scope: { verdict: 'disabled', policyRevision: policy.revision } };
+      emitViz('scope_checked', runId, { stage: 'policy', verdict: 'disabled', reason: 'No tutoring skill is enabled.', policyRevision: policy.revision });
+    }
+  } else {
     try {
       const result = await answer({
         contextId: ctx.contextId,
         messageId: incoming.messageId,
         question,
+        getPolicy: tutoringPolicy,
         emit: (type, data) => emitViz(type, runId, data),
       });
       text = result.text;
-      metadata.tutor = { model: result.model, latencyMs: result.latencyMs, usage: result.usage, stopReason: result.stopReason, truncated: result.truncated, requestId: result.requestId, duplicate: result.duplicate };
+      metadata.tutor = { outcome: result.kind, scope: result.scope ?? null, model: result.model, latencyMs: result.latencyMs, usage: result.usage, stopReason: result.stopReason, truncated: result.truncated, requestId: result.requestId, duplicate: result.duplicate };
     } catch (err) {
       // Sanitized error only — never the provider's raw message, never a canned "success".
       const failure = err instanceof TutorError ? err : new TutorError('internal_error');
@@ -151,6 +181,15 @@ function handleFormRequest(ctx, bus, runId) {
   const ids = { messageId: incoming.messageId, contextId: ctx.contextId, taskId: ctx.taskId };
   log('received form request', ids);
   emitViz('form_request_received', runId, ids);
+
+  if (!formEnabled()) {
+    // Current policy check: the form skill is disabled, so no form is issued.
+    const reply = agentMessage(ctx, [textPart('The student-details form isn’t offered by this Tutor right now (that skill is disabled).')], { metadata: runId ? { runId } : undefined });
+    bus.publish(AgentEvent.message(reply));
+    bus.finished();
+    emitViz('form_request_refused', runId, { ...ids, reason: 'student-details-form skill is disabled' });
+    return;
+  }
 
   const caps = incoming.metadata?.a2uiClientCapabilities?.[A2UI_VERSION];
   if (!caps?.supportedCatalogIds?.includes(BASIC_CATALOG_ID)) {
@@ -210,6 +249,8 @@ function handleSubmission(ctx, bus, runId, part) {
 
   if (typeof submissionId !== 'string' || !/^[\w-]{8,100}$/.test(submissionId)) return reject({ _form: 'Missing or malformed submissionId.' });
   if (!form) return reject({ _form: 'Unknown form.' });
+  // Checked against the current policy, not the one in force when the form was issued.
+  if (!formEnabled()) return reject({ _form: 'This form action is no longer supported: the Tutor’s student-details-form skill is disabled.' });
   // Correlation: the message must belong to this form's task and conversation.
   const correlated = resuming ? ctx.task.id === form.taskId : incoming.referenceTaskIds.includes(form.taskId) && ctx.contextId === form.contextId;
   if (!correlated) return reject({ _form: 'Submission is not correlated with this form’s task and conversation.' });
@@ -271,7 +312,7 @@ function serveVizEvents(req, res) {
   res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
   res.write(': connected\n\n');
   // Mode and whether a key is present (yes/no only) — never the key itself.
-  res.write(`data: ${JSON.stringify({ source: 'tutor', type: 'status', runId: null, at: new Date().toISOString(), data: tutorStatus() })}\n\n`);
+  res.write(`data: ${JSON.stringify({ source: 'tutor', type: 'status', runId: null, at: new Date().toISOString(), data: { ...tutorStatus(), skills: skillService?.describe() ?? null } })}\n\n`);
   const forward = (event) => res.write(`data: ${JSON.stringify(event)}\n\n`);
   vizEvents.on('event', forward);
   req.on('close', () => vizEvents.off('event', forward));
@@ -282,14 +323,25 @@ export function startTutorServer({ port = 41241 } = {}) {
     const app = express();
     // Routes are mounted after listen() so the Agent Card carries the real port
     // (tests pass port 0 to get a free ephemeral port).
-    const server = app.listen(port, HOST, () => {
+    const server = app.listen(port, HOST, (err) => {
+      if (err) return reject(err); // Express 5 passes listen errors (e.g. EADDRINUSE) here
       const actualPort = server.address().port;
-      const requestHandler = new DefaultRequestHandler(buildAgentCard(actualPort), new InMemoryTaskStore(), tutorExecutor);
+      const baseUrl = `http://${HOST}:${actualPort}`;
+      const card = buildAgentCard(actualPort);
+      // The skill service writes the saved configuration into this live card object.
+      skillService = createSkillService({
+        agentId: 'tutor', agentName: card.name, defaults: TUTOR_DEFAULT_SKILLS, handlers: TUTOR_HANDLERS, card,
+        emit: (type, data) => emitViz(type, null, data), log, studentUrl: STUDENT_A2A_URL,
+      });
+      const requestHandler = new DefaultRequestHandler(card, new InMemoryTaskStore(), tutorExecutor);
       app.use(hostGuard(actualPort));
-      app.use(`/${AGENT_CARD_PATH}`, agentCardHandler({ agentCardProvider: requestHandler }));
+      // maxAge 0 → "Cache-Control: no-cache": clients revalidate with the ETag on every read.
+      app.use(`/${AGENT_CARD_PATH}`, agentCardHandler({ agentCardProvider: requestHandler, cache: { maxAge: 0 } }));
       app.use(JSONRPC_PATH, jsonRpcHandler({ requestHandler, userBuilder: UserBuilder.noAuthentication }));
       app.get(VIZ_PATH, serveVizEvents);
-      resolve({ server, baseUrl: `http://${HOST}:${actualPort}` });
+      app.use(skillService.router());
+      skillService.started(actualPort, `${baseUrl}/${AGENT_CARD_PATH}`);
+      resolve({ server, baseUrl });
     });
     server.on('error', reject);
   });

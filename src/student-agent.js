@@ -25,10 +25,12 @@ const shown = (text) => (logContent() ? text : `[${text.length} chars, content n
 // `contextId` names the conversation (the Tutor keeps history per contextId); empty lets the
 // server start a new one. `messageId` is the request ID: re-sending the same one asks the Tutor
 // for the result of that request again instead of a new answer (no second model call).
-export async function askTutor(baseUrl, text = STUDENT_MESSAGE, { runId, contextId = '', messageId = randomUUID(), timeoutMs = CHAT_TIMEOUT_MS, onEvent = () => {} } = {}) {
+// `card`: an already-validated Agent Card (from Student's trusted registry). When given, it is used
+// as-is instead of fetching the card again, so the destination is the registry's vetted endpoint.
+export async function askTutor(baseUrl, text = STUDENT_MESSAGE, { runId, contextId = '', messageId = randomUUID(), timeoutMs = CHAT_TIMEOUT_MS, card, onEvent = () => {} } = {}) {
   let sendStarted = false;
   try {
-    return await exchange(baseUrl, text, { runId, contextId, messageId, timeoutMs }, onEvent, () => (sendStarted = true));
+    return await exchange(baseUrl, text, { runId, contextId, messageId, timeoutMs, card }, onEvent, () => (sendStarted = true));
   } catch (err) {
     if (err.tutorError) throw err; // A2A worked; the Tutor reported its own failure (already emitted)
     const outcome = deliveryOutcome(err, sendStarted);
@@ -37,9 +39,9 @@ export async function askTutor(baseUrl, text = STUDENT_MESSAGE, { runId, context
   }
 }
 
-async function exchange(baseUrl, text, { runId, contextId, messageId, timeoutMs }, onEvent, markSendStarted) {
+async function exchange(baseUrl, text, { runId, contextId, messageId, timeoutMs, card: knownCard }, onEvent, markSendStarted) {
   // 1. Discovery: GET <baseUrl>/.well-known/agent-card.json
-  const card = await new DefaultAgentCardResolver().resolve(baseUrl);
+  const card = knownCard ?? (await new DefaultAgentCardResolver().resolve(baseUrl));
   const discovered = {
     name: card.name,
     interfaces: card.supportedInterfaces.map((i) => `${i.protocolBinding} ${i.protocolVersion} ${i.url}`),
@@ -80,7 +82,7 @@ async function exchange(baseUrl, text, { runId, contextId, messageId, timeoutMs 
     onEvent('tutor_error', { ...ids, ...tutorError, tutorMode: result.metadata?.tutorMode ?? null });
     throw Object.assign(new Error(tutorError.message), { tutorError, outcome: 'answered_with_error' });
   }
-  const reply = { ...ids, text: textOf(result), tutorMode: result.metadata?.tutorMode ?? null, tutor: result.metadata?.tutor ?? null };
+  const reply = { ...ids, text: textOf(result), servedBy: result.metadata?.agentId ?? null, tutorMode: result.metadata?.tutorMode ?? null, tutor: result.metadata?.tutor ?? null, library: result.metadata?.library ?? null };
   log('received reply', { ...reply, text: shown(reply.text) });
   onEvent('reply_received', { ...reply, runId: result.metadata?.runId ?? null });
   return reply;

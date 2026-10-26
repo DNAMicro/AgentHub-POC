@@ -13,7 +13,10 @@ import { SYSTEM_PROMPT, MODEL } from '../src/tutor-model.js';
 const SENTINEL_KEY = `sk-ant-test-SENTINEL-${randomUUID()}`;
 const liveEnv = (stub, extra = {}) => ({
   TUTOR_MODE: 'live', ANTHROPIC_API_KEY: SENTINEL_KEY, ANTHROPIC_BASE_URL: stub.url,
-  TUTOR_LOAD_DOTENV: '0', TUTOR_MODEL_TIMEOUT_MS: '1500', ...extra,
+  TUTOR_LOAD_DOTENV: '0', TUTOR_MODEL_TIMEOUT_MS: '1500',
+  // Part 4 tests the model plumbing (call counts, errors, history). Part 5 scope checks add calls,
+  // so they are switched off here and tested separately in test/scope.test.js.
+  TUTOR_SCOPE_ENFORCEMENT: 'off', ...extra,
 });
 
 let stub, live, liveUi, mock, mockUi;
@@ -23,7 +26,7 @@ before(async () => {
   stub = await startFakeAnthropic();
   live = await startTutor(liveEnv(stub));
   liveUi = await startUi(live.url, { CHAT_TIMEOUT_MS: '4000' });
-  mock = await startTutor({ TUTOR_MODE: 'mock' });
+  mock = await startTutor({ TUTOR_MODE: 'mock', TUTOR_SCOPE_ENFORCEMENT: 'off' });
   mockUi = await startUi(mock.url);
   for (const ui of [liveUi, mockUi]) {
     await waitFor(async () => (await (await fetch(`${ui.url}/api/status`)).json()).tutorStatus, { what: 'tutor status' });

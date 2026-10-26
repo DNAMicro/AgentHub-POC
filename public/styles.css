@@ -197,3 +197,60 @@ main { max-width: 1100px; margin: 0 auto; padding: 16px; display: grid; gap: 16p
 .timeline li:not([data-done="true"]) time::before { content: "not observed"; }
 
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ---- Part 5: three panels, skills, settings dialog ---- */
+main { max-width: 1400px; }
+.panels.three { grid-template-columns: 1.25fr 1fr 1fr; }
+@media (max-width: 1100px) { .panels.three { grid-template-columns: 1fr 1fr; } .panels.three > :first-child { grid-column: 1 / -1; } }
+@media (max-width: 720px) { .panels.three { grid-template-columns: 1fr; } }
+.panel h2 { position: relative; padding-right: 40px; }
+#library-title { color: var(--ok); }
+.gear {
+  position: absolute; right: 0; top: -4px;
+  font-size: 1.15rem; line-height: 1; width: 34px; height: 34px;
+  border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer;
+}
+.gear:hover, .gear:focus-visible { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 1px; }
+.skills-box { font-size: 0.8rem; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; display: grid; gap: 6px; }
+.skills-box:empty { display: none; }
+.skills-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.skills-row > .label { font-weight: 600; color: var(--muted); margin-right: 4px; }
+.chip { font-size: 0.72rem; padding: 1px 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--border); font-family: ui-monospace, Menlo, monospace; }
+.chip[data-off="true"] { text-decoration: line-through; opacity: 0.6; }
+.propagation { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.propagation li { font-size: 0.75rem; }
+.propagation li[data-status="ok"]::before { content: "✓ "; color: var(--ok); font-weight: 700; }
+.propagation li[data-status="pending"]::before { content: "… "; color: var(--warn); font-weight: 700; }
+.propagation li[data-status="bad"]::before { content: "✕ "; color: var(--bad); font-weight: 700; }
+.propagation li[data-status="wait"]::before { content: "○ "; color: var(--muted); }
+.skills-box details summary { cursor: pointer; color: var(--muted); font-size: 0.72rem; }
+.badge[data-mode="direct"] { color: var(--muted); }
+
+dialog#skills-dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 32px); border: 1px solid var(--border); border-radius: 12px; padding: 0; background: var(--surface); color: var(--text); }
+dialog#skills-dialog::backdrop { background: rgb(0 0 0 / 0.45); }
+#skills-form { padding: 16px; display: grid; gap: 10px; }
+#skills-form h2 { margin: 0; }
+.dialog-note { font-size: 0.8rem; margin: 0; color: var(--muted); }
+.dialog-note.warn { color: var(--warn); background: var(--warn-bg); padding: 6px 10px; border-radius: 8px; }
+.skill-fieldset { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: grid; gap: 8px; }
+.skill-fieldset legend { font-weight: 600; font-size: 0.85rem; padding: 0 4px; }
+.skill-fieldset label { display: grid; gap: 3px; font-size: 0.78rem; color: var(--muted); }
+.skill-fieldset label.inline { display: flex; gap: 6px; align-items: center; color: var(--text); }
+.skill-fieldset input[type="text"], .skill-fieldset textarea, .skill-fieldset select {
+  font: inherit; font-size: 0.85rem; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 7px;
+}
+.skill-fieldset input[readonly] { opacity: 0.7; }
+.skill-fieldset textarea { resize: vertical; min-height: 2.6em; }
+.skill-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+@media (max-width: 600px) { .skill-grid { grid-template-columns: 1fr; } }
+.skill-fieldset .remove { justify-self: start; font-size: 0.75rem; color: var(--bad); background: none; border: 1px solid var(--bad); border-radius: 6px; padding: 2px 8px; cursor: pointer; }
+.tested { font-size: 0.72rem; }
+.dialog-errors { color: var(--bad); font-size: 0.82rem; }
+.dialog-errors:empty { display: none; }
+.dialog-errors ul { margin: 0; padding-left: 18px; }
+#card-preview { font-size: 0.72rem; max-height: 240px; overflow: auto; background: var(--bg); padding: 8px; border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.dialog-actions button, #add-skill { font: inherit; font-weight: 600; padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer; justify-self: start; }
+.dialog-actions button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.dialog-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+.msg[data-dir="info"] { border-left-color: var(--warn); }

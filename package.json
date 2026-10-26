@@ -6,11 +6,15 @@
     "test": "node --test --test-reporter=spec test/",
     "tutor": "node src/tutor-agent.js",
     "student": "node src/student-agent.js",
-    "ui": "npm run build:ui && node src/ui-server.js",
+    "ui": "npm run build:ui && ROUTER_MODE=mock node src/ui-server.js",
     "build:ui": "esbuild src/browser/a2ui-entry.js --bundle --format=esm --target=es2022 --minify --legal-comments=linked --outfile=public/vendor/a2ui.js",
     "tutor:mock": "TUTOR_MODE=mock node src/tutor-agent.js",
     "tutor:live": "TUTOR_MODE=live node src/tutor-agent.js",
-    "smoke:live": "node scripts/live-smoke.js"
+    "smoke:live": "node scripts/live-smoke.js",
+    "library": "node src/library-agent.js",
+    "ui:live": "npm run build:ui && ROUTER_MODE=live node src/ui-server.js",
+    "ui:direct": "npm run build:ui && node src/ui-server.js",
+    "eval:live": "node scripts/live-eval.js"
   },
   "keywords": [],
   "author": "",

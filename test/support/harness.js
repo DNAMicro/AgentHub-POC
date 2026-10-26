@@ -86,3 +86,49 @@ export const forRun = (events, runId) => events.filter((e) => e.runId === runId)
 export const find = (events, source, type) => events.find((e) => e.source === source && e.type === type);
 export const findAll = (events, source, type) => events.filter((e) => e.source === source && e.type === type);
 export const stateOf = (events, runId) => forRun(events, runId).filter((e) => e.type === 'state').at(-1)?.data.state;
+
+export const LIBRARY_READY = /\[Library Agent\] listening on (http:\/\/127\.0\.0\.1:\d+)/;
+
+export async function startLibrary(env = {}) {
+  const library = startProcess('src/library-agent.js', { PORT: '0', ...env }, LIBRARY_READY);
+  library.url = await library.ready;
+  return library;
+}
+
+// Tutor + Library + UI (Student) wired together with a known Student A2A endpoint port.
+// Agents notify that endpoint; pass studentPort to reuse a port across restarts.
+export async function startTrio({ tutorEnv = {}, libraryEnv = {}, uiEnv = {}, studentPort } = {}) {
+  const port = studentPort ?? (await unusedPort());
+  const studentUrl = `http://127.0.0.1:${port}`;
+  const tutor = await startTutor({ STUDENT_A2A_URL: studentUrl, ...tutorEnv });
+  const library = await startLibrary({ STUDENT_A2A_URL: studentUrl, ...libraryEnv });
+  const ui = await startUi(tutor.url, { LIBRARY_URL: library.url, STUDENT_A2A_PORT: String(port), ...uiEnv });
+  await waitFor(async () => {
+    const s = await (await fetch(`${ui.url}/api/status`)).json();
+    return s.registry.every((r) => r.status === 'ok') && s.agents.tutor.feedConnected && s.agents.library.feedConnected;
+  }, { what: 'registry ready' });
+  return { tutor, library, ui, studentUrl, kill: () => [ui, tutor, library].forEach((p) => p.proc.kill()) };
+}
+
+export const status = async (ui) => (await fetch(`${ui.url}/api/status`)).json();
+export const put = (url, body) => fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+// Ask through the browser-facing API and wait for the run to finish.
+export async function chatVia(ui, stream, text, contextId) {
+  const res = await post(`${ui.url}/api/runs`, { text, contextId });
+  if (res.status !== 202) throw new Error(`POST /api/runs → ${res.status}`);
+  const { runId, contextId: ctx } = await res.json();
+  await waitFor(() => ['completed', 'failed', 'uncertain'].includes(stateOf(stream.events, runId)), { what: `run ${runId}` });
+  // Agents' feed events travel separately from the A2A reply; wait for the destination's own reply event.
+  const routed = find(forRun(stream.events, runId), 'student', 'route_decided')?.data;
+  const target = routed?.decision === 'route' ? routed.agentId : null;
+  if (target) await waitFor(() => find(forRun(stream.events, runId), target, 'reply_published') || stateOf(stream.events, runId) !== 'completed', { what: 'agent reply event' }).catch(() => {});
+  await new Promise((r) => setTimeout(r, 40));
+  const events = forRun(stream.events, runId);
+  return {
+    runId, contextId: ctx, events,
+    decision: find(events, 'student', 'route_decided')?.data,
+    reply: find(events, 'student', 'reply_received')?.data,
+    destinations: ['tutor', 'library'].filter((a) => find(events, a, 'message_received')),
+  };
+}

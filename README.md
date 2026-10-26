@@ -1,8 +1,12 @@
-# A2A Spike: Student Agent ↔ Tutor Agent
+# A2A Spike: Student Agent ↔ Calculus Tutor & Library Agent
 
-A minimal test of whether two agents in separate Node.js processes can talk
-using the real **Agent-to-Agent (A2A) protocol**. No LLM, no API keys: the
-Tutor's reply is a fixed string.
+A localhost spike built in parts:
+
+1. Two agents, each in its own Node.js process, talk over the real **Agent-to-Agent (A2A) protocol**.
+2. A browser monitor shows each exchange as it happens.
+3. The Tutor sends an **A2UI** form, which the student fills in and submits.
+4. The Tutor can answer with **Claude Haiku 5.5**.
+5. The Student **routes** each question to a Calculus Tutor or a Library Agent based on their advertised skills. Each service **enforces** its own scope, and editing a service's skills **notifies** the Student, which updates its routing.
 
 - SDK: [`@a2a-js/sdk`](https://www.npmjs.com/package/@a2a-js/sdk) **1.3.0** (pinned exactly)
 - Protocol: **A2A v1.0** ([spec](https://a2a-protocol.org/v1.0.0/specification/)), JSON-RPC binding
@@ -26,19 +30,30 @@ npm run student
 
 Use `PORT=...` to change the Tutor's port and `TUTOR_URL=http://127.0.0.1:...` to point the Student elsewhere.
 
-### Browser monitor
+### Browser monitor: all three agents (Part 5)
 
 ```bash
-# terminal 1 — Agent B
-npm run tutor
-
-# terminal 2 — UI server (hosts the Student Agent), binds to 127.0.0.1:3000
-npm run ui
+npm run tutor:mock    # terminal 1 — Calculus Tutor on 127.0.0.1:41241 (mock model; or tutor:live, or tutor = Part 1 fixed reply)
+npm run library       # terminal 2 — Library Agent on 127.0.0.1:41242 (deterministic, sample data)
+npm run ui            # terminal 3 — UI + Student Agent on 127.0.0.1:3000, Student's A2A endpoint on 127.0.0.1:41240
 ```
 
-Then open **http://127.0.0.1:3000**. `npm run ui` first builds `public/vendor/a2ui.js`, the bundled A2UI renderer; you can also build it on its own with `npm run build:ui`. Use `UI_PORT=...` to change the UI port; `TUTOR_URL` works here too.
+Then open **http://127.0.0.1:3000**.
 
-In the browser, **Send** runs the Part 1/2 chat exchange. **Request form** runs the Part 3 A2UI form flow.
+**UI variants.** `npm run ui` uses the **mock** router, a keyword heuristic that makes no external calls. `npm run ui:live` routes with **Claude Haiku 5.5**, which is paid and needs your key. `npm run ui:direct` turns routing off and sends everything to the Tutor, as in Parts 2–4.
+
+**Build step.** Each `ui` script first builds `public/vendor/a2ui.js`, the bundled A2UI renderer; `npm run build:ui` builds it on its own.
+
+**Environment variables:**
+
+| Variable | Changes |
+| --- | --- |
+| `UI_PORT` | The UI's port |
+| `TUTOR_URL`, `LIBRARY_URL` | Where the Student finds each agent (trusted registry) |
+| `STUDENT_A2A_PORT` | Port of the Student's A2A endpoint |
+| `STUDENT_A2A_URL` | Where the Tutor and Library send notifications |
+
+In the browser, **Send** asks a question, which is routed to one service or none, and **Request form** runs the Part 3 A2UI form with the Tutor. The ⚙ button on the Tutor and Library panels opens their skill settings, and **Refresh skills** re-fetches both agents' cards.
 
 ```bash
 npm test   # starts the Tutor (and UI server) as child processes, runs all checks, stops them
@@ -51,11 +66,19 @@ npm test   # starts the Tutor (and UI server) as child processes, runs all check
 | `src/tutor-agent.js` | **Agent B, the Tutor Agent.** An Express server that serves the Agent Card at `/.well-known/agent-card.json` and the A2A JSON-RPC endpoint at `/a2a/jsonrpc`. Its executor routes each message to one of three handlers: chat (fixed reply), form request (builds the A2UI form), or form submission (validate, de-duplicate, record, acknowledge). It also serves `/viz/events`, a read-only feed of its own events for the monitor. |
 | `src/student-agent.js` | **Agent A, the Student Agent.** Three functions: `askTutor()` (chat), `requestForm()` (gets the A2UI form over A2A and checks it against an allowlist) and `submitForm()` (sends the renderer's submit action back over A2A). The UI server and the tests call these directly. |
 | `src/student-form.js` | The form definition, in one place: the A2UI v0.9 messages the Tutor builds, the validation rules (run separately by the browser, the UI server and the Tutor), and the allowlist the Student applies to any A2UI payload it receives. It has no dependencies, so the browser loads it too, from `/shared/student-form.js`. |
-| `src/tutor-model.js` | The Tutor's tutoring logic (Part 4): the mode switch, the system prompt, per-conversation history, the request ledger (no duplicate paid calls), the one-at-a-time rule, the Anthropic call, and the mapping from SDK errors to sanitized codes. |
+| `src/tutor-model.js` | The Tutor's tutoring logic. Part 4 added the mode switch, system prompt, per-conversation history, request ledger and one-at-a-time rule. Part 5 added the scope layers: policy check, scope check, scope-bounded instructions, answer check and release check. |
+| `src/llm.js` | Shared Anthropic access: explicit key, no retries, `effort: low`, optional JSON-schema structured output, and the mapping from SDK errors to sanitized codes. |
+| `src/skills.js` | Part 5: the single skill configuration, its validation, and everything derived from it. That's the Agent Card skills, the documented scope extension and the runtime policy. |
+| `src/agent-settings.js` | Part 5: one agent's skill settings. Holds the live configuration (swapped atomically on save), the local settings API (read, preview, save) and the `agent_card_changed` A2A notification to the Student. |
+| `src/library-agent.js`, `src/library-fixture.js` | Part 5: the **Library Agent**. A deterministic A2A service with five handlers over clearly labelled fictional sample data; it performs no transactions. |
+| `src/student-registry.js` | Part 5: the Student's **trusted registry**. A fixed allowlist of agents, conditional card fetches, strict card validation, and refreshes that merge when they overlap. |
+| `src/router.js` | Part 5: the routing decision. Live mode uses Haiku with structured output, mock mode a labelled heuristic, and code validates every decision against the registry. |
+| `src/student-endpoint.js` | Part 5: the Student's **A2A receiving endpoint**. Accepts only `agent_card_changed` notices and handles them in code. |
+| `scripts/live-eval.js` | Part 5's opt-in live spot check of routing and scope decisions. Paid; off unless `LIVE_EVAL_MAX_USD` is set. |
 | `scripts/live-smoke.js` | The paid live smoke test, off unless `LIVE_SMOKE_MAX_USD` is set. |
 | `.env.example` | Placeholder for your local `.env` (git-ignored). |
 | `src/local-guard.js` | Host and Origin checks for both servers. They block DNS rebinding and cross-site POSTs to the localhost services. |
-| `src/ui-server.js` | **UI backend.** Serves the page and hosts the Student Agent. `POST /api/runs` runs a chat exchange. `POST /api/forms` requests a form, and `POST /api/forms/:formId/submissions` forwards a submission. It relays the Tutor's feed, streams events to the browser on `GET /api/events`, and decides each run's state. |
+| `src/ui-server.js` | **UI backend.** Serves the page and hosts the Student Agent (router, registry, receiving endpoint). Its routes: `POST /api/runs` (a routed or direct chat), `POST /api/forms` and `…/submissions` (the issuing agent only), `GET`/`PUT /api/agents/:id/skills` (a proxy to the registered agent's settings) and `POST /api/registry/refresh`. It also relays both agents' feeds and decides each run's state. |
 | `src/browser/a2ui-entry.js` | Entry point for the renderer bundle that esbuild writes to `public/vendor/a2ui.js` (generated, not committed). |
 | `public/` | The browser page: `index.html`, `styles.css` and `app.js`. It shows only events the server sent and renders the received A2UI messages with the official renderer. Its own text goes through `textContent`. |
 | `test/a2a.test.js` | The original A2A tests: the Agent Card, the exact reply, traceable process ↔ process logs, and a clear failure when the Tutor is down. |
@@ -63,6 +86,10 @@ npm test   # starts the Tutor (and UI server) as child processes, runs all check
 | `test/a2ui-render.test.js` | Gets the form from a real Tutor over A2A and validates it against the official A2UI v0.9 JSON Schemas. Then renders it with the real Lit renderer in jsdom, and checks that the rendering follows the description, that typing sends nothing, that Submit emits a schema-valid action, and that inline errors and locking work. |
 | `test/tutor-llm.test.js` | Part 4: the live SDK path against a local fake Anthropic API, plus mock mode. No paid calls. |
 | `test/payload-policy.test.js` | The Student's allowlist for received A2UI payloads. |
+| `test/skills.test.js` | Part 5 unit tests: skill validation, a single source for the card and policy, Library capability limits, router decision validation and trusted card validation. |
+| `test/routing.test.js` | Part 5 routing with real processes: every example's **actual A2A destination**, no calls for clarify or unsupported, malicious choices failing closed, separate contexts per service, follow-ups, reconnects, an offline service, router errors, and the mock heuristic. |
+| `test/scope.test.js` | Part 5 scope enforcement through **direct** A2A calls: physics, plumbing, mixed and override requests; topic switches; disabled skills; changes mid-request; the live check, answer and answer-check structure; the Library's handlers; and forms staying with their agent. |
+| `test/card-refresh.test.js` | Part 5 reverse path: the settings API, save → ETag → A2A notification → re-fetch → routing change, duplicate and late notices, spoofed senders and notice URLs, an offline Student, and failed refresh with recovery. |
 | `test/form.test.js` | Part 3 end to end with real processes: the valid round trip with exact values, invalid data refused by the UI server and by the Tutor on its own, unexpected fields and actions, duplicate submissions, reconnect without resubmitting, an unavailable Tutor, uncertain delivery with retry, and the localhost guards. |
 | `package.json` / `package-lock.json` | Pinned dependencies and the `tutor` / `student` / `ui` / `build:ui` / `test` scripts. |
 
@@ -308,6 +335,142 @@ LIVE_SMOKE_MAX_USD=0.01 npm run smoke:live  # runs, within your limit
 
 It checks that `claude-haiku-5-5` is available to your account. That check uses the Models API, which isn't a billed generation, and the script stops if the model isn't available. It then asks one short calculus question and one follow-up in the same conversation, through the real Student → A2A → Tutor → Anthropic path, and prints both answers with token usage, latency, request IDs and estimated cost. Pricing comes from the [official pricing page](https://platform.claude.com/docs/en/about-claude/pricing), checked 2026-10-25: $0.10/MTok input and $0.50/MTok output for prompts up to 100K tokens. The worst case, estimated pessimistically, is about $0.0023 for both calls.
 
+## Part 5: routing, editable skills, card-change notifications, scope enforcement
+
+```
+Browser ─▶ UI server :3000 ── hosts ──▶ Student Agent (router + trusted registry)
+                                         ├── A2A client ══▶ Calculus Tutor :41241 (scope-checked; mock/live model)
+                                         ├── A2A client ══▶ Library Agent  :41242 (deterministic sample fixture)
+                                         └── A2A server :41240 ◀══ agent_card_changed notices from Tutor / Library
+```
+
+### Routing is the application; A2A is the transport
+
+A2A provides discovery (Agent Cards) and messaging. **It doesn't route by skill and doesn't enforce topic boundaries.** This project does both, in code:
+
+1. **Trusted registry** (`src/student-registry.js`)
+   - The Student only knows two agents: `tutor` and `library`. For each, a fixed allowlist holds the expected card name, card URL and JSON-RPC URL.
+   - It fetches each card from the **registered** URL and keeps it only if the name, the single JSON-RPC 1.0 endpoint, and the (empty) security settings all match. A card that changes any of these is rejected, and the last good card is kept.
+   - Outbound A2A always uses the validated card from the registry.
+2. **Routing decision** (`src/router.js`)
+   - The model sees only skill descriptions, as data: no URLs, ever.
+   - It returns a JSON-schema decision:
+     - `route`: an agent ID, a skill ID and a short reason;
+     - `clarify`: a focused question;
+     - `unsupported`: no connected service fits.
+   - Code accepts `route` only if that agent and skill are registered and enabled right now. Anything else becomes "unsupported", and **nothing is sent**.
+   - There's no fan-out or broadcast. If the chosen service is offline, that's reported and the question is not redirected to another service.
+3. **Context**
+   - Each student conversation keeps a **separate A2A `contextId` per service**, so the Tutor and the Library never share a context or task.
+   - The router sees only the last few turns of *that* conversation, for follow-ups like "another example".
+   - Only the question itself is sent to a service. No tutoring history or form details go to the Library.
+4. **Forms**
+   - Submissions always go to the agent that issued the form, the Tutor, using its recorded form, task and context IDs.
+   - They're never routed by their Notes, and they're checked against the Tutor's *current* policy. If the form skill was disabled in the meantime, the submission gets a clear "no longer supported" error.
+
+| Router mode | Command | What decides |
+| --- | --- | --- |
+| `mock` | `npm run ui` | A keyword heuristic over the registry's current skill tags. Labelled as such; it says nothing about real accuracy. |
+| `live` | `npm run ui:live` | Claude Haiku 5.5 with structured output. About 1 paid call per question. |
+| `direct` | `npm run ui:direct` | No routing: everything goes to the Tutor (Parts 2–4 behaviour). |
+
+### Advertised skills vs. actual capability and permission
+
+**One skill configuration per agent** (`src/skills.js`, held by `src/agent-settings.js` on that agent's own server) is the source for three things:
+
+- **The Agent Card:** the standard `AgentSkill` fields (id, name, description, tags, examples).
+- **Routing metadata:** the Student reads it from that card. Scope boundaries aren't standard A2A fields, so they travel in a documented, non-required extension, `urn:a2a-spike:skill-scope:v1` (under `capabilities.extensions`), along with the configuration's **revision**.
+- **The runtime policy** the agent enforces.
+
+Every skill names a **handler** the agent actually implements:
+
+| Agent | Handlers |
+| --- | --- |
+| Tutor | `llm-tutoring`, `a2ui-student-form` |
+| Library | `library-hours`, `borrowing-guidance`, `renewal-guidance`, `returns-guidance`, `resource-finding` |
+
+Saving a skill whose handler doesn't exist is rejected with *"not implemented by this agent. Advertising a skill does not create its implementation."* So the Library can't advertise interlibrary loans or room booking.
+
+Editing a description or scope changes what's **declared and permitted**, not what's **proven**. The settings dialog and panels say whether a configuration "matches the tested default" or is "changed since tests — not verified".
+
+**The gear dialog** (⚙) is a **local developer control**. It edits skills only: not identity, endpoints, credentials, security or protocol capabilities. It shows identity, every skill field, allowed scope and exclusions, Save, Cancel, field-level errors and a live **card preview**. A save carries the revision it started from, so a stale editor gets a 409 instead of overwriting newer changes.
+
+### The reverse path: card-change notifications
+
+On **Save**, the agent does these steps in order:
+
+1. **Validate and swap atomically.** The configuration, runtime policy and served card change together.
+2. **New card validator.** The card's content-hash **`ETag`** changes; the SDK serves it with `Cache-Control: no-cache`. The scope extension's `revision` goes up. This is a card-content revision, unrelated to the A2A protocol version (`1.0`).
+3. **Notify.** The agent sends an **`agent_card_changed`** notification to the Student's A2A endpoint (`STUDENT_A2A_URL`, default `http://127.0.0.1:41240`) using a real A2A client.
+   - It's a `DataPart` of type `application/vnd.a2a-spike.agent-card-changed+json`.
+   - **This is our application convention carried by A2A, not a built-in A2A broadcast.**
+   - It's one attempt with a 3 s timeout. If the Student is offline, the outcome is reported as **pending**; there's no retry loop.
+4. **The Student handles it in code** (`src/student-endpoint.js`). No model sees it, and anything that isn't this notification type is rejected.
+   - It checks the claimed `agentId` is in the registry.
+   - It ignores **duplicate notice IDs**.
+   - It **ignores** any URL or other unexpected field in the notice.
+   - It then **re-fetches the card from the registered URL**, conditionally with `If-None-Match`, and coalesces overlapping refreshes. A late or out-of-order notice therefore always gets the *current* card (a 304 if nothing changed), never the notice's contents.
+5. **Validate and replace.** The Student validates the card and replaces the registry entry atomically. New routing decisions use the new skills straight away.
+
+The browser shows three separate outcomes, each from a real event: **configuration saved** (the agent), **notification delivered, pending or rejected** (the agent, from the Student's A2A acknowledgment), and **Student routing updated** (the Student's registry). The card revision, both sides' ETags and the last successful refresh are in each panel's expandable *Card details*.
+
+**Recovery and reliability**
+
+- The Student refreshes every registered card **at startup** and **whenever an agent's feed reconnects**, for example after an agent restart.
+- **Refresh skills** in the Student panel refreshes manually.
+- A failed refresh keeps the last good card, marks it **stale** with the error, and never invents skills.
+- Agents also send a notice when they start.
+- None of this makes model calls.
+
+**Implementation note.** Node's `fetch` adds `Cache-Control: no-cache` to every conditional request, which makes Express ignore `If-None-Match`. So cards are fetched with `node:http`, which also caps their size and never follows redirects.
+
+**Who sent a notification? (localhost limits).** The `agentId` in a notice is a **claim, not authentication**: any local process can send one. The design limits the damage to a harmless, deduplicated re-fetch of a card that's already registered. A notice can't add an agent, change an endpoint, deliver skills or grant permissions. Real deployments would need authenticated peers, such as mTLS or signed cards, which this spike doesn't provide or claim.
+
+### Scope enforcement on the receiving services
+
+Each service checks **its own current policy** on every request, including **direct A2A calls that bypass the router**. A stale Student registry therefore can't reach a removed skill.
+
+**Calculus Tutor** (`src/tutor-model.js`):
+
+1. **Code:** if no tutoring skill is enabled, it declines and makes no model call. If the form skill is disabled, it refuses form requests and submissions.
+2. **Scope check** before answering: Haiku, with structured output, classifies the request against the saved skills, allowed scope and exclusions. It returns `in_scope`, `out_of_scope` or `needs_clarification`.
+   - **Out of scope** gets a short, server-written reply listing what the Tutor offers.
+   - **Unclear or mixed** requests (for example "differentiate this and explain the mechanics") get a focused question, not an answer.
+   - The earlier conversation can explain "another example", but **never authorizes a new topic**.
+   - Requests to override the rules ("ignore your rules…") change nothing.
+3. **The answer instructions** contain the same current scope.
+4. **Answer check:** one structured check of the draft. If it materially strays outside scope, the draft is withheld and a safe scope reply is sent. There's no regeneration loop.
+5. **Release check:** if the skills changed while the answer was being generated, it isn't released.
+
+How "calculus" is bounded: limits, derivatives, integrals, calculus exercises, and the **algebra steps needed inside a calculus explanation** are in scope. Standalone physics (Newton's laws, mechanics, circuits), standalone non-calculus math, home repair or plumbing, and library services are out.
+
+**Library Agent:** enforcement is in code. A question is answered only by a fixture handler whose skill is enabled, and the answers come only from the sample data. A question matching two handlers gets "Which first?". The Library never claims a renewal or any other transaction.
+
+**Limitations, honestly.**
+
+- **Different strengths of guarantee.** Code-level checks (handlers, actions, schemas, enabled skills, the release check) are deterministic. The topic judgments (the scope check, answer check and router) come from a model and are **probabilistic**: they reduce off-topic answers but don't guarantee there are none.
+- **Mock and test results.** The mock heuristic and the scripted fake-API tests prove the plumbing and the order of the layers, not the model's accuracy.
+- **Live spot check.** `npm run eval:live` runs the routing examples and scope cases against real Haiku and reports mismatches. A few examples aren't a measurement.
+- **Cost.** Live mode costs up to 3 model calls per in-scope answer (check, answer, answer check), plus 1 for routing in `ui:live`. Each has a 400–800-token output cap.
+
+### Mock vs. live testing
+
+| | Command | Paid? | What it shows |
+| --- | --- | --- | --- |
+| Automated tests | `npm test` | No | The real SDK paths against a local fake Anthropic API plus mock modes. Deterministic. |
+| Live smoke (Part 4) | `LIVE_SMOKE_MAX_USD=… npm run smoke:live` | Yes, about $0.0023 worst case | Tutoring through A2A with a follow-up. |
+| Live eval (Part 5) | `LIVE_EVAL_MAX_USD=… npm run eval:live` | Yes, about $0.0105 worst case for ~15 calls | Real router decisions and Tutor scope decisions, each compared with what we expected. |
+
+### State and restarts (all in memory)
+
+| Restarted | Lost |
+| --- | --- |
+| Tutor | Its skill edits (back to the defaults at revision 1), tutoring history, forms, submissions, A2A tasks |
+| Library | Its skill edits |
+| UI server / Student | The registry (rebuilt by the startup refresh), routing context per conversation, event history |
+
+Agents send a notice when they start, and the Student refreshes at startup and on feed reconnects, so the views converge again after any restart.
+
 ## Deliberately not included
 
-Streaming, push notifications, a reverse server, continuous chat, auth, routing, a Hub, mailboxes, a database, actually sending email, and deployment. Each chat click is one A2A request and one response. Each form is one task: request, then submit.
+Token streaming, push notifications, multi-agent fan-out, authentication or authorization, a Hub, mailboxes, a database, actually sending email, model-driven tools, and deployment. Each chat goes to at most one service as one A2A request and one response. Each form is one task: request, then submit.

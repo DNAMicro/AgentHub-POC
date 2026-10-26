@@ -27,6 +27,21 @@ const els = {
   runId: $('run-id'),
   timeline: $('timeline'),
   timelineError: $('timeline-error'),
+  libraryLog: $('library-log'),
+  libraryFeed: $('library-feed'),
+  routerMode: $('router-mode'),
+  refreshSkills: $('refresh-skills'),
+  skillsBox: { tutor: $('tutor-skills'), library: $('library-skills') },
+  dialog: $('skills-dialog'),
+  dialogTitle: $('skills-dialog-title'),
+  dialogIdentity: $('skills-identity'),
+  skillsEditor: $('skills-editor'),
+  skillsErrors: $('skills-errors'),
+  cardPreview: $('card-preview'),
+  cardPreviewBox: $('card-preview-box'),
+  addSkill: $('add-skill'),
+  skillsSave: $('skills-save'),
+  skillsCancel: $('skills-cancel'),
 };
 
 const STATE_LABELS = {
@@ -52,6 +67,15 @@ const STEPS = {
     ['model_response_received', 'Model response received', 'reported by Tutor'],
     ['reply_published', 'Response sent', 'published by Tutor over A2A'],
     ['reply_received', 'A2A response received', 'by Student Agent'],
+  ],
+  // Routed chat (Part 5): the router decides first; the receiving service checks scope itself.
+  chatRouted: [
+    ['route_decided', 'Routing decision', 'Student router (code-validated)'],
+    ['request_sent', 'Request sent', 'over A2A to the chosen service'],
+    ['message_received', 'Service received', 'confirmed by that service'],
+    ['scope_checked', 'Scope check', 'by the receiving service'],
+    ['reply_published', 'Response sent', 'by the service over A2A'],
+    ['reply_received', 'Student received', 'A2A result returned'],
   ],
   form: [
     ['form_requested', 'Form requested', 'A2A request started'],
@@ -187,17 +211,19 @@ function renderState() {
   els.send.disabled = busy;
   els.requestForm.disabled = busy;
   // Offered whenever there's something on screen to clear; unavailable mid-request.
-  els.newConversation.hidden = !currentContextId && !els.studentLog.children.length && !els.tutorLog.children.length;
+  els.newConversation.hidden = !currentContextId && ![els.studentLog, els.tutorLog, els.libraryLog].some((log) => log.children.length);
   els.newConversation.disabled = busy || [...formsById.values()].some((f) => f.pending);
 }
 
-// Empty every panel and forget the current conversation (not the event bookkeeping).
+// Empty every conversation panel and forget the current conversation (not the event
+// bookkeeping). Each agent's skills box stays: that's agent configuration, not conversation.
 function clearScreen() {
   currentRunId = null;
   currentState = 'idle';
   formsById.clear();
   els.studentLog.replaceChildren();
   els.tutorLog.replaceChildren();
+  els.libraryLog.replaceChildren();
   els.formArea.replaceChildren();
   els.formArea.hidden = true;
   els.runId.textContent = 'no run yet';
@@ -339,6 +365,208 @@ function onFormState(runId, data) {
   }
 }
 
+// ---- Part 5: advertised skills, Student's cached view, propagation ---------
+
+const AGENT_NAMES = { tutor: 'Calculus Tutor', library: 'Library Agent' };
+// Per agent: what it advertises (its own settings), the last save, the notification outcome,
+// what Student received, and Student's cached registry view. Each comes from a real event.
+const agents = {
+  tutor: { advertised: null, saved: null, notification: null, received: null, registry: null },
+  library: { advertised: null, saved: null, notification: null, received: null, registry: null },
+};
+
+const el = (tag, props = {}, ...children) => {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === 'dataset') Object.assign(node.dataset, v);
+    else node[k] = v;
+  }
+  node.append(...children.filter((c) => c !== null && c !== undefined));
+  return node;
+};
+const clock = (iso) => (iso ? new Date(iso).toLocaleTimeString([], { hour12: false }) : '—');
+
+async function loadAdvertised(agentId) {
+  try {
+    const res = await fetch(`/api/agents/${agentId}/skills`);
+    if (res.ok) agents[agentId].advertised = await res.json();
+  } catch {
+    // agent offline; panel keeps the last known state
+  }
+  renderSkillsBox(agentId);
+}
+
+function renderSkillsBox(agentId) {
+  const a = agents[agentId];
+  const box = els.skillsBox[agentId];
+  const rows = [];
+  if (a.advertised) {
+    const chips = a.advertised.config.skills.map((s) => el('span', { className: 'chip', textContent: s.name, title: `${s.id}${s.enabled ? '' : ' (disabled)'}`, dataset: { off: String(!s.enabled) } }));
+    rows.push(el('div', { className: 'skills-row' }, el('span', { className: 'label', textContent: `Advertised (rev ${a.advertised.revision}):` }), ...chips,
+      el('span', { className: 'tested', textContent: a.advertised.matchesTestedDefault ? ' · matches tested default' : ' · changed since tests — not verified' })));
+  }
+  const r = a.registry;
+  if (r) {
+    const chips = r.skills.map((s) => el('span', { className: 'chip', textContent: s.name, title: s.id }));
+    rows.push(el('div', { className: 'skills-row' }, el('span', { className: 'label', textContent: `Student’s view (rev ${r.revision ?? '?'}, ${r.status}):` }), ...(chips.length ? chips : [el('span', { textContent: 'none' })])));
+  }
+  if (a.saved) {
+    const n = a.notification?.revision === a.saved.revision ? a.notification : null;
+    const updated = r && r.revision === a.saved.revision && (r.status === 'ok');
+    rows.push(el('ul', { className: 'propagation', ariaLabel: 'Save and propagation' },
+      el('li', { dataset: { status: 'ok' }, textContent: `Configuration saved — revision ${a.saved.revision} (${clock(a.saved.at)})` }),
+      el('li', { dataset: { status: !n ? 'wait' : n.outcome === 'delivered' ? 'ok' : n.outcome === 'pending' ? 'pending' : 'bad' }, textContent: !n ? 'Notification: not sent yet' : `Notification ${n.outcome}: ${n.detail}` }),
+      el('li', { dataset: { status: updated ? 'ok' : r?.status === 'stale' ? 'bad' : 'wait' }, textContent: updated ? `Student routing updated — revision ${r.revision} (${clock(r.lastSuccessAt)})` : `Student routing not updated yet${r?.lastError ? ` (${r.lastError})` : ''}` }),
+    ));
+  }
+  const details = el('details', {}, el('summary', { textContent: 'Card details' }),
+    definitionList('ids', [
+      ['card revision', a.advertised?.revision], ['card ETag', a.advertised?.etag],
+      ['Student cached revision', r?.revision], ['Student cached ETag', r?.etag],
+      ['last successful refresh', r?.lastSuccessAt && new Date(r.lastSuccessAt).toLocaleString()],
+      ['last refresh error', r?.lastError], ['last notification', a.notification && `${a.notification.outcome} (${a.notification.notificationId})`],
+    ]));
+  box.replaceChildren(...rows, details);
+}
+
+// ---- Part 5: skills settings dialog -------------------------------------------
+
+let editing = null; // { agentId, revision, handlers }
+
+const lines = (v) => v.split('\n').map((s) => s.trim()).filter(Boolean);
+
+function skillFieldset(skill, handlers, isNew) {
+  const id = el('input', { type: 'text', value: skill.id, readOnly: !isNew, name: 'id' });
+  const handler = el('select', { name: 'handler' }, ...handlers.map((h) => el('option', { value: h.id, textContent: `${h.id} — ${h.label}`, selected: h.id === skill.handler })));
+  const field = (label, control) => el('label', {}, label, control);
+  const area = (name, value) => el('textarea', { name, value, rows: 2 });
+  const fs = el('fieldset', { className: 'skill-fieldset' },
+    el('legend', { textContent: skill.name || 'New skill' }),
+    el('label', { className: 'inline' }, el('input', { type: 'checkbox', name: 'enabled', checked: skill.enabled }), 'Enabled (advertised and permitted)'),
+    el('div', { className: 'skill-grid' },
+      field('Skill ID (stable)', id),
+      field('Implemented by (handler)', handler),
+      field('Name', el('input', { type: 'text', name: 'name', value: skill.name })),
+      field('Tags (comma separated)', el('input', { type: 'text', name: 'tags', value: skill.tags.join(', ') })),
+    ),
+    field('Description', area('description', skill.description)),
+    el('div', { className: 'skill-grid' },
+      field('Example questions (one per line)', area('examples', skill.examples.join('\n'))),
+      field('Allowed scope (one per line)', area('allowed', skill.scope.allowed.join('\n'))),
+    ),
+    field('Exclusions (one per line)', area('excluded', skill.scope.excluded.join('\n'))),
+  );
+  const remove = el('button', { type: 'button', className: 'remove', textContent: 'Remove skill' });
+  remove.addEventListener('click', () => {
+    fs.remove();
+    schedulePreview();
+  });
+  fs.append(remove);
+  fs.addEventListener('input', schedulePreview);
+  return fs;
+}
+
+function collectConfig() {
+  return {
+    skills: [...els.skillsEditor.querySelectorAll('fieldset')].map((fs) => {
+      const v = (name) => fs.querySelector(`[name="${name}"]`);
+      return {
+        id: v('id').value.trim(), handler: v('handler').value, enabled: v('enabled').checked,
+        name: v('name').value, description: v('description').value,
+        tags: v('tags').value.split(',').map((t) => t.trim()).filter(Boolean),
+        examples: lines(v('examples').value),
+        scope: { allowed: lines(v('allowed').value), excluded: lines(v('excluded').value) },
+      };
+    }),
+  };
+}
+
+function showErrors(errors) {
+  if (!errors?.length) {
+    els.skillsErrors.replaceChildren();
+    return;
+  }
+  els.skillsErrors.replaceChildren(el('ul', {}, ...errors.map((e) => el('li', { textContent: e.path ? `${e.path}: ${e.message}` : e.message }))));
+}
+
+let previewTimer = null;
+function schedulePreview() {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(preview, 350);
+}
+
+async function preview() {
+  if (!editing) return;
+  const res = await fetch(`/api/agents/${editing.agentId}/skills/preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config: collectConfig() }) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    showErrors(body.errors ?? [{ path: '', message: body.error ?? `HTTP ${res.status}` }]);
+    els.cardPreview.textContent = '(fix the errors above to preview)';
+    return;
+  }
+  showErrors([]);
+  const { name, skills, capabilities } = body.card;
+  els.cardPreview.textContent = JSON.stringify({ name, skills, 'capabilities.extensions': capabilities.extensions }, null, 2);
+}
+
+async function openSkills(agentId) {
+  els.skillsErrors.replaceChildren();
+  const res = await fetch(`/api/agents/${agentId}/skills`);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    els.formError.textContent = body.error ?? `Could not load ${AGENT_NAMES[agentId]} skills.`;
+    return;
+  }
+  editing = { agentId, revision: body.revision, handlers: body.handlers };
+  els.dialogTitle.textContent = `Edit agent skills — ${AGENT_NAMES[agentId]}`;
+  els.dialogIdentity.textContent = `Agent: ${body.agentName} · stable ID: ${body.agentId} · revision ${body.revision}${body.matchesTestedDefault ? ' · matches the tested default' : ' · changed since tests (not verified)'}`;
+  els.skillsEditor.replaceChildren(...body.config.skills.map((s) => skillFieldset(s, body.handlers, false)));
+  els.cardPreview.textContent = '(open to preview)';
+  els.skillsSave.disabled = false;
+  els.dialog.showModal();
+  preview();
+}
+
+els.cardPreviewBox.addEventListener('toggle', () => els.cardPreviewBox.open && preview());
+els.addSkill.addEventListener('click', () => {
+  if (!editing) return;
+  const fs = skillFieldset({ id: '', handler: editing.handlers[0].id, enabled: true, name: '', description: '', tags: [], examples: [], scope: { allowed: [], excluded: [] } }, editing.handlers, true);
+  els.skillsEditor.append(fs);
+  fs.querySelector('[name="id"]').focus();
+});
+els.skillsCancel.addEventListener('click', () => {
+  // Cancel discards local edits; nothing is sent.
+  editing = null;
+  els.dialog.close();
+});
+els.skillsSave.addEventListener('click', async () => {
+  if (!editing) return;
+  els.skillsSave.disabled = true;
+  const res = await fetch(`/api/agents/${editing.agentId}/skills`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config: collectConfig(), baseRevision: editing.revision }) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    showErrors(body.errors ?? [{ path: '', message: body.error ?? `HTTP ${res.status}` }]);
+    els.skillsSave.disabled = false;
+    return;
+  }
+  // Saved on the agent. Notification and Student refresh are shown separately as they happen.
+  editing = null;
+  els.dialog.close();
+});
+for (const gear of document.querySelectorAll('.gear')) gear.addEventListener('click', () => openSkills(gear.dataset.agent));
+els.refreshSkills.addEventListener('click', async () => {
+  els.refreshSkills.disabled = true;
+  await fetch('/api/registry/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
+  setTimeout(() => { els.refreshSkills.disabled = false; }, 800);
+});
+
+const ROUTER_TEXT = { direct: 'Router: off (everything to Tutor)', mock: 'Router: mock heuristic (no external calls)', live: 'Router: LIVE · claude-haiku-5-5' };
+function renderRouter(router) {
+  if (!router) return;
+  els.routerMode.dataset.mode = router.mode === 'live' ? 'live' : router.mode === 'mock' ? 'mock' : 'direct';
+  els.routerMode.textContent = ROUTER_TEXT[router.mode] ?? `Router: ${router.mode}`;
+}
+
 // ---- event handling -----------------------------------------------------
 
 function handle(event) {
@@ -347,6 +575,8 @@ function handle(event) {
   const isCurrent = runId === currentRunId;
   const student = (item) => appendTo(els.studentLog, messageItem({ at, ...item }));
   const tutor = (item) => appendTo(els.tutorLog, messageItem({ at, ...item }));
+  const library = (item) => appendTo(els.libraryLog, messageItem({ at, ...item }));
+  const agentName = (id) => AGENT_NAMES[id] ?? id;
 
   if (source === 'system') {
     if (type === 'tutor_feed') {
@@ -356,9 +586,17 @@ function handle(event) {
       clearScreen();
     } else if (type === 'tutor_status') {
       renderMode(data);
+    } else if (type === 'agent_status') {
+      if (agents[data.agentId] && data.skills) {
+        agents[data.agentId].advertised = data.skills;
+        renderSkillsBox(data.agentId);
+      }
+    } else if (type === 'agent_feed') {
+      if (data.agentId === 'library') setBadge(els.libraryFeed, data.connected, data.connected ? 'Library feed: connected' : 'Library feed: offline');
     } else if (type === 'run_started') {
       currentRunId = runId;
-      const kind = data.kind === 'chat' && data.tutorMode && data.tutorMode !== 'fixed' ? 'chatModel' : data.kind ?? 'chat';
+      const kind = data.kind === 'chat' && data.routerMode && data.routerMode !== 'direct' ? 'chatRouted'
+        : data.kind === 'chat' && data.tutorMode && data.tutorMode !== 'fixed' ? 'chatModel' : data.kind ?? 'chat';
       resetTimeline(runId, kind);
       if (data.kind === 'chat') {
         currentContextId = data.contextId;
@@ -373,11 +611,35 @@ function handle(event) {
   } else if (source === 'student') {
     switch (type) {
       // chat
+      case 'route_decided': {
+        const d = data;
+        if (d.decision === 'route') {
+          student({ dir: 'sent', label: `Routing → ${agentName(d.agentId)}`, text: d.reason, ids: { skill: d.skillId, router: d.model, routerUsage: d.usage ? `${d.usage.inputTokens} in / ${d.usage.outputTokens} out tokens` : null, run } });
+        } else {
+          student({ dir: 'info', label: d.decision === 'clarify' ? 'Clarification needed' : 'No matching service', text: d.decision === 'clarify' ? d.clarificationQuestion : d.reason, ids: { router: d.model, rejectedChoice: d.rejectedChoice ? `${d.rejectedChoice.agentId} / ${d.rejectedChoice.skillId}` : null, run } });
+          if (isCurrent) els.timelineError.textContent = 'No service was called for this message.';
+        }
+        break;
+      }
+      case 'route_failed':
+        student({ dir: 'error', label: 'Routing failed', text: `${data.message} No service was called.`, ids: { code: data.code, run } });
+        if (isCurrent) els.timelineError.textContent = `Routing failed: ${data.message}`;
+        break;
       case 'request_sent':
-        student({ dir: 'sent', label: 'Sent', text: data.text, ids: { messageId: data.messageId, run } });
+        student({ dir: 'sent', label: data.agentId ? `Sent to ${agentName(data.agentId)}` : 'Sent', text: data.text, ids: { messageId: data.messageId, contextId: data.contextId, run } });
         break;
       case 'reply_received':
-        student({ dir: 'received', label: 'Received', text: data.text, ids: { model: fmtUsage(data.tutor), messageId: data.messageId, inReplyTo: data.inReplyTo, contextId: data.contextId, taskId: data.taskId || '(none — direct Message reply)', anthropicRequest: data.tutor?.requestId, run } });
+        student({ dir: 'received', label: data.servedBy ? `Received from ${agentName(data.servedBy)}` : 'Received', text: data.text, ids: { model: fmtUsage(data.tutor), outcome: data.tutor?.outcome ?? data.library?.outcome, messageId: data.messageId, inReplyTo: data.inReplyTo, contextId: data.contextId, taskId: data.taskId || '(none — direct Message reply)', anthropicRequest: data.tutor?.requestId, run } });
+        break;
+      case 'registry_updated':
+      case 'registry_refresh_failed':
+        if (agents[data.agentId]) {
+          agents[data.agentId].registry = data;
+          renderSkillsBox(data.agentId);
+        }
+        break;
+      case 'card_notification_received':
+        if (agents[data.agentId]) agents[data.agentId].received = data;
         break;
       case 'tutor_error':
         student({ dir: 'error', label: 'Tutor error', text: data.message, ids: { code: data.code, anthropicRequest: data.requestId, messageId: data.messageId, contextId: data.contextId, run } });
@@ -429,8 +691,43 @@ function handle(event) {
     }
     // A Tutor-reported error still arrived as an A2A response.
     if (isCurrent && type !== 'submission_failed') markStep(type === 'tutor_error' ? 'reply_received' : type, at);
+  } else if (source === 'library') {
+    switch (type) {
+      case 'message_received':
+        library({ dir: 'received', label: 'Received', text: data.text, ids: { messageId: data.messageId, contextId: data.contextId, run } });
+        break;
+      case 'scope_checked':
+        library({ dir: data.verdict === 'in_scope' ? 'received' : 'info', label: 'Scope check', text: `${data.verdict}${data.handler ? ` (handler: ${data.handler})` : ''}`, ids: { policyRevision: data.policyRevision, run } });
+        break;
+      case 'reply_published':
+        library({ dir: 'sent', label: 'Sent', text: data.text, ids: { outcome: data.library?.outcome, messageId: data.messageId, contextId: data.contextId, inReplyTo: data.inReplyTo, run } });
+        break;
+      case 'skills_saved':
+        agents.library.saved = { ...data, at };
+        loadAdvertised('library');
+        break;
+      case 'card_notification':
+        agents.library.notification = data;
+        renderSkillsBox('library');
+        break;
+    }
+    if (isCurrent) markStep(type, at);
   } else if (source === 'tutor') {
     switch (type) {
+      case 'skills_saved':
+        agents.tutor.saved = { ...data, at };
+        loadAdvertised('tutor');
+        break;
+      case 'card_notification':
+        agents.tutor.notification = data;
+        renderSkillsBox('tutor');
+        break;
+      case 'scope_checked':
+        tutor({ dir: data.verdict === 'in_scope' ? 'received' : 'info', label: data.stage === 'release' ? 'Release check' : 'Scope check', text: `${data.verdict}${data.reason ? ` — ${data.reason}` : ''}`, ids: { policyRevision: data.policyRevision, run } });
+        break;
+      case 'answer_checked':
+        tutor({ dir: data.violates ? 'error' : 'received', label: 'Answer check', text: data.violates ? `Withheld — ${data.reason}` : 'Within scope', ids: { run } });
+        break;
       // chat
       case 'message_received':
         tutor({ dir: 'received', label: 'Received', text: data.text, ids: { messageId: data.messageId, contextId: data.contextId, taskId: data.taskId, run } });
@@ -491,6 +788,12 @@ stream.addEventListener('hello', (e) => {
   bootId = hello.bootId;
   setBadge(els.tutorFeed, hello.tutorFeedConnected, hello.tutorFeedConnected ? 'Tutor feed: connected' : 'Tutor feed: offline');
   renderMode(hello.tutorStatus);
+  renderRouter(hello.router);
+  const lib = hello.agents?.library;
+  if (lib) setBadge(els.libraryFeed, lib.feedConnected, lib.feedConnected ? 'Library feed: connected' : 'Library feed: offline');
+  for (const [id, a] of Object.entries(hello.agents ?? {})) if (agents[id] && a.status?.skills) agents[id].advertised = a.status.skills;
+  for (const r of hello.registry ?? []) if (agents[r.agentId]) agents[r.agentId].registry = r;
+  for (const id of Object.keys(agents)) renderSkillsBox(id);
 });
 stream.addEventListener('message', (e) => {
   const event = JSON.parse(e.data);

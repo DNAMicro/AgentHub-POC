@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A protocol-connectivity spike: two separate Node.js processes talk over the real A2A protocol (v1.0, JSON-RPC binding) using `@a2a-js/sdk` 1.3.0. `src/tutor-agent.js` is the A2A server (Agent B); `src/student-agent.js` is the A2A client (Agent A). `src/ui-server.js` + `public/` add a browser monitor that hosts the Student in-process and visualizes the exchange. Part 3 adds an A2UI v0.9 form the Tutor sends inside A2A and the browser renders with the official `@a2ui/lit` renderer. Part 4 lets the Tutor answer chat with Claude Haiku 5.5 (`claude-haiku-5-5`, `@anthropic-ai/sdk` 1.3.0) in `TUTOR_MODE=live`; the default `fixed` mode keeps the deterministic Part 1 reply. See README.md for the hop-by-hop walkthrough and version rationale.
+A protocol-connectivity spike: two separate Node.js processes talk over the real A2A protocol (v1.0, JSON-RPC binding) using `@a2a-js/sdk` 1.3.0. `src/tutor-agent.js` is the A2A server (Agent B); `src/student-agent.js` is the A2A client (Agent A). `src/ui-server.js` + `public/` add a browser monitor that hosts the Student in-process and visualizes the exchange. Part 3 adds an A2UI v0.9 form the Tutor sends inside A2A and the browser renders with the official `@a2ui/lit` renderer. Part 4 lets the Tutor answer chat with Claude Haiku 5.5 (`claude-haiku-5-5`, `@anthropic-ai/sdk` 1.3.0) in `TUTOR_MODE=live`; the default `fixed` mode keeps the deterministic Part 1 reply. Part 5 adds a deterministic **Library Agent** (`src/library-agent.js`, :41242), Student-side **routing** (`src/router.js`) over a **trusted registry** (`src/student-registry.js`), editable per-agent **skill configurations** (`src/skills.js`, `src/agent-settings.js`) with `agent_card_changed` notifications to the Student's own **A2A endpoint** (`src/student-endpoint.js`, :41240), and **scope enforcement** on the receiving agents. See README.md for the hop-by-hop walkthrough and version rationale.
 
 ## Commands
 
@@ -13,8 +13,12 @@ npm run tutor      # server on 127.0.0.1:41241 (override with PORT=...), fixed r
 npm run tutor:mock # deterministic fake model, no network
 npm run tutor:live # Claude Haiku 5.5; key from env or .env (TUTOR_ENV_FILE to override) — PAID
 npm run smoke:live # paid live smoke test; refuses unless LIVE_SMOKE_MAX_USD is set
-npm run student    # client; target with TUTOR_URL=http://127.0.0.1:...
-npm run ui         # builds public/vendor/a2ui.js, then monitor on http://127.0.0.1:3000 (UI_PORT, TUTOR_URL); needs the tutor running
+npm run library    # Library Agent on 127.0.0.1:41242 (deterministic, sample fixture)
+npm run student    # CLI client; target with TUTOR_URL=http://127.0.0.1:...
+npm run ui         # builds bundle, then UI :3000 + Student A2A endpoint :41240 with the MOCK router
+npm run ui:live    # same with the live Haiku router — PAID
+npm run ui:direct  # no routing: Parts 2–4 behaviour (this is also the code default for ROUTER_MODE)
+npm run eval:live  # paid Part 5 spot check; refuses unless LIVE_EVAL_MAX_USD is set
 npm run build:ui   # esbuild bundle of the A2UI renderer only (output is gitignored)
 npm test           # node:test; spawns tutor / UI server as child processes on free ports
 node --test --test-name-pattern="duplicate" test/   # run tests by name
@@ -46,6 +50,17 @@ Plain ESM JavaScript (`"type": "module"`), no lint/TypeScript. The only build st
 - Haiku 5.5: no `temperature`/`top_p`/`top_k` (400 on API version 2026-10-21), thinking counts toward `max_tokens` (hence `effort: "low"` with the 800-token cap), always check `stop_reason` (`refusal`, `max_tokens`) before using content.
 - Message contents are logged only when `LOG_CONTENT` is on (default on in fixed/mock — earlier tests read Tutor logs — off in live; `TUTOR_LOG_CONTENT` overrides). The UI server sets `STUDENT_LOG_CONTENT=0`.
 
+## Part 5 (routing, skills, notifications, scope) notes
+
+- Modes are read **at import time**: `TUTOR_MODE` (tutor-model), `ROUTER_MODE` (router; code default `direct` so Part 2–4 tests that spawn `src/ui-server.js` without env keep their behaviour), `TUTOR_SCOPE_ENFORCEMENT` (default on; Part 4 plumbing tests set `off` because scope checks add model calls).
+- **Single source of truth**: a skill config → `buildCardSkills` (card), `buildScopeExtension` (`urn:a2a-spike:skill-scope:v1`, our documented extension — don't invent standard A2A fields), `policyFromConfig` (runtime). Save swaps all three atomically by mutating the live card object the SDK serves. Every skill must name an implemented `handler`; unknown handlers are rejected (advertising ≠ capability).
+- **Trust boundaries**: destinations come only from `trustedPeers()`. Router output is validated by `validateDecision` (agent+skill must be in the live registry view); fetched cards by `validateCard` (name, single JSON-RPC 1.0 URL equal to the registered one, no security changes). Notification contents are hints only — never apply skills/URLs from them.
+- Cards are fetched with `node:http`, not `fetch`: undici adds `Cache-Control: no-cache` to conditional requests, which makes Express return 200 instead of 304.
+- **Express 5** calls the `app.listen` callback with the error (e.g. EADDRINUSE) — always check `err` first. The Student endpoint falls back to an ephemeral port if 41240 is taken.
+- Agent viz events now come from both agents; the UI server relays them with `source: agentId`. Config events (`skills_saved`, `card_notification`) have `runId: null`. Tests use `chatVia` / `startTrio` in `test/support/harness.js` and assert the **actual destination** via the receiving agent's own `message_received` event and the reply's `servedBy` (from reply `metadata.agentId`).
+- Mock classifiers/routers are labelled heuristics (term sets derived from the saved config); they prove plumbing, not accuracy. Live judgments are probabilistic — don't claim otherwise.
+- Configuration changes and notifications must never trigger model calls.
+
 ## A2UI gotchas
 
 - Pinned to **v0.9** (not v0.9.1) because `@a2ui/lit` 0.14.0 registers the v0_9 basic catalog and web_core ships v0_9 JSON schemas. Messages use `"version": "v0.9"`; extension URI `https://a2ui.org/a2a-extension/a2ui/v0.9`.
@@ -67,4 +82,4 @@ The SDK's v1.0 types are protobuf-generated and differ from v0.3 examples found 
 
 ## Scope constraints
 
-Do not add token streaming, push notifications, a reverse server, hub/routing/mailboxes, database, auth/accounts, real email sending, frontend frameworks, model tools, model-generated UI/code, or deployment unless explicitly asked. Only the Tutor calls the LLM; form validation stays deterministic. All servers must stay bound to `127.0.0.1`. Records are in-memory by design. Keep dependency versions pinned exactly. Use fictional sample data only (e.g. Alex Student, alex@example.com).
+Do not add token streaming, push notifications, multi-agent fan-out, a Hub/mailboxes, database, auth/accounts, real email sending, frontend frameworks, model tools, model-generated UI/code, or deployment unless explicitly asked. Only the Tutor (answers, scope checks) and the Student router call the LLM; the Library and form validation stay deterministic. All servers must stay bound to `127.0.0.1`. Records are in-memory by design. Keep dependency versions pinned exactly. Use fictional sample data only (e.g. Alex Student, alex@example.com).
