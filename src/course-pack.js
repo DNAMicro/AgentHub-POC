@@ -105,5 +105,13 @@ export const PROFESSOR_DEFAULT_SKILLS = {
     description: `Marketing 101: ${t.name.toLowerCase()} — explanations, examples and checking your understanding.`,
     tags: t.tags.slice(0, 8), examples: [], scope: { allowed: [t.name], excluded: ['real course deadlines, grades or policies'] },
     knowledge: `${t.explanation}\nExample: ${t.example}\nSources: ${t.sources.join(' ')}`,
-  })),
+  })).concat({
+    // Questions about the course itself (late homework, an assignment, one of my messages) are the
+    // professor's too. Advertised so the Hub's router has a real skill to name for them.
+    id: 'course-questions', kind: 'answer', enabled: true, name: 'Questions about the course',
+    description: 'Marketing 101: questions about the course itself — homework, assignments, late work, and the lessons and messages I posted. Answered only from what I posted; I never invent deadlines, grades or policies.',
+    tags: ['homework', 'assignment', 'late work', 'course', 'class'], examples: ['Can I hand in my marketing homework late?'],
+    scope: { allowed: ['Questions about Marketing 101 itself'], excluded: ['real course deadlines, grades or policies not stated in my posts'] },
+    knowledge: 'For questions about the course itself I answer from the lessons and messages I posted to you. Deadlines, grades, late-work rules and other course policies are not in my course material; unless one of my messages states them, I say plainly that I don\'t have that information instead of guessing.',
+  }),
 };

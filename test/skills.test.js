@@ -125,3 +125,15 @@ test('the Hub rejects fetched specialist cards that change identity, endpoint, p
   ];
   for (const card of bad) assert.equal(validateCard(card, peer).ok, false, JSON.stringify(card).slice(0, 80));
 });
+
+test('words the student reads name services publicly, never by agent', () => {
+  const services = [
+    { agentId: 'tutor', name: 'Tutor Agent', publicName: 'Tutoring', skills: [] },
+    { agentId: 'professor', name: 'Marketing 101 Professor', publicName: 'Marketing 101', skills: [] },
+  ];
+  const d = validateDecision({ decision: 'clarify', agent_id: '', skill_id: '', reason: 'Could be Tutor Agent or Marketing 101 Professor.', clarification_question: 'Which course is the homework for: Calculus (Tutor Agent) or Marketing 101 (Marketing 101 Professor)?' }, services);
+  assert.equal(d.clarificationQuestion, 'Which course is the homework for: Calculus or Marketing 101?');
+  assert.equal(d.reason, 'Could be Tutoring or Marketing 101.');
+  // Ordinary words are left alone.
+  assert.equal(validateDecision({ decision: 'unsupported', agent_id: '', skill_id: '', reason: 'Ask the tutor at the library.', clarification_question: '' }, services).reason, 'Ask the tutor at the library.');
+});

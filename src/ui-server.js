@@ -67,7 +67,7 @@ const NEXT_STATES = {
 // rejected → editing (explicit "Edit and retry");  confirmation_pending → submitting (reconcile, same operation ID)
 const CLOSED_FORM_STATES = new Set(['accepted', 'cancelled', 'superseded']);
 
-export async function startUiServer({ port = 3000 } = {}) {
+export async function startUiServer({ port = 4444 } = {}) {
   const cfg = loadStudentConfig(); // throws a clear error on invalid configuration
   useModel(cfg.model); // the Student's own model and key variable (used only when STUDENT_MODE=live)
   const hub = { name: cfg.university.name, baseUrl: cfg.university.hubUrl, cardUrl: cfg.university.cardUrl, rpcUrl: `${cfg.university.hubUrl}/a2a/jsonrpc`, vizUrl: `${cfg.university.hubUrl}/viz/events`, devUrl: `${cfg.university.hubUrl}/dev` };
@@ -644,7 +644,7 @@ function writeEvent(res, event) {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const port = process.env.UI_PORT === undefined ? 3000 : Number(process.env.UI_PORT);
+  const port = process.env.UI_PORT === undefined ? 4444 : Number(process.env.UI_PORT);
   process.env.STUDENT_LOG_CONTENT ??= '0'; // keep chat text out of this server's logs by default
   const { baseUrl, hubUrl, universityName } = await startUiServer({ port });
   console.log(`[UI] listening on ${baseUrl}`);

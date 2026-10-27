@@ -139,7 +139,7 @@ export function loadHubConfig() {
       },
       // Part 9: the Marketing 101 course (a fictional class) — questions go to its professor.
       marketing: {
-        worker: 'professor', name: 'Marketing 101', description: 'Marketing 101 (a fictional introductory course): marketing concepts, course lessons, worked examples and checking your understanding.',
+        worker: 'professor', name: 'Marketing 101', description: 'Marketing 101 (a fictional introductory course): marketing concepts, course lessons, worked examples, checking your understanding, and questions about the course itself (homework, assignments, the professor’s messages).',
         tags: ['marketing', 'marketing 101', 'segmentation', 'targeting', 'positioning', 'branding', 'pricing', 'promotion', 'customer value', 'lesson'],
         examples: ['What is the difference between segmentation and targeting?', 'Can you explain the lesson about customer value?'],
       },
@@ -149,7 +149,7 @@ export function loadHubConfig() {
     studentNames: { 'student-alex': 'Alex Student', 'student-sam': 'Sam Student' },
     // Part 9 (trusted data): where the Hub may deliver to each student's own agent (its inbound A2A
     // endpoint, served by the UI server), and who teaches and is enrolled in each course.
-    studentEndpoints: { 'student-alex': 'http://127.0.0.1:3000' },
+    studentEndpoints: { 'student-alex': 'http://127.0.0.1:4444' },
     // Sam Student (fictional) is enrolled but has no Student agent in this demo: posts to "all" queue for them.
     courses: { 'mkt-101': { title: 'Marketing 101', professor: 'professor', enrolled: ['student-alex', 'student-sam'] } },
     heartbeatExpiryMs: 10000,

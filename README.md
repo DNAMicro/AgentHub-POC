@@ -48,10 +48,10 @@ npm run hub:live      # University Hub on 127.0.0.1:41243 (live router; or hub =
 npm run tutor:live    # Tutor Agent on 127.0.0.1:41241 (or tutor:mock / tutor) — registers with the Hub
 npm run library:live  # Library Agent on 127.0.0.1:41242 (or library = mock) — registers with the Hub
 npm run professor:live  # Marketing 101 Professor on 127.0.0.1:41244 (or professor = mock) — registers with the Hub
-npm run ui            # UI + Student Agent on 127.0.0.1:3000 — connects only to the Hub
+npm run ui            # UI + Student Agent on 127.0.0.1:4444 — connects only to the Hub
 ```
 
-Then open **http://127.0.0.1:3000**. Start order doesn't matter: specialists keep retrying registration, and the Student re-reads the Hub's card when the Hub appears.
+Then open **http://127.0.0.1:4444**. Start order doesn't matter: specialists keep retrying registration, and the Student re-reads the Hub's card when the Hub appears.
 
 **Build step.** `ui` and `demo` first build `public/vendor/a2ui.js`, the bundled A2UI renderer; `npm run build:ui` builds it on its own.
 
@@ -64,7 +64,7 @@ Then open **http://127.0.0.1:3000**. Start order doesn't matter: specialists kee
 | `UI_PORT`, `PORT` | The UI's port; an agent's port |
 | `HUB_URL` | Where the Student and the specialists find the Hub |
 | `TUTOR_URL`, `LIBRARY_URL`, `PROFESSOR_URL` | The Hub's trusted endpoint for each specialist |
-| `STUDENT_URL` | Part 9: the Hub's trusted inbound endpoint for the (first) student's agent (default `http://127.0.0.1:3000`) |
+| `STUDENT_URL` | Part 9: the Hub's trusted inbound endpoint for the (first) student's agent (default `http://127.0.0.1:4444`) |
 | `HUB_LESSON_FILE`, `STUDENT_INBOX_FILE`, `PROFESSOR_OUTBOX_FILE` | Part 9: where the Hub's lesson deliveries, the Student's inbox and the Professor's outbox are saved (defaults under the git-ignored `data/`; delete them to reset the classroom) |
 | `HUB_DELIVER_TIMEOUT_MS`, `HUB_DELIVER_RETRY_MS` | Part 9: how long the Hub waits for the Student to confirm a delivery (5000) and how often it retries queued or uncertain ones (3000) |
 | `HUB_TEST_STUDENTS_WITHOUT_ENDPOINT=1` | Tests only: lets a student with no configured endpoint register with the Hub (normally refused, because it can't be challenged) |
@@ -104,7 +104,7 @@ npm test   # starts the Tutor (and UI server) as child processes, runs all check
 | `src/loan-store.js` | Part 8: the synthetic loan service — authoritative loans, eligibility, the permitted return-date range, and idempotent renewals saved to disk. |
 | `src/a2ui-catalog.js` | Part 8: the model-visible catalog (built from the installed renderer's official schemas) and the validation every generated surface must pass. |
 | `src/loan-model.js` | Part 8: the Library's model call for loan questions — answer, clarify or compose UI — with bounded repair and a truthful fallback; labelled mock mode. |
-| `src/professor-agent.js`, `src/professor-model.js`, `src/course-pack.js` | Part 9: the **Marketing 101 Professor** — answers from its original course pack (eight topics with WSU chapter references, three seeded lessons) and the lesson being asked about (mock: labelled extraction; live: the configured model, no invented dates), and its authoring API and persisted outbox for posting lessons. |
+| `src/professor-agent.js`, `src/professor-model.js`, `src/course-pack.js` | Part 9: the **Marketing 101 Professor** — answers from its original course pack (eight topics with WSU chapter references, a skill for questions about the course itself, three seeded lessons) and the lesson being asked about (mock: labelled extraction; live: the configured model, no invented dates), and its authoring API and persisted outbox for posting lessons. |
 | `src/hub-lessons.js` | Part 9: the Hub's lesson service — Student sessions (challenge at the configured endpoint), verified publishes (professor, course, enrollment), persisted deliveries with queueing, reconciliation and receipts, the once-per-course availability notice, and the trusted lesson association for follow-ups. |
 | `src/student-inbox.js` | Part 9: the Student agent's inbound A2A side (signed Hub messages only) and its persisted course inbox. |
 | `src/lessons.js`, `src/a2a-data.js`, `src/json-store.js` | Part 9: the typed lesson messages and HMAC signing; sending one typed data part over `message/send` with honest delivery outcomes; an atomic JSON-file store. |
@@ -306,7 +306,7 @@ Never paste the key into a chat, an issue or source code. Only the Tutor process
 2. Start it:
    ```bash
    npm run tutor:live     # terminal 1 — logs "API key: configured" or "NOT SET" (never the value)
-   npm run ui             # terminal 2 → http://127.0.0.1:3000
+   npm run ui             # terminal 2 → http://127.0.0.1:4444
    ```
 
 The key is read only from the Tutor's environment. It is passed explicitly to the SDK, which then ignores any other credential source. It is never written into A2A messages, browser events, logs or error messages, and the tests check this (see below).
@@ -388,7 +388,7 @@ It checks that `claude-haiku-5-5` is available to your account. That check uses 
 > **Part 7 moved three things out of the Student into the University Hub:** the router, the trusted registry, and the endpoint that receives `agent_card_changed` notices. The mechanics below are unchanged; read “Student” as “Hub” for them. The router modes are now set on the Hub (`npm run hub`, `hub:live`, `hub:direct`).
 
 ```
-Browser ─▶ UI server :3000 ── hosts ──▶ Student Agent (router + trusted registry)
+Browser ─▶ UI server :4444 ── hosts ──▶ Student Agent (router + trusted registry)
                                          ├── A2A client ══▶ Tutor Agent    :41241 (scope-checked; mock/live model)
                                          ├── A2A client ══▶ Library Agent  :41242 (answers from saved skill content)
                                          └── A2A server :41240 ◀══ agent_card_changed notices from Tutor / Library
@@ -656,7 +656,7 @@ A repeated chat request (same Student request ID) is answered from the Hub's led
 
 ### The browser: three tabs
 
-Each tab has its own address, so you can open any of them in its own browser tab (Cmd/Ctrl-click or middle-click), bookmark it, or use Back/Forward: http://127.0.0.1:3000/conversation, http://127.0.0.1:3000/activity and http://127.0.0.1:3000/topology. The plain address http://127.0.0.1:3000/ always opens Conversation. Every browser tab follows the same live event stream.
+Each tab has its own address, so you can open any of them in its own browser tab (Cmd/Ctrl-click or middle-click), bookmark it, or use Back/Forward: http://127.0.0.1:4444/conversation, http://127.0.0.1:4444/activity and http://127.0.0.1:4444/topology. The plain address http://127.0.0.1:4444/ always opens Conversation. Every browser tab follows the same live event stream.
 
 - **Conversation:** you and the university. Press Enter to send (the box clears) and Shift+Enter for a new line. The chat stays at its newest message, including while forms finish drawing; scroll up to read and it stops following until you scroll back down or send. If an answer takes more than a second, a small “Waiting for an answer…” spinner shows in the chat until it arrives. Replies are labelled with the service that produced them (“California State University Fullerton · Library Agent”), and the Hub's own replies (clarifying questions, “not supported”, “unavailable”) in its own color. The hop-by-hop strip below the chat shows the true flow of the current question and resets for the next one: nine steps (Student checked → … → Student received), the one in progress highlighted, each finished step filled in the color of the agent that did it with its time, and steps the flow didn't take marked skipped with the reason (for example “Hub answered itself (not supported)” or “not sent — your Student agent asked you first”). Failures show ✕, unknown outcomes ?.
 - **Agent activity:** one console per agent — Student, Hub, Tutor, Library.
@@ -748,7 +748,7 @@ Until now every exchange started with you. Part 9 adds one **Marketing 101 Profe
 
 1. **Professor → Hub.** Pressing *Post lesson* calls the Professor's authoring API (through the UI server and the Hub's developer proxy; plain HTTP, like skill settings). The Professor saves it in its outbox, then sends the Hub one A2A `message/send` with a typed `lesson-publish` data part: operation, lesson and revision ids, course, recipient, title and text, **signed** with the key the Professor gave the Hub when it registered.
 2. **The Hub checks everything from its own configuration** (for “all students” it expands the class from its own enrollment and makes one delivery per student): a valid signature from the registered Professor instance, a course that exists and that this professor teaches, an enrolled recipient, valid content, and that the operation id isn't reused with other content. It records the lesson and a **delivery** (`dl-…`, one per lesson revision and student) in `data/hub-lessons.json`.
-3. **Hub → Student.** The Hub sends a signed `lesson-delivery` to the Student agent's configured endpoint (`http://127.0.0.1:3000/a2a/jsonrpc`). The Student checks the signature and content hash, **writes the lesson to its inbox file first**, and only then replies “delivered”. That reply is the only thing that makes a delivery *Delivered*.
+3. **Hub → Student.** The Hub sends a signed `lesson-delivery` to the Student agent's configured endpoint (`http://127.0.0.1:4444/a2a/jsonrpc`). The Student checks the signature and content hash, **writes the lesson to its inbox file first**, and only then replies “delivered”. That reply is the only thing that makes a delivery *Delivered*.
 4. **Opened** happens only when you open the lesson. The Student then sends a signed receipt to the Hub, which the Professor reads back as its delivery state.
 5. **Follow-ups** carry the lesson's delivery id. The Hub looks it up in its own records for *your* student and routes to that lesson's professor (`decidedBy: lesson`), whatever words you used. Each hop uses its own A2A message and context IDs; the Hub's delivery record links them.
 

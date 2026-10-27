@@ -86,7 +86,7 @@ const STEPS = {
     ['student:request_planned', 'Student checked', 'what the question needs'],
     ['student:request_sent', 'Student sent', 'to the university Hub, over A2A'],
     ['hub:message_received', 'Hub received', 'confirmed by the Hub'],
-    ['hub:route_decided', 'Hub routed', 'destination chosen and checked'],
+    ['hub:route_decided', 'Agent identified', 'destination chosen and checked'],
     ['hub:forward_attempted', 'Hub forwarded', 'to the specialist, over A2A'],
     ['specialist:message_received', 'Specialist received', 'confirmed by that service'],
     ['specialist:reply_published', 'Specialist replied', 'answer or form, over A2A'],

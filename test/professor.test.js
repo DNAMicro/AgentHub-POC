@@ -434,3 +434,32 @@ test('a web page on another site can’t reset the classroom, post as the profes
   assert.deepEqual(st.lessons.map((l) => l.title), ['Still here'], 'nothing was reset or posted');
   assert.equal((await inbox(s)).lessons.length, 1);
 });
+
+test('a course question without an attached message is answered from what the professor posted to that student (and only to that student)', async () => {
+  const stub = await startFakeAnthropic();
+  stub.respondWith(() => messageReply(JSON.stringify({ kind: 'answer', text: 'Yes: my message says the homework can come in late this week.', topic_ids: ['course-questions'] })));
+  const { s } = await classroom({ professorEnv: { PROFESSOR_MODE: 'live', ANTHROPIC_API_KEY: `sk-ant-test-${randomUUID()}`, ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0' } });
+  try {
+    const forAlex = await postLesson(s, { kind: 'message', audience: 'all', title: 'Homework', text: 'The homework can come in late this week.' });
+    const forSam = await postLesson(s, { kind: 'message', audience: 'student-sam', title: 'For Sam', text: 'Sam, please resend your positioning draft.' });
+    assert.equal(forAlex.status, 200);
+    assert.equal(forSam.status, 200);
+    await waitFor(async () => (await professorState(s)).lessons.every((l) => l.deliveries?.length), { timeout: 10000, what: 'Hub accepted both posts' });
+    const stream = await openStream(s.ui.url);
+    try {
+      const res = await post(`${s.ui.url}/api/runs`, { text: 'Can I hand in my homework late?', capability: 'marketing' });
+      assert.equal(res.status, 202);
+      const { runId } = await res.json();
+      await waitFor(() => find(forRun(stream.events, runId), 'student', 'reply_received'), { timeout: 15000, what: 'reply' });
+      assert.match(find(forRun(stream.events, runId), 'student', 'reply_received').data.text, /my message says/);
+      const prompt = JSON.stringify(stub.requests.at(-1).body.messages);
+      assert.match(prompt, /your_recent_posts_to_this_student/);
+      assert.match(prompt, /The homework can come in late this week/);
+      assert.doesNotMatch(prompt, /resend your positioning draft/, 'a post to another student is never shown');
+    } finally {
+      stream.close();
+    }
+  } finally {
+    await stub.close();
+  }
+});

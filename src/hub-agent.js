@@ -139,7 +139,7 @@ export function startHubServer({ port } = {}) {
     }
     return c;
   };
-  const services = () => registry.routingView().map((s) => ({ ...s, destination: workerOf[s.agentId] ?? null, description: cfg.destinations[workerOf[s.agentId]]?.description ?? '' }))
+  const services = () => registry.routingView().map((s) => ({ ...s, destination: workerOf[s.agentId] ?? null, publicName: cfg.destinations[workerOf[s.agentId]]?.name ?? '', description: cfg.destinations[workerOf[s.agentId]]?.description ?? '' }))
     .filter((s) => s.destination); // a specialist is reachable only through its own destination
 
   // ---- A2A executor ---------------------------------------------------------------------------

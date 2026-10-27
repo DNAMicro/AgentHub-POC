@@ -20,7 +20,7 @@ npm run student    # CLI client; target with TUTOR_URL=http://127.0.0.1:...
 npm run professor  # Marketing 101 Professor :41244 (mock, labelled); professor:live = Haiku (PAID)
 npm run demo       # all five processes, mock models/router (scripts/start-all.js); demo:live = Haiku everywhere — PAID
 npm run hub        # Hub :41243, mock router; hub:live (PAID) / hub:direct (everything to tutoring; code default)
-npm run ui         # builds bundle, then UI :3000 hosting the Student, which connects only to HUB_URL
+npm run ui         # builds bundle, then UI :4444 hosting the Student, which connects only to HUB_URL
 npm run eval:live  # paid Part 5 spot check; refuses unless LIVE_EVAL_MAX_USD is set
 npm run build:ui   # esbuild bundle of the A2UI renderer only (output is gitignored)
 npm test           # node:test; spawns Hub/specialists/UI as child processes on free ports (HUB_URL defaults to a dead port)
@@ -150,6 +150,7 @@ Do not add token streaming, push notifications, multi-agent fan-out (the Hub for
 - **New conversation = classroom reset** (demo): UI publishes `conversation_reset` first (screens clear), then `inbox.reset()`, Hub `POST /dev/classroom/reset` (clears lessons/operations/deliveries/notices for every student, re-announces once, calls each professor's `POST /author/reset`), then publishes `classroom_reset` with the outcome. Sessions stay; in-flight deliveries check their record still exists before writing.
 - **Follow-ups** carry `lessonDeliveryId`; the Hub routes by its own delivery record (`lessonRoute`, `decidedBy: 'lesson'`), never by keywords or the student's claim. The route reason names the lesson by **id** only — `reason` passes telemetry, titles must not.
 - A `deliveryId` in the publish ack = **Hub accepted** (`hubAccepted`); only an unanswered Professor→Hub leg is "not confirmed" and re-sent. A refused connection marks the Student session `unreachable` (offline in the roster, no retries until it re-registers).
+- Without an attached lesson the Professor still gets **its own recent posts to that Hub-verified student** (`postedTo`, ≤5) for course questions. Router text the student reads goes through `publicWords` (public service names, never agent names).
 - Lesson text is content: `textContent` only, no actions from it; the Professor's prompt marks it untrusted and code rejects dates not in the lesson/question.
 - Run-less specialist events reach the browser only if listed in the UI server's `CONFIG_EVENTS` (`lesson_posted`, `lesson_publish_result` added).
 - Inspector (`ui_generated.inspector`) is **structure only** by default (`structureOnly` in hub-agent); full text only with `HUB_TELEMETRY_SHOW_CONTENT=1`.

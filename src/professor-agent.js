@@ -47,6 +47,14 @@ const recent = new Map(); // contextId → last few { question, answer }
 
 // ---- answering students ------------------------------------------------------------------------------
 const policy = () => ({ skills: skillService.policy().skills.filter((s) => s.kind === 'answer') });
+// What this professor posted to this (Hub-verified) student, newest first, latest revision of each — so
+// a question like "can I hand in the homework late?" is answered from its own message even when the
+// student didn't open it with "Ask about this message".
+const postedTo = (student) => (student ? Object.values(outbox.get().lessons)
+  .filter((l) => l.recipients?.includes(student))
+  .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)) || b.revision - a.revision)
+  .filter((l, i, all) => all.findIndex((x) => x.lessonId === l.lessonId) === i)
+  .slice(0, 5) : []);
 async function handleChat(ctx, bus, runId) {
   const incoming = ctx.userMessage;
   const question = textOf(incoming).slice(0, 2000);
@@ -59,7 +67,7 @@ async function handleChat(ctx, bus, runId) {
   const metadata = { ...(runId ? { runId } : {}), agentId: 'professor' };
   let text;
   try {
-    const r = await professorReply({ question, policy: policy(), lesson, recent: recent.get(ctx.contextId) ?? [], emit: (type, data) => emitViz(type, runId, data) });
+    const r = await professorReply({ question, policy: policy(), lesson, posts: lesson ? [] : postedTo(student), recent: recent.get(ctx.contextId) ?? [], emit: (type, data) => emitViz(type, runId, data) });
     text = r.text;
     metadata.professor = { outcome: r.kind, mode: PROFESSOR_MODE, model: r.model, usage: r.usage, lessonId: lesson?.lessonId ?? null, topics: r.topicIds };
   } catch (err) {

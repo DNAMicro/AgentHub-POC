@@ -1,6 +1,6 @@
 // Browser check: the chat (and the agent consoles) stay at the bottom — reliably — and never pull a
 // reader who scrolled up. Run against the live app with playwright-cli:
-//   playwright-cli -s=check open http://127.0.0.1:3000/conversation
+//   playwright-cli -s=check open http://127.0.0.1:4444/conversation
 //   playwright-cli -s=check run-code "$(cat scripts/browser-checks/chat-scroll.js)"
 // Uses real questions (live models cost a few cents). "gap" = pixels between the view and the bottom.
 async (page) => {
@@ -25,7 +25,7 @@ async (page) => {
     for (let i = 0; i < 15; i++) { await page.waitForTimeout(200); gaps.push(await gap()); } // keep watching while it settles
     return { final: gaps.at(-1), max: Math.max(...gaps.slice(-10)) };
   }
-  await page.goto('http://127.0.0.1:3000/conversation');
+  await page.goto('http://127.0.0.1:4444/conversation');
   await page.waitForTimeout(1500);
   await page.getByRole('button', { name: 'New conversation' }).click();
   await page.waitForTimeout(600);
@@ -58,10 +58,10 @@ async (page) => {
   const r4 = await sendAndWatch('What are the library hours on Saturday?');
   check('sending a message brings the chat to the bottom', r4.final <= 2, r4);
   // 5. Another tab and back; a reload (full replay, forms re-render) — still at the bottom.
-  await page.goto('http://127.0.0.1:3000/activity');
+  await page.goto('http://127.0.0.1:4444/activity');
   await page.waitForTimeout(1500);
   check('activity consoles at the bottom', (await gap('#library-log')) <= 2 && (await gap('#hub-log')) <= 2, { library: await gap('#library-log'), hub: await gap('#hub-log') });
-  await page.goto('http://127.0.0.1:3000/conversation');
+  await page.goto('http://127.0.0.1:4444/conversation');
   for (let i = 0; i < 20; i++) await page.waitForTimeout(200);
   check('at bottom after a reload (replay + forms re-rendered)', (await gap()) <= 2, { gap: await gap() });
   await page.locator('#tab-activity').click();

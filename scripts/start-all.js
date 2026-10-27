@@ -27,4 +27,4 @@ const stop = () => {
 };
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);
-console.log(`Starting the University Hub, Tutor, Library, Marketing 101 Professor and Student UI (${live ? 'LIVE models — paid' : 'mock models, no network'}). Open http://127.0.0.1:3000`);
+console.log(`Starting the University Hub, Tutor, Library, Marketing 101 Professor and Student UI (${live ? 'LIVE models — paid' : 'mock models, no network'}). Open http://127.0.0.1:4444`);
