@@ -1,11 +1,28 @@
+# Dependencies and build output
 node_modules/
-.playwright-mcp/
 public/vendor/
 
-# Local secrets - never commit
+# Local secrets — never commit (only .env.example, a placeholder, is tracked)
 .env
 .env.*
 !.env.example
 .temp
+*.pem
+*.key
+*.p12
+
+# Runtime data (fictional loans, lessons, inbox, outbox) — created locally
 data/
+
+# Local tooling, session notes and screenshots — not part of the project
+.claude/
+.remember/
 .playwright-cli/
+.playwright-mcp/
+
+# Logs and OS / editor clutter
+*.log
+npm-debug.log*
+.DS_Store
+.vscode/
+.idea/

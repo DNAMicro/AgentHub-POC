@@ -86,7 +86,7 @@ export const PAGES = [
   {
     id: 'intro', type: 'intro', step: 0,
     eyebrow: 'Introduction',
-    title: 'From two agents to a university — how the A2A spike was built',
+    title: 'From two agents to a university — how AgentHub-POC was built',
     lead: 'A learning spike, built one prompted step at a time: each step explained, implemented, tested, then stopped so the next could build on it. Nine steps took two Node.js processes exchanging one fixed message to five agents behind a university front door.',
     blocks: [
       { h: 'The problem', text: 'Show — with real protocols, not mock transcripts — how independent AI agents discover each other, exchange messages, hand a person structured UI, get routed by an intermediary, and start conversations from either side.' },

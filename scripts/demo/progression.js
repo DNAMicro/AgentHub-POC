@@ -553,10 +553,10 @@ async (page) => {
   if (!/^\/(conversation|activity|topology|professor)?$/.test(here.path)) await page.goto(`${BASE}/conversation`);
   await page.waitForTimeout(1000);
   const chosen = PARTS.filter((p) => p.n >= FROM && p.n <= TO);
-  where = 'A2A spike';
+  where = 'AgentHub-POC';
   if (FROM <= 1) {
     await call('slide', {
-      kicker: 'A2A spike · live demo', title: 'From two agents to a university',
+      kicker: 'AgentHub-POC · live demo', title: 'From two agents to a university',
       lead: `Nine steps, each built on the last. Everything you will see is the real app: ${PARTS.length > 8 ? 'five' : 'several'} local processes talking over the Agent-to-Agent protocol, with live Claude Haiku 5.5 calls. All people, books and courses are fictional.`,
       bullets: ['Each part starts with what it added, then shows it working', 'Highlights mark what to look at; pauses give you time to read'],
       steps: STEPS, now: 0,

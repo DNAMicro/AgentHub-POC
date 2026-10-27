@@ -214,7 +214,7 @@ function render() {
   current = PAGES.indexOf(pg);
   const page = pg.type === 'intro' ? introPage(pg) : pg.type === 'A' ? pageA(pg) : pageB(pg);
   main.replaceChildren(page);
-  document.title = `${pg.type === 'intro' ? 'Introduction' : `Step ${pg.step}${pg.type}`} · A2A Spike, step by step`;
+  document.title = `${pg.type === 'intro' ? 'Introduction' : `Step ${pg.step}${pg.type}`} · AgentHub-POC, step by step`;
   for (const a of document.querySelectorAll('#steps-nav a')) a.toggleAttribute('aria-current', a.dataset.id === pg.id);
   $('#progress-bar').style.width = `${((current + 1) / PAGES.length) * 100}%`;
   $('#progress-text').textContent = `Page ${current + 1} of ${PAGES.length}`;

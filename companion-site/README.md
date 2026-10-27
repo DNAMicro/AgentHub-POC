@@ -1,6 +1,6 @@
-# A2A Spike, step by step — companion site
+# AgentHub-POC, step by step — companion site
 
-A standalone teaching site that explains how this repository's A2A spike was built in Steps 1–9: what each step changed and why, and how it works, on one architecture diagram that evolves from step to step.
+A standalone teaching site that explains how this repository (AgentHub-POC) was built in Steps 1–9: what each step changed and why, and how it works, on one architecture diagram that evolves from step to step.
 
 ## Start it
 

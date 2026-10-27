@@ -1,4 +1,4 @@
-/* A2A Spike, step by step — one visual language for every page.
+/* AgentHub-POC, step by step — one visual language for every page.
    Component colors never change between steps; change status is shown by tag + border style + color. */
 :root {
   --bg: #f6f7fb; --surface: #ffffff; --surface-2: #eef1f8; --ink: #141a2a; --muted: #4d5872; --line: #cfd6e6;

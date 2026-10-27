@@ -1,4 +1,44 @@
-# A2A Spike: Student Agent ↔ University Hub ↔ Tutor, Library & Marketing 101 Professor
+# AgentHub-POC
+
+A proof of concept for agents that work together over the real **Agent-to-Agent (A2A) protocol**. A Student agent talks to one University Hub, which routes each request to a Tutor, a Library or a Marketing 101 Professor agent and relays the answer. Agents can also send the student real interfaces (**A2UI**), use **Claude Haiku 5.5** to answer and decide, and the professor can start a conversation on their own.
+
+Everything runs on your own machine (127.0.0.1 only) and uses fictional people, books and courses.
+
+## Quick start
+
+Requirements: **Node.js 20+** (verified on 26.11.1). An Anthropic API key only for live mode.
+
+```bash
+npm install
+npm run demo          # all five processes with mock models: free, no network
+# open http://127.0.0.1:4444
+```
+
+Live mode (real Claude Haiku 5.5 calls, paid):
+
+```bash
+cp .env.example .env  # then put your own key in .env — it is git-ignored and never leaves the server
+npm run demo:live
+```
+
+Tests (no paid calls): `npm test`.
+
+**A teaching site** explains how the project was built in nine steps: `cd companion-site && npm start`, then open http://localhost:4440.
+
+## Security notes
+
+- **Your API key stays in `.env`.** That file is git-ignored; only `.env.example` (a placeholder) is committed. The key is read server-side only and never sent to the browser, logged or put in A2A messages.
+- **Local data stays local.** Runtime data under `data/` (loans, lessons, inbox, outbox) is git-ignored and fictional.
+- **Localhost only.** Every server binds to 127.0.0.1; developer endpoints refuse cross-site requests.
+- **Not production-ready.** The per-process signing keys are a local demo measure, not real authentication.
+
+## License
+
+[MIT](LICENSE) © 2026 Farsheed Atef. Third-party packages keep their own licenses; the self-hosted fonts under `public/fonts/` are under the SIL Open Font License.
+
+---
+
+## The full story: Student Agent ↔ University Hub ↔ Tutor, Library & Marketing 101 Professor
 
 A localhost spike built in parts:
 
@@ -17,7 +57,8 @@ A localhost spike built in parts:
 - Express **5.3.0** (peer dependency of the SDK's server adapter)
 - Tutoring (Part 4): **Claude Haiku 5.5** (`claude-haiku-5-5`) via `@anthropic-ai/sdk` **1.3.0**, in live mode only. See [Part 4](#part-4-real-tutoring-answers-from-claude-haiku-55).
 - Forms (Part 3): **A2UI v0.9** with the official renderer `@a2ui/lit` **0.14.0** and `@a2ui/web_core` **0.14.0**, plus `lit` **3.3.3**. See [the version choice](#a2ui-version-choice).
-- Dev only: `esbuild` 0.28.2 (bundles the renderer for the browser), `jsdom` 30.1.2 (renders the form in tests), `ajv` 8.20.0 (checks payloads against the official A2UI JSON Schemas)
+- `ajv` 8.20.0 checks A2UI payloads against the official JSON Schemas (at runtime since Part 8, for model-generated UI)
+- Dev only: `esbuild` 0.28.2 (bundles the renderer for the browser), `jsdom` 30.1.2 (renders the form in tests)
 - Node.js 20+ (verified on 26.11.1)
 
 ## Run it

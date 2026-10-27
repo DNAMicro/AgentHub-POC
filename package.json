@@ -1,7 +1,7 @@
 {
-  "name": "a2a-spike",
+  "name": "agenthub-poc",
   "version": "1.0.0",
-  "description": "",
+  "description": "AgentHub-POC: agents that talk over the real A2A protocol through a university hub, with A2UI interfaces and Claude Haiku 5.5. Localhost proof of concept.",
   "scripts": {
     "test": "HUB_URL=http://127.0.0.1:9 node --test --test-reporter=spec test/",
     "tutor": "node src/tutor-agent.js",
@@ -25,7 +25,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "type": "module",
   "private": true,
   "dependencies": {
