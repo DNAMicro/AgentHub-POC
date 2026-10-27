@@ -874,7 +874,7 @@ function handle(event, { live = true } = {}) {
         break;
       // The Student's own model (STUDENT_MODE): its plan before anything is sent, and its calls.
       case 'request_planned': {
-        const how = { uncertain: 'your answer didn’t settle it — the Hub decides', rule: 'obvious from the words — the Hub routes it', model: 'decided by the Student’s model', heuristic: 'mock heuristic', context: 'reply to the university’s question', off: 'Student model off', model_failed: 'Student model failed', lesson: 'about a lesson you received — routed by its delivery record', course: 'asked for this course' }[data.by] ?? data.by;
+        const how = { uncertain: 'your answer didn’t settle it — the Hub decides', rule: 'obvious from the words — the Hub routes it', model: 'decided by the Student’s model', heuristic: 'mock heuristic', context: 'reply to the university’s question', off: 'Student model off', model_failed: 'Student model failed', lesson: 'about a lesson or message you received — routed by its delivery record', course: 'asked for this course' }[data.by] ?? data.by;
         const text = data.action === 'clarify' ? 'Not clear enough to send yet — asking you first.' : data.action === 'decline' ? 'Clearly not a university service — answering you here; nothing sent.' : data.capability ? `Needs ${data.capabilityName ?? data.capability}; the Hub will be asked for that capability.` : 'No capability chosen; the Hub routes it.';
         const relation = data.relation === 'new_request' ? ' (A new request — my earlier question was dropped.)' : data.relation === 'answers_question' ? ' (Your answer to my question — sent together with your earlier message.)' : '';
         studentConsole({ dir: data.error ? 'error' : 'info', label: `Plan: ${data.action === 'clarify' ? 'clarify first' : data.action === 'decline' ? 'answer here (not offered)' : data.capability ? `send to ${data.capabilityName ?? data.capability}` : 'send as-is'}`, text: `${text} ${data.reason ?? ''}${relation}`.trim(), ids: { how, matched: data.matched?.map((m) => `${m.id}: ${m.terms.join(', ')}`).join('; ') || null, model: data.usage ? `${data.model} · ${data.usage.inputTokens} in / ${data.usage.outputTokens} out tokens` : null, run } });
@@ -886,6 +886,41 @@ function handle(event, { live = true } = {}) {
         break;
       case 'lesson_received':
         studentConsole({ dir: 'received', label: data.kind === 'message' ? 'Message delivered' : 'Lesson delivered', text: `“${data.title || 'Untitled'}” (${data.courseTitle}) — saved in the inbox before confirming to the Hub.`, ids: { delivery: data.deliveryId, lesson: data.lessonId, revision: data.revision } });
+        // A message from the professor (or the course assistant for them) arrives in the chat itself, as
+        // its own bubble with a Reply button; a lesson stays in the inbox.
+        if (data.kind === 'message' && typeof data.text === 'string') {
+          const from = `${data.professorName ?? 'Your professor'}${data.author === 'assistant' ? ' · course assistant' : ''}`;
+          const item = messageItem({ at, dir: 'received', speaker: 'professor', label: `${from} → ${data.toAll ? 'the whole class' : 'you'}`, text: data.text, ids: { course: data.courseTitle, delivery: data.deliveryId, lesson: data.lessonId, note: 'Delivered by the university to your Student agent (a new A2A message the professor started).' } });
+          item.dataset.delivery = data.deliveryId;
+          item.classList.add('incoming-message');
+          const reply = document.createElement('button');
+          reply.type = 'button';
+          reply.className = 'reply-action';
+          reply.textContent = '↩ Reply';
+          reply.setAttribute('aria-label', `Reply to ${from}`);
+          reply.addEventListener('click', () => classroom.replyTo({ deliveryId: data.deliveryId, from }));
+          // A meeting offer: one button per time the professor gave; a click sends that choice as a reply.
+          if (data.meeting?.slots?.length) {
+            item.dataset.meeting = data.meeting.meetingId;
+            const times = document.createElement('div');
+            times.className = 'meeting-times';
+            times.setAttribute('role', 'group');
+            times.setAttribute('aria-label', 'Pick a meeting time');
+            for (const slot of data.meeting.slots) {
+              const b = document.createElement('button');
+              b.type = 'button';
+              b.className = 'slot';
+              b.dataset.slot = slot.slotId;
+              b.textContent = slot.label;
+              b.addEventListener('click', () => classroom.pickSlot({ deliveryId: data.deliveryId, slot }));
+              times.append(b);
+            }
+            item.insertBefore(times, item.querySelector('details'));
+          }
+          item.insertBefore(reply, item.querySelector('details'));
+          appendTo(els.studentLog, item);
+          classroom.messageShown(item);
+        }
         break;
       case 'lesson_opened':
         studentConsole({ dir: 'sent', label: 'Lesson opened', text: 'You opened it; a signed receipt goes to the Hub.', ids: { delivery: data.deliveryId } });
@@ -917,7 +952,23 @@ function handle(event, { live = true } = {}) {
       case 'reply_received': {
         const decision = data.hub?.decision;
         const own = decision && decision !== 'route';
-        const label = own ? `${universityName}${decision === 'clarify' ? ' asks' : decision === 'unavailable' ? ' — service unavailable' : decision === 'unsupported' ? ' — not supported' : ''}` : viaUniversity(data.servedBy);
+        // A meeting choice: the offer's bubble shows what is booked (and stops offering other times).
+        if (data.professor?.meeting && ['booked', 'already'].includes(data.professor.meeting.status)) {
+          for (const offer of els.studentLog.querySelectorAll(`li[data-meeting="${CSS.escape(data.professor.meeting.meetingId)}"]`)) {
+            offer.dataset.booked = data.professor.meeting.slotId ?? '';
+            for (const b of offer.querySelectorAll('.slot')) {
+              b.disabled = true;
+              b.setAttribute('aria-pressed', String(b.dataset.slot === data.professor.meeting.slotId));
+            }
+          }
+        }
+        // A reply to the professor's own message went to the professor in person: no answer yet, just a note.
+        if (data.professor?.outcome === 'relayed') {
+          student({ dir: 'info', speaker: 'professor', kind: 'note', label: `Sent to ${data.servedByName ?? 'your professor'}`, text: data.text, ids: { messageId: data.messageId, inReplyTo: data.inReplyTo, contextId: data.contextId, run } });
+          studentConsole({ dir: 'received', label: 'A2A reply from the Hub', text: `${agentName(data.servedBy)} took your reply for the professor (no model answer).`, ids: { messageId: data.messageId, contextId: data.contextId, run } });
+          break;
+        }
+        const label = own ? `${universityName}${decision === 'clarify' ? ' asks' : decision === 'unavailable' ? ' — service unavailable' : decision === 'unsupported' ? ' — not supported' : ''}` : `${viaUniversity(data.servedBy)}${data.professor?.onBehalf ? ' · course assistant, for the professor' : ''}`;
         student({ dir: own && decision !== 'clarify' ? 'info' : 'received', speaker: own ? 'hub' : data.servedBy ?? 'hub', label, text: data.text, ids: { answeredBy: own ? 'the Hub itself (no service called)' : agentName(data.servedBy), destination: data.hub?.destination, model: fmtUsage(data.tutor), outcome: data.tutor?.outcome ?? data.library?.outcome, messageId: data.messageId, inReplyTo: data.inReplyTo, contextId: data.contextId, taskId: data.taskId || '(none — direct Message reply)', run } });
         studentConsole({ dir: 'received', label: 'A2A reply from the Hub', text: own ? `Answered by the Hub (${decision}).` : `Relayed from ${agentName(data.servedBy)}.`, ids: { messageId: data.messageId, contextId: data.contextId, run } });
         break;
@@ -1393,6 +1444,7 @@ els.form.addEventListener('submit', async (e) => {
   chatFollow.pin(); // your own message: always show the newest part of the conversation
   const started = await startRun('/api/runs', { text, contextId: currentContextId, ...classroom.composerContext() });
   if (!started && !els.message.value) els.message.value = text; // …and given back if the request never started
+  if (started) classroom.sent();
 });
 els.newConversation.addEventListener('click', async () => {
   if (els.newConversation.disabled) return;

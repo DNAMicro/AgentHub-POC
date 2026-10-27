@@ -83,6 +83,30 @@ In the browser, the **Conversation** tab is your chat with the university (and, 
 npm test   # starts the Tutor (and UI server) as child processes, runs all checks, stops them
 ```
 
+### Audience demo: the build, part by part
+
+`scripts/demo/progression.js` presents the project to an audience on the running app (`npm run demo:live`). It walks through Steps 1–9 in order: a title slide per part (what it added, which agents exist at that point), then the real app doing it, with captions, highlights on what to look at, and timed pauses. Everything on screen is live: real A2A messages and real model calls, so a full run costs a few cents and takes about 12 minutes at normal pace.
+
+```bash
+playwright-cli -s=demo open --headed "http://127.0.0.1:4444/conversation"
+playwright-cli -s=demo resize 1600 960
+playwright-cli -s=demo run-code "$(cat scripts/demo/progression.js)"
+```
+
+While it runs, **→** or **PageDown** (a presentation clicker works) skips to the next step, and **P** holds or resumes the countdown; the on-screen bar has the same buttons. Options go in the query string of the address you open, for example `…/conversation?pace=1.5&from=5`:
+
+| Option | Effect |
+| --- | --- |
+| `pace=1.5` | Stretch every pause (`0.5` = twice as fast) |
+| `auto=0` | Never advance on a timer: wait for the presenter at every pause |
+| `from=5`, `to=7` | Present only those parts |
+| `fresh=0` | Keep the current conversation. By default the demo presses **New conversation**, which also resets the classroom (every student's lessons and messages) |
+| `renew=1` | Part 8 actually renews the loan. This changes `data/library-loans.json`, and renewals run out |
+| `tutor=…` | The Tutor's address for Part 1's Agent Card, when presenting another stack |
+| `size=1600x960`, `shots=/dir` | Set the page size; save a screenshot at every pause (rehearsals) |
+
+Live models make judgment calls, so the script handles more than one outcome. If an agent answers in words where a form was expected, or asks a clarifying question, the caption says so and the demo carries on. If a step fails outright, it says so on screen, moves to the next part, and lists the problem in the result. The overlay sits in its own layer above the page and never changes the app. The only data it creates is the app's normal use: messages, a tutoring request, a demo room booking and two professor posts.
+
 ## Files
 
 | File | What it is |
@@ -108,7 +132,7 @@ npm test   # starts the Tutor (and UI server) as child processes, runs all check
 | `src/hub-lessons.js` | Part 9: the Hub's lesson service — Student sessions (challenge at the configured endpoint), verified publishes (professor, course, enrollment), persisted deliveries with queueing, reconciliation and receipts, the once-per-course availability notice, and the trusted lesson association for follow-ups. |
 | `src/student-inbox.js` | Part 9: the Student agent's inbound A2A side (signed Hub messages only) and its persisted course inbox. |
 | `src/lessons.js`, `src/a2a-data.js`, `src/json-store.js` | Part 9: the typed lesson messages and HMAC signing; sending one typed data part over `message/send` with honest delivery outcomes; an atomic JSON-file store. |
-| `public/classroom.js` | Part 9: the inbox, availability notice, toast, lesson dialog and “About:” chip (Conversation) and the Professor view's chat (post cards, @-tag suggestions). |
+| `public/classroom.js` | Part 9: the inbox (lessons), availability notice, toast, lesson dialog, “About:” / “Replying to:” chip and seen receipts for chat messages (Conversation), and the Professor view's chat (post cards, students' replies, the assistant's answers, Reply to one student, @-tag suggestions). |
 | `test/professor.test.js` | Part 9: both routes, idle delivery, the once-only notice, opening and follow-ups, rejected publishes, one delivery across double-clicks/restarts/replays, offline queueing, a lost acknowledgment, toasts not opening, and hostile lesson text (mock Professor and router). |
 | `src/router.js` | Part 5: the routing decision, run by the Hub since Part 7. Live mode uses Haiku with structured output, mock mode a labelled heuristic, and code validates every decision against the registry. |
 | `src/hub-agent.js` | Part 7: the **University Hub** — public card, control messages, routing, forwarding, form references, operation dedupe, telemetry relay (redacted) and the developer settings proxy. |
@@ -119,6 +143,7 @@ npm test   # starts the Tutor (and UI server) as child processes, runs all check
 | `src/topology.js` | Part 7: labels each telemetry event with its connection, direction, category and phase for the topology view. |
 | `public/topology.js` | Part 7: the live topology graph (SVG), traces, details, event list. |
 | `scripts/start-all.js` | Part 7: starts all the processes — five since Part 9 (`npm run demo` / `demo:live`). |
+| `scripts/demo/progression.js` | The audience demo: presents Steps 1–9 on the running app with slides, captions, highlights and pauses (run with playwright-cli). |
 | `scripts/live-eval.js` | Part 5's opt-in live spot check of routing and scope decisions. Paid; off unless `LIVE_EVAL_MAX_USD` is set. |
 | `scripts/live-smoke.js` | The paid live smoke test, off unless `LIVE_SMOKE_MAX_USD` is set. |
 | `.env.example` | Placeholder for your local `.env` (git-ignored). |
@@ -742,6 +767,8 @@ Until now every exchange started with you. Part 9 adds one **Marketing 101 Profe
 4. Back on **Conversation** (you haven't said anything since): a small notice “New Marketing 101 lesson” appears top-right without taking your focus, and the **Lessons** button shows an unread count.
 5. **View lesson** opens that exact lesson (course, professor, time, title, your professor's original text). The Professor view now shows **Opened by the student**.
 6. **Ask about this lesson**, then type a follow-up.
+6a. **Messages are chat.** A message (“@alex your homework is late”) doesn't go to the inbox: it appears in your chat as a bubble from the professor with **↩ Reply**. Reply to it and your answer goes to the professor **in person**: no model answers it, you see “Sent to your professor”, and it shows up in the Professor view as “Alex Student → you”, with its own **↩ Reply**, so the professor can answer you alone. A message the course assistant sent for the professor (“@assistant tell @alex his homework is late”) is marked “course assistant”. Replies to it are answered by the assistant on the professor's behalf, except anything only the professor can decide (an extension, an exception, a grade), which it passes on. The professor sees every one of these exchanges, and the ones handed over are marked “Needs your answer”.
+6b. **Meetings.** “@assistant schedule a meeting with Alex” → the assistant asks you when; answer with times (“Tuesday 2pm or Wednesday 10:30am”, no tag needed), or include them in the request. Alex gets them as buttons in the chat, picks one, and the Professor books it (one student per time; a second click books nothing new). You see “Booked by Alex Student” on the offer. The times are read from your words by code — the assistant never makes one up.
 7. To start again, press **New conversation**: it clears every student's lessons and messages (your inbox, the Hub's records and the professor's posted list), and the professor sends them again. The chip “About: <lesson>” stays until you remove it, so later questions keep the lesson context.
 
 ### How a lesson travels

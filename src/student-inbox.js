@@ -13,6 +13,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { Role } from '@a2a-js/sdk';
 import { AgentEvent } from '@a2a-js/sdk/server';
 import { createJsonStore } from './json-store.js';
+import { validMeeting } from './meeting-times.js';
 import { sendData } from './a2a-data.js';
 import {
   COURSE_AVAILABLE_MEDIA_TYPE, LESSON_DELIVERY_MEDIA_TYPE, LESSON_QUERY_MEDIA_TYPE, LESSON_RECEIPT_MEDIA_TYPE, SESSION_CHALLENGE_MEDIA_TYPE,
@@ -55,16 +56,20 @@ export function createStudentInbox({ studentId, hubUrl, file = process.env.STUDE
     if (part.mediaType === LESSON_DELIVERY_MEDIA_TYPE) {
       if (!verify(callKey, ['delivery', studentId, v.deliveryId, v.lessonId, v.revision, v.contentHash], sig)) return { status: 'rejected', reason: 'bad_signature' };
       if (!['lesson', 'message'].includes(v.kind ?? 'lesson')) return { status: 'rejected', reason: 'unknown_kind' };
-      if (v.contentHash !== contentHash(v.title, v.text, v.kind ?? 'lesson')) return { status: 'rejected', reason: 'content_mismatch' };
+      if (!['professor', 'assistant'].includes(v.author ?? 'professor')) return { status: 'rejected', reason: 'unknown_author' };
+      if (!validMeeting(v.meeting ?? null)) return { status: 'rejected', reason: 'bad_meeting' };
+      if (v.contentHash !== contentHash(v.title, v.text, v.kind ?? 'lesson', v.author ?? 'professor', v.meeting ?? null)) return { status: 'rejected', reason: 'content_mismatch' };
       const existing = store.get().lessons[v.deliveryId];
       if (existing) return existing.contentHash === v.contentHash ? { status: 'delivered', inboxId: existing.inboxId, duplicate: true } : { status: 'rejected', reason: 'conflict' };
       const entry = {
-        inboxId: `in-${randomUUID().slice(0, 12)}`, deliveryId: v.deliveryId, lessonId: v.lessonId, revision: v.revision, kind: v.kind ?? 'lesson', toAll: Boolean(v.toAll), courseId: v.courseId, courseTitle: v.courseTitle,
+        inboxId: `in-${randomUUID().slice(0, 12)}`, deliveryId: v.deliveryId, lessonId: v.lessonId, revision: v.revision, kind: v.kind ?? 'lesson', author: v.author ?? 'professor', meeting: v.meeting ?? null, toAll: Boolean(v.toAll), courseId: v.courseId, courseTitle: v.courseTitle,
         professorId: v.professorId, professorName: v.professorName, title: v.title, text: v.text, postedAt: v.postedAt, contentHash: v.contentHash,
         receivedAt: new Date().toISOString(), openedAt: null, savedAt: null,
       };
       store.update((s) => { s.lessons[v.deliveryId] = entry; }); // committed to disk before we say "delivered"
-      emit('lesson_received', { deliveryId: v.deliveryId, lessonId: v.lessonId, revision: v.revision, kind: entry.kind, inboxId: entry.inboxId, courseTitle: v.courseTitle, professorName: v.professorName, title: v.title });
+      // A message is shown in the student's chat as it arrives, so the event carries its text (to this
+      // Student's own browser only); a lesson stays in the inbox until opened.
+      emit('lesson_received', { deliveryId: v.deliveryId, lessonId: v.lessonId, revision: v.revision, kind: entry.kind, author: entry.author, inboxId: entry.inboxId, courseTitle: v.courseTitle, professorName: v.professorName, title: v.title, ...(entry.kind === 'message' ? { text: v.text, toAll: entry.toAll, postedAt: v.postedAt, meeting: entry.meeting } : {}) });
       return { status: 'delivered', inboxId: entry.inboxId };
     }
     if (part.mediaType === LESSON_QUERY_MEDIA_TYPE) {
@@ -147,6 +152,8 @@ export function createStudentInbox({ studentId, hubUrl, file = process.env.STUDE
       lessons: Object.values(store.get().lessons).sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : -1)),
       notices: Object.values(store.get().notices).sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : -1)),
       unread: Object.values(store.get().lessons).filter((l) => !l.openedAt).length,
+      // Messages live in the chat; the inbox button counts lessons only.
+      unreadLessons: Object.values(store.get().lessons).filter((l) => !l.openedAt && l.kind !== 'message').length,
     }),
     stop: () => clearTimeout(retry),
   };

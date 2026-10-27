@@ -213,7 +213,7 @@ export function startHubServer({ port } = {}) {
     const key = `${ctx.contextId}|${incoming.messageId}`;
     const repeat = chatLedger.has(key);
     if (!repeat) {
-      chatLedger.set(key, processChat(ctx, conv, question, runId, incoming.messageId, incoming.metadata?.requestedCapability, incoming.metadata?.lessonDeliveryId));
+      chatLedger.set(key, processChat(ctx, conv, question, runId, incoming.messageId, incoming.metadata?.requestedCapability, incoming.metadata?.lessonDeliveryId, incoming.metadata?.meetingSlot));
       trim(chatLedger);
     } else emit('request_repeat', runId, { messageId: incoming.messageId, note: 'Same request ID as before — returning the earlier result; nothing dispatched again.' });
     const out = await chatLedger.get(key);
@@ -229,7 +229,7 @@ export function startHubServer({ port } = {}) {
     emit('relay_sent', runId, { operationId: out.operationId, to: 'student', kind: out.form ? 'form_offer' : out.kind, servedBy: out.servedBy ?? null, repeat });
   }
 
-  async function processChat(ctx, conv, question, runId, upstreamMessageId, requestedCapability, lessonDeliveryId) {
+  async function processChat(ctx, conv, question, runId, upstreamMessageId, requestedCapability, lessonDeliveryId, meetingSlot) {
     const operationId = randomUUID();
     emit('message_received', runId, { operationId, contextId: ctx.contextId, messageId: upstreamMessageId, chars: question.length });
     const plain = (text, metadata, kind) => ({ operationId, kind, message: { messageId: randomUUID(), taskId: '', role: Role.ROLE_AGENT, parts: [textPart(text)], metadata: { runId, operationId, ...metadata }, extensions: [], referenceTaskIds: [] } });
@@ -294,7 +294,7 @@ export function startHubServer({ port } = {}) {
         runId, contextId: downstreamContextId, messageId: downstreamMessageId, card: registry.entry(agentId).card,
         // studentId: the conversation's verified owner (Part 8: the Library resolves the borrower from it).
         timeoutMs: cfg.timeouts.dispatchMs,
-        metadata: { hubOperationId: operationId, via: cfg.agentId, studentId: conv.studentId, hubSignature: registry.signFor(agentId, { studentId: conv.studentId, contextId: downstreamContextId, operationId }), ...(lesson && agentId === lesson.professorId ? { lessonId: lesson.lessonId, lessonRevision: lesson.revision } : {}) },
+        metadata: { hubOperationId: operationId, via: cfg.agentId, studentId: conv.studentId, hubSignature: registry.signFor(agentId, { studentId: conv.studentId, contextId: downstreamContextId, operationId }), ...(lesson && agentId === lesson.professorId ? { lessonId: lesson.lessonId, lessonRevision: lesson.revision, ...(lesson.slotIds.includes(meetingSlot) ? { meetingSlot } : {}) } : {}) },
       });
       registry.markReachable(agentId, true);
       conv.turns = [...conv.turns, { question, agentId, skillId: decision.skillId, answer: String(reply.text ?? '').slice(0, 300) }].slice(-ROUTING_TURNS);
@@ -309,7 +309,7 @@ export function startHubServer({ port } = {}) {
         };
       }
       emit('forward_completed', runId, { operationId, agentId, kind: 'answer', downstreamMessageId: reply.messageId });
-      return plain(reply.text, { ...base, tutorMode: reply.tutorMode, tutor: reply.tutor, library: reply.library }, 'answer');
+      return plain(reply.text, { ...base, tutorMode: reply.tutorMode, tutor: reply.tutor, library: reply.library, professor: reply.professor }, 'answer');
     } catch (err) {
       const unknown = err.outcome === 'uncertain';
       const serviceError = err.tutorError ?? null;

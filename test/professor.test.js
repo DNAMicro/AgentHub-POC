@@ -13,7 +13,8 @@ import { startStack, startHub, startUi, startProfessor, signedStudent, openStrea
 import { askTutor } from '../src/student-agent.js';
 import { startFakeAnthropic, messageReply } from './support/fake-anthropic.js';
 import { sendData } from '../src/a2a-data.js';
-import { LESSON_DELIVERY_MEDIA_TYPE, LESSON_PUBLISH_MEDIA_TYPE, STUDENT_SESSION_MEDIA_TYPE } from '../src/lessons.js';
+import { LESSON_DELIVERY_MEDIA_TYPE, LESSON_PUBLISH_MEDIA_TYPE, STUDENT_SESSION_MEDIA_TYPE, contentHash, deliveryIdFor } from '../src/lessons.js';
+import { slotsIn } from '../src/meeting-times.js';
 
 const MOCK = { hubEnv: { ROUTER_MODE: 'mock', HUB_TELEMETRY_SHOW_CONTENT: '1', HUB_STUDENTS: 'student-alex,student-sam' }, tutorEnv: { TUTOR_MODE: 'mock', TUTOR_SCOPE_ENFORCEMENT: 'off' } };
 const dir = () => mkdtempSync(join(tmpdir(), 'a2a-prof-'));
@@ -278,11 +279,13 @@ test('a course message to all students: one delivery each — delivered to a con
   const st = await professorState(s);
   assert.equal(st.lessons[0].kind, 'message');
   assert.equal(st.lessons[0].deliveries.length, 2);
-  // Asking about it goes to its professor, as a message.
+  // Replying to it goes to its professor in person (the professor wrote it): no model answer — it waits
+  // in the professor's chat, and the student is told so.
   const r = await post(`${s.ui.url}/api/runs`, { text: 'Why is it later?', lessonDeliveryId: m.deliveryId });
   const { runId } = await r.json();
   await waitFor(() => find(forRun(stream.events, runId), 'professor', 'reply_published'), { what: 'professor reply' });
-  assert.match(find(forRun(stream.events, runId), 'professor', 'reply_published').data.text, /About the message “Homework is late”/);
+  assert.equal(find(forRun(stream.events, runId), 'professor', 'reply_published').data.professor.outcome, 'relayed');
+  assert.ok((await professorState(s)).chat.some((c) => c.role === 'student' && c.studentId === 'student-alex' && c.text === 'Why is it later?' && c.relayed));
   // A single-student audience must be enrolled; the kind must be known.
   assert.equal((await postLesson(s, { audience: 'student-kim' })).status, 422);
   assert.equal((await postLesson(s, { kind: 'memo' })).status, 400);
@@ -462,4 +465,129 @@ test('a course question without an attached message is answered from what the pr
   } finally {
     await stub.close();
   }
+});
+
+test('replies in the chat: the professor’s message reaches the student’s chat, a reply goes to the professor in person, who answers that student only; the assistant answers replies to its own messages and hands decisions to the professor', async () => {
+  const { s, stream } = await classroom();
+  const received = (pred) => waitFor(() => findAll(stream.events, 'student', 'lesson_received').find((e) => pred(e.data)), { what: 'delivery to the student' });
+  const reply = async (text, deliveryId) => {
+    const { runId } = await (await post(`${s.ui.url}/api/runs`, { text, lessonDeliveryId: deliveryId })).json();
+    await waitFor(() => find(forRun(stream.events, runId), 'student', 'reply_received'), { what: 'reply' });
+    return find(forRun(stream.events, runId), 'student', 'reply_received').data;
+  };
+  const chat = async () => (await professorState(s)).chat;
+
+  // 1. The professor's own message (no @assistant) arrives as a chat message: its text travels with the
+  //    event, and it isn't an unread inbox lesson.
+  await say(s, '@alex your homework is late');
+  const msg = (await received((d) => d.text === 'your homework is late')).data;
+  assert.equal(msg.kind, 'message');
+  assert.equal(msg.author, 'professor');
+  assert.equal((await inbox(s)).unreadLessons, 0, 'messages live in the chat, not in the inbox list');
+
+  // 2. Alex replies: it goes to the professor in person — no model answer, it waits in their chat.
+  const relayed = await reply('I will have it for you today.', msg.deliveryId);
+  assert.equal(relayed.professor.outcome, 'relayed');
+  assert.equal(relayed.servedBy, 'professor');
+  let c = await chat();
+  const fromAlex = c.find((m) => m.role === 'student' && m.text === 'I will have it for you today.');
+  assert.equal(fromAlex.studentId, 'student-alex');
+  assert.equal(fromAlex.relayed, true);
+  assert.equal(fromAlex.about.title.length > 0, true);
+  assert.equal(c.filter((m) => m.action === 'answer_student').length, 0, 'nobody answered for the professor');
+
+  // 3. The professor replies to Alex only (the reply icon): a message to that student, in their chat.
+  const back = await (await post(`${s.ui.url}/api/professor/chat`, { operationId: `op-${randomUUID()}`, text: 'Thanks — today is fine.', replyTo: 'student-alex' })).json();
+  assert.equal(back.action, 'post');
+  const backPost = (await professorState(s)).lessons.find((l) => l.key === back.post.key);
+  assert.equal(backPost.audience, 'student-alex');
+  assert.equal(backPost.kind, 'message');
+  assert.equal((await received((d) => d.text === 'Thanks — today is fine.')).data.author, 'professor');
+  assert.equal((await post(`${s.ui.url}/api/professor/chat`, { operationId: `op-${randomUUID()}`, text: 'hi', replyTo: 'student-kim' })).status, 400, 'only a student in the class');
+
+  // 4. "@assistant tell @alex …": the assistant sends it; it's a chat message too, marked as the assistant's.
+  await say(s, '@assistant tell @alex the pricing quiz is on the course page');
+  const fromAssistant = (await received((d) => d.author === 'assistant')).data;
+  assert.equal(fromAssistant.kind, 'message');
+  // Alex's reply is answered by the assistant, for the professor — and the professor sees both sides.
+  const answered = await reply('Thanks, which part of the page?', fromAssistant.deliveryId);
+  assert.equal(answered.professor.onBehalf, true);
+  assert.notEqual(answered.professor.outcome, 'relayed');
+  c = await chat();
+  assert.ok(c.some((m) => m.role === 'student' && m.text === 'Thanks, which part of the page?' && m.relayed === false));
+  const answer = c.find((m) => m.action === 'answer_student' && m.to === 'student-alex');
+  assert.equal(answer.text, answered.text, 'the professor sees exactly what the assistant told the student');
+  assert.equal(answer.needsProfessor, false);
+  // Something only the professor decides: the assistant hands it over and the professor's chat flags it.
+  const handed = await reply('Can I get an extension until Friday?', fromAssistant.deliveryId);
+  assert.equal(handed.professor.outcome, 'needs_professor');
+  assert.match(handed.text, /passed your question on/);
+  assert.equal((await chat()).filter((m) => m.action === 'answer_student' && m.needsProfessor).length, 1);
+
+  // The author is part of the signed content hash: a post can't be relabelled between the professor's own
+  // words and the assistant's (and a professor's post hashes as it did before authors existed).
+  assert.notEqual(contentHash('T', 'x', 'message', 'assistant'), contentHash('T', 'x', 'message', 'professor'));
+  assert.equal(contentHash('T', 'x', 'message', 'professor'), contentHash('T', 'x', 'message'));
+});
+
+test('meetings: the assistant asks the professor for times, offers them to the student, and books the one picked — once, and never a time someone else took', async () => {
+  const { s, stream } = await classroom();
+  const offered = (pred) => waitFor(() => findAll(stream.events, 'student', 'lesson_received').find((e) => e.data.meeting && pred(e.data)), { what: 'meeting offer' });
+  const pick = async (deliveryId, meetingSlot) => {
+    const res = await post(`${s.ui.url}/api/runs`, { text: 'I’ll take that time.', lessonDeliveryId: deliveryId, meetingSlot });
+    if (!res.ok) return { status: res.status };
+    const { runId } = await res.json();
+    await waitFor(() => find(forRun(stream.events, runId), 'student', 'reply_received'), { what: 'booking reply' });
+    return find(forRun(stream.events, runId), 'student', 'reply_received').data;
+  };
+
+  // No times in the request: the assistant asks the professor — it never guesses a time.
+  const ask = await say(s, '@assistant schedule a meeting with @alex');
+  assert.equal(ask.action, 'clarify');
+  assert.equal(ask.check, 'needs_times');
+  assert.equal(ask.post, null);
+  // The professor answers with times (no tag needed); code reads them, the assistant sends the offer.
+  const sent = await say(s, 'Tuesday 2pm or Wednesday 10:30am');
+  assert.equal(sent.action, 'post');
+  const offer = (await offered(() => true)).data;
+  assert.equal(offer.author, 'assistant');
+  assert.deepEqual(offer.meeting.slots.map((x) => x.label), slotsIn('Tuesday 2pm or Wednesday 10:30am').map((x) => x.label), 'exactly the professor’s times');
+  const card = (await professorState(s)).lessons.find((l) => l.key === sent.post.key);
+  assert.deepEqual(card.meetingState.map((x) => x.bookedBy), [null, null]);
+
+  // Alex picks one: booked; the same click again is the same booking; another time after that is refused.
+  const booked = await pick(offer.deliveryId, 's1');
+  assert.equal(booked.professor.outcome, 'meeting');
+  assert.equal(booked.professor.meeting.status, 'booked');
+  assert.match(booked.text, /^Booked: /);
+  assert.equal((await pick(offer.deliveryId, 's1')).professor.meeting.status, 'booked');
+  assert.equal((await pick(offer.deliveryId, 's2')).professor.meeting.status, 'already');
+  assert.equal((await pick(offer.deliveryId, 's9')).status, 400, 'only an offered time');
+  let state = await professorState(s);
+  assert.deepEqual(state.lessons.find((l) => l.key === sent.post.key).meetingState.map((x) => x.bookedBy), ['student-alex', null]);
+  assert.ok(state.chat.some((m) => m.action === 'answer_student' && m.meeting?.status === 'booked'), 'the professor sees the booking in their chat');
+
+  // Offered to the class: a time Alex took isn't available to Sam (one student per time).
+  const forAll = await say(s, '@assistant schedule office hours with everyone Thursday 3pm');
+  assert.equal(forAll.action, 'post');
+  const classOffer = (await offered((d) => d.toAll)).data;
+  assert.equal((await pick(classOffer.deliveryId, 's1')).professor.meeting.status, 'booked');
+  const sam = await signedStudent(s.hub.url, 'student-sam');
+  const lessonId = forAll.post.key.split('#')[0];
+  const taken = await askTutor(s.hub.url, 'I’ll take Thursday.', { ...sam, metadata: { ...sam.metadata, lessonDeliveryId: deliveryIdFor(lessonId, 1, 'student-sam'), meetingSlot: 's1' } });
+  assert.equal(taken.professor.meeting.status, 'taken');
+  assert.match(taken.text, /taken/);
+  state = await professorState(s);
+  assert.ok(state.chat.some((m) => m.action === 'answer_student' && m.to === 'student-sam' && m.needsProfessor), 'every time gone: the professor is told');
+});
+
+test('meeting times come only from the professor’s words', () => {
+  const now = new Date('2026-10-27T05:40:00Z'); // Monday Oct 26, 22:40 Pacific
+  const labels = (t) => slotsIn(t, { now }).map((x) => x.label);
+  assert.deepEqual(labels('Tuesday 2pm or Wednesday 10:30am'), ['Tue, Oct 27, 2:00 PM', 'Wed, Oct 28, 10:30 AM']);
+  assert.deepEqual(labels('tomorrow at 2pm or 4pm'), ['Tue, Oct 27, 2:00 PM', 'Tue, Oct 27, 4:00 PM']);
+  assert.deepEqual(labels('Monday 9am'), ['Mon, Nov 2, 9:00 AM'], 'a weekday whose time passed today is next week');
+  assert.deepEqual(labels('today 9am'), [], 'today, already past');
+  assert.deepEqual(labels('come and see me at 2pm'), [], 'no day given: no guess');
+  assert.deepEqual(labels('10/29 3:15 pm; Thu 14:00'), ['Thu, Oct 29, 2:00 PM', 'Thu, Oct 29, 3:15 PM']);
 });

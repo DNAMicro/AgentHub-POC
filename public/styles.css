@@ -674,3 +674,17 @@ dialog#skills-dialog::backdrop { background: rgb(0 0 0 / 0.5); }
 .chat-log .sent-post { max-width: min(88%, 640px); }
 .sent-post .post-origin { color: var(--muted); }
 .sent-post .per-student .who { color: var(--text); }
+
+/* Part 9: replying in the chat — a message from the professor (or the assistant for them) arrives as a
+   chat bubble with a Reply button; the professor's view shows students' replies the same way. */
+.reply-action { font: inherit; font-size: 0.82rem; font-weight: 600; color: var(--who, var(--professor)); background: none; border: 1px solid color-mix(in srgb, var(--who, var(--professor)) 40%, var(--border)); border-radius: 999px; padding: 2px 10px; margin: 6px 0 2px; cursor: pointer; justify-self: start; }
+.reply-action:hover { background: color-mix(in srgb, var(--who, var(--professor)) 10%, transparent); }
+.reply-action:focus-visible { outline: 2px solid var(--who, var(--professor)); outline-offset: 2px; }
+.needs-you { margin: 6px 0 0; font-size: 0.84rem; font-weight: 600; color: var(--warn, #b45309); }
+/* A meeting offer: the professor's times as buttons in the student's chat. */
+.meeting-times { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px; }
+.meeting-times .slot { font: inherit; font-size: 0.86rem; font-weight: 600; color: var(--professor); background: color-mix(in srgb, var(--professor) 8%, var(--surface)); border: 1px solid color-mix(in srgb, var(--professor) 45%, var(--border)); border-radius: 8px; padding: 5px 10px; cursor: pointer; }
+.meeting-times .slot:hover:not(:disabled) { background: color-mix(in srgb, var(--professor) 16%, var(--surface)); }
+.meeting-times .slot:disabled { cursor: default; opacity: 0.5; }
+.meeting-times .slot[aria-pressed="true"] { opacity: 1; color: var(--surface); background: var(--professor); }
+.meeting-times .slot[aria-pressed="true"]::before { content: "✓ "; }

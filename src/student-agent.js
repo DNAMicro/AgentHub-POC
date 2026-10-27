@@ -90,7 +90,7 @@ async function exchange(baseUrl, text, { runId, contextId, messageId, timeoutMs,
     onEvent('tutor_error', { ...ids, ...tutorError, tutorMode: result.metadata?.tutorMode ?? null });
     throw Object.assign(new Error(tutorError.message), { tutorError, outcome: 'answered_with_error' });
   }
-  const reply = { ...ids, text: textOf(result), servedBy: result.metadata?.agentId ?? null, servedByName: result.metadata?.servedByName ?? null, tutorMode: result.metadata?.tutorMode ?? null, tutor: result.metadata?.tutor ?? null, library: result.metadata?.library ?? null, hub: result.metadata?.hub ?? null };
+  const reply = { ...ids, text: textOf(result), servedBy: result.metadata?.agentId ?? null, servedByName: result.metadata?.servedByName ?? null, tutorMode: result.metadata?.tutorMode ?? null, tutor: result.metadata?.tutor ?? null, library: result.metadata?.library ?? null, professor: result.metadata?.professor ?? null, hub: result.metadata?.hub ?? null };
   log('received reply', { ...reply, text: shown(reply.text) });
   onEvent('reply_received', { ...reply, runId: result.metadata?.runId ?? null });
   return reply;

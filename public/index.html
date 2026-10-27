@@ -53,7 +53,7 @@
       </section>
       <ol class="log chat-log" id="student-log" aria-live="polite"></ol>
       <div class="dock">
-        <p class="about-chip" id="about-chip" hidden><span>About: <strong id="about-title"></strong></span> <button type="button" id="about-clear" aria-label="Stop asking about this lesson">×</button></p>
+        <p class="about-chip" id="about-chip" hidden><span><span id="about-prefix">About</span>: <strong id="about-title"></strong></span> <button type="button" id="about-clear" aria-label="Stop asking about this lesson">×</button></p>
         <form id="send-form" class="composer">
           <label for="message" class="visually-hidden">Your message</label>
           <textarea id="message" rows="2" maxlength="2000" required aria-keyshortcuts="Enter" aria-description="Enter sends; Shift+Enter starts a new line." placeholder="Ask anything…"></textarea>
@@ -139,6 +139,7 @@
       <ol class="log chat-log prof-log" id="prof-log" aria-live="polite"></ol>
       <div class="dock">
         <ul class="mention-list" id="mention-list" role="listbox" aria-label="Students to tag" hidden></ul>
+        <p class="about-chip" id="prof-reply-chip" hidden><span>Replying to <strong id="prof-reply-name"></strong> — only they get it</span> <button type="button" id="prof-reply-clear" aria-label="Stop replying to this student">×</button></p>
         <form id="prof-form" class="composer">
           <label for="prof-message" class="visually-hidden">Message</label>
           <textarea id="prof-message" rows="2" maxlength="4000" aria-keyshortcuts="Enter" aria-description="Enter sends; Shift+Enter starts a new line. Type @ to tag a student." placeholder="Write to your class — tag students with @, or ask @assistant for help…"></textarea>

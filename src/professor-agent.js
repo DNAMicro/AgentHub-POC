@@ -22,6 +22,7 @@ import { LlmError, apiHost, keyEnvName, useModel } from './llm.js';
 import { COURSE, PROFESSOR_DEFAULT_SKILLS, SEED_LESSONS } from './course-pack.js';
 import { PROFESSOR_MODE, classifyPost, interpretProfessor, professorReply, professorStatus, tagsIn } from './professor-model.js';
 import { datesIn } from './a2ui-catalog.js';
+import { slotsIn } from './meeting-times.js';
 import { createJsonStore } from './json-store.js';
 import { AUDIENCE, ID, LESSON_PUBLISH_MEDIA_TYPE, LESSON_STATUS_MEDIA_TYPE, contentHash, validateLesson } from './lessons.js';
 
@@ -41,7 +42,8 @@ const textPart = (value) => ({ content: { $case: 'text', value }, metadata: unde
 
 // Outbox: lessons the professor posted (every revision kept) and post operations (for dedupe).
 // Also the professor's chat with this console (Professor view), and its operations (for dedupe).
-const outbox = createJsonStore(process.env.PROFESSOR_OUTBOX_FILE ?? 'data/professor-outbox.json', { lessons: {}, operations: {}, chat: [], chatOps: {} });
+// Also meeting offers and their bookings, and a meeting waiting for the professor's times.
+const outbox = createJsonStore(process.env.PROFESSOR_OUTBOX_FILE ?? 'data/professor-outbox.json', { lessons: {}, operations: {}, chat: [], chatOps: {}, meetings: {}, pendingMeeting: null });
 const lessonKey = (lessonId, revision) => `${lessonId}#${revision}`;
 const recent = new Map(); // contextId → last few { question, answer }
 
@@ -65,21 +67,90 @@ async function handleChat(ctx, bus, runId) {
   const stored = incoming.metadata?.lessonId ? outbox.get().lessons[lessonKey(incoming.metadata.lessonId, incoming.metadata.lessonRevision)] : null;
   const lesson = stored && stored.recipients?.includes(student) ? stored : null;
   const metadata = { ...(runId ? { runId } : {}), agentId: 'professor' };
+  // A reply to a post (the Hub attached it from its delivery record) is part of the professor's chat. Who
+  // answers depends on who wrote the post: the professor's own MESSAGE → the professor, in person (no
+  // model; it waits in their chat); the assistant's message → the assistant, on the professor's behalf;
+  // a lesson → answered from the lesson, as before. The professor sees every one of these exchanges.
+  const author = lesson?.author ?? 'professor';
+  const about = lesson ? { lessonId: lesson.lessonId, revision: lesson.revision, kind: lesson.kind, title: lesson.title } : null;
+  // A time picked from a meeting offer (the Hub passes the slot only for this student's own offer).
+  if (lesson?.meeting && typeof incoming.metadata?.meetingSlot === 'string') {
+    const r = bookSlot(lesson.meeting.meetingId, incoming.metadata.meetingSlot, student);
+    recordReply(incoming.messageId, { studentId: student, text: question, about, relayed: false }, { text: r.text, model: null, needsProfessor: r.needsProfessor, onBehalf: true, meeting: { status: r.status, label: r.slot?.label ?? null } });
+    emitViz('meeting_choice', runId, { meetingId: lesson.meeting.meetingId, slotId: incoming.metadata.meetingSlot, status: r.status });
+    metadata.professor = { outcome: 'meeting', onBehalf: true, mode: PROFESSOR_MODE, model: null, usage: null, lessonId: lesson.lessonId, topics: [], meeting: { meetingId: lesson.meeting.meetingId, status: r.status, slotId: r.slot?.slotId ?? null } };
+    return publishReply(ctx, bus, runId, incoming, r.text, metadata);
+  }
+  if (lesson && lesson.kind === 'message' && author === 'professor') {
+    recordReply(incoming.messageId, { studentId: student, text: question, about, relayed: true });
+    emitViz('student_reply', runId, { lessonId: lesson.lessonId, relayed: true });
+    const text = 'Sent to your professor. Their answer will appear here in your chat.';
+    metadata.professor = { outcome: 'relayed', mode: PROFESSOR_MODE, model: null, usage: null, lessonId: lesson.lessonId, topics: [] };
+    return publishReply(ctx, bus, runId, incoming, text, metadata);
+  }
+  const onBehalf = Boolean(lesson && lesson.kind === 'message' && author === 'assistant');
   let text;
   try {
-    const r = await professorReply({ question, policy: policy(), lesson, posts: lesson ? [] : postedTo(student), recent: recent.get(ctx.contextId) ?? [], emit: (type, data) => emitViz(type, runId, data) });
+    const r = await professorReply({ question, policy: policy(), lesson, posts: lesson ? [] : postedTo(student), recent: recent.get(ctx.contextId) ?? [], onBehalf, emit: (type, data) => emitViz(type, runId, data) });
     text = r.text;
-    metadata.professor = { outcome: r.kind, mode: PROFESSOR_MODE, model: r.model, usage: r.usage, lessonId: lesson?.lessonId ?? null, topics: r.topicIds };
+    metadata.professor = { outcome: r.kind, mode: PROFESSOR_MODE, model: r.model, usage: r.usage, lessonId: lesson?.lessonId ?? null, topics: r.topicIds, ...(onBehalf ? { onBehalf: true } : {}) };
+    if (lesson) {
+      recordReply(incoming.messageId, { studentId: student, text: question, about, relayed: false }, { text, model: r.model, needsProfessor: r.kind === 'needs_professor', onBehalf });
+      emitViz('student_reply', runId, { lessonId: lesson.lessonId, relayed: false, needsProfessor: r.kind === 'needs_professor' });
+    }
   } catch (err) {
     const failure = err instanceof LlmError ? err : new LlmError('internal_error');
     text = `The Marketing 101 Professor could not answer: ${failure.message}`;
     metadata.serviceError = { code: failure.code, message: failure.message, requestId: failure.requestId };
+    // The professor still sees what the student wrote — and that nobody answered it.
+    if (lesson) recordReply(incoming.messageId, { studentId: student, text: question, about, relayed: false }, { text: `Not answered: ${failure.message}`, model: null, needsProfessor: true, onBehalf, failed: true });
   }
+  return publishReply(ctx, bus, runId, incoming, text, metadata, question);
+}
+// A student's reply in the professor's chat (and the assistant's answer to it, when it gave one). Keyed by
+// the incoming message id, so a repeated delivery of the same request is recorded once.
+function recordReply(messageId, student, answer = null) {
+  const at = new Date().toISOString();
+  outbox.update((s) => {
+    if (s.chat.some((m) => m.id === `${messageId}:s`)) return;
+    s.chat.push({ id: `${messageId}:s`, role: 'student', at, ...student });
+    if (answer) s.chat.push({ id: `${messageId}:r`, role: 'assistant', at, to: student.studentId, about: student.about, ...answer, action: 'answer_student' });
+    s.chat = s.chat.slice(-200);
+  });
+}
+// One booking per student per meeting, one student per time: a synchronous check-and-set (no await
+// between the check and the write). A repeat of the same choice returns the same booking.
+function bookSlot(meetingId, slotId, student) {
+  let r;
+  const at = new Date().toISOString();
+  outbox.update((s) => {
+    const m = s.meetings?.[meetingId];
+    const slot = m?.slots.find((x) => x.slotId === slotId);
+    if (!m || !slot) { r = { status: 'unknown', text: 'That isn’t one of the times the professor offered.' }; return; }
+    const mine = m.byStudent[student];
+    if (mine) {
+      const booked = m.slots.find((x) => x.slotId === mine);
+      r = mine === slotId ? { status: 'booked', slot: booked, duplicate: true } : { status: 'already', slot: booked, text: `You’re already booked for ${booked.label}. If you need a different time, reply here and the professor will sort it out.` };
+      return;
+    }
+    if (m.bookings[slotId]) {
+      const open = m.slots.filter((x) => !m.bookings[x.slotId]);
+      r = { status: 'taken', slot, needsProfessor: !open.length, text: open.length ? `Sorry — ${slot.label} was just taken. Still open: ${open.map((x) => x.label).join('; ')}.` : `Sorry — ${slot.label} was just taken, and every offered time is gone. I’ve let the professor know.` };
+      return;
+    }
+    m.bookings[slotId] = { studentId: student, at };
+    m.byStudent[student] = slotId;
+    r = { status: 'booked', slot };
+  });
+  if (r.status === 'booked') r.text = `Booked: ${r.slot.label} (Pacific Time) with the professor. Demo booking — no calendar invite is sent.`;
+  return { needsProfessor: false, ...r };
+}
+function publishReply(ctx, bus, runId, incoming, text, metadata, question = null) {
   const message = { messageId: randomUUID(), contextId: ctx.contextId, taskId: '', role: Role.ROLE_AGENT, parts: [textPart(text)], metadata, extensions: [], referenceTaskIds: [] };
   bus.publish(AgentEvent.message(message));
   bus.finished();
   emitViz('reply_published', runId, { messageId: message.messageId, contextId: ctx.contextId, inReplyTo: incoming.messageId, text, professor: metadata.professor });
-  recent.set(ctx.contextId, [...(recent.get(ctx.contextId) ?? []), { question, answer: text }].slice(-4));
+  if (question !== null) recent.set(ctx.contextId, [...(recent.get(ctx.contextId) ?? []), { question, answer: text }].slice(-4));
 }
 
 const executor = {
@@ -95,8 +166,8 @@ const executor = {
 async function publish(record) {
   emitViz('lesson_posted', null, { lessonId: record.lessonId, revision: record.revision, operationId: record.operationId, kind: record.kind, audience: record.audience === 'all' ? 'all' : 'one' });
   const ack = await hubLink.sendSigned(LESSON_PUBLISH_MEDIA_TYPE,
-    { type: 'lesson_publish', operationId: record.operationId, lessonId: record.lessonId, revision: record.revision, courseId: record.courseId, kind: record.kind, audience: record.audience, title: record.title, text: record.text },
-    ['publish', record.operationId, record.lessonId, record.revision, record.courseId, record.kind, record.audience, contentHash(record.title, record.text, record.kind)]);
+    { type: 'lesson_publish', operationId: record.operationId, lessonId: record.lessonId, revision: record.revision, courseId: record.courseId, kind: record.kind, author: record.author ?? 'professor', ...(record.meeting ? { meeting: record.meeting } : {}), audience: record.audience, title: record.title, text: record.text },
+    ['publish', record.operationId, record.lessonId, record.revision, record.courseId, record.kind, record.audience, contentHash(record.title, record.text, record.kind, record.author ?? 'professor', record.meeting ?? null)]);
   // Accepted = the Hub recorded the post and made a delivery per recipient; delivering is then its job.
   const accepted = Array.isArray(ack.deliveries) && ack.deliveries.length > 0;
   outbox.update((s) => {
@@ -117,6 +188,7 @@ function postsView(hub) {
   return Object.values(outbox.get().lessons).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).map((l) => ({
     ...l,
     key: lessonKey(l.lessonId, l.revision),
+    meetingState: l.meeting ? l.meeting.slots.map((x) => ({ label: x.label, bookedBy: outbox.get().meetings?.[l.meeting.meetingId]?.bookings[x.slotId]?.studentId ?? null })) : null,
     deliveries: (byPost.get(lessonKey(l.lessonId, l.revision)) ?? []).map((d) => ({ studentId: d.studentId, state: d.state, opened: Boolean(d.openedAt), openedAt: d.openedAt, deliveredAt: d.deliveredAt, lastError: d.lastError, attempts: d.attempts })),
   }));
 }
@@ -128,7 +200,7 @@ async function hubView() {
 }
 
 // ---- posting (shared by the typed API and the chat) -------------------------------------------------------
-async function createPost({ operationId, kind = 'lesson', title = '', text, audience, courseId = COURSE.courseId, lessonId = null, source = 'api', verbatim = true, seedId = null }) {
+async function createPost({ operationId, kind = 'lesson', title = '', text, audience, courseId = COURSE.courseId, lessonId = null, source = 'api', verbatim = true, seedId = null, author = 'professor', meeting = null }) {
   if (typeof operationId !== 'string' || !ID.test(operationId)) return { http: 400, body: { errors: { _form: 'Missing or malformed operation id.' } } };
   if (typeof audience !== 'string' || !AUDIENCE.test(audience)) return { http: 400, body: { errors: { audience: 'Choose all students or one enrolled student.' } } };
   const v = validateLesson({ kind, title, text });
@@ -146,6 +218,8 @@ async function createPost({ operationId, kind = 'lesson', title = '', text, audi
   const record = {
     lessonId: lessonId ?? `ls-${randomUUID().slice(0, 12)}`, revision: previous.length + 1, operationId, courseId, kind: v.values.kind, audience,
     title: v.values.title, text: v.values.text, createdAt: new Date().toISOString(), hubStatus: 'sending', hubReason: null, recipients: [], source, verbatim, seedId,
+    author: author === 'assistant' ? 'assistant' : 'professor',
+    ...(meeting ? { meeting } : {}),
   };
   outbox.update((s) => {
     s.lessons[lessonKey(record.lessonId, record.revision)] = record;
@@ -171,7 +245,9 @@ let resetGeneration = 0; // bumped by a classroom reset, so a chat turn in fligh
 // message, and a title). With @assistant the professor asks the course assistant for help: it decides
 // post / answer / clarify and code checks its decision (checkPost) before anything is sent.
 const ASSISTANT_TAG = /(^|\s)@assistant\b[\s,:]*/i;
-async function professorChat({ operationId, text }) {
+// replyTo: a student id — the professor answering that student's reply (the reply icon in the Professor
+// view). It goes to that student only, as the professor's own message.
+async function professorChat({ operationId, text, replyTo = null }) {
   if (typeof operationId !== 'string' || !ID.test(operationId)) return { http: 400, body: { error: 'Missing or malformed operation id.' } };
   const said = typeof text === 'string' ? text.trim() : '';
   if (!said) return { http: 400, body: { error: 'Write something first.' } };
@@ -184,20 +260,28 @@ async function professorChat({ operationId, text }) {
     const at = new Date().toISOString();
     const generation = resetGeneration;
     const toAssistant = ASSISTANT_TAG.test(said);
-    outbox.update((s) => { s.chat.push({ id: `${operationId}:p`, role: 'professor', text: said, at, toAssistant }); });
     const hub = await hubView();
     const roster = (hub?.courses?.find((c) => c.courseId === COURSE.courseId)?.enrolled ?? []).map((st) => ({ studentId: st.studentId, name: st.name ?? st.studentId, online: st.online }));
-    const result = toAssistant ? await assistantTurn({ operationId, said, roster, hub }) : await directPost({ operationId, said, roster });
+    if (replyTo !== null && !roster.some((x) => x.studentId === replyTo)) return { http: 400, body: { error: 'That student isn’t in this class.' } };
+    const reply = toAssistant ? null : replyTo; // "@assistant …" is a request to the assistant, whoever is being replied to
+    // The assistant asked "when can Alex come?": the professor's next untagged message with times answers it.
+    const waiting = outbox.get().pendingMeeting;
+    const times = !toAssistant && !reply && waiting && Date.now() - waiting.at < 15 * 60_000 && !/^\s*@/.test(said) ? slotsIn(said) : [];
+    const viaAssistant = toAssistant || times.length > 0;
+    const entry = { id: `${operationId}:p`, role: 'professor', text: said, at, toAssistant: viaAssistant, ...(reply ? { replyTo: reply } : {}) };
+    outbox.update((s) => { s.chat.push(entry); });
+    const result = times.length ? await offerMeeting({ operationId, audience: waiting.audience, slots: times, roster })
+      : toAssistant ? await assistantTurn({ operationId, said, roster, hub }) : await directPost({ operationId, said, roster, to: reply });
     outbox.update((s) => {
       // A reset while this was worked on cleared the chat: keep the professor's message.
-      if (generation !== resetGeneration && !s.chat.some((m) => m.id === `${operationId}:p`)) s.chat.push({ id: `${operationId}:p`, role: 'professor', text: said, at, toAssistant });
+      if (generation !== resetGeneration && !s.chat.some((m) => m.id === `${operationId}:p`)) s.chat.push(entry);
       const own = s.chat.find((m) => m.id === `${operationId}:p`);
-      if (!toAssistant) Object.assign(own, { postKey: result.post?.key ?? null, problem: result.post ? null : result.reply });
+      if (!viaAssistant) Object.assign(own, { postKey: result.post?.key ?? null, problem: result.post ? null : result.reply });
       else s.chat.push({ id: `${operationId}:a`, role: 'assistant', text: result.reply, at: new Date().toISOString(), action: result.action, postKey: result.post?.key ?? null, model: result.model ?? null });
       s.chat = s.chat.slice(-200);
       s.chatOps[operationId] = result;
     });
-    emitViz('professor_chat', null, { action: result.action, check: result.check ?? null, kind: result.kind ?? null, viaAssistant: toAssistant });
+    emitViz('professor_chat', null, { action: result.action, check: result.check ?? null, kind: result.kind ?? null, viaAssistant });
     return { http: 200, body: result };
   } finally {
     chatBusy = false;
@@ -205,10 +289,17 @@ async function professorChat({ operationId, text }) {
 }
 
 // No @assistant: send the professor's words as written. Tags pick the students; no tag = the whole class.
-async function directPost({ operationId, said, roster }) {
+// `to`: a reply to one student's message — a message to that student only (no naming call needed).
+async function directPost({ operationId, said, roster, to = null }) {
   const { tagged } = tagsIn(said, roster);
   const text = said.replace(/^\s*(@[\w-]+[\s,:]*)+/, '').trim();
   if (!text) return { action: 'error', reply: 'Write the message after the tag — nothing was sent.', post: null };
+  if (to) {
+    const title = `Reply: ${text.replace(/\s+/g, ' ').split(/(?<=[.!?])\s/)[0]}`.slice(0, 60);
+    const r = await createPost({ operationId, kind: 'message', title, text, audience: to, source: 'chat', verbatim: true });
+    if (!r.body.lesson || r.body.ack?.status === 'rejected') return { action: 'error', reply: `Nothing was sent: ${r.body.ack?.reason ?? Object.values(r.body.errors ?? {})[0] ?? 'refused'}.`, post: null };
+    return { action: 'post', reply: null, post: { key: lessonKey(r.body.lesson.lessonId, r.body.lesson.revision) }, kind: 'message' };
+  }
   // A tag starts the message or follows a space — the @ inside an email address (alex@example.com) isn't one.
   const unknownTag = [...said.matchAll(/(?:^|\s)@([\w-]+)/g)].map((m) => m[1].toLowerCase()).find((h) => !roster.some((x) => [x.studentId, x.name.split(' ')[0].toLowerCase()].includes(h)));
   if (unknownTag && /^\s*@/.test(said)) return { action: 'error', reply: `There's no @${unknownTag} in Marketing 101, so nothing was sent.`, post: null };
@@ -232,10 +323,20 @@ async function assistantTurn({ operationId, said, roster, hub }) {
     decision = { action: 'error', reply: `I couldn't work that out right now (${err.message ?? 'model error'}). Nothing was sent.` };
   }
   const result = { reply: decision.reply, action: decision.action, post: null, check: null, model: decision.model ?? null, kind: decision.kind ?? null };
+  if (decision.action === 'schedule') {
+    const aud = resolveAudience(decision, request, roster);
+    if (aud.problem) return { ...result, action: 'clarify', reply: aud.problem, check: aud.code };
+    const slots = slotsIn(request);
+    if (slots.length) return { ...(await offerMeeting({ operationId, audience: aud.audience, slots, roster })), model: result.model };
+    // No times in the professor's words: ask for them (never guess), and wait for the answer.
+    outbox.update((s) => { s.pendingMeeting = { audience: aud.audience, at: Date.now() }; });
+    const who = aud.audience === 'all' ? 'the class' : aud.audience.split(',').map((id) => roster.find((x) => x.studentId === id)?.name.split(' ')[0] ?? id).join(' and ');
+    return { ...result, action: 'clarify', check: 'needs_times', reply: `When can ${who} come? Give me a few times — for example “Tue 2pm, Wed 10:30am” — and I’ll send them to choose from. Just write the times; no need to tag me.` };
+  }
   if (decision.action === 'post') {
     const checked = checkPost(decision, request, roster, recentChat);
     if (checked.problem) return { ...result, action: 'clarify', reply: checked.problem, check: checked.code };
-    const r = await createPost({ operationId, ...checked.post, source: 'chat' });
+    const r = await createPost({ operationId, ...checked.post, source: 'chat', author: 'assistant' });
     if (r.body.lesson && r.body.ack?.status !== 'rejected') {
       result.post = { key: lessonKey(r.body.lesson.lessonId, r.body.lesson.revision) };
       if (checked.corrected) result.reply = `${result.reply} (${checked.corrected})`;
@@ -246,17 +347,37 @@ async function assistantTurn({ operationId, said, roster, hub }) {
   return result;
 }
 
-function checkPost(d, said, roster, recentChat) {
-  const professorWords = [said, ...recentChat.filter((t) => t.role === 'professor').map((t) => t.text)];
+// Who a post or a meeting is for: a tag the professor wrote wins; a single student the model picked must
+// be tagged or named by the professor.
+function resolveAudience(d, said, roster) {
   const { tagged, named } = tagsIn(said, roster);
   const allWords = /\b(everyone|everybody|all students|the class|whole class|all of you)\b/i.test(said);
   let audience = d.audience === 'all' || roster.some((x) => x.studentId === d.audience) ? d.audience : null;
   let corrected = null;
-  // A tag the professor wrote is authoritative.
   if (tagged.length === 1 && !allWords && audience !== tagged[0].studentId) { audience = tagged[0].studentId; corrected = `sent to ${tagged[0].name}, whom you tagged`; }
   if (tagged.length > 1 && !allWords) { audience = tagged.map((x) => x.studentId).join(','); corrected = `sent to ${tagged.map((x) => x.name).join(' and ')}, whom you tagged`; }
   if (!audience) return { problem: 'Who should get it — one student (tag them, like @alex) or the whole class?', code: 'unknown_audience' };
   if (audience !== 'all' && !audience.includes(',') && ![...tagged, ...named].some((x) => x.studentId === audience)) return { problem: `Should this go to ${roster.find((x) => x.studentId === audience)?.name ?? audience} only? Tag them (@${(roster.find((x) => x.studentId === audience)?.name ?? '').split(' ')[0].toLowerCase()}) or say “everyone”.`, code: 'untagged_student' };
+  return { audience, corrected };
+}
+
+// A meeting offer: the times (read from the professor's words by code) go to the student(s) as the
+// assistant's message; each student picks one in their chat and the Professor books it (bookSlot).
+async function offerMeeting({ operationId, audience, slots, roster }) {
+  const meeting = { meetingId: `mt-${randomUUID().slice(0, 12)}`, slots };
+  const who = audience === 'all' ? 'the class' : audience.split(',').map((id) => roster.find((x) => x.studentId === id)?.name ?? id).join(' and ');
+  const text = `The professor would like to meet with you. Pick the time that works for you:\n${slots.map((x) => `• ${x.label}`).join('\n')}\n(Pacific Time.)`;
+  outbox.update((s) => { s.meetings ??= {}; s.meetings[meeting.meetingId] = { meetingId: meeting.meetingId, slots, audience, bookings: {}, byStudent: {}, createdAt: new Date().toISOString() }; s.pendingMeeting = null; });
+  const r = await createPost({ operationId, kind: 'message', title: 'Meeting with the professor', text, audience, source: 'chat', verbatim: false, author: 'assistant', meeting });
+  if (!r.body.lesson || r.body.ack?.status === 'rejected') return { action: 'error', reply: `Nothing was sent: ${r.body.ack?.reason ?? Object.values(r.body.errors ?? {})[0] ?? 'refused'}.`, post: null };
+  return { action: 'post', kind: 'message', post: { key: lessonKey(r.body.lesson.lessonId, r.body.lesson.revision) }, reply: `Sent ${who} ${slots.length === 1 ? 'this time' : `${slots.length} times to choose from`}: ${slots.map((x) => x.label).join('; ')}. You’ll see the choice here.` };
+}
+
+function checkPost(d, said, roster, recentChat) {
+  const professorWords = [said, ...recentChat.filter((t) => t.role === 'professor').map((t) => t.text)];
+  const aud = resolveAudience(d, said, roster);
+  if (aud.problem) return aud;
+  const { audience, corrected } = aud;
   // Content: a course lesson, the professor's own words, or text written from their instruction.
   let text = d.content;
   let verbatim = d.verbatim;
@@ -295,7 +416,7 @@ function authorRouter() {
   // Demo reset (requested through the Hub when the Student starts a new conversation): the posted list
   // and the remembered conversations go; the professor sends again. (The browser keeps any unsent draft.)
   router.post('/author/reset', (req, res) => {
-    outbox.update((s) => { s.lessons = {}; s.operations = {}; s.chat = []; s.chatOps = {}; });
+    outbox.update((s) => { s.lessons = {}; s.operations = {}; s.chat = []; s.chatOps = {}; s.meetings = {}; s.pendingMeeting = null; });
     resetGeneration += 1;
     recent.clear();
     emitViz('lessons_reset', null, {});

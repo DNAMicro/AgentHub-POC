@@ -250,7 +250,7 @@ export async function startUiServer({ port = 4444 } = {}) {
     }
     askTutor(hub.baseUrl, run.text, {
       runId, card, contextId: run.contextId, messageId: run.messageId, timeoutMs: cfg.timeouts.chatMs, signer: inbox.signer,
-      metadata: { ...identity, ...(run.requestedCapability ? { requestedCapability: run.requestedCapability } : {}), ...(run.lessonDeliveryId ? { lessonDeliveryId: run.lessonDeliveryId } : {}) },
+      metadata: { ...identity, ...(run.requestedCapability ? { requestedCapability: run.requestedCapability } : {}), ...(run.lessonDeliveryId ? { lessonDeliveryId: run.lessonDeliveryId } : {}), ...(run.meetingSlot ? { meetingSlot: run.meetingSlot } : {}) },
       onEvent: (type, data) => {
         // A relayed form: register it (issuer, workflow, conversation, Hub reference) before showing it.
         const extra = type === 'form_received' ? registerForm(data, { conversationId: run.contextId, runId }) : {};
@@ -275,7 +275,7 @@ export async function startUiServer({ port = 4444 } = {}) {
     const conv = conversationFor(run.contextId);
     // A question about a lesson or a course goes on as-is: the Hub routes it by its own lesson record.
     if (run.lessonDeliveryId || run.requestedCapability) {
-      publish({ source: 'student', type: 'request_planned', runId, data: { action: 'send', capability: run.requestedCapability ?? null, capabilityName: run.requestedCapability ? capabilities.find((c) => c.id === run.requestedCapability)?.name ?? null : null, by: run.lessonDeliveryId ? 'lesson' : 'course', reason: run.lessonDeliveryId ? 'A question about a lesson you received — the university routes it to that lesson’s professor.' : 'A question for this course.', matched: [], model: null, usage: null, error: null, relation: null } });
+      publish({ source: 'student', type: 'request_planned', runId, data: { action: 'send', capability: run.requestedCapability ?? null, capabilityName: run.requestedCapability ? capabilities.find((c) => c.id === run.requestedCapability)?.name ?? null : null, by: run.lessonDeliveryId ? 'lesson' : 'course', reason: run.lessonDeliveryId ? (inbox.lesson(run.lessonDeliveryId)?.kind === 'message' ? 'A reply to a message you received — the university routes it back to whoever sent it.' : 'A question about a lesson you received — the university routes it to that lesson’s professor.') : 'A question for this course.', matched: [], model: null, usage: null, error: null, relation: null } });
       return sendChat(runId, run);
     }
     if (hubCard || (await discoverHub('send'))) {
@@ -461,9 +461,12 @@ export async function startUiServer({ port = 4444 } = {}) {
     // Part 9: optional context from the inbox — a lesson the student received, or a course to ask.
     const lessonDeliveryId = req.body?.lessonDeliveryId ?? null;
     if (lessonDeliveryId !== null && (typeof lessonDeliveryId !== 'string' || !inbox.lesson(lessonDeliveryId))) return res.status(400).json({ error: 'Unknown lesson.' });
+    // A time picked from a meeting offer: only one of the slots that offer carries.
+    const meetingSlot = req.body?.meetingSlot ?? null;
+    if (meetingSlot !== null && !inbox.lesson(lessonDeliveryId ?? '')?.meeting?.slots.some((x) => x.slotId === meetingSlot)) return res.status(400).json({ error: 'That isn’t one of the offered times.' });
     const course = req.body?.capability ?? null;
     if (course !== null && !capabilities.some((c) => c.id === course)) return res.status(400).json({ error: 'Unknown course or capability.' });
-    const run = { kind: 'chat', state: 'sending', text, typed: text, contextId: requestedContext ?? randomUUID(), messageId: randomUUID(), clarified: false, pending: null, lessonDeliveryId, requestedCapability: course };
+    const run = { kind: 'chat', state: 'sending', text, typed: text, contextId: requestedContext ?? randomUUID(), messageId: randomUUID(), clarified: false, pending: null, lessonDeliveryId, meetingSlot, requestedCapability: course };
     // Our clarifying question is waiting: the planner decides whether this message answers it (then the
     // held-back question is sent with it) or is a new request (sent on its own).
     const conv = requestedContext ? conversations.get(requestedContext) : null;

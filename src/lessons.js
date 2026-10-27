@@ -38,8 +38,15 @@ export function verify(key, fields, signature) {
   const given = Buffer.from(signature);
   return given.length === expected.length && timingSafeEqual(given, expected);
 }
-// Covers the kind too, so a signed lesson can't be re-labelled as a message (or the reverse).
-export const contentHash = (title, text, kind = 'lesson') => createHash('sha256').update(JSON.stringify([title ?? '', text ?? '', kind])).digest('hex').slice(0, 32);
+// Who wrote a post: the professor (their own words) or the course assistant (from the professor's
+// instruction). It decides who answers a student's reply: the professor in person, or the assistant.
+export const POST_AUTHORS = ['professor', 'assistant'];
+// Covers the kind, the author and a meeting offer too, so a signed lesson can't be re-labelled as a
+// message, an assistant's post as the professor's own (or the reverse), nor the offered times changed.
+// A professor's post without a meeting hashes as before.
+const meetingPart = (m) => (m ? { meetingId: m.meetingId, slots: m.slots.map(({ slotId, start, label }) => ({ slotId, start, label })) } : null);
+export const contentHash = (title, text, kind = 'lesson', author = 'professor', meeting = null) => createHash('sha256')
+  .update(JSON.stringify(author === 'professor' && !meeting ? [title ?? '', text ?? '', kind] : [title ?? '', text ?? '', kind, author, meetingPart(meeting)])).digest('hex').slice(0, 32);
 
 // The professor's draft, checked the same way by the Professor agent and the Hub. The text is CONTENT:
 // it is stored and shown as written, never interpreted as instructions.
