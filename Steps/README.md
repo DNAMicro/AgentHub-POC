@@ -24,4 +24,4 @@ Rules that apply to every step (from your instructions):
 - **No budget step for live use.** Live use and verification just run; calls, usage and cost are reported afterwards. The scripted paid checks (`smoke:live`, `eval:live`) keep a max-spend environment variable.
 - **The API key stays server-side.** It is read from a git-ignored `.env`, never printed, logged or sent to the browser.
 - **Everything stays on localhost** (`127.0.0.1`). Most state is in memory (restarting a server clears its saved skills, history and form records); the exceptions are JSON files under the git-ignored `data/`: Part 8's loan store and Part 9's Hub lesson records, Professor outbox and Student inbox.
-- **The audience demo grows with the steps.** After each new step, add its part to `scripts/demo/progression.js` (see README, “Audience demo”) and rehearse it on a separate stack.
+- **The audience demos grow with the steps.** After each new step, add its part to `scripts/demo/progression.js` (v1, slides; see README, “Audience demo”) and a `scripts/demo/walkthrough/scene-N.js` to the live walkthrough (v2; see README, “Live walkthrough”), and rehearse both on a separate stack.

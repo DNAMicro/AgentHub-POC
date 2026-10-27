@@ -21,7 +21,9 @@
     "hub:live": "ROUTER_MODE=live node src/hub-agent.js",
     "hub:direct": "node src/hub-agent.js",
     "demo": "npm run build:ui && node scripts/start-all.js",
-    "demo:live": "npm run build:ui && DEMO_MODE=live node scripts/start-all.js"
+    "demo:live": "npm run build:ui && DEMO_MODE=live node scripts/start-all.js",
+    "demo:reset-loans": "node scripts/demo/reset-loans.js",
+    "demo:build": "node scripts/demo/build-walkthrough.js"
   },
   "keywords": [],
   "author": "",

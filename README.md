@@ -148,6 +148,41 @@ While it runs, **→** or **PageDown** (a presentation clicker works) skips to t
 
 Live models make judgment calls, so the script handles more than one outcome. If an agent answers in words where a form was expected, or asks a clarifying question, the caption says so and the demo carries on. If a step fails outright, it says so on screen, moves to the next part, and lists the problem in the result. The overlay sits in its own layer above the page and never changes the app. The only data it creates is the app's normal use: messages, a tutoring request, a demo room booking and two professor posts.
 
+### Live walkthrough (v2): someone using the app
+
+`scripts/demo/live-walkthrough.js` is the second demo. There are no slides and no captions. A visible "person" uses the real app in the left window: the mouse moves to each field, clicks, and types at reading speed. The right window shows the **Topology** view, so the audience sees every message travel Student → Hub → specialist (and Professor → Hub → Student in Step 9) as it happens. A small label in the corner says which build step each moment belongs to. You talk over it.
+
+It **never moves on by itself**: after each moment (one meaningful result, such as "the form is filled in and the error shows") it waits for your key.
+
+| Key (in either window) | Effect |
+| --- | --- |
+| **→**, **PageDown** or **Space** | Next moment (a presentation clicker works) |
+| **N** | Skip the rest of this step |
+| **H** | Hold: ignore keys until you press H again (the label shows ⏸) |
+
+Before the talk, with the demo stopped:
+
+```bash
+npm run demo:reset-loans                      # gives Step 8 a loan to renew (renewals run out)
+env -u ANTHROPIC_BASE_URL npm run demo:live   # keeps running: the next commands go in a second terminal
+npm run demo:build                            # joins scripts/demo/walkthrough/*.js into live-walkthrough.js
+playwright-cli -s=demo2 open --headed "http://127.0.0.1:4444/conversation"
+playwright-cli -s=demo2 run-code "$(cat scripts/demo/live-walkthrough.js)"
+```
+
+The Topology window opens on its own, to the right of the app window (1120 + 800 pixels wide, for a 1920×1080 projector). Options go in the query string of the address you open, for example `…/conversation?from=5&to=7`:
+
+| Option | Effect |
+| --- | --- |
+| `from=5`, `to=7` | Present only those steps |
+| `fresh=0` | Keep the current conversation. By default the walkthrough presses **New conversation** in Step 2 (or at the start, when `from` is above 2) and again in Step 8. Each press also resets the classroom (every student's lessons and messages) |
+| `type=55` | Milliseconds per typed character |
+| `auto=4`, `shots=/dir` | Rehearsal only: move on after 4 seconds; save both windows' screenshots at every moment |
+
+Everything is live, so the model may answer in words where the script hoped for a form, or ask a clarifying question. The walkthrough then shows what the app really did and carries on. A failed moment is listed in the returned `problems` and never faked on screen. Step 8 renews a loan for real. Step 5 adds a line to the Library's skill and removes it again on screen.
+
+**Editing it.** The script is built from `scripts/demo/walkthrough/frame.js` (windows, keys, typing helpers) and one `scene-N.js` per step. Edit those, then run `npm run demo:build`; don't edit `live-walkthrough.js` by hand. **Rehearse on a separate stack, never the running demo**: `node scripts/demo/rehearsal-stack.js --ui 5444 --base 52240` starts all five processes live on other ports with temporary copies of the data files (`--mock` for a free plumbing run), then open `http://127.0.0.1:5444/conversation?auto=4&shots=<dir>` and look at every screenshot.
+
 ## Files
 
 | File | What it is |
