@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>A2A Spike, step by step</title>
+  <meta name="description" content="How the A2A spike — Student, University Hub, Tutor, Library and Marketing 101 Professor agents — was built in nine steps.">
+  <link rel="icon" href="data:,">
+  <!-- Apply the saved theme before the first paint (no flash). "auto" = follow the system setting. -->
+  <script>
+    try { const t = localStorage.getItem('companion-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch { /* storage blocked: follow the system */ }
+  </script>
+  <link rel="stylesheet" href="css/site.css">
+</head>
+<body>
+  <a class="skip" href="#page">Skip to the lesson</a>
+  <header class="site-head">
+    <div class="brand">
+      <a href="#/intro" class="brand-link"><span class="brand-mark" aria-hidden="true">A2A</span> <span class="brand-text">Spike, step by step</span></a>
+    </div>
+    <nav id="steps-nav" class="steps-nav" aria-label="Introduction and Steps 1–9"></nav>
+    <button type="button" id="theme" class="theme-btn" title="Theme: Auto (follows your system) → Light → Dark (T)"><span class="theme-icon" aria-hidden="true">◐</span> <span id="theme-label">Auto</span></button>
+    <button type="button" id="present" class="present" aria-pressed="false" title="Presentation mode: full screen, larger text (F; Esc to leave)">Present <kbd>F</kbd></button>
+  </header>
+  <div id="progress" class="progress" role="progressbar" aria-label="Progress through the lessons" aria-valuemin="1" aria-valuenow="1">
+    <div id="progress-bar" class="progress-bar"></div>
+  </div>
+
+  <main id="page" class="stage" tabindex="-1"></main>
+
+  <footer class="pager">
+    <button type="button" id="prev" class="pager-btn"><span aria-hidden="true">←</span> <span class="pager-text"><span class="dir">Previous</span> <span id="prev-label" class="pager-label"></span></span></button>
+    <div class="pager-mid">
+      <span id="progress-text" class="progress-text" aria-live="polite"></span>
+      <p class="keys-hint"><kbd>←</kbd> <kbd>→</kbd> pages · <kbd>Home</kbd>/<kbd>End</kbd> · <kbd>F</kbd> present · <kbd>T</kbd> theme · swipe on touch screens</p>
+    </div>
+    <button type="button" id="next" class="pager-btn next"><span class="pager-text"><span class="dir">Next</span> <span id="next-label" class="pager-label"></span></span> <span aria-hidden="true">→</span></button>
+  </footer>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
