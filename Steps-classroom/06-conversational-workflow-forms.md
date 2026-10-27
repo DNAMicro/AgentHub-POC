@@ -152,7 +152,7 @@ First run `npm test`; Steps 1–5 must pass.
    - A bare "I need a room" → ask "Do you want to book a group study room?".
    - Missing details are not a reason to clarify.
 5. Library mock: `mockLibraryIntent`. A "yes" right after the Library asked that question → offer.
-6. The Library remembers its last 4 exchanges per `contextId` (in memory), only to understand short replies. Pass them as `recent`.
+6. The Library remembers its last 4 exchanges per `contextId` (in memory), only to understand short replies. Pass them as `recent`: an array of `{ question, answer }` objects, oldest first. This is the exact shape `answerFromKnowledge({ …, recent })` reads, and the same shape on both sides. Don't use `{ user, agent }` or `{ role, text }`.
 7. The Library's Agent Card (`buildAgentCard` in `src/library-agent.js`) gets the same A2UI entries as the Tutor's card (Step 3, Task B):
    - `capabilities.extensions`: `[{ uri: A2UI_EXTENSION_URI, description: 'Sends A2UI v0.9 surfaces (basic catalog) and accepts A2UI actions.', required: false, params: { supportedCatalogIds: [BASIC_CATALOG_ID], acceptsInlineCatalogs: false } }]`;
    - `defaultInputModes: ['text/plain', A2UI_MIME_TYPE]`;
