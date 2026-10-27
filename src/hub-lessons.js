@@ -87,8 +87,8 @@ export function createLessonService({ cfg, registry, emit = () => {}, file = pro
     const course = cfg.courses?.[msg.courseId];
     if (!course) return reject('unknown_course');
     if (course.professor !== msg.professorId) return reject('not_course_professor');
-    if (msg.audience !== 'all' && !course.enrolled.includes(msg.audience)) return reject('recipient_not_enrolled');
-    const recipients = msg.audience === 'all' ? [...course.enrolled] : [msg.audience];
+    const recipients = msg.audience === 'all' ? [...course.enrolled] : [...new Set(msg.audience.split(','))];
+    if (recipients.some((sid) => !course.enrolled.includes(sid))) return reject('recipient_not_enrolled');
     if (!recipients.length) return reject('no_students_enrolled');
     const v = validateLesson({ kind, title: msg.title, text: msg.text });
     if (!v.ok) return reject('invalid_content', v.errors);
@@ -110,7 +110,7 @@ export function createLessonService({ cfg, registry, emit = () => {}, file = pro
         s.deliveries[deliveryIds[i]] ??= { deliveryId: deliveryIds[i], lessonId: msg.lessonId, revision: msg.revision, studentId, courseId: msg.courseId, professorId: msg.professorId, state: 'queued', attempts: 0, lastError: null, deliveredAt: null, openedAt: null, inboxId: null };
       });
     });
-    emit('lesson_publish_received', { agentId: msg.professorId, lessonId: msg.lessonId, revision: msg.revision, courseId: msg.courseId, kind, audience: msg.audience === 'all' ? 'all' : 'one', recipients: recipients.length });
+    emit('lesson_publish_received', { agentId: msg.professorId, lessonId: msg.lessonId, revision: msg.revision, courseId: msg.courseId, kind, audience: msg.audience === 'all' ? 'all' : recipients.length > 1 ? 'some' : 'one', recipients: recipients.length });
     await Promise.all(deliveryIds.map((id) => deliver(id)));
     const ds = deliveryIds.map((id) => store.get().deliveries[id]);
     return { status: summaryOf(ds), lessonId: msg.lessonId, revision: msg.revision, deliveries: ds.map(deliveryView) };
@@ -126,8 +126,11 @@ export function createLessonService({ cfg, registry, emit = () => {}, file = pro
     // An unreachable session (its endpoint refused a connection) waits for the Student to register again,
     // which delivers immediately — no attempts against a dead endpoint every few seconds.
     if (!session || !endpoint || session.unreachable) {
-      if (d.lastError !== 'student_offline') store.update((s) => { s.deliveries[deliveryId].lastError = 'student_offline'; s.deliveries[deliveryId].state = d.state === 'uncertain' ? 'uncertain' : 'queued'; });
-      emit('lesson_queued', { deliveryId, lessonId: d.lessonId, reason: 'student_offline' });
+      // Reported once, when it starts waiting — not again on every retry cycle while the student is away.
+      if (d.lastError !== 'student_offline') {
+        store.update((s) => { s.deliveries[deliveryId].lastError = 'student_offline'; s.deliveries[deliveryId].state = d.state === 'uncertain' ? 'uncertain' : 'queued'; });
+        emit('lesson_queued', { deliveryId, lessonId: d.lessonId, reason: 'student_offline' });
+      }
       return;
     }
     inFlight.add(deliveryId);

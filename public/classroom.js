@@ -164,6 +164,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
   let attempt = store.get(`${DRAFT_KEY}:attempt`); // a retry of the same text reuses its operation id
   pv.input.value = store.get(DRAFT_KEY) ?? '';
   const firstName = (st) => (st.name ?? st.studentId).split(' ')[0];
+  const ASSISTANT = { studentId: 'assistant', name: 'assistant', label: 'Course assistant — writes, sends course lessons, answers questions' };
 
   const DELIVERY = {
     queued: ['Queued at Hub', 'busy'], delivered: ['Delivered', 'ok'], opened: ['Opened', 'ok'],
@@ -175,7 +176,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     if (d.state === 'delivered') return ['delivered', when(d.deliveredAt)];
     return [d.state, d.lastError];
   }
-  const nameOf = (id) => roster.find((x) => x.studentId === id)?.name ?? id;
+  const nameOf = (id) => String(id).split(',').map((x) => roster.find((r) => r.studentId === x)?.name ?? x).join(', ');
 
   function bubble({ dir, speaker, label, at, text }) {
     return el('li', { className: 'msg', dataset: { dir, speaker } },
@@ -189,29 +190,48 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     return el('li', { className: 'msg post-card', dataset: { dir: 'received', speaker: 'professor', kind: p.kind } },
       el('div', { className: 'msg-head' },
         el('span', { className: 'msg-dir' }, el('span', { className: 'kind-tag', textContent: isMsg ? 'Message' : 'Lesson' }), ` ${p.title || (isMsg ? 'Message' : 'Lesson')}`),
-        el('time', { textContent: `to ${p.audience === 'all' ? `the whole class (${p.deliveries.length || '…'})` : nameOf(p.audience)}` })),
+        el('time', { textContent: `to ${p.audience === 'all' ? `the whole class (${p.deliveries.length || '…'})` : p.audience.split(',').map(nameOf).join(', ')}` })),
       el('p', { className: 'msg-text post-text', textContent: p.text }),
       el('p', { className: 'post-origin', dataset: { verbatim: String(p.verbatim !== false) }, textContent: origin }),
-      p.hubStatus === 'rejected' ? el('p', { className: 'post-origin', dataset: { verbatim: 'false' }, textContent: `Refused by the Hub: ${p.hubReason}` })
-        : !p.deliveries.length ? el('p', { className: 'post-origin', textContent: p.hubAccepted ? 'Sent to the Hub…' : 'Not confirmed by the Hub yet — it will be retried.' })
-          : el('ul', { className: 'per-student' }, ...p.deliveries.map((d) => {
-            const [k, detail] = studentState(d);
-            const [label, tone] = DELIVERY[k] ?? [k, 'warn'];
-            return el('li', { dataset: { tone } }, el('span', { className: 'who', textContent: nameOf(d.studentId) }), el('span', { className: 'what', textContent: `${label}${detail ? ` — ${detail}` : ''}` }));
-          })));
+      deliveryLines(p));
+  }
+  // The professor's own message, sent straight to students: who it went to and each student's state.
+  function sentPost(m, p) {
+    const li = bubble({ dir: 'sent', speaker: 'student', label: `You → ${p.audience === 'all' ? `the whole class (${p.deliveries.length || '…'})` : nameOf(p.audience)}`, at: m.at, text: m.text });
+    li.classList.add('sent-post');
+    li.dataset.kind = p.kind;
+    li.append(
+      el('p', { className: 'post-origin' }, el('span', { className: 'kind-tag', textContent: p.kind === 'message' ? 'Message' : 'Lesson' }), ` ${p.title}`),
+      deliveryLines(p));
+    return li;
+  }
+  function deliveryLines(p) {
+    if (p.hubStatus === 'rejected') return el('p', { className: 'post-origin', dataset: { verbatim: 'false' }, textContent: `Refused by the Hub: ${p.hubReason}` });
+    if (!p.deliveries.length) return el('p', { className: 'post-origin', textContent: p.hubAccepted ? 'Sent to the Hub…' : 'Not confirmed by the Hub yet — it will be retried.' });
+    return el('ul', { className: 'per-student' }, ...p.deliveries.map((d) => {
+      const [k, detail] = studentState(d);
+      const [label, tone] = DELIVERY[k] ?? [k, 'warn'];
+      return el('li', { dataset: { tone } }, el('span', { className: 'who', textContent: nameOf(d.studentId) }), el('span', { className: 'what', textContent: `${label}${detail ? ` — ${detail}` : ''}` }));
+    }));
   }
   function renderProfessor() {
     const items = [];
     for (const m of chat) {
-      if (m.role === 'professor') items.push(bubble({ dir: 'sent', speaker: 'student', label: 'You', at: m.at, text: m.text }));
-      else {
+      if (m.role === 'professor') {
+        const p = m.postKey && posts.get(m.postKey);
+        if (p) items.push(sentPost(m, p));
+        else {
+          items.push(bubble({ dir: 'sent', speaker: 'student', label: m.toAssistant ? 'You → course assistant' : 'You', at: m.at, text: m.text }));
+          if (m.problem) items.push(bubble({ dir: 'error', speaker: 'professor', label: 'Not sent', at: m.at, text: m.problem }));
+        }
+      } else {
         items.push(bubble({ dir: m.action === 'error' || m.action === 'clarify' ? 'info' : 'received', speaker: 'professor', label: m.model && m.model !== 'mock heuristic' ? `Course assistant · ${m.model}` : 'Course assistant', at: m.at, text: m.text }));
         if (m.postKey && posts.get(m.postKey)) items.push(postCard(posts.get(m.postKey)));
       }
     }
     if (pending) {
       items.push(bubble({ dir: 'sent', speaker: 'student', label: 'You', at: new Date().toISOString(), text: pending.text }));
-      items.push(el('li', { className: 'chat-pending' }, el('span', { className: 'spinner', ariaHidden: 'true' }), 'Working out what you’d like…'));
+      items.push(el('li', { className: 'chat-pending' }, el('span', { className: 'spinner', ariaHidden: 'true' }), /@assistant\b/i.test(pending.text) ? 'The course assistant is working on it…' : 'Sending…'));
     }
     const signature = JSON.stringify([chat.length, pending?.text, [...posts.values()].map((p) => [p.key, p.hubStatus, p.deliveries])]);
     if (signature === lastRendered) return;
@@ -242,13 +262,13 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     if (!m) return null;
     mentionAt = before.length - m[0].length;
     // By first name (the tag itself): ids all start with "student-" and the demo surnames are all "Student".
-    return roster.filter((x) => firstName(x).toLowerCase().startsWith(m[1].toLowerCase()));
+    return [ASSISTANT, ...roster].filter((x) => firstName(x).toLowerCase().startsWith(m[1].toLowerCase()));
   }
   function showMentions() {
     const list = mentionMatches();
     if (!list?.length) { pv.mentions.hidden = true; return; }
     mentionIndex = Math.min(mentionIndex, list.length - 1);
-    pv.mentions.replaceChildren(...list.map((x, i) => el('li', { role: 'option', ariaSelected: String(i === mentionIndex), textContent: `@${firstName(x).toLowerCase()} — ${x.name}`, onmousedown: (e) => { e.preventDefault(); pickMention(x); } })));
+    pv.mentions.replaceChildren(...list.map((x, i) => el('li', { role: 'option', ariaSelected: String(i === mentionIndex), textContent: `@${firstName(x).toLowerCase()} — ${x.label ?? x.name}`, onmousedown: (e) => { e.preventDefault(); pickMention(x); } })));
     pv.mentions.hidden = false;
   }
   function pickMention(x) {

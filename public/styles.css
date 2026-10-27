@@ -658,7 +658,7 @@ dialog#skills-dialog::backdrop { background: rgb(0 0 0 / 0.5); }
 .prof-chat .panel-head { grid-template-columns: auto 1fr auto; }
 .class-roster { grid-column: 3; grid-row: 1; display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
 .class-roster .presence { color: var(--text); font-size: 0.82rem; }
-.prof-log:empty::before { content: "Write to your class as you would in a chat: “Everyone, the homework is now due next Friday”, “@sam could you resend your draft?”, “Send the evidence-before-assumptions lesson to the class”, or ask “Who has opened my last message?”."; max-width: 52ch; }
+.prof-log:empty::before { content: "Write to your class as you would in a chat. Messages go to everyone, or tag students (@alex, @sam). Ask the course assistant for help with @assistant — “@assistant write a short lesson on pricing and send it to everyone”, “@assistant send the evidence-before-assumptions lesson to the class”, “@assistant who has opened my last message?”."; max-width: 56ch; }
 .chat-log .post-card { max-width: min(88%, 640px); border-left: 3px solid var(--professor); background: color-mix(in srgb, var(--professor) 4%, var(--surface)); }
 .post-card .msg-dir { color: var(--text); font-weight: 700; }
 .post-card .post-text { white-space: pre-wrap; max-height: 16em; overflow-y: auto; }
@@ -671,3 +671,6 @@ dialog#skills-dialog::backdrop { background: rgb(0 0 0 / 0.5); }
 .prof-chat .composer button { background: var(--professor); }
 @media (max-width: 720px) { .class-roster { grid-column: 1 / -1; grid-row: 3; justify-content: flex-start; } }
 .post-card[data-kind="message"] .kind-tag, .lesson-item[data-kind="message"] .kind-tag { color: var(--hub); background: color-mix(in srgb, var(--hub) 14%, var(--surface)); }
+.chat-log .sent-post { max-width: min(88%, 640px); }
+.sent-post .post-origin { color: var(--muted); }
+.sent-post .per-student .who { color: var(--text); }

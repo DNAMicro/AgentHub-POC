@@ -269,6 +269,9 @@ test('a course message to all students: one delivery each — delivered to a con
   assert.equal(ack.accepted, true);
   assert.deepEqual(ack.deliveries.map((d) => [d.studentId, d.state]).sort(), [['student-alex', 'delivered'], ['student-sam', 'queued']], 'the Hub expanded “all” from its enrollment');
   assert.equal(ack.deliveries.find((d) => d.studentId === 'student-sam').reason, 'student_offline');
+  // Sam stays queued; the Hub reports that once, not on every retry cycle (500 ms in tests).
+  await new Promise((r) => setTimeout(r, 1800));
+  assert.equal(findAll(stream.events, 'hub', 'lesson_queued').length, 1, 'queued is reported once');
   const [m] = (await inbox(s)).lessons;
   assert.equal(m.kind, 'message');
   assert.equal(m.toAll, true);
@@ -325,51 +328,62 @@ test('New conversation clears every student’s lessons and messages — inbox, 
 // ---- the professor's chat (Professor view) ------------------------------------------------------------------
 const say = async (s, text, operationId = `op-${randomUUID()}`) => (await post(`${s.ui.url}/api/professor/chat`, { operationId, text })).json();
 
-test('professor chat (mock interpreter, labelled): tags pick one student, “everyone” the class, a course lesson by name; questions are answered; vague requests get a question; repeats send once', async () => {
+test('professor chat: plain messages go straight to students (tags pick who, no tag = the class); @assistant gets help; repeats send once', async () => {
   const { s } = await classroom();
+  const posted = async (r) => (await professorState(s)).lessons.find((l) => l.key === r.post.key);
+  // Direct: the professor's words, to the tagged student — no assistant reply.
   const sam = await say(s, '@sam the quiz moved to Thursday.');
   assert.equal(sam.action, 'post');
-  let st = await professorState(s);
-  const toSam = st.lessons.find((l) => l.key === sam.post.key);
+  assert.equal(sam.reply, null);
+  const toSam = await posted(sam);
   assert.equal(toSam.audience, 'student-sam');
-  assert.equal(toSam.kind, 'message');
-  assert.equal(toSam.text, 'the quiz moved to Thursday.', 'the professor’s own words, without the tag');
-  assert.equal(toSam.verbatim, true);
-
+  assert.equal(toSam.text, 'the quiz moved to Thursday.');
+  // No tag: the whole class, exactly as written.
   const all = await say(s, 'Everyone, read the pricing chapter before class.');
-  st = await professorState(s);
-  const toAll = st.lessons.find((l) => l.key === all.post.key);
+  const toAll = await posted(all);
   assert.equal(toAll.audience, 'all');
+  assert.equal(toAll.text, 'Everyone, read the pricing chapter before class.');
   assert.deepEqual(toAll.deliveries.map((d) => d.studentId).sort(), ['student-alex', 'student-sam']);
+  // Several tags: each of them.
+  const both = await posted(await say(s, '@alex @sam bring your drafts on Monday.'));
+  assert.equal(both.audience, 'student-alex,student-sam');
+  assert.equal(both.deliveries.length, 2);
+  // An email address isn't a tag.
+  const mail = await posted(await say(s, '@alex please email alex@example.com with your draft.'));
+  assert.equal(mail.audience, 'student-alex');
+  assert.equal(mail.text, 'please email alex@example.com with your draft.');
+  // An unknown tag: nothing sent.
+  const before = (await professorState(s)).lessons.length;
+  const zed = await say(s, '@zed hello');
+  assert.equal(zed.action, 'error');
+  assert.equal((await professorState(s)).lessons.length, before);
+  let chat = (await professorState(s)).chat;
+  assert.equal(chat.filter((m) => m.role === 'assistant').length, 0, 'the assistant said nothing — nobody asked it');
 
-  const lesson = await say(s, 'Send the Evidence before assumptions lesson to the class');
-  st = await professorState(s);
-  const seed = st.lessons.find((l) => l.key === lesson.post.key);
+  // @assistant (mock interpreter, labelled): a course lesson by name, a vague request, a question.
+  const lesson = await say(s, '@assistant send the Evidence before assumptions lesson to the class');
+  const seed = await posted(lesson);
   assert.equal(seed.kind, 'lesson');
   assert.equal(seed.title, 'Evidence before assumptions');
   assert.match(seed.text, /Check your understanding:/);
-
-  const vague = await say(s, 'Send it to him');
+  const vague = await say(s, '@assistant send it to him');
   assert.equal(vague.action, 'clarify');
   assert.equal(vague.post, null);
-  const two = await say(s, '@alex @sam bring your drafts');
-  assert.equal(two.action, 'clarify', 'two tags: one student or the class?');
-
-  const asked = await say(s, 'Who has opened my last message?');
+  const asked = await say(s, '@assistant who has opened my last message?');
   assert.equal(asked.action, 'answer');
   assert.match(asked.reply, /Evidence before assumptions/);
+  chat = (await professorState(s)).chat;
+  assert.equal(chat.filter((m) => m.role === 'assistant').length, 3);
 
-  const before = (await professorState(s)).lessons.length;
+  // The same send twice (one operation id): one post.
+  const count = (await professorState(s)).lessons.length;
   const op = `op-${randomUUID()}`;
-  const [a, b] = await Promise.all([say(s, 'Everyone: office hours are cancelled today.', op), say(s, 'Everyone: office hours are cancelled today.', op)].map((p) => p.catch((e) => ({ error: e.message }))));
+  await Promise.all([say(s, 'Office hours are cancelled today.', op), say(s, 'Office hours are cancelled today.', op)].map((p) => p.catch(() => null)));
   await new Promise((r) => setTimeout(r, 300));
-  assert.equal((await professorState(s)).lessons.length, before + 1, 'one post for one message, however often it is sent');
-  assert.ok([a, b].some((x) => x.duplicate || x.error) || a.post?.key === b.post?.key);
-  const chat = (await professorState(s)).chat;
-  assert.ok(chat.some((m) => m.role === 'professor' && m.text === '@sam the quiz moved to Thursday.'), 'the chat is kept');
+  assert.equal((await professorState(s)).lessons.length, count + 1, 'one post for one message, however often it is sent');
 });
 
-test('professor chat (live mode, scripted model): code overrides an untagged recipient, refuses an invented date, labels rewritten text, and follows the professor’s tag', async () => {
+test('@assistant (live mode, scripted model): code overrides an untagged recipient, refuses an invented date, labels rewritten text, and follows the professor’s tag', async () => {
   const stub = await startFakeAnthropic();
   const decide = (d) => messageReply(JSON.stringify({ action: 'post', reply: 'Sending it.', kind: 'message', audience: 'all', title: 'Note', content: '', content_is_verbatim: false, seed_id: '', ...d }));
   const queue = [];
@@ -378,28 +392,45 @@ test('professor chat (live mode, scripted model): code overrides an untagged rec
   try {
     // The model picks Sam, but the professor never tagged or named Sam → a question, nothing sent.
     queue.push(decide({ audience: 'student-sam', content: 'Please resend your draft.', content_is_verbatim: true }));
-    const r1 = await say(s, 'Please resend your draft.');
+    const r1 = await say(s, '@assistant Please resend your draft.');
     assert.equal(r1.action, 'clarify');
     assert.equal((await professorState(s)).lessons.length, 0);
     // The model adds a due date the professor never gave → refused.
     queue.push(decide({ content: 'The homework is now due Nov 20.' }));
-    const r2 = await say(s, 'Tell everyone the homework is late');
+    const r2 = await say(s, '@assistant Tell everyone the homework is late');
     assert.equal(r2.action, 'clarify');
     assert.match(r2.reply, /date you didn’t give/);
     assert.equal((await professorState(s)).lessons.length, 0);
     // Rewritten from an instruction but claimed verbatim → sent, labelled as written from the instruction.
     queue.push(decide({ content: 'Heads up: the homework will be a little late this week.', content_is_verbatim: true }));
-    const r3 = await say(s, 'Tell everyone the homework is late');
+    const r3 = await say(s, '@assistant tell everyone the homework is late');
     assert.equal(r3.action, 'post');
     const p3 = (await professorState(s)).lessons.find((l) => l.key === r3.post.key);
     assert.equal(p3.verbatim, false);
     // The professor tagged Alex; the model said “all” → the tag wins.
     queue.push(decide({ content: 'Great work on the quiz!', content_is_verbatim: true }));
-    const r4 = await say(s, '@alex Great work on the quiz!');
+    const r4 = await say(s, '@assistant @alex Great work on the quiz!');
     const p4 = (await professorState(s)).lessons.find((l) => l.key === r4.post.key);
     assert.equal(p4.audience, 'student-alex');
     assert.match(r4.reply, /whom you tagged/);
   } finally {
     await stub.close();
   }
+});
+
+test('a web page on another site can’t reset the classroom, post as the professor or change skills (cross-site requests refused)', async () => {
+  const { s } = await classroom();
+  await postLesson(s, { title: 'Still here' });
+  const evil = { 'Content-Type': 'application/json', Origin: 'http://evil.example' };
+  const attempts = [
+    [`${s.hub.url}/dev/classroom/reset`, '{}'],
+    [`${s.hub.url}/dev/agents/professor/author/chat`, JSON.stringify({ operationId: `op-${randomUUID()}`, text: 'Everyone: class is cancelled forever.' })],
+    [`${s.hub.url}/dev/registry/refresh`, '{}'],
+    [`${s.professor.url}/author/reset`, '{}'],
+    [`${s.professor.url}/author/lessons`, JSON.stringify({ operationId: `op-${randomUUID()}`, audience: 'all', title: 'x', text: 'forged' })],
+  ];
+  for (const [url, body] of attempts) assert.equal((await fetch(url, { method: 'POST', headers: evil, body })).status, 403, url);
+  const st = await professorState(s);
+  assert.deepEqual(st.lessons.map((l) => l.title), ['Still here'], 'nothing was reset or posted');
+  assert.equal((await inbox(s)).lessons.length, 1);
 });

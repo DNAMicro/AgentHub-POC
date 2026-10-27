@@ -822,8 +822,8 @@ function handle(event, { live = true } = {}) {
       clearScreen();
     } else if (type === 'classroom_reset') {
       // Part 9: New conversation also cleared every student's lessons and messages (here, at the Hub and
-      // at the Professor); say so, and say if a part of it couldn't be reached.
-      if (data.classroom) {
+      // at the Professor). A clean reset needs no note; only say so if a part of it couldn't be reached.
+      if (data.classroom && data.classroom !== 'reset') {
         const note = { reset: 'Every student’s lessons and messages were cleared; the professor sends them again.', hub_unreachable: 'Your inbox was cleared, but the university Hub couldn’t be reached, so other students’ lessons and the professor’s list were not reset.', hub_error: 'Your inbox was cleared, but the Hub refused the reset.', professor_unreachable: 'Lessons were cleared at the Hub and here, but the professor’s posted list couldn’t be reached.' }[data.classroom] ?? data.classroom;
         student({ dir: data.classroom === 'reset' ? 'info' : 'error', label: 'New conversation', text: note, ids: {} });
       }

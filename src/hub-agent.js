@@ -15,7 +15,7 @@ import express from 'express';
 import { Role, TaskState, AGENT_CARD_PATH, A2A_PROTOCOL_VERSION } from '@a2a-js/sdk';
 import { AgentEvent, DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
-import { hostGuard } from './local-guard.js';
+import { hostGuard, sameOriginGuard } from './local-guard.js';
 import { loadHubConfig } from './config.js';
 import { apiHost, keyEnvName, useModel } from './llm.js';
 import { createHubRegistry } from './hub-registry.js';
@@ -503,6 +503,11 @@ export function startHubServer({ port } = {}) {
       });
       // Developer skill settings, proxied to the specialist's TRUSTED settings URL (local developer controls).
       const dev = express.Router();
+      // State-changing developer routes are called by the UI server (no Origin header). A browser request
+      // from another site carries one, so it is refused — no web page can reset the classroom, post as the
+      // professor or change skills through the Hub (cross-site request forgery).
+      const guardOrigin = sameOriginGuard(actualPort);
+      dev.use((req, res, next) => (req.method === 'GET' ? next() : guardOrigin(req, res, next)));
       dev.use(express.json({ limit: '64kb' }));
       const proxy = (path, method) => async (req, res) => {
         const peer = registry.peer(req.params.agentId);

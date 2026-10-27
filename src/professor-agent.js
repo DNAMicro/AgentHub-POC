@@ -14,13 +14,13 @@ import express from 'express';
 import { Role, AGENT_CARD_PATH, A2A_PROTOCOL_VERSION } from '@a2a-js/sdk';
 import { AgentEvent, DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
-import { hostGuard } from './local-guard.js';
+import { hostGuard, sameOriginGuard } from './local-guard.js';
 import { createSkillService } from './agent-settings.js';
 import { loadSpecialistConfig } from './config.js';
 import { createHubLink } from './hub-link.js';
 import { LlmError, apiHost, keyEnvName, useModel } from './llm.js';
 import { COURSE, PROFESSOR_DEFAULT_SKILLS, SEED_LESSONS } from './course-pack.js';
-import { PROFESSOR_MODE, interpretProfessor, professorReply, professorStatus, tagsIn } from './professor-model.js';
+import { PROFESSOR_MODE, classifyPost, interpretProfessor, professorReply, professorStatus, tagsIn } from './professor-model.js';
 import { datesIn } from './a2ui-catalog.js';
 import { createJsonStore } from './json-store.js';
 import { AUDIENCE, ID, LESSON_PUBLISH_MEDIA_TYPE, LESSON_STATUS_MEDIA_TYPE, contentHash, validateLesson } from './lessons.js';
@@ -156,6 +156,13 @@ async function createPost({ operationId, kind = 'lesson', title = '', text, audi
 //   * no date may appear in the text that the professor didn't write (or that isn't in a course lesson).
 const norm = (t) => String(t ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 let chatBusy = false;
+let resetGeneration = 0; // bumped by a classroom reset, so a chat turn in flight can tell it happened
+// The professor talks to students directly: a message without @assistant goes out as written — to the
+// tagged student(s), or to the whole class when nobody is tagged — and appears as the professor's own
+// message with each student's delivery state (no assistant reply). The model only names it (lesson or
+// message, and a title). With @assistant the professor asks the course assistant for help: it decides
+// post / answer / clarify and code checks its decision (checkPost) before anything is sent.
+const ASSISTANT_TAG = /(^|\s)@assistant\b[\s,:]*/i;
 async function professorChat({ operationId, text }) {
   if (typeof operationId !== 'string' || !ID.test(operationId)) return { http: 400, body: { error: 'Missing or malformed operation id.' } };
   const said = typeof text === 'string' ? text.trim() : '';
@@ -167,43 +174,68 @@ async function professorChat({ operationId, text }) {
   chatBusy = true;
   try {
     const at = new Date().toISOString();
-    outbox.update((s) => { s.chat.push({ id: `${operationId}:p`, role: 'professor', text: said, at }); });
+    const generation = resetGeneration;
+    const toAssistant = ASSISTANT_TAG.test(said);
+    outbox.update((s) => { s.chat.push({ id: `${operationId}:p`, role: 'professor', text: said, at, toAssistant }); });
     const hub = await hubView();
     const roster = (hub?.courses?.find((c) => c.courseId === COURSE.courseId)?.enrolled ?? []).map((st) => ({ studentId: st.studentId, name: st.name ?? st.studentId, online: st.online }));
-    const nameOf = (id) => roster.find((x) => x.studentId === id)?.name ?? id;
-    const posts = postsView(hub).map((l) => ({ title: l.title, kind: l.kind, audience: l.audience === 'all' ? 'all' : nameOf(l.audience), sentAt: l.createdAt, deliveries: l.deliveries.map((d) => ({ name: nameOf(d.studentId), state: d.state, opened: d.opened })) }));
-    const recentChat = outbox.get().chat.slice(-8, -1);
-    let decision;
-    try {
-      decision = await interpretProfessor({ text: said, roster, seeds: SEED_LESSONS, posts, recent: recentChat, emit: (type, data) => emitViz(type, null, data) });
-    } catch (err) {
-      decision = { action: 'error', reply: `I couldn't work that out right now (${err.message ?? 'model error'}). Nothing was sent.` };
-    }
-    const result = { reply: decision.reply, action: decision.action, post: null, check: null };
-    if (decision.action === 'post') {
-      const checked = checkPost(decision, said, roster, recentChat);
-      if (checked.problem) {
-        Object.assign(result, { action: 'clarify', reply: checked.problem, check: checked.code });
-      } else {
-        const r = await createPost({ operationId, ...checked.post, source: 'chat' });
-        if (r.body.lesson && r.body.ack?.status !== 'rejected') {
-          result.post = { key: lessonKey(r.body.lesson.lessonId, r.body.lesson.revision) };
-          if (checked.corrected) result.reply = `${result.reply} (${checked.corrected})`;
-        } else {
-          Object.assign(result, { action: 'error', reply: `Nothing was sent: ${r.body.ack?.reason ?? Object.values(r.body.errors ?? {})[0] ?? 'refused'}.` });
-        }
-      }
-    }
+    const result = toAssistant ? await assistantTurn({ operationId, said, roster, hub }) : await directPost({ operationId, said, roster });
     outbox.update((s) => {
-      s.chat.push({ id: `${operationId}:a`, role: 'assistant', text: result.reply, at: new Date().toISOString(), action: result.action, postKey: result.post?.key ?? null, model: decision.model ?? null });
+      // A reset while this was worked on cleared the chat: keep the professor's message.
+      if (generation !== resetGeneration && !s.chat.some((m) => m.id === `${operationId}:p`)) s.chat.push({ id: `${operationId}:p`, role: 'professor', text: said, at, toAssistant });
+      const own = s.chat.find((m) => m.id === `${operationId}:p`);
+      if (!toAssistant) Object.assign(own, { postKey: result.post?.key ?? null, problem: result.post ? null : result.reply });
+      else s.chat.push({ id: `${operationId}:a`, role: 'assistant', text: result.reply, at: new Date().toISOString(), action: result.action, postKey: result.post?.key ?? null, model: result.model ?? null });
       s.chat = s.chat.slice(-200);
       s.chatOps[operationId] = result;
     });
-    emitViz('professor_chat', null, { action: result.action, check: result.check, kind: result.post ? decision.kind : null });
+    emitViz('professor_chat', null, { action: result.action, check: result.check ?? null, kind: result.kind ?? null, viaAssistant: toAssistant });
     return { http: 200, body: result };
   } finally {
     chatBusy = false;
   }
+}
+
+// No @assistant: send the professor's words as written. Tags pick the students; no tag = the whole class.
+async function directPost({ operationId, said, roster }) {
+  const { tagged } = tagsIn(said, roster);
+  const text = said.replace(/^\s*(@[\w-]+[\s,:]*)+/, '').trim();
+  if (!text) return { action: 'error', reply: 'Write the message after the tag — nothing was sent.', post: null };
+  // A tag starts the message or follows a space — the @ inside an email address (alex@example.com) isn't one.
+  const unknownTag = [...said.matchAll(/(?:^|\s)@([\w-]+)/g)].map((m) => m[1].toLowerCase()).find((h) => !roster.some((x) => [x.studentId, x.name.split(' ')[0].toLowerCase()].includes(h)));
+  if (unknownTag && /^\s*@/.test(said)) return { action: 'error', reply: `There's no @${unknownTag} in Marketing 101, so nothing was sent.`, post: null };
+  const audience = tagged.length ? tagged.map((x) => x.studentId).join(',') : 'all';
+  const named = await classifyPost({ text, emit: (type, data) => emitViz(type, null, data) });
+  const r = await createPost({ operationId, kind: named.kind, title: named.title, text, audience, source: 'chat', verbatim: true });
+  if (!r.body.lesson || r.body.ack?.status === 'rejected') return { action: 'error', reply: `Nothing was sent: ${r.body.ack?.reason ?? Object.values(r.body.errors ?? {})[0] ?? 'refused'}.`, post: null };
+  return { action: 'post', reply: null, post: { key: lessonKey(r.body.lesson.lessonId, r.body.lesson.revision) }, kind: named.kind };
+}
+
+// @assistant: the course assistant decides (post / answer / clarify); code checks a post before it's sent.
+async function assistantTurn({ operationId, said, roster, hub }) {
+  const nameOf = (id) => id.split(',').map((x) => roster.find((r) => r.studentId === x)?.name ?? x).join(', ');
+  const posts = postsView(hub).map((l) => ({ title: l.title, kind: l.kind, audience: l.audience === 'all' ? 'all' : nameOf(l.audience), sentAt: l.createdAt, deliveries: l.deliveries.map((d) => ({ name: nameOf(d.studentId), state: d.state, opened: d.opened })) }));
+  const recentChat = outbox.get().chat.slice(-8, -1);
+  const request = said.replace(ASSISTANT_TAG, ' ').trim();
+  let decision;
+  try {
+    decision = await interpretProfessor({ text: request, roster, seeds: SEED_LESSONS, posts, recent: recentChat, emit: (type, data) => emitViz(type, null, data) });
+  } catch (err) {
+    decision = { action: 'error', reply: `I couldn't work that out right now (${err.message ?? 'model error'}). Nothing was sent.` };
+  }
+  const result = { reply: decision.reply, action: decision.action, post: null, check: null, model: decision.model ?? null, kind: decision.kind ?? null };
+  if (decision.action === 'post') {
+    const checked = checkPost(decision, request, roster, recentChat);
+    if (checked.problem) return { ...result, action: 'clarify', reply: checked.problem, check: checked.code };
+    const r = await createPost({ operationId, ...checked.post, source: 'chat' });
+    if (r.body.lesson && r.body.ack?.status !== 'rejected') {
+      result.post = { key: lessonKey(r.body.lesson.lessonId, r.body.lesson.revision) };
+      if (checked.corrected) result.reply = `${result.reply} (${checked.corrected})`;
+    } else {
+      Object.assign(result, { action: 'error', reply: `Nothing was sent: ${r.body.ack?.reason ?? Object.values(r.body.errors ?? {})[0] ?? 'refused'}.` });
+    }
+  }
+  return result;
 }
 
 function checkPost(d, said, roster, recentChat) {
@@ -214,9 +246,9 @@ function checkPost(d, said, roster, recentChat) {
   let corrected = null;
   // A tag the professor wrote is authoritative.
   if (tagged.length === 1 && !allWords && audience !== tagged[0].studentId) { audience = tagged[0].studentId; corrected = `sent to ${tagged[0].name}, whom you tagged`; }
-  if (tagged.length > 1 && !allWords) return { problem: `You tagged ${tagged.map((x) => x.name).join(' and ')} — I can send to one student or the whole class. Which should it be?`, code: 'several_tagged' };
+  if (tagged.length > 1 && !allWords) { audience = tagged.map((x) => x.studentId).join(','); corrected = `sent to ${tagged.map((x) => x.name).join(' and ')}, whom you tagged`; }
   if (!audience) return { problem: 'Who should get it — one student (tag them, like @alex) or the whole class?', code: 'unknown_audience' };
-  if (audience !== 'all' && ![...tagged, ...named].some((x) => x.studentId === audience)) return { problem: `Should this go to ${roster.find((x) => x.studentId === audience)?.name ?? audience} only? Tag them (@${(roster.find((x) => x.studentId === audience)?.name ?? '').split(' ')[0].toLowerCase()}) or say “everyone”.`, code: 'untagged_student' };
+  if (audience !== 'all' && !audience.includes(',') && ![...tagged, ...named].some((x) => x.studentId === audience)) return { problem: `Should this go to ${roster.find((x) => x.studentId === audience)?.name ?? audience} only? Tag them (@${(roster.find((x) => x.studentId === audience)?.name ?? '').split(' ')[0].toLowerCase()}) or say “everyone”.`, code: 'untagged_student' };
   // Content: a course lesson, the professor's own words, or text written from their instruction.
   let text = d.content;
   let verbatim = d.verbatim;
@@ -256,6 +288,7 @@ function authorRouter() {
   // and the remembered conversations go; the professor sends again. (The browser keeps any unsent draft.)
   router.post('/author/reset', (req, res) => {
     outbox.update((s) => { s.lessons = {}; s.operations = {}; s.chat = []; s.chatOps = {}; });
+    resetGeneration += 1;
     recent.clear();
     emitViz('lessons_reset', null, {});
     res.json({ status: 'reset' });
@@ -320,6 +353,9 @@ export function startProfessorServer({ port = 41244 } = {}) {
       app.use(JSONRPC_PATH, jsonRpcHandler({ requestHandler, userBuilder: UserBuilder.noAuthentication }));
       app.get('/viz/events', serveVizEvents);
       app.use(skillService.router());
+      // The authoring routes are called by the Hub (no Origin header); a cross-site browser POST is refused.
+      const guardOrigin = sameOriginGuard(actualPort);
+      app.use('/author', (req, res, next) => (req.method === 'GET' ? next() : guardOrigin(req, res, next)));
       app.use(authorRouter());
       skillService.started(actualPort, `${baseUrl}/${AGENT_CARD_PATH}`);
       hubLink.start();

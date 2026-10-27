@@ -26,7 +26,8 @@ export const LIMITS = { title: 120, text: 4000 };
 // “Homework is late”). Its audience is one enrolled student or 'all' — every student enrolled in the
 // course, resolved by the Hub from its own enrollment data (never from a list the professor supplies).
 export const POST_KINDS = ['lesson', 'message'];
-export const AUDIENCE = /^(all|[a-z][a-z0-9-]{1,40})$/;
+// 'all', one student id, or several (comma-separated) — each must be enrolled (checked by the Hub).
+export const AUDIENCE = /^(all|[a-z][a-z0-9-]{1,40}(,[a-z][a-z0-9-]{1,40}){0,49})$/;
 export const ID = /^[\w-]{6,80}$/;
 
 // HMAC over a list of fields (joined with |). Keys are per-process, in memory, never logged.
