@@ -11,7 +11,7 @@ The goal is to demonstrate that communication can begin on either side. A studen
 **First settle the two open decisions left by Step 8** (asked at the start of this step; your answers):
 - **Student → Hub identity: authenticate it with per-process keys.** Both the Professor (as a specialist, already) and the Student agent give the Hub a random key when they register. The Hub verifies the Professor's publishes, signs every delivery to the Student, and requires the Student's signature on every request it receives.
 - **Generated UI inspector: structure only by default.** Full model text is relayed only with `HUB_TELEMETRY_SHOW_CONTENT=1`.
-- **Professor view:** a new fourth tab in the same app (`/professor`), proxied server-side through the Hub to the Professor agent's authoring API.
+- **Professor view:** a new fourth tab in the same app (`/professor`), proxied server-side through the Hub to the Professor agent's authoring API. Confirmed again at the end of the step (“keep it as a tab”): don't move it to the Professor's own address.
 
 ## 1. ADD ONE MARKETING 101 PROFESSOR AGENT
 
