@@ -1,4 +1,4 @@
-// Companion teaching site for the A2A spike — a static site, independent of the application.
+// Companion teaching site for AgentHub-POC — a static site, independent of the application.
 // Serves ./public on http://localhost:4440 (bound to 127.0.0.1 only). No API keys, no model calls,
 // no backend of the application needed. If port 4440 is taken it says so and exits: it never picks
 // another port or stops whatever is using it.
@@ -17,7 +17,9 @@ const TYPES = {
 
 const server = createServer(async (req, res) => {
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405, { Allow: 'GET, HEAD' }).end(); return; }
-  const path = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+  // A malformed address (e.g. "/%E0%A4%A") must get a 400, not crash the server.
+  let path;
+  try { path = decodeURIComponent(new URL(req.url, 'http://localhost').pathname); } catch { res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Bad request'); return; }
   // Every page is the single index.html (the site routes with #/… addresses); files are served as-is.
   const rel = path === '/' ? 'index.html' : path.slice(1);
   const file = normalize(join(ROOT, rel));
@@ -37,4 +39,4 @@ server.on('error', (err) => {
   else console.error(`Could not start the companion site: ${err.message}`);
   process.exit(1);
 });
-server.listen(PORT, HOST, () => console.log(`A2A spike companion site: http://localhost:${PORT}  (Ctrl+C to stop)`));
+server.listen(PORT, HOST, () => console.log(`AgentHub-POC companion site: http://localhost:${PORT}  (Ctrl+C to stop)`));
