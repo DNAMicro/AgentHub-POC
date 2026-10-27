@@ -6,6 +6,40 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A protocol-connectivity spike: two separate Node.js processes talk over the real A2A protocol (v1.0, JSON-RPC binding) using `@a2a-js/sdk` 1.3.0. `src/tutor-agent.js` is the A2A server (Agent B); `src/student-agent.js` is the A2A client (Agent A). `src/ui-server.js` + `public/` add a browser monitor that hosts the Student in-process and visualizes the exchange. Part 3 adds an A2UI v0.9 form the Tutor sends inside A2A and the browser renders with the official `@a2ui/lit` renderer. Part 4 lets the Tutor answer chat with Claude Haiku 5.5 (`claude-haiku-5-5`, `@anthropic-ai/sdk` 1.3.0) in `TUTOR_MODE=live`; the default `fixed` mode keeps the deterministic Part 1 reply. Part 5 adds a deterministic **Library Agent** (`src/library-agent.js`, :41242), **routing** (`src/router.js`) over a trusted registry, editable per-agent **skill configurations** (`src/skills.js`, `src/agent-settings.js`) with `agent_card_changed` notifications (Part 7: to the Hub, not the Student), and **scope enforcement** on the receiving agents. Part 6 lets agents send A2UI workflow forms when asked in chat. Part 7 adds the **University Hub** (`src/hub-agent.js`, :41243, public name “California State University Fullerton”): the Student talks only to the Hub, which holds the private registry (`src/hub-registry.js`), runs the router, forwards/relays over A2A, maps forms by opaque `formRef`, and feeds the browser's tabs (Conversation, Agent activity, live Topology). Part 8 lets the Library's model compose loan-renewal UI from the A2UI catalog. Part 9 adds the **Marketing 101 Professor** (`src/professor-agent.js`, :41244) behind the Hub; it answers questions and **posts lessons** Professor → Hub → Student as new signed A2A interactions into the Student agent's persisted inbox (inbound endpoint on the UI server), with a fourth **Professor view** tab. See README.md for the hop-by-hop walkthrough and version rationale.
 
+## Most important rule
+- EVERYTHING you say must be based on evidence and not assumption.
+- You must always check with your eyes anything you work on to ensure that the result matches what the tools output if not you must fix both the tools and the work Never realy on someone else's word..
+- When asking question you must ask one question at a time in chat format so I have the opporunity to discuss and get clarification.
+- Always timestamp your messages in the format of "%A, %b %d, %Y %I:%M %p %Z" based on the local machine's timezone.
+
+## Before anything how to communicate
+From now on, explain things in a plain-English tone. Easy to understand, like a clear explanation to a developer who knows the project but does not want dense technical language.
+Rules:
+- Use simple words and language.
+- Always start by giving background and context.
+- Avoid heavy jargon unless it is necessary.
+- When you use a technical term, explain it briefly.
+- Prefer short sentences.
+- Explain what happened, why it matters, and what we should do next.
+- Do not overuse words like "lever," "inert," "confounded," "axis," "governance
+  fields," or "slot mechanics" unless you explain them simply.
+- Replace abstract language with concrete meaning.
+- Use small tables only when they make the answer clearer.
+- Always end with a clear recommendation.
+Format every update like this:
+1. **What happened**
+2. **What it means**
+3. **What is risky**
+4. **My recommendation**
+5. **What I am going to do**
+5. **Next prompt required from you*
+When summarizing diagnostics, separate:
+- facts we proved,
+- guesses or interpretations,
+- what still needs testing.
+Keep the tone calm, clear, and practical. Do not sound like an academic paper or
+internal research log.
+
 ## Commands
 
 ```bash
