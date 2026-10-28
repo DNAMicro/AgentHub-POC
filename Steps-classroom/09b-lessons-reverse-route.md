@@ -46,6 +46,7 @@ The Professor chat tab, `@assistant`, replies to messages and meetings come in S
    - Hub → Student (`metadata.hubSignature`, Student's session key): delivery `['delivery', studentId, deliveryId, lessonId, revision, contentHash]`, query `['query', studentId, deliveryId]`, notice `['notice', studentId, noticeId]`.
 6. **Event names** (each side emits only its own):
    - Hub: `student_session`, `lesson_publish_received`, `lesson_rejected`, `lesson_delivery_attempted`, `lesson_delivered`, `lesson_queued`, `lesson_uncertain`, `lesson_reconciled`, `lesson_failed`, `lesson_opened`, `course_available_sent`, `classroom_reset`, `lesson_route_rejected`.
+   - Both sides' `student_session` event carries `status` (`registered` | `rejected` | …) and `reason`, never `state`; the topology label reads `status`.
    - Student: `student_session`, `lesson_received`, `lesson_opened`, `course_available`, `inbox_reset`.
    - Professor: `lesson_posted`, `lesson_publish_result`, `lessons_reset`.
 
@@ -179,7 +180,7 @@ The Professor chat tab, `@assistant`, replies to messages and meetings come in S
 1. `startHub` gives `HUB_LESSON_FILE` a temp file and sets `HUB_TEST_STUDENTS_WITHOUT_ENDPOINT=1`. `startUi` gives `STUDENT_INBOX_FILE` a temp file. `startProfessor` gives `PROFESSOR_OUTBOX_FILE` a temp file. Never touch `data/*.json`.
 2. `startStack` always pre-picks the UI port and gives the Hub `STUDENT_URL`, so the challenge reaches the test UI. Set `HUB_DELIVER_RETRY_MS=500`. Wait until `/api/status` shows `student.session === 'registered'`.
 3. Add `signedStudent(hubUrl, studentId)`. It registers a session with `endpoint: null` and returns `{ metadata: { studentId }, signer }`. Use it only for students with no configured endpoint (for example `student-sam` via `HUB_STUDENTS`).
-4. Update existing tests that called the Hub directly as `student-alex` (`test/hub.test.js`, `test/form.test.js`, `test/student-model.test.js`) to use `signedStudent`. A second UI for `student-alex` is now refused; such a test starts its own stack.
+4. Update existing tests that called the Hub directly as `student-alex` (`test/hub.test.js`, `test/form.test.js`, `test/student-model.test.js`) to use `signedStudent`. A second UI for `student-alex` is now refused; such a test starts its own stack. This includes `test/ui.test.js`: any test there that starts another UI against the shared stack must start its own stack instead.
 5. A stopped process may have `exitCode === null` (killed by a signal). Check `signalCode` too before awaiting `exit`.
 6. `test/professor.test.js` (mock Professor and router; labelled plumbing, not judgment) checks:
    - a marketing question reaches the Professor through the Hub;

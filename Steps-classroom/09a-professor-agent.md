@@ -33,6 +33,7 @@ This step adds no lessons, inbox or signing of Student requests. Those come in S
    { "agentId": "professor", "runId": "…",
      "professor": { "outcome": "answer|clarify|out_of_scope", "mode": "mock|live", "model": "…", "usage": null, "lessonId": null, "topics": ["pricing"] } }
    ```
+   The lead also updates the reply object in `src/student-agent.js` (no task owns that file) to copy `professor: result.metadata?.professor ?? null`, next to `tutor` and `library`. Otherwise the Student drops it.
 5. Fix the model function signature in `src/professor-model.js` (stub body is fine until Task A fills it):
    ```js
    export const PROFESSOR_MODE; // 'mock' (default) | 'live', read at import
@@ -56,7 +57,7 @@ This step adds no lessons, inbox or signing of Student requests. Those come in S
 
 1. `src/course-pack.js` is a small, **original** knowledge pack for a fictional course. Don't copy any textbook.
 2. `COURSE = { courseId: 'mkt-101', title: 'Marketing 101', professorName: 'Marketing 101 Professor', note }`. The `note` says it is a fictional demo course, not an official CSUF course or approved curriculum.
-3. `TOPICS`: eight entries, one per area, each `{ id, name, tags, explanation, example, sources }`:
+3. `TOPICS`: eight entries, one per area, each `{ id, name, tags, explanation, example, sources }`. Give each topic at most 10 tags: the topics become the Professor's skills, and Step 5's skill limit (10 tags) makes the Professor refuse its own configuration at startup otherwise:
    - `value-and-needs` — marketing, customer needs and value;
    - `buying-behavior` — consumer and organizational buying behavior;
    - `research-and-testing` — marketing research and testing assumptions;

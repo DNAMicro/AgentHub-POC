@@ -92,7 +92,11 @@ Rules for every step:
 - Tests never call the real Anthropic API. They use test/support/fake-anthropic.js via ANTHROPIC_BASE_URL.
 - Use fictional sample data only (Alex Student, alex@example.com).
 - The browser sets text with textContent. Never use innerHTML.
-- Stop a server by port: kill $(lsof -tiTCP:<port> -sTCP:LISTEN). Never use broad pkill patterns.
+- Stop only the servers you started: save $! when you start one in the background and kill that PID,
+  or kill by port (kill $(lsof -tiTCP:<port> -sTCP:LISTEN)) only after checking the port was free
+  before you started. If a port such as 4444 or 41241-41244 is already in use when you begin,
+  don't stop that process (it may be the user's running app): say so and skip that check.
+  Never use broad pkill patterns.
 - When starting live servers from Claude Code, run them with `env -u ANTHROPIC_BASE_URL`
   (Claude Code's shell sets that variable to a local proxy that answers with fake errors).
 ```

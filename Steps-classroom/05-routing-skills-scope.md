@@ -202,7 +202,7 @@ First run `npm test`; Steps 1–4 must pass.
 2. Card fetch:
    - Put `getCard(url, etag, timeoutMs)` and `validateCard(card, peer)` in `src/router.js` and export them. Step 7a moves them unchanged to `src/cards.js`.
    - `getCard` uses **`node:http`, not `fetch`**, sends `If-None-Match`, follows no redirects, and caps the body at 64 KB.
-   - `validateCard` checks: exact name, exactly one JSON-RPC 1.0 interface whose URL equals the registered `rpcUrl`, no security schemes or requirements, and well-formed skills. It reads allowed/excluded from the scope extension.
+   - `validateCard` checks: exact name, exactly one JSON-RPC 1.0 interface whose URL equals the registered `rpcUrl`, no security schemes or requirements, and well-formed skills (at most 16). Each card skill keeps only its first 10 tags of up to 30 characters: extra tags are dropped, never a reason to refuse the card (Step 7a's Library destination has 11 tags). It reads allowed/excluded from the scope extension.
 3. Registry refresh:
    - 304 → `card_refreshed` with `changed: false`.
    - A valid 200 → atomic replace, then `card_refreshed` with `changed: true` and the skills.
