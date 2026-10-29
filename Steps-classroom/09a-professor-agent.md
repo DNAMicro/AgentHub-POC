@@ -40,7 +40,9 @@ This step adds no lessons, inbox or signing of Student requests. Those come in S
    export function professorStatus(); // { mode, model, keyConfigured }
    export async function professorReply({ question, policy, lesson = null, recent = [], emit = () => {} });
    // → { kind: 'answer'|'clarify'|'out_of_scope', text, topicIds, model, usage }
+   // lesson: null or a post { lessonId, revision, kind: 'lesson'|'message', title, text, check? }.
    ```
+   A lesson reaches the model only as its `title` and `text`; `check` is optional and used only by the mock. A course lesson's objective, explanation and example are already written into its `text` (Step 9c), so the prompt never has separate "Objective:" or "Example:" lines, which would be empty for an ordinary post.
 6. Fix the course-pack exports in `src/course-pack.js`: `COURSE`, `TOPICS`, `SEED_LESSONS`, `PROFESSOR_DEFAULT_SKILLS`.
 7. Add the `professor` role to the specialist roles in `src/config.js` yourself, so Task B can load its config before Task C finishes: `professor: { port: 41244, displayName: 'Marketing 101 Professor', file: 'PROFESSOR_CONFIG', model: 'PROFESSOR_MODEL', label: 'Professor' }`.
 

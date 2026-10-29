@@ -120,7 +120,7 @@ The Professor chat tab, `@assistant`, replies to messages and meetings come in S
 41. `GET /author/state`: first re-send, with the **same operation id**, every post the Hub never accepted whose `hubStatus` is `uncertain` or `not_delivered`. Then return `{ course, roster, hubReachable, seeds, lessons }`. Each post carries its per-student deliveries from the signed status read.
 42. `POST /author/lessons` → `createPost`. `POST /author/reset` clears the outbox and emits `lessons_reset`.
 43. Guard every non-GET `/author` route with `sameOriginGuard`. The callers are servers and send no Origin.
-44. Answering: when `metadata.lessonId` and `lessonRevision` name a post whose `recipients` include the Hub-verified student, pass it as `lesson` to `professorReply`. Otherwise use no lesson. Put `lessonId` in `metadata.professor`.
+44. Answering: when `metadata.lessonId` and `lessonRevision` name a post whose `recipients` include the Hub-verified student, pass that stored post as `lesson` to `professorReply` (the shape from Step 9a: `lessonId`, `revision`, `kind`, `title`, `text`; the model block holds only its title and text). Otherwise use no lesson. Put `lessonId` in `metadata.professor`.
 
 ### Task B — Student side
 
