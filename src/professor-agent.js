@@ -57,7 +57,7 @@ const postedTo = (student) => (student ? Object.values(outbox.get().lessons)
   .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)) || b.revision - a.revision)
   .filter((l, i, all) => all.findIndex((x) => x.lessonId === l.lessonId) === i)
   .slice(0, 5) : []);
-const NEEDS_PROFESSOR_TEXT = `I’ve passed this on to ${COURSE.professorName}. You’ll see their reply right here in the chat.`;
+const NEEDS_PROFESSOR_TEXT = `I’ve passed this on to ${COURSE.professorName}, who will get back to you.`;
 const NOT_PASSED_TEXT = `I couldn’t pass this on to ${COURSE.professorName} because the university couldn’t verify your request.`;
 async function handleChat(ctx, bus, runId) {
   const incoming = ctx.userMessage;
@@ -86,7 +86,7 @@ async function handleChat(ctx, bus, runId) {
   if (lesson && lesson.kind === 'message' && author === 'professor') {
     recordReply(incoming.messageId, { studentId: student, text: question, about, relayed: true });
     emitViz('student_reply', runId, { lessonId: lesson.lessonId, relayed: true });
-    const text = `You’ll see ${COURSE.professorName}’s reply right here in the chat.`;
+    const text = `${COURSE.professorName} will get back to you.`;
     metadata.professor = { name: COURSE.professorName, outcome: 'relayed', mode: PROFESSOR_MODE, model: null, usage: null, lessonId: lesson.lessonId, topics: [] };
     return publishReply(ctx, bus, runId, incoming, text, metadata);
   }
