@@ -487,6 +487,12 @@ test('a course question the assistant can’t answer goes to the professor’s c
       const chat = (await professorState(s)).chat;
       assert.ok(chat.some((m) => m.role === 'student' && m.studentId === 'student-alex' && m.text === question), 'the question is in the professor’s chat');
       assert.ok(chat.some((m) => m.action === 'answer_student' && m.to === 'student-alex' && m.needsProfessor), 'flagged: needs the professor’s answer');
+
+      // An unsigned caller (straight to the Professor, not through the Hub) is nobody: nothing reaches the chat.
+      const entries = (await professorState(s)).chat.length;
+      const direct = await askTutor(s.professor.url, 'When is the homework due?', {});
+      assert.match(direct.text, /couldn’t pass your question on/);
+      assert.equal((await professorState(s)).chat.length, entries, 'no anonymous entry in the professor’s chat');
     } finally {
       stream.close();
     }

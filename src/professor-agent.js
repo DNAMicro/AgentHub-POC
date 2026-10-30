@@ -58,6 +58,7 @@ const postedTo = (student) => (student ? Object.values(outbox.get().lessons)
   .filter((l, i, all) => all.findIndex((x) => x.lessonId === l.lessonId) === i)
   .slice(0, 5) : []);
 const NEEDS_PROFESSOR_TEXT = 'I don’t have that answer here, so I’ve sent your question to the professor. Their reply will appear here in your chat.';
+const NOT_PASSED_TEXT = 'I don’t have that answer here, and I couldn’t pass your question on because your request wasn’t verified by the university.';
 async function handleChat(ctx, bus, runId) {
   const incoming = ctx.userMessage;
   const question = textOf(incoming).slice(0, 2000);
@@ -95,8 +96,9 @@ async function handleChat(ctx, bus, runId) {
     const r = await professorReply({ question, policy: policy(), lesson, posts: lesson ? [] : postedTo(student), recent: recent.get(ctx.contextId) ?? [], onBehalf, emit: (type, data) => emitViz(type, runId, data) });
     // Not answerable here → the professor's chat. The student is told so in fixed words (on the professor's
     // behalf the assistant's own sentence already says it was passed on).
-    const handOver = r.kind === 'needs_professor';
-    text = handOver && !onBehalf ? NEEDS_PROFESSOR_TEXT : r.text;
+    // Only a student the Hub signed can be put in the professor's chat (an unsigned caller isn't anyone).
+    const handOver = r.kind === 'needs_professor' && Boolean(student);
+    text = handOver && !onBehalf ? NEEDS_PROFESSOR_TEXT : r.kind === 'needs_professor' && !student ? NOT_PASSED_TEXT : r.text;
     // A hand-over is the course assistant speaking for the professor (the chat labels it so).
     metadata.professor = { outcome: r.kind, mode: PROFESSOR_MODE, model: r.model, usage: r.usage, lessonId: lesson?.lessonId ?? null, topics: r.topicIds, ...(onBehalf || handOver ? { onBehalf: true } : {}) };
     if (lesson || handOver) {
@@ -115,6 +117,7 @@ async function handleChat(ctx, bus, runId) {
 // A student's reply in the professor's chat (and the assistant's answer to it, when it gave one). Keyed by
 // the incoming message id, so a repeated delivery of the same request is recorded once.
 function recordReply(messageId, student, answer = null) {
+  if (!student?.studentId) return; // never an entry without a Hub-verified student
   const at = new Date().toISOString();
   outbox.update((s) => {
     if (s.chat.some((m) => m.id === `${messageId}:s`)) return;
