@@ -126,6 +126,14 @@ function recordReply(messageId, student, answer = null) {
     s.chat = s.chat.slice(-200);
   });
 }
+// A hand-over = a student's message (`<id>:s`) whose assistant entry (`<id>:r`) has needsProfessor. The
+// professor's reply marks it answered (answeredAt on the assistant entry); never another student's.
+function markAnswered(s, studentId, entryId, at) {
+  const waiting = (m) => m.role === 'assistant' && m.needsProfessor && !m.answeredAt && m.to === studentId;
+  const chosen = entryId && s.chat.find((m) => m.id === entryId.replace(/:s$/, ':r') && waiting(m));
+  const target = chosen ?? s.chat.findLast(waiting);
+  if (target) target.answeredAt = at;
+}
 // One booking per student per meeting, one student per time: a synchronous check-and-set (no await
 // between the check and the write). A repeat of the same choice returns the same booking.
 function bookSlot(meetingId, slotId, student) {
@@ -254,8 +262,10 @@ let resetGeneration = 0; // bumped by a classroom reset, so a chat turn in fligh
 // post / answer / clarify and code checks its decision (checkPost) before anything is sent.
 const ASSISTANT_TAG = /(^|\s)@assistant\b[\s,:]*/i;
 // replyTo: a student id — the professor answering that student's reply (the reply icon in the Professor
-// view). It goes to that student only, as the professor's own message.
-async function professorChat({ operationId, text, replyTo = null }) {
+// view). It goes to that student only, as the professor's own message. answers: the chat id of the
+// student's message being answered; a sent reply marks that hand-over (or else the student's newest
+// waiting one) answered.
+async function professorChat({ operationId, text, replyTo = null, answers = null }) {
   if (typeof operationId !== 'string' || !ID.test(operationId)) return { http: 400, body: { error: 'Missing or malformed operation id.' } };
   const said = typeof text === 'string' ? text.trim() : '';
   if (!said) return { http: 400, body: { error: 'Write something first.' } };
@@ -286,6 +296,7 @@ async function professorChat({ operationId, text, replyTo = null }) {
       const own = s.chat.find((m) => m.id === `${operationId}:p`);
       if (!viaAssistant) Object.assign(own, { postKey: result.post?.key ?? null, problem: result.post ? null : result.reply });
       else s.chat.push({ id: `${operationId}:a`, role: 'assistant', text: result.reply, at: new Date().toISOString(), action: result.action, postKey: result.post?.key ?? null, model: result.model ?? null });
+      if (reply && result.post) markAnswered(s, reply, typeof answers === 'string' ? answers : null, own.at);
       s.chat = s.chat.slice(-200);
       s.chatOps[operationId] = result;
     });

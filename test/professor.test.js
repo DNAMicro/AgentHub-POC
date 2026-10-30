@@ -490,6 +490,14 @@ test('a course question the assistant can’t answer goes to the professor’s c
       assert.ok(chat.some((m) => m.role === 'student' && m.studentId === 'student-alex' && m.text === question), 'the question is in the professor’s chat');
       assert.ok(chat.some((m) => m.action === 'answer_student' && m.to === 'student-alex' && m.needsProfessor), 'flagged: needs the professor’s answer');
 
+      // The professor's Reply on that question marks it answered (the Professor view's green "✓ Answered").
+      const asked = chat.find((m) => m.role === 'student' && m.text === question);
+      const handedOver = () => professorState(s).then((st) => st.chat.find((m) => m.id === asked.id.replace(/:s$/, ':r')));
+      assert.equal((await handedOver()).answeredAt, undefined, 'waiting until the professor replies');
+      const back = await post(`${s.ui.url}/api/professor/chat`, { operationId: `op-${randomUUID()}`, text: 'Please turn it in by Friday.', replyTo: 'student-alex', answers: asked.id });
+      assert.equal(back.status, 200);
+      assert.ok((await handedOver()).answeredAt, 'answered once the reply was sent');
+
       // An unsigned caller (straight to the Professor, not through the Hub) is nobody: nothing reaches the chat.
       const entries = (await professorState(s)).chat.length;
       const direct = await askTutor(s.professor.url, 'When is the homework due?', {});

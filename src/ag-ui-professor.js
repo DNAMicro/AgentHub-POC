@@ -98,7 +98,7 @@ export function createProfessorAgUi({ bootId, getState, postChat, unreachable })
     const last = [...input.messages].reverse().find((m) => m?.role === 'user');
     const text = typeof last?.content === 'string' ? last.content : '';
     const props = input.forwardedProps && typeof input.forwardedProps === 'object' ? input.forwardedProps : {};
-    const body = { operationId: props.operationId, text, ...(props.replyTo ? { replyTo: props.replyTo } : {}) };
+    const body = { operationId: props.operationId, text, ...(props.replyTo ? { replyTo: props.replyTo } : {}), ...(props.answers ? { answers: props.answers } : {}) };
     const runId = runStart();
     (async () => {
       let result;

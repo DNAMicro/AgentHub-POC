@@ -18,6 +18,7 @@ const el = (tag, { dataset = {}, ...props } = {}, ...children) => {
 };
 const isMessage = (x) => x?.kind === 'message';
 const untitled = (x) => x?.title || (isMessage(x) ? 'Untitled message' : 'Untitled lesson');
+const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 const when = (iso) => (iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
 const store = {
   get(key) { try { return JSON.parse(localStorage.getItem(key) ?? 'null'); } catch { return null; } },
@@ -199,6 +200,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     view: $('view-professor'), log: $('prof-log'), form: $('prof-form'), input: $('prof-message'), send: $('prof-send'), error: $('prof-error'),
     roster: $('prof-roster'), course: $('author-course'), mentions: $('mention-list'),
     replyChip: $('prof-reply-chip'), replyName: $('prof-reply-name'), replyClear: $('prof-reply-clear'),
+    waiting: $('prof-waiting'),
   };
   const follow = followLog(pv.log);
   const DRAFT_KEY = 'a2a-spike:professor-draft';
@@ -208,14 +210,16 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
   let pending = null; // { text, operationId } while a message is being worked on
   let lastRendered = '';
   let replyingTo = null; // a student id: the professor's next message goes to that student only
-  function setReplyingTo(studentId) {
+  let answering = null; // the chat id of the student's message that Reply was pressed on (a hand-over)
+  function setReplyingTo(studentId, entryId = null) {
     replyingTo = studentId;
+    answering = studentId ? entryId : null;
     pv.replyChip.hidden = !studentId;
     pv.replyName.textContent = studentId ? nameOf(studentId) : '';
     if (studentId) pv.input.focus();
   }
   pv.replyClear.addEventListener('click', () => setReplyingTo(null));
-  const replyButton = (studentId) => el('button', { type: 'button', className: 'reply-action', textContent: '↩ Reply', title: `Reply to ${nameOf(studentId)} only`, ariaLabel: `Reply to ${nameOf(studentId)}`, onclick: () => setReplyingTo(studentId) });
+  const replyButton = (studentId, entryId = null) => el('button', { type: 'button', className: 'reply-action', textContent: '↩ Reply', title: `Reply to ${nameOf(studentId)} only`, ariaLabel: `Reply to ${nameOf(studentId)}`, onclick: () => setReplyingTo(studentId, entryId) });
   let attempt = store.get(`${DRAFT_KEY}:attempt`); // a retry of the same text reuses its operation id
   pv.input.value = store.get(DRAFT_KEY) ?? '';
   const firstName = (st) => (st.name ?? st.studentId).split(' ')[0];
@@ -278,6 +282,17 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     li.append(replyButton(m.studentId));
     return li;
   }
+  // A hand-over (a question the assistant passed to the professor): ONE card — the student's message, one
+  // Reply, and a strip with its state (waiting → answered) and what the assistant told the student.
+  function handover(m, r) {
+    const li = bubble({ dir: 'received', speaker: 'student', label: `${nameOf(m.studentId)} → you`, at: m.at, text: m.text });
+    li.classList.add('student-reply', 'handover');
+    li.dataset.state = r.answeredAt ? 'answered' : 'waiting';
+    li.append(replyButton(m.studentId, m.id), el('p', { className: 'handover-status' },
+      el('strong', { textContent: r.answeredAt ? `✓ Answered at ${clock(r.answeredAt)}` : 'Waiting for your answer' }),
+      el('span', { className: 'told' }, 'Assistant told them ', el('q', { textContent: r.text }))));
+    return li;
+  }
   // The assistant answering a student for the professor — shown so the professor sees every exchange.
   function assistantAnswer(m) {
     const li = bubble({ dir: m.failed ? 'error' : 'info', speaker: 'professor', label: `Course assistant → ${nameOf(m.to)}${m.onBehalf ? ' (for you)' : ''}${m.model && m.model !== 'mock extraction' ? ` · ${m.model}` : ''}`, at: m.at, text: m.text });
@@ -286,8 +301,12 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
   }
   function renderProfessor() {
     const items = [];
+    const handedOver = new Map(chat.filter((m) => m.role === 'assistant' && m.needsProfessor).map((m) => [m.id, m]));
     for (const m of chat) {
-      if (m.role === 'student') items.push(studentReply(m));
+      const r = m.role === 'student' && handedOver.get(m.id.replace(/:s$/, ':r'));
+      if (r) items.push(handover(m, r));
+      else if (m.role === 'student') items.push(studentReply(m));
+      else if (m.role === 'assistant' && m.needsProfessor && chat.some((s) => s.id === m.id.replace(/:r$/, ':s'))) continue; // shown on its card
       else if (m.role === 'assistant' && m.action === 'answer_student') items.push(assistantAnswer(m));
       else if (m.role === 'professor') {
         const p = m.postKey && posts.get(m.postKey);
@@ -305,7 +324,11 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
       items.push(bubble({ dir: 'sent', speaker: 'student', label: pending.replyTo ? `You → ${nameOf(pending.replyTo)}` : 'You', at: new Date().toISOString(), text: pending.text }));
       items.push(el('li', { className: 'chat-pending' }, el('span', { className: 'spinner', ariaHidden: 'true' }), /@assistant\b/i.test(pending.text) ? 'The course assistant is working on it…' : 'Sending…'));
     }
-    const signature = JSON.stringify([chat.length, pending?.text, [...posts.values()].map((p) => [p.key, p.hubStatus, p.deliveries])]);
+    const waiting = [...handedOver.values()].filter((m) => !m.answeredAt).length;
+    pv.waiting.hidden = !waiting;
+    pv.waiting.textContent = String(waiting);
+    pv.waiting.title = `${waiting} question${waiting === 1 ? '' : 's'} waiting for your answer`;
+    const signature = JSON.stringify([chat.length, pending?.text, [...handedOver.values()].map((m) => m.answeredAt ?? null), [...posts.values()].map((p) => [p.key, p.hubStatus, p.deliveries])]);
     if (signature === lastRendered) return;
     lastRendered = signature;
     pv.log.replaceChildren(...items);
@@ -372,15 +395,15 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     e.preventDefault();
     const text = pv.input.value.trim();
     if (!text || pending) return; // one message at a time
-    if (attempt?.text !== text || (attempt.replyTo ?? null) !== replyingTo) attempt = { operationId: `op-${crypto.randomUUID()}`, text, replyTo: replyingTo };
+    if (attempt?.text !== text || (attempt.replyTo ?? null) !== replyingTo || (attempt.answers ?? null) !== answering) attempt = { operationId: `op-${crypto.randomUUID()}`, text, replyTo: replyingTo, answers: answering };
     store.set(`${DRAFT_KEY}:attempt`, attempt);
-    pending = { text, operationId: attempt.operationId, replyTo: replyingTo };
+    pending = { text, operationId: attempt.operationId, replyTo: replyingTo, answers: answering };
     pv.input.value = '';
     pv.send.disabled = true;
     pv.error.textContent = '';
     follow.pin();
     renderProfessor();
-    const r = await professorRun(text, { operationId: attempt.operationId, ...(pending.replyTo ? { replyTo: pending.replyTo } : {}) });
+    const r = await professorRun(text, { operationId: attempt.operationId, ...(pending.replyTo ? { replyTo: pending.replyTo } : {}), ...(pending.answers ? { answers: pending.answers } : {}) });
     pending = null;
     pv.send.disabled = false;
     if (r?.ok) {
