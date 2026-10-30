@@ -9,6 +9,8 @@ const $ = (s, r = document) => r.querySelector(s);
 const main = $('#page');
 let current = null;
 let cleanup = [];
+const WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
+const LAST = STEPS.length; // the last step: the intro, the Step 1 → last comparison and the recap follow it
 const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // ---- diffs between architecture snapshots ---------------------------------------------------------
@@ -91,7 +93,7 @@ function compare(step, { extra } = {}) {
   };
   if (extra === 'start-final') {
     views.start = () => { renderDiagram(svg, plain(ARCH[1]), { height }); caption.textContent = 'Where we started: Step 1.'; return 'Architecture at step 1'; };
-    views.final = (animate = false) => { renderDiagram(svg, diff(ARCH[1], ARCH[9], { explicit: false }), { animate: animate && !reducedMotion(), height }); caption.textContent = 'Step 1 → Step 9: everything marked + NEW was added along the way; ~ CHANGED pieces kept their place but grew new jobs.'; return 'Architecture at step 9 compared with step 1'; };
+    views.final = (animate = false) => { renderDiagram(svg, diff(ARCH[1], ARCH[LAST], { explicit: false }), { animate: animate && !reducedMotion(), height }); caption.textContent = `Step 1 → Step ${LAST}: everything marked + NEW was added along the way; ~ CHANGED pieces kept their place but grew new jobs.`; return `Architecture at step ${LAST} compared with step 1`; };
   }
   const buttons = [];
   const set = (name, ...args) => {
@@ -108,7 +110,7 @@ function compare(step, { extra } = {}) {
   const controls = h('div', { class: 'compare-controls', role: 'group', 'aria-label': 'Compare architecture' },
     seg(step > 1 ? `Previous: Step ${step - 1}` : 'Before Step 1', 'prev'), seg(`This step: Step ${step}`, 'cur'),
     h('button', { type: 'button', class: 'play-change', onclick: animateChange('prev', 'cur') }, h('span', { 'aria-hidden': 'true' }, '▶ '), 'Animate the change'));
-  if (extra === 'start-final') controls.append(seg('Step 1', 'start'), h('button', { type: 'button', class: 'play-change', onclick: animateChange('start', 'final') }, h('span', { 'aria-hidden': 'true' }, '▶ '), 'Step 1 → Step 9'));
+  if (extra === 'start-final') controls.append(seg('Step 1', 'start'), h('button', { type: 'button', class: 'play-change', onclick: animateChange('start', 'final') }, h('span', { 'aria-hidden': 'true' }, '▶ '), `Step 1 → Step ${LAST}`));
   cleanup.push(() => clearTimeout(t1));
   set('cur');
   return h('figure', { class: 'compare' }, controls, frame, caption, legend());
@@ -149,22 +151,22 @@ function introPage(pg) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.id = `final-${++svgId}`;
   svg.setAttribute('role', 'img');
-  svg.setAttribute('aria-label', 'Final architecture after Step 9: Browser, Student Agent, University Hub, Tutor, Library and Marketing 101 Professor agents, the Anthropic API and data files.');
-  renderDiagram(svg, plain(ARCH[9]));
+  svg.setAttribute('aria-label', `Final architecture after Step ${LAST}: Browser, Student Agent, University Hub, Tutor, Library and Marketing 101 Professor agents, the Anthropic API and data files.`);
+  renderDiagram(svg, plain(ARCH[LAST]));
   return h('article', { class: 'page intro' },
     h('header', { class: 'page-head' }, h('div', { class: 'head-text' }, h('p', { class: 'eyebrow', text: pg.eyebrow }), h('h1', { tabindex: '-1', text: pg.title }), p(pg.lead, 'lead')), sources(pg.sources)),
     h('div', { class: 'intro-grid' },
       h('section', { class: 'intro-text' },
         ...pg.blocks.map((b) => h('div', { class: 'block' }, h('h2', { text: b.h }), b.list ? h('ul', {}, ...b.list.map((x) => h('li', {}, rich(x)))) : p(b.text)))),
-      h('section', { class: 'intro-visual' }, h('h2', { text: 'Where Step 9 ends up' }), h('div', { class: 'diagram-frame' }, svg), h('h2', { text: 'The nine steps' }), roadmap)));
+      h('section', { class: 'intro-visual' }, h('h2', { text: `Where Step ${LAST} ends up` }), h('div', { class: 'diagram-frame' }, svg), h('h2', { text: `The ${WORDS[LAST]} steps` }), roadmap)));
 }
 
 function pageA(pg) {
   const s = STEPS[pg.step - 1];
   return h('article', { class: 'page page-a' },
-    h('header', { class: 'page-head' }, h('div', { class: 'head-text' }, h('p', { class: 'eyebrow', text: `Step ${s.n} of 9 · What changed and why` }), h('h1', { tabindex: '-1', text: pg.title })), sources(pg.sources)),
+    h('header', { class: 'page-head' }, h('div', { class: 'head-text' }, h('p', { class: 'eyebrow', text: `Step ${s.n} of ${LAST} · What changed and why` }), h('h1', { tabindex: '-1', text: pg.title })), sources(pg.sources)),
     h('div', { class: 'a-grid' },
-      h('div', { class: 'a-visual' }, compare(pg.step, { extra: pg.step === 9 ? 'start-final' : undefined }), shot(pg.shot)),
+      h('div', { class: 'a-visual' }, compare(pg.step, { extra: pg.step === LAST ? 'start-final' : undefined }), shot(pg.shot)),
       h('section', { class: 'a-text' },
         h('div', { class: 'block goal' }, h('h2', { text: 'Before this step' }), p(pg.before, 'before'), h('h2', { text: 'Goal' }), p(pg.goal)),
         h('div', { class: 'block cap' }, h('h2', { text: 'New capability' }), p(pg.capability)),
@@ -177,23 +179,23 @@ function pageB(pg) {
   const player = createPlayer(playerRoot, { state: ARCH[pg.step], events: pg.walk.events, title: pg.walk.title });
   cleanup.push(() => player.destroy());
   return h('article', { class: 'page page-b' },
-    h('header', { class: 'page-head' }, h('div', { class: 'head-text' }, h('p', { class: 'eyebrow', text: `Step ${s.n} of 9 · How to build it and how it works` }), h('h1', { tabindex: '-1', text: pg.title })), sources(pg.sources)),
+    h('header', { class: 'page-head' }, h('div', { class: 'head-text' }, h('p', { class: 'eyebrow', text: `Step ${s.n} of ${LAST} · How to build it and how it works` }), h('h1', { tabindex: '-1', text: pg.title })), sources(pg.sources)),
     h('div', { class: 'b-grid' },
       playerRoot,
       h('section', { class: 'b-text' },
         h('div', { class: 'block build' }, h('h2', { text: 'Build it, in this order' }), h('ol', {}, ...pg.build.map((x) => h('li', {}, rich(x))))),
         pg.code ? h('figure', { class: 'code' }, h('figcaption', {}, rich(pg.code.caption)), h('pre', {}, h('code', { text: pg.code.text }))) : null,
         h('div', { class: 'block test' }, h('h2', { text: 'Test it' }), h('pre', { class: 'cmd' }, h('code', { text: pg.test.cmd })), p(pg.test.expect)),
-        pg.recap ? h('div', { class: 'block recap' }, h('h2', { text: 'Recap: nine steps' }), h('ol', { class: 'recap-list' }, ...pg.recap.map((x) => h('li', {}, rich(x))))) : null,
+        pg.recap ? h('div', { class: 'block recap' }, h('h2', { text: `Recap: ${WORDS[LAST]} steps` }), h('ol', { class: 'recap-list' }, ...pg.recap.map((x) => h('li', {}, rich(x))))) : null,
         h('div', { class: 'pair' },
           h('div', { class: 'block pitfall' }, h('h2', { text: 'Pitfall' }), p(pg.pitfall)),
-          h('div', { class: 'block next' }, h('h2', { text: pg.step < 9 ? 'Takeaway → next step' : 'Takeaway' }), p(pg.takeaway))))));
+          h('div', { class: 'block next' }, h('h2', { text: pg.step < LAST ? 'Takeaway → next step' : 'Takeaway' }), p(pg.takeaway))))));
 }
 
 // ---- navigation ------------------------------------------------------------------------------------
 const routeOf = (pg) => (pg.id === 'intro' ? '#/intro' : `#/step/${pg.step}/${pg.type.toLowerCase()}`);
 function pageFromHash() {
-  const m = location.hash.match(/^#\/step\/([1-9])\/([ab])$/i);
+  const m = location.hash.match(/^#\/step\/([1-9]\d?)\/([ab])$/i);
   if (m) return PAGES.find((x) => x.step === Number(m[1]) && x.type.toLowerCase() === m[2].toLowerCase()) ?? null;
   return location.hash === '' || location.hash === '#/' || location.hash === '#/intro' ? PAGES[0] : null;
 }
@@ -216,6 +218,8 @@ function render() {
   main.replaceChildren(page);
   document.title = `${pg.type === 'intro' ? 'Introduction' : `Step ${pg.step}${pg.type}`} · AgentHub-POC, step by step`;
   for (const a of document.querySelectorAll('#steps-nav a')) a.toggleAttribute('aria-current', a.dataset.id === pg.id);
+  // With eleven steps the bar can scroll sideways: keep the current page's link in view.
+  document.querySelector('#steps-nav a[aria-current]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   $('#progress-bar').style.width = `${((current + 1) / PAGES.length) * 100}%`;
   $('#progress-text').textContent = `Page ${current + 1} of ${PAGES.length}`;
   $('#progress').setAttribute('aria-valuenow', String(current + 1));

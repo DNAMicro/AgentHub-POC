@@ -13,19 +13,20 @@ const repo = join(site, '..');
 const results = [];
 const check = (name, ok, detail = '') => results.push({ name, ok: Boolean(ok), detail });
 
-// Page budget: one introduction, at most two pages per step, at most 19 pages.
+// Page budget: one introduction, at most two pages per step.
+const LAST = STEPS.length;
 check('first page is the introduction', PAGES[0]?.type === 'intro');
 check('exactly one introduction', PAGES.filter((p) => p.type === 'intro').length === 1);
-check('at most 19 pages', PAGES.length <= 19, `${PAGES.length} pages`);
-for (let n = 1; n <= 9; n++) {
+check('at most two pages per step plus the introduction', PAGES.length <= 2 * LAST + 1, `${PAGES.length} pages`);
+for (let n = 1; n <= LAST; n++) {
   const pages = PAGES.filter((p) => p.step === n);
   check(`step ${n}: has page A, at most two pages`, pages.some((p) => p.type === 'A') && pages.length <= 2 && pages.every((p) => ['A', 'B'].includes(p.type)), pages.map((p) => p.type).join(','));
 }
 check('pages are in step order', PAGES.slice(1).every((p, i, a) => i === 0 || a[i - 1].step < p.step || (a[i - 1].step === p.step && a[i - 1].type === 'A' && p.type === 'B')));
-check('nine steps described', STEPS.length === 9 && STEPS.every((s, i) => s.n === i + 1));
+check('steps numbered 1…N, one diagram snapshot each', STEPS.length >= 9 && STEPS.every((s, i) => s.n === i + 1) && Object.keys(ARCH).length === LAST);
 
 // Architecture continuity: one diagram, known pieces only, edges connect present nodes.
-for (let n = 1; n <= 9; n++) {
+for (let n = 1; n <= LAST; n++) {
   const a = ARCH[n];
   const unknown = [...Object.keys(a.nodes).filter((id) => !NODES[id]), ...Object.keys(a.edges).filter((id) => !EDGES[id]), ...(a.modified ?? []).filter((id) => !(id in a.nodes) && !(id in a.edges))];
   check(`step ${n}: architecture uses known components only`, !unknown.length, unknown.join(', '));

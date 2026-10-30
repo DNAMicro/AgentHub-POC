@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "license": "MIT",
-  "description": "Standalone teaching site: how AgentHub-POC was built in Steps 1-9. Static, no dependencies, runs on http://localhost:4440.",
+  "description": "Standalone teaching site: how AgentHub-POC was built in Steps 1-11. Static, no dependencies, runs on http://localhost:4440.",
   "type": "module",
   "scripts": {
     "start": "node server.js",

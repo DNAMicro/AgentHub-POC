@@ -1,4 +1,4 @@
-# A2A Spike — Source map for the 9-step teaching site
+# A2A Spike — Source map for the teaching site (Steps 1–11)
 
 Repository: this one (`..` from this folder). Sources: `Steps/README.md`, `Steps/01–09-*.md`, `CLAUDE.md`, `README.md`, `package.json`, git history (32 commits on `main`, `79c6ef4` → `36ba0a6`), `test/*.test.js`. All statements below are cited; anything inferred is labelled **[reconstructed]** or **[unknown]**.
 
@@ -415,6 +415,32 @@ Repository: this one (`..` from this folder). Sources: `Steps/README.md`, `Steps
 12. **Test:** `node --test test/professor.test.js` → 20 pass (mock Professor/router + scripted fake API). Full: `npm test` → 150. Live: `env -u ANTHROPIC_BASE_URL npm run demo:live`, open `http://127.0.0.1:4444/professor` and `/conversation`.
 13. **Unknown:** README "Deliberately not included" still lists "whole-class broadcasts" although Part 9 supports class-wide posts (implemented as one delivery per enrolled student) — wording conflict.
 
+## Step 10 — AG-UI between the agents and the screen
+
+1. **Title / commits:** "AG-UI 1.0 between the agents and your screen". `cff915c` (Steps 10 and 11 together: they share `src/ui-server.js` and `public/app.js`), `fdfd6a3` (hash in the Steps table).
+2. **Before:** The browser used the app's own endpoints — `POST /api/runs`, one SSE stream `/api/events` for every tab — and the Professor view polled its state.
+3. **Intent:** "why not make AG-UI step 10 so we have the right infrastructure for filling forms from the UI"; scope "just the conversation, and the agent activity and the professor not the topology" (user, this session; Steps/10).
+4. **Built:** `src/ag-ui-bridge.js` (app events → AG-UI: reply → TEXT_MESSAGE block + CUSTOM, telemetry → ACTIVITY_SNAPSHOT, form lifecycle → STATE_DELTA; runs, server-opened `srv-…` runs, history cut at run boundaries), `src/ag-ui-professor.js` (Professor state as STATE_SNAPSHOT; a message is a run), `src/ag-ui-stream-agent.js` (`StreamAgent`, `bufferedChannel`), `src/browser/ag-ui-entry.js`; UI server `POST /api/ag-ui/runs`, `GET /api/ui/stream` (monitor, student, professor channels), `/api/ag-ui/stream`, `/api/ag-ui/professor/{stream,runs}`; browser `monitor()` vs `handle()`.
+5. **Technologies:** `@ag-ui/core`, `@ag-ui/client`, `@ag-ui/encoder` 1.0.3; `rxjs` 7.8.1, `zod` 3.25.76 (pinned, `package.json`).
+6. **Changed / corrections (during the step):** `HttpAgent.connect()` is not implemented in 1.0.3 → `StreamAgent` overrides it; three streams per page hit the browser's 6-connection limit with two windows → one multiplexed `/api/ui/stream`; a plain Subject dropped events before subscription → `bufferedChannel`; the strip was wiped after reload → the monitor side clears it.
+7. **Evidence:** `test/ag-ui.test.js` (13), e.g. "a chat question as AG-UI run input: valid events, the server's run ID, threadId = conversation, one block of reply text", "one connection per page: /api/ui/stream carries the monitor, student and professor channels". `scripts/browser-checks/same-screen.js`: before/after screens match.
+8. **Pitfall → lesson:** one connection per page; verify what the installed package really implements.
+9. **Architecture after:** Browser **[MODIFIED: AG-UI client, one connection]**, Student/UI server **[MODIFIED: AG-UI bridge]**; edges Browser → UI server `AG-UI run input` **[MODIFIED]**, UI server → Browser `one stream: AG-UI + monitor` **[MODIFIED]**. A2A, A2UI and the monitoring stream unchanged.
+10. **Test:** `node --test test/ag-ui.test.js` → 13 pass.
+
+## Step 11 — Fill out forms from the chat
+
+1. **Title / commits:** `cff915c` (with Step 10).
+2. **Before:** Values typed in the chat went to the university as a new message; the open form stayed empty.
+3. **Intent:** "I want to be able to fill out the forms from the chat as well", "it should fill in the date on the form", "the final click should always be mine", "yes all fields on the form" (user, this session; Steps/11).
+4. **Built:** `src/form-fill.js` (`formFields`, `codeFills`, `maskPersonal`, `checkFills`, `fillUpdates`, `fillNote`, `inReview`, `decideFill`); `planAndSend` fill block before planning; student event `form_filled`; `request_planned { action: 'fill' }`; run decision `student_fill`; `public/forms-ui.js` `openValues()` / `fill()`; strip and Topology labels.
+5. **Technologies:** none new (AG-UI run `state`, A2UI `updateDataModel`).
+6. **Changed / corrections (during the step):** the model skipped "next Monday" → a plain fill uses every code value; capitalised "I am" missed by the name mask → pattern fixed, names masked before emails; a date inside a question must not be filled.
+7. **Evidence:** `test/form-fill.test.js` (9), e.g. "end to end: a tutoring form filled from the chat, nothing sent; then the student's own click submits it", "live (fake Messages API, scripted): fill_and_chat, invented values dropped, names/emails never sent, failure falls back". Full suite: 183.
+8. **Pitfall → lesson:** values come from code; the model decides and names fields only.
+9. **Architecture after:** Student **[MODIFIED: fills open forms]**; Student → model also decides fills; Browser → UI server run input carries form values.
+10. **Test:** `node --test test/form-fill.test.js` → 9 pass. Owner decision pending: names/emails stay masked for the model.
+
 ---
 
 ## Model usage by step (who calls Anthropic)
@@ -422,7 +448,7 @@ Repository: this one (`..` from this folder). Sources: `Steps/README.md`, `Steps
 | Agent | Gains model | Loses / changes |
 | --- | --- | --- |
 | Tutor | Step 4 (answers); Step 5 adds scope check; Step 6 adds intent outcome + form review | — |
-| Student | Step 5 (router in UI server, `ROUTER_MODE=live`) | Step 7: router moved to Hub; Student's own model (`STUDENT_MODE`, clarify/capability/decline) added in the same step |
+| Student | Step 5 (router in UI server, `ROUTER_MODE=live`) | Step 7: router moved to Hub; Student's own model (`STUDENT_MODE`, clarify/capability/decline) added in the same step; Step 11: also decides whether a message fills an open form |
 | Library | Step 5 (`7bc2e21`, evidence-verified answers); Step 6 intent + review; Step 8 loan UI composition | — |
 | Hub | Step 7 (router) | — |
 | Professor | Step 9 (answers, `interpretProfessor`, `classifyPost`) | — |
@@ -432,16 +458,19 @@ Repository: this one (`..` from this folder). Sources: `Steps/README.md`, `Steps
 - Step 2–4: Tutor `/viz/events` → UI server → browser `/api/events`.
 - Step 5–6: Tutor and Library `/viz/events` → UI server (relayed with `source`) → browser.
 - Step 7+: specialists `/viz/events` → **Hub** (allowlist redaction, `topologyLabel`) → Hub `/viz/events` → UI server → browser; Hub `/viz/topology` snapshot. Step 9 adds the Professor feed; inspector structure-only.
+- Step 10+: the browser gets the monitor feed as the `monitor` channel of `/api/ui/stream`, next to the AG-UI `student` and `professor` channels.
 
 ---
 
-## Final architecture summary (after `36ba0a6`)
+## Final architecture summary (after `36ba0a6`; Steps 10–11 below)
 
 Processes (all `127.0.0.1`): **UI server** `src/ui-server.js` :4444 (Browser UI tabs `/conversation`, `/activity`, `/topology`, `/professor`; hosts **Student Agent** `student-alex` with its own model and an inbound A2A endpoint + persisted inbox `data/student-inbox.json`); **University Hub** `src/hub-agent.js` :41243 (public CSUF card, private registry, router model, form-ref mapping, chat/operation ledgers, lesson deliveries `data/hub-lessons.json`, telemetry relay/redaction, `/dev/*` proxy); **Tutor** :41241; **Library** :41242 (`data/library-loans.json`); **Marketing 101 Professor** :41244 (`data/professor-outbox.json`). Each model-using agent calls the **Anthropic Messages API** over HTTPS with its own configured model and key variable.
 
 Edges: Browser ⇄ UI server (HTTP POST `/api/*`, SSE `/api/events`); Student ⇄ Hub (A2A JSON-RPC: signed chat, form actions with `formRef`, `student-session`, `lesson-receipt`; Hub → Student: `lesson-delivery`, `lesson-query`, `course-available`, `session-challenge`); Hub ⇄ Tutor/Library/Professor (A2A: forwarded requests with signed student; specialist → Hub control messages and `lesson-publish`); specialists → Hub → UI server (SSE telemetry); agents → Anthropic (HTTPS). No Student ↔ specialist edge exists.
 
 Start: `npm run demo` (mock, 5 processes) or `env -u ANTHROPIC_BASE_URL npm run demo:live` (paid). Tests: `npm test` (150, no paid calls; `HUB_URL=http://127.0.0.1:9`).
+
+After `cff915c` (Steps 10–11): Browser ⇄ UI server becomes AG-UI run input (`POST /api/ag-ui/runs`) and one multiplexed stream (`/api/ui/stream`); the Student agent fills open forms from the chat. `npm test`: 183.
 
 ## Global uncertainties / inconsistencies
 

@@ -12,9 +12,11 @@ export const STEPS = [
   { n: 7, short: 'University Hub', adds: 'One front door, registry, live topology', commits: ['cfb7040', 'ecb79af', '520b83a', '283c4fb', '81afc79', '39d242c', '5508964'] },
   { n: 8, short: 'Generated UI', adds: 'The model composes UI from a catalog', commits: ['48b2fa6', '7347f41'] },
   { n: 9, short: 'Professor', adds: 'Conversations start from either side', commits: ['6d84aec', 'cad2e9d', '2814874', '9150c60', '36ba0a6'] },
+  { n: 10, short: 'AG-UI', adds: 'A standard link between the agents and your screen', commits: ['cff915c'] },
+  { n: 11, short: 'Chat fill', adds: 'Type a value; the open form fills itself', commits: ['cff915c'] },
 ];
 
-// ---- one architecture, nine snapshots ---------------------------------------------------------------
+// ---- one architecture, one snapshot per step ---------------------------------------------------------------
 // Absolute snapshots; the site computes added / removed itself, and `modified` lists pieces whose job
 // changed even where their label didn't. Labels are the connection's real payload, kept short.
 export const ARCH = {
@@ -77,6 +79,25 @@ export const ARCH = {
     },
     modified: ['student', 'hub', 'browser'],
   },
+  10: {
+    nodes: { anthropic: {}, browser: { sub: 'AG-UI client · one connection' }, student: { sub: 'inbox · AG-UI bridge' }, hub: { sub: 'router · lessons · sessions' }, tutor: { sub: 'registers with the Hub' }, library: { sub: 'composes loan UI' }, professor: { sub: 'answers · posts' }, storage: { title: 'data/*.json', sub: 'loans · lessons · inbox · outbox' } },
+    edges: {
+      browser_student: { label: 'AG-UI run input' }, student_browser_sse: { label: 'one stream: AG-UI + monitor' }, student_hub: { label: 'A2A both ways (signed)' }, hub_student_sse: { label: 'SSE (redacted)' },
+      hub_tutor: { label: 'A2A forward' }, hub_library: { label: 'signed A2A' }, hub_professor: { label: 'A2A both ways' },
+      tutor_model: { label: 'intent · review' }, student_model: { label: 'clarify / pick' }, library_model: { label: 'compose A2UI' }, hub_model: { label: 'routing' }, professor_model: { label: 'answers + assistant' },
+      library_storage: { label: 'loans' }, hub_storage: { label: 'lessons' }, student_storage: { label: 'inbox' }, professor_storage: { label: 'outbox' },
+    },
+    modified: ['browser', 'student'],
+  },
+  11: {
+    nodes: { anthropic: {}, browser: { sub: 'AG-UI client · one connection' }, student: { sub: 'fills open forms' }, hub: { sub: 'router · lessons · sessions' }, tutor: { sub: 'registers with the Hub' }, library: { sub: 'composes loan UI' }, professor: { sub: 'answers · posts' }, storage: { title: 'data/*.json', sub: 'loans · lessons · inbox · outbox' } },
+    edges: {
+      browser_student: { label: 'AG-UI run + form values' }, student_browser_sse: { label: 'one stream: AG-UI + monitor' }, student_hub: { label: 'A2A both ways (signed)' }, hub_student_sse: { label: 'SSE (redacted)' },
+      hub_tutor: { label: 'A2A forward' }, hub_library: { label: 'signed A2A' }, hub_professor: { label: 'A2A both ways' },
+      tutor_model: { label: 'intent · review' }, student_model: { label: 'clarify · pick · fill?' }, library_model: { label: 'compose A2UI' }, hub_model: { label: 'routing' }, professor_model: { label: 'answers + assistant' },
+      library_storage: { label: 'loans' }, hub_storage: { label: 'lessons' }, student_storage: { label: 'inbox' }, professor_storage: { label: 'outbox' },
+    },
+  },
 };
 
 const S = (file, alt, caption) => ({ src: `img/${file}`, alt, caption });
@@ -87,16 +108,18 @@ export const PAGES = [
     id: 'intro', type: 'intro', step: 0,
     eyebrow: 'Introduction',
     title: 'From two agents to a university — how AgentHub-POC was built',
-    lead: 'A learning spike, built one prompted step at a time: each step explained, implemented, tested, then stopped so the next could build on it. Nine steps took two Node.js processes exchanging one fixed message to five agents behind a university front door.',
+    lead: 'A learning spike, built one prompted step at a time: each step explained, implemented, tested, then stopped so the next could build on it. Eleven steps took two Node.js processes exchanging one fixed message to five agents behind a university front door, a standard AG-UI link to the screen, and forms you can fill from the chat.',
     blocks: [
       { h: 'The problem', text: 'Show — with real protocols, not mock transcripts — how independent AI agents discover each other, exchange messages, hand a person structured UI, get routed by an intermediary, and start conversations from either side.' },
       { h: 'Who it is for', text: 'Developers learning agent-to-agent systems. Inside the demo the people are fictional: *Alex Student* (`student-alex`), *Sam Student* (enrolled, no agent running) and a Marketing 101 professor.' },
-      { h: 'By the end of Step 9 you can explain', list: [
+      { h: 'By the end of Step 11 you can explain', list: [
         'A2A v1.0 over JSON-RPC between separate processes: Agent Cards, Messages, Tasks, typed data parts',
         'A2UI v0.9 interfaces travelling inside A2A, rendered by the official renderer — including UI a model composes, checked by code',
         'Claude Haiku 5.5 inside each agent for answers, routing, clarifying, review and composition',
         'A hub that is the only front door: private registry, routing, relaying, signed identities',
         'Conversations that start on the other side: a professor’s post reaching an idle student',
+        'AG-UI between the agents and the screen: runs, text messages, activity and shared state over one connection',
+        'A Student agent that fills an open form from your words — values read and checked by code, the final click yours',
       ] },
       { h: 'What stays outside the spike', list: [
         'Production readiness: no deployment, accounts or real authentication (Part 9’s keys are a local demo measure)',
@@ -104,7 +127,7 @@ export const PAGES = [
         'Everything binds to 127.0.0.1; all data is fictional',
       ] },
     ],
-    sources: ['`CLAUDE.md` — what this is, scope constraints', '`README.md` — hop-by-hop walkthrough', '`Steps/README.md` — the nine steps and their commits', '`package.json` — pinned dependencies'],
+    sources: ['`CLAUDE.md` — what this is, scope constraints', '`README.md` — hop-by-hop walkthrough', '`Steps/README.md` — the eleven steps and their commits', '`package.json` — pinned dependencies'],
   },
 
   // ---- Step 1 ----------------------------------------------------------------------------------------
@@ -489,6 +512,89 @@ export const PAGES = [
     code: { caption: 'The reverse route’s typed messages — `src/lessons.js`', text: "const MT = (name) => `application/vnd.a2a-spike.${name}+json`;\nexport const LESSON_PUBLISH_MEDIA_TYPE = MT('lesson-publish');   // Professor → Hub\nexport const LESSON_DELIVERY_MEDIA_TYPE = MT('lesson-delivery'); // Hub → Student\nexport const LESSON_QUERY_MEDIA_TYPE = MT('lesson-query');       // reconcile\nexport const LESSON_RECEIPT_MEDIA_TYPE = MT('lesson-receipt');   // opened" },
     test: { cmd: 'node --test test/professor.test.js', expect: 'An idle student gets the lesson; a lost acknowledgement is reconciled without a duplicate; a toast never marks it opened. (`npm test`: 150 in total.)' },
     pitfall: '“Accepted by the Hub” is not “delivered”: count it delivered only after the Student commits it, and query an uncertain delivery before ever sending it again.',
+    takeaway: 'Either side can now start a conversation. Step 10 changes how the screen itself is fed: a standard protocol instead of home-made endpoints.',
+    sources: ['`src/lessons.js`, `src/hub-lessons.js`, `src/student-inbox.js`', '`src/professor-agent.js`, `public/classroom.js`', '`test/professor.test.js`', '`CLAUDE.md` — “Part 9” notes'],
+  },
+
+  // ---- Step 10 ---------------------------------------------------------------------------------------
+  {
+    id: '10a', step: 10, type: 'A', title: 'A standard link between the agents and the screen',
+    before: 'The browser used the app’s own endpoints: `POST /api/runs` to ask, one SSE stream (`/api/events`) feeding every tab, and the Professor view asking for its state again and again.',
+    goal: '“Why not make AG-UI step 10 so we have the right infrastructure for filling forms from the UI” — for “just the conversation, and the agent activity and the professor, not the topology”.',
+    capability: 'The Conversation, Agent activity and Professor view now get their updates as *AG-UI* events and send questions as AG-UI run input (`RunAgentInput`). A bridge turns the same real events into AG-UI: a reply becomes one TEXT_MESSAGE block, agent telemetry an ACTIVITY_SNAPSHOT, a form’s life a STATE_DELTA. Topology and the hop-by-hop strip stay on the monitoring stream. Each page holds *one* connection with three channels. Nothing on screen changes.',
+    tech: [
+      { name: 'AG-UI 1.0 — `@ag-ui/core`, `@ag-ui/client`, `@ag-ui/encoder` 1.0.3', kind: 'standard', role: 'the Agent–User Interaction protocol: event types and schemas, the browser client with its run-order verifier, SSE encoding' },
+      { name: '`rxjs` 7.8.1, `zod` 3.25.76', kind: 'library', role: 'what the AG-UI client is built on — pinned exactly like every other dependency' },
+    ],
+    shot: S('s10-activity.png', 'The Agent activity tab: Student agent, University Hub and specialist consoles, including a line “Form filled from the chat”', 'It looks the same as before Step 10 — that was the goal. Every line here now reaches the page as an AG-UI event over the page’s single connection. Test stack (mock models), fictional data.'),
+    sources: ['`Steps/10-ag-ui-agent-screen-link.md`', '`src/ag-ui-bridge.js`, `src/ag-ui-stream-agent.js`, `src/ag-ui-professor.js`', '`test/ag-ui.test.js` — 13 tests', '`scripts/browser-checks/same-screen.js`', 'Commit cff915c'],
+  },
+  {
+    id: '10b', step: 10, type: 'B', title: 'Same events, a standard shape',
+    walk: {
+      title: '“What are the library hours on Sunday?” — out as run input, back as AG-UI events',
+      events: [
+        { at: 'edge:browser_student', title: 'Run input', caption: 'The page posts AG-UI run input: the conversation as `threadId`, the last user message, and the state of open forms.', payload: 'POST /api/ag-ui/runs { threadId, runId, messages, state }' },
+        { at: 'node:student', title: 'RUN_STARTED', caption: 'The UI server owns the run ID (returned in the 202) and opens the run on the page’s student channel.' },
+        { at: 'edge:student_hub', title: 'A2A, unchanged', caption: 'The question goes to the Hub exactly as in Step 9. AG-UI never carries agent-to-agent messages.' },
+        { at: 'edge:hub_library', title: 'Forward', caption: 'The Hub routes it to the Library.' },
+        { at: 'edge:hub_student_sse', title: 'Telemetry', caption: 'The Hub’s monitoring stream reports each hop, as before.' },
+        { at: 'edge:student_browser_sse', title: 'ACTIVITY_SNAPSHOT', caption: 'Each agent event becomes one AG-UI activity with its own `messageId` — the Agent activity consoles.' },
+        { at: 'edge:student_hub', reverse: true, title: 'Reply over A2A', caption: 'The Library’s answer comes back through the Hub.' },
+        { at: 'edge:student_browser_sse', title: 'TEXT_MESSAGE, RUN_FINISHED', caption: 'The reply is one START / CONTENT / END block, then the run ends.', payload: 'TEXT_MESSAGE_START → TEXT_MESSAGE_CONTENT → TEXT_MESSAGE_END → RUN_FINISHED' },
+        { at: 'node:browser', title: 'One connection', caption: 'The same stream carries the monitor channel (Topology, strip) and the professor channel. A reload resumes at the last run boundary, without duplicates.' },
+      ],
+    },
+    build: [
+      'Install the three `@ag-ui/*` 1.0.3 packages (+ `rxjs`, `zod`), pinned; bundle the client for the browser (`src/browser/ag-ui-entry.js`).',
+      '`src/ag-ui-bridge.js`: real app events → AG-UI events, always inside a run; history is cut only at run boundaries.',
+      '`src/ag-ui-stream-agent.js`: `StreamAgent` overrides `connect()`, which the installed `HttpAgent` does not implement.',
+      '`src/ag-ui-professor.js`: the Professor view’s state as STATE_SNAPSHOT; a professor message is a run.',
+      '`src/ui-server.js` + `public/app.js`: `/api/ui/stream` with monitor, student and professor channels; `monitor()` and `handle()` kept apart in the browser.',
+    ],
+    code: { caption: 'Events wait until the client subscribes (abridged) — `src/ag-ui-stream-agent.js`', text: "export function bufferedChannel() {\n  let queue = [], done = false, target = null;\n  return {\n    next(event) { if (target) target.next(event); else queue.push(event); },\n    complete() { done = true; if (target) target.complete(); },\n    observable: new Observable((subscriber) => {\n      target = subscriber;\n      for (const event of queue) subscriber.next(event);\n      queue = [];\n      if (done) subscriber.complete();\n      return () => { target = null; };\n    }),\n  };\n}" },
+    test: { cmd: 'node --test test/ag-ui.test.js', expect: 'Run input gives valid events and one block of reply text; a reconnect resumes at a run boundary; a reload replays the history; one connection carries all three channels and loses nothing before its agent subscribes. (13 tests.)' },
+    pitfall: 'Browsers allow only 6 connections per server. Three streams per page meant two open windows blocked every request. Keep one connection per page. And check what the installed package really does: `HttpAgent.connect()` in 1.0.3 silently does nothing.',
+    takeaway: 'The screen now sends standard run input that carries the open forms’ values. Step 11 uses exactly that to fill forms from the chat.',
+    sources: ['`src/ag-ui-bridge.js`, `src/ag-ui-stream-agent.js`, `src/ag-ui-professor.js`', '`src/ui-server.js`, `public/app.js`', '`test/ag-ui.test.js`', '`CLAUDE.md` — “Part 10” notes'],
+  },
+
+  // ---- Step 11 ---------------------------------------------------------------------------------------
+  {
+    id: '11a', step: 11, type: 'A', title: 'Fill out forms from the chat',
+    before: 'A form could only be filled by typing into its fields. A value typed in the chat went to the university as a new message, and the open form stayed empty.',
+    goal: '“I want to be able to fill out the forms from the chat as well.” “The final click should always be mine.” “Yes, all fields on the form.”',
+    capability: 'While a form is open, the Student agent reads the values in your message — dates, times, rooms, group sizes, names, emails, notes — checks each with the form’s own rules, and fills the form in place with A2UI `updateDataModel`. A refused value comes back with the reason. Nothing goes to the university: the run ends as `student_fill`. A message that also asks something fills the form and sends only the question. You always press the button.',
+    noTech: 'Built on Step 10’s AG-UI run input (the open forms’ values travel in `state.forms`) and the A2UI `updateDataModel` message the renderer already supports.',
+    shot: S('s11-fill-from-chat.png', 'A study-room booking form with date, room and duration filled from the chat message “room A, 2 hours, 8 people, next Monday”, a note explaining that Room A holds up to 4, and the hop-by-hop strip showing nothing was sent', 'Filled from one chat message. The group size was refused — Room A holds up to 4 — and the note says so. The strip shows “filled your form — nothing sent”. Test stack (mock models), fictional data.'),
+    sources: ['`Steps/11-fill-forms-from-chat.md`', '`src/form-fill.js`, `public/forms-ui.js`', '`test/form-fill.test.js` — 9 tests', 'Commit cff915c'],
+  },
+  {
+    id: '11b', step: 11, type: 'B', title: 'Code reads the values; the model only decides',
+    walk: {
+      title: 'A renewal form is open; Alex types “november 20”, then presses Renew',
+      events: [
+        { at: 'edge:browser_student', title: 'Run input with form state', caption: 'The page sends the message plus the open form’s current values.', payload: 'state: { forms: { <formId>: { workflowId: "loan-renewal", values } } }' },
+        { at: 'node:student', title: 'Is a form open?', caption: 'A form of this conversation is editing, not in flight, and no clarifying question is waiting — so a fill is considered before any routing.' },
+        { at: 'node:student', title: 'Code reads the value', caption: '`codeFills` reads “november 20” as 2026-11-20. Values always come from code.' },
+        { at: 'edge:student_model', title: 'Decide, not supply', caption: 'Live: one call decides chat, fill or fill_and_chat and names fields. Names and emails are masked as [name] and [email].' },
+        { at: 'node:student', title: 'Check', caption: 'The date must lie inside the picker’s permitted range, which came from the Library’s loan facts. Outside it, it is refused with the range.' },
+        { at: 'edge:student_browser_sse', title: 'form_filled', caption: 'An A2UI `updateDataModel` for the date and a note saying what was filled. The run ends `student_fill`: no A2A message to the Hub.' },
+        { at: 'edge:browser_student', title: 'Your click', caption: 'Alex presses Renew. Only now does anything leave: the form action with its `formRef`.' },
+        { at: 'edge:student_hub', title: 'Renew over A2A', caption: 'The same signed path as Step 8.' },
+        { at: 'edge:hub_library', title: 'The Library re-checks', caption: 'Borrower, version and range are verified again before anything changes.' },
+        { at: 'edge:library_storage', title: 'Renewed once', caption: 'An idempotent renewal to November 20, persisted.' },
+      ],
+    },
+    build: [
+      '`src/form-fill.js`: `formFields` (per workflow, and the renew buttons of a generated loan surface), `codeFills`, `maskPersonal`, `checkFills`, `fillUpdates`, `decideFill`.',
+      '`src/ui-server.js`: in `planAndSend`, before planning, `decideFill` for the conversation’s open forms; publish `form_filled`; a plain fill completes as `student_fill`.',
+      '`public/forms-ui.js`: `openValues()` for the run input; `fill()` applies the updates and shows the note.',
+      '`public/app.js` + `src/topology.js`: the chat items, the strip (“filled your form — nothing sent”) and the Topology labels.',
+    ],
+    code: { caption: 'The model’s whole answer: an action and named fields; values must match what code read — `src/form-fill.js`', text: "const SCHEMA = (fieldIds) => ({\n  type: 'object',\n  properties: {\n    action: { type: 'string', enum: ['chat', 'fill', 'fill_and_chat'] },\n    fills: { type: 'array', items: { type: 'object', properties: { field: { type: 'string', enum: fieldIds }, value: { type: 'string' } }, required: ['field', 'value'], additionalProperties: false } },\n    question: { type: 'string' },\n  },\n  required: ['action', 'fills', 'question'],\n  additionalProperties: false,\n});" },
+    test: { cmd: 'node --test test/form-fill.test.js', expect: 'Fields come from the form itself; only accepted values are filled and refusals carry the allowed range; names and emails never reach the model; a tutoring form is filled with nothing sent, then the student’s own click submits it. (9 tests; `npm test`: 183.)' },
+    pitfall: 'A date inside a question (“…is the library open on Sunday?”) is not a value for the form. When a message both fills and asks, fill only the fields the model named *and* the code read with the same value.',
     recap: [
       '*A2A*: one real message between two processes',
       '*Monitor*: a watch-only SSE channel',
@@ -499,8 +605,10 @@ export const PAGES = [
       '*Hub*: one front door, two A2A legs',
       '*Generated UI*: model composes, code validates',
       '*Professor*: either side can start',
+      '*AG-UI*: a standard link to the screen',
+      '*Fill from chat*: your words fill the form; your click sends it',
     ],
-    takeaway: 'Models judge; code validates and owns the facts; every arrow is a real message. Step 1 vs Step 9: previous page.',
-    sources: ['`src/lessons.js`, `src/hub-lessons.js`, `src/student-inbox.js`', '`src/professor-agent.js`, `public/classroom.js`', '`test/professor.test.js`', '`CLAUDE.md` — “Part 9” notes'],
+    takeaway: 'Models judge; code validates and owns the facts; every arrow is a real message — and the final click is always the student’s. Step 1 vs Step 11: previous page.',
+    sources: ['`src/form-fill.js`, `src/ui-server.js`, `public/forms-ui.js`', '`test/form-fill.test.js`', '`CLAUDE.md` — “Part 11” notes'],
   },
 ];

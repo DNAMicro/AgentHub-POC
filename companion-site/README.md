@@ -1,6 +1,6 @@
 # AgentHub-POC, step by step — companion site
 
-A standalone teaching site that explains how this repository (AgentHub-POC) was built in Steps 1–9: what each step changed and why, and how it works, on one architecture diagram that evolves from step to step.
+A standalone teaching site that explains how this repository (AgentHub-POC) was built in Steps 1–11: what each step changed and why, and how it works, on one architecture diagram that evolves from step to step.
 
 ## Start it
 
@@ -16,9 +16,9 @@ npm run check   # structural checks: page budget, diagram continuity, walkthroug
 
 ## What is in it
 
-- **19 pages:** an introduction, then for each step **A** (what changed and why) and **B** (how to build it and how it works). The recap is in Step 9.
+- **23 pages:** an introduction, then for each step **A** (what changed and why) and **B** (how to build it and how it works). The recap is in Step 11.
 - **One architecture diagram** (`public/js/diagram.js`). Every component and connection has a fixed position, name and colour. Each step is an absolute snapshot (`ARCH` in `public/js/content.js`). The site computes what was added and removed and marks it with a tag, a border style and a colour: **+ NEW**, **~ CHANGED**, **✕ REMOVED**. Connections are labelled with what they carry. Line style shows the kind: A2A (solid), HTTP, SSE (dotted), HTTPS model call (dashed), file (dash-dot).
-- **Comparison (page A):** *Previous step / This step / Animate the change*. Step 9 also offers *Step 1 → Step 9*.
+- **Comparison (page A):** *Previous step / This step / Animate the change*. The last step also offers *Step 1 → Step 11*.
 - **Walkthrough (page B):** one concrete user action, hop by hop. It has Play, Pause, Replay, Prev and Next event controls and a caption per event. The numbered list beside it is the same walkthrough without motion. It is labelled **Simulated**: nothing is sent to any agent or model.
 - **Screenshots:** real screenshots of the running app, taken on a separate test stack with fictional data. They show today's UI, and each caption says which step's idea it illustrates.
 - **Keys:** ← → (PageUp / PageDown) change pages, Home / End jump, F starts presentation mode (full screen, no top navigation) and Esc leaves it. Swipe works on touch screens.
@@ -27,7 +27,7 @@ npm run check   # structural checks: page budget, diagram continuity, walkthroug
 
 ## Where the content comes from
 
-`SOURCE-MAP.md` is the source map written before authoring. Its sources are `Steps/01–09`, the git history, the tests at each step's commits, `CLAUDE.md` and `README.md`. Every page has a "Sources" list. Each technology is credited to the commit that introduced it: for example, the Library's model arrived in `7bc2e21`, not in the first Part 5 commit.
+`SOURCE-MAP.md` is the source map written before authoring. Its sources are `Steps/01–11`, the git history, the tests at each step's commits, `CLAUDE.md` and `README.md`. Every page has a "Sources" list. Each technology is credited to the commit that introduced it: for example, the Library's model arrived in `7bc2e21`, not in the first Part 5 commit.
 
 Known limits of the reconstruction:
 - **Steps 1–6 were written down later.** Their files were first committed with Step 6 (`c81e566`), so their "original prompt" wording was assembled after the fact.
