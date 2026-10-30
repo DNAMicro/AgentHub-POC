@@ -11,7 +11,7 @@ import express from 'express';
 import { Role, AGENT_CARD_PATH, A2A_PROTOCOL_VERSION } from '@a2a-js/sdk';
 import { AgentEvent, DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
-import { hostGuard } from './local-guard.js';
+import { hostGuard, sameOriginGuard } from './local-guard.js';
 import { createSkillService } from './agent-settings.js';
 import { loadSpecialistConfig } from './config.js';
 import { createHubLink } from './hub-link.js';
@@ -401,6 +401,15 @@ export function startLibraryServer({ port = 41242 } = {}) {
       app.use(JSONRPC_PATH, jsonRpcHandler({ requestHandler, userBuilder: UserBuilder.noAuthentication }));
       app.get(VIZ_PATH, serveVizEvents);
       app.use(skillService.router());
+      // Demo reset, asked by the Hub when the Student starts a new conversation: the sample loans come back
+      // (renewal counts too). Server callers only — a cross-site browser POST is refused.
+      app.post('/dev/loans/reset', sameOriginGuard(actualPort), (req, res) => {
+        loans.reset();
+        loanLedger.clear();
+        revisions.clear();
+        log('loans reset to the starting sample');
+        res.json({ status: 'reset' });
+      });
       // Test hook only: change a loan behind an open form's back (e.g. another borrower places a hold).
       if (process.env.LIBRARY_TEST_HOOKS === '1') {
         app.post('/test/loans/:loanId/hold', express.json(), (req, res) => res.json({ ok: loans._setHold(req.params.loanId, req.body?.hold !== false) }));

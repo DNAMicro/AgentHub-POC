@@ -123,6 +123,12 @@ export function createLoanStore({ file = process.env.LOAN_STORE_FILE ?? 'data/li
       save();
       return result;
     },
+    // Demo reset (the Student's New conversation, through the Hub): back to the starting sample, due
+    // dates counted from today, renewal outcomes forgotten. Synthetic records only.
+    reset() {
+      state = { seededOn: today(), loans: seed(today()), operations: {} };
+      save();
+    },
     // Test hook only (LIBRARY_TEST_HOOKS=1): change a loan behind a form's back.
     _setHold(loanId, hold) {
       const loan = state.loans.find((l) => l.loanId === loanId);

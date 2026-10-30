@@ -827,6 +827,10 @@ function handle(event, { live = true } = {}) {
         const note = { reset: 'Every student’s lessons and messages were cleared; the professor sends them again.', hub_unreachable: 'Your inbox was cleared, but the university Hub couldn’t be reached, so other students’ lessons and the professor’s list were not reset.', hub_error: 'Your inbox was cleared, but the Hub refused the reset.', professor_unreachable: 'Lessons were cleared at the Hub and here, but the professor’s posted list couldn’t be reached.' }[data.classroom] ?? data.classroom;
         student({ dir: data.classroom === 'reset' ? 'info' : 'error', label: 'New conversation', text: note, ids: {} });
       }
+      // The Library's sample loans are restored too ('unknown' when the Hub itself wasn't reached — said above).
+      if (data.loans && !['reset', 'none', 'unknown'].includes(data.loans)) {
+        student({ dir: 'error', label: 'New conversation', text: `The library loans couldn’t be reset (${data.loans}), so renewals used earlier still count.`, ids: {} });
+      }
     } else if (type === 'agent_status') {
       topology.agentMode(data.agentId, { mode: data.mode, model: data.model, keyConfigured: data.keyConfigured });
       if (data.agentId === 'tutor') renderMode(data);

@@ -12,7 +12,7 @@ import { startStack, waitFor, openStream, find, findAll, formVia, chatVia, formA
 import { startFakeAnthropic, messageReply } from './support/fake-anthropic.js';
 import { createLoanStore, LOAN_POLICY } from '../src/loan-store.js';
 import { CATALOG_INFO, allowedDatesFrom, catalogForModel, validateGeneratedUi, validateServerToClientList, wrapSurface } from '../src/a2ui-catalog.js';
-import { GENERATED_COMPONENTS, checkAction, checkFormPayloadPolicy, surfaceButtons, addDays } from '../src/forms.js';
+import { GENERATED_COMPONENTS, checkAction, checkFormPayloadPolicy, surfaceButtons, addDays, todayIn } from '../src/forms.js';
 import { askTutor } from '../src/student-agent.js';
 
 // ---- the loan service (unit) ---------------------------------------------------------------------
@@ -49,6 +49,22 @@ test('loan service: authoritative eligibility, a backend-computed range, idempot
   createLoanStore({ file: seededFile });
   const later = createLoanStore({ file: seededFile, now: () => new Date(Date.now() + 40 * 864e5) });
   assert.equal(later.getLoan('student-alex', 'L-1002').eligibilityCode, 'overdue');
+});
+
+test('loan service reset: back to the starting sample — renewal counts, due dates from today, no stored operations', () => {
+  const file = freshLoanStore();
+  const store = createLoanStore({ file });
+  const range = store.getLoan('student-alex', 'L-1001').permittedReturnDates;
+  const op = randomUUID();
+  assert.equal(store.renewLoan({ borrowerId: 'student-alex', loanId: 'L-1001', returnDate: range.latest, expectedVersion: 1, operationId: op }).ok, true);
+  assert.equal(store.getLoan('student-alex', 'L-1001').renewalsUsed, 1);
+  store.reset();
+  const fresh = store.getLoan('student-alex', 'L-1001');
+  assert.deepEqual([fresh.renewalsUsed, fresh.version, fresh.eligible], [0, 1, true]);
+  assert.equal(fresh.dueDate, addDays(todayIn(new Date()), 4), 'due dates restart from today');
+  assert.equal(store.getLoan('student-alex', 'L-1004').renewalsUsed, 2, 'the sample keeps its deliberate cases (L-1004 at the limit)');
+  assert.equal(createLoanStore({ file }).getLoan('student-alex', 'L-1001').renewalsUsed, 0, 'the reset is saved');
+  assert.equal(store.renewLoan({ borrowerId: 'student-alex', loanId: 'L-1001', returnDate: fresh.permittedReturnDates.latest, expectedVersion: 1, operationId: op }).duplicate, undefined, 'stored operations were cleared with the loans');
 });
 
 // ---- the catalog and the validator (unit) ----------------------------------------------------------
@@ -290,4 +306,18 @@ test('mock mode answers in labelled text and never generates UI', async () => {
   } finally {
     mock.kill();
   }
+});
+
+// Your request, 2026-10-29: "when I reset the conversation the numbers should reset". New conversation
+// (the demo's classroom reset) also asks the Library, through the Hub, to restore the sample loans.
+test('New conversation restores the sample loans (renewal counts back), through the Hub', async () => {
+  // Change the Library's loans in memory (test hook: a hold bumps the version), as a used renewal would.
+  await post(`${stack.library.url}/test/loans/L-1001/hold`, { hold: true });
+  await waitFor(() => loansNow()['L-1001'].hold === true, { what: 'changed loan saved' });
+  const res = await post(`${stack.ui.url}/api/conversation/new`, {});
+  assert.equal(res.status, 202);
+  assert.equal((await res.json()).loans, 'reset', 'reported on its own (this stack has no Professor, so the classroom part says so)');
+  const after = loansNow();
+  assert.deepEqual(['L-1001', 'L-1002', 'L-1004', 'L-1005'].map((id) => after[id].renewals), [0, 1, 2, 0], 'the starting sample');
+  assert.deepEqual([after['L-1001'].version, after['L-1001'].hold], [1, false]);
 });

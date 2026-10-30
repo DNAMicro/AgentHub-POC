@@ -497,16 +497,18 @@ export async function startUiServer({ port = 4444 } = {}) {
     // sends again.
     inbox.reset();
     let classroom = 'reset';
+    let loans = 'unknown'; // the Library's sample loans (renewal counts) — reported on their own
     try {
       const r = await fetch(`${hub.devUrl}/classroom/reset`, { method: 'POST', signal: AbortSignal.timeout(8000) });
       const body = await r.json();
+      loans = body.library ?? 'unknown';
       if (!r.ok) classroom = 'hub_error';
       else if (Object.values(body.professors ?? {}).some((v) => v !== 'reset')) classroom = 'professor_unreachable';
     } catch {
       classroom = 'hub_unreachable';
     }
-    publish({ source: 'system', type: 'classroom_reset', runId: null, data: { classroom } });
-    res.status(202).json({ classroom });
+    publish({ source: 'system', type: 'classroom_reset', runId: null, data: { classroom, loans } });
+    res.status(202).json({ classroom, loans });
   });
 
   // ---- Part 9: the course inbox (lessons the Hub delivered; persisted by the Student agent) ----------

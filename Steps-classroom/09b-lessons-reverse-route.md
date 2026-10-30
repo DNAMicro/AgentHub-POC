@@ -103,7 +103,8 @@ The Professor chat tab, `@assistant`, replies to messages and meetings come in S
 32. Call `announceCourses()` when a professor's registry status becomes `ready`. Add `courses` and `lessons.snapshot()` (session student ids, delivery ids and states — never keys) to the topology snapshot.
 33. Extend Step 7b's `SAFE_FIELDS` allowlist (don't re-create it): add `lessonId`, `deliveryId`, `inboxId`, `noticeId`, `courseId`, `attempt`, `found`, `kind`, `audience`, `recipients`. Titles and text stay redacted unless `HUB_TELEMETRY_SHOW_CONTENT=1`. Keep Step 8's structure-only inspector as it is.
 34. Developer routes: `GET /dev/agents/:agentId/author/state` and `POST /dev/agents/:agentId/author/lessons` proxy to the peer's `/author/...` (60 s timeout).
-35. `POST /dev/classroom/reset` runs `lessons.reset()`, then `POST <professor baseUrl>/author/reset` for each course professor. It answers `{ status: 'reset', professors: { professor: 'reset' | 'HTTP <n>' | 'unreachable' } }`.
+35. `POST /dev/classroom/reset` runs `lessons.reset()`, then `POST <professor baseUrl>/author/reset` for each course professor, then `POST <library baseUrl>/dev/loans/reset` (the worker of `cfg.destinations.library`, 5 s timeout). It answers `{ status: 'reset', professors: { professor: 'reset' | 'HTTP <n>' | 'unreachable' }, library: 'reset' | 'HTTP <n>' | 'unreachable' | 'none' }`.
+    - Loan store (Step 8's `src/loan-store.js`): add `reset()` → `state = { seededOn: today, loans: seed(today), operations: {} }`, then save. Library (`src/library-agent.js`): `POST /dev/loans/reset` behind `sameOriginGuard(port)` calls `loans.reset()`, clears `loanLedger` and `revisions`, logs `loans reset to the starting sample`, answers `{ status: 'reset' }`. So New conversation gives renewals back.
 36. Apply `sameOriginGuard(port)` from `src/local-guard.js` (Step 2) to **every non-GET `/dev` route**. That includes the existing skill PUT/preview and `/dev/registry/refresh`.
 
 **`src/topology.js`**: label every lesson event on a real edge (`student-hub` or `hub-professor`, category `lesson`). Never use Professor↔Student. For example, `lesson_delivery_attempted` is hub → student and `lesson_publish_received` is professor → hub. `lesson_queued`, `lesson_reconciled` and `classroom_reset` happen inside the Hub.
@@ -152,7 +153,7 @@ The Professor chat tab, `@assistant`, replies to messages and meetings come in S
     - publish `conversation_reset` (screens clear);
     - `inbox.reset()`;
     - `POST <hub>/dev/classroom/reset`;
-    - publish `classroom_reset` with `classroom: 'reset' | 'hub_unreachable' | 'hub_error' | 'professor_unreachable'`.
+    - publish `classroom_reset` with `classroom: 'reset' | 'hub_unreachable' | 'hub_error' | 'professor_unreachable'` and, separately, `loans` (the Hub's `library` answer, or `'unknown'` if the Hub wasn't reached). Answer `{ classroom, loans }`. The browser adds an error note only when `loans` isn't `reset`, `none` or `unknown`: "The library loans couldn’t be reset (…), so renewals used earlier still count."
 
 ### Task C — Browser
 
@@ -195,6 +196,7 @@ The Professor chat tab, `@assistant`, replies to messages and meetings come in S
    - a `message` to `all`: Alex delivered, Sam queued; unknown kind or unenrolled audience refused;
    - `no_student_endpoint` when `HUB_TEST_STUDENTS_WITHOUT_ENDPOINT=0`;
    - New conversation clears inbox, Hub and Professor list; the notice returns once;
+   - New conversation restores the sample loans through the Hub (`loans: 'reset'`; L-1001 back to version 1, no hold, 0 renewals) — in `test/loans.test.js`, using the `LIBRARY_TEST_HOOKS` hold hook to change a loan first; `loanStore.reset()` unit test: counts and due dates from today, stored operations cleared;
    - cross-site POSTs (`Origin: http://evil.example`) to `/dev/classroom/reset`, `/dev/registry/refresh`, `/author/reset`, `/author/lessons` → 403, nothing changes.
 7. While the Student UI is down, tests post through the Professor's own `/author/lessons` (the proxy lives in the UI server).
 
@@ -248,7 +250,7 @@ Then append the "CLAUDE.md notes" below to `CLAUDE.md` and commit `Step 9b: Less
 - Tests calling the Hub directly use signedStudent (a student with no endpoint, e.g. student-sam via HUB_STUDENTS). HUB_TEST_STUDENTS_WITHOUT_ENDPOINT=1 only in tests.
 - Delivered only after the inbox commit; opened only via POST /api/inbox/:id/open; uncertain → query before re-send; notice id av-<courseId>.
 - 'all' is expanded by the Hub from courses[...].enrolled; never from the Professor.
-- New conversation: conversation_reset → inbox.reset() → Hub /dev/classroom/reset (→ Professor /author/reset) → classroom_reset. Sessions stay.
+- New conversation: conversation_reset → inbox.reset() → Hub /dev/classroom/reset (→ Professor /author/reset, → Library /dev/loans/reset: sample loans and renewal counts back) → classroom_reset { classroom, loans }. Sessions stay.
 - Follow-ups carry lessonDeliveryId; the Hub routes by its own delivery record (decidedBy 'lesson'); reasons name the lesson by id only.
 - Every non-GET /dev/* and /author/* route uses sameOriginGuard. Never run resets on the user's running demo.
 ```

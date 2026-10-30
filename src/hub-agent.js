@@ -534,8 +534,8 @@ export function startHubServer({ port } = {}) {
           res.status(502).json({ error: `${peer.displayName} is not reachable.` });
         }
       };
-      // Demo reset of every student's lessons and messages (the Student UI's New conversation). The Hub
-      // clears its records, then asks each course's professor to clear its posted list.
+      // Demo reset of every student's lessons and messages and the sample loans (the Student UI's New conversation). The Hub
+      // clears its records, asks each course’s professor to clear its posted list and the Library to restore its loans.
       dev.post('/dev/classroom/reset', async (req, res) => {
         lessons.reset();
         const professors = [...new Set(Object.values(cfg.courses ?? {}).map((c) => c.professor))];
@@ -549,7 +549,18 @@ export function startHubServer({ port } = {}) {
             results[id] = 'unreachable';
           }
         }
-        res.json({ status: 'reset', professors: results });
+        // The Library's sample loans come back too, so renewals used in the last conversation are available again.
+        let library = 'none';
+        const libraryPeer = cfg.destinations?.library?.worker ? registry.peer(cfg.destinations.library.worker) : null;
+        if (libraryPeer) {
+          try {
+            const r = await fetch(`${libraryPeer.baseUrl}/dev/loans/reset`, { method: 'POST', signal: AbortSignal.timeout(5000) });
+            library = r.ok ? 'reset' : `HTTP ${r.status}`;
+          } catch {
+            library = 'unreachable';
+          }
+        }
+        res.json({ status: 'reset', professors: results, library });
       });
       dev.get('/dev/agents/:agentId/author/state', author('/state', 'GET'));
       dev.post('/dev/agents/:agentId/author/lessons', author('/lessons', 'POST'));
