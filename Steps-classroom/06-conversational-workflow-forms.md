@@ -271,6 +271,8 @@ First run `npm test`; Steps 1–5 must pass.
 
 ## Avoid these known problems
 
+- Casual in-person requests ("i want help from a tutor in person") and a reply that picks the session ("tutoring") to the Tutor's own either/or question get the form; never ask the same question twice.
+- "What do I do now?" while the tutoring form is open: point at the open form (`formHost.openForm`), not the generic "ask for it here" text.
 - Tell the Tutor's model what became of its form. With only “[Sent the form]” in history, a later answer told the student to contact the tutoring center although the request had been received. On submit, add the request ID and status to that conversation's history; on cancel, “nothing was submitted”. Never the form's values.
 - An agent that answers with a form publishes `form_sent`, not `reply_published`. Wait helpers must accept both.
 - DateTimeInput `min`/`max`: `YYYY-MM-DD` or `HH:MM:SS`. Validate schemas with format checks on.

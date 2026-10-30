@@ -71,6 +71,9 @@ test('the router request contains skills as data but no endpoint URLs, and asks 
   assert.doesNotMatch(services, /http:\/\/|127\.0\.0\.1|jsonrpc/, 'no URLs given to the model');
   assert.match(services, /calculus-tutoring/);
   assert.match(services, /find-resources/);
+  // Readiness is the Hub's code's job (→ “unavailable”); shown a live status, the model answered an outage
+  // with “unsupported” and its own excuse.
+  assert.doesNotMatch(services, /"available"|"status"/, 'no live status given to the model');
 });
 
 test('unknown agent IDs and URL-shaped choices fail closed without any outbound request', async () => {

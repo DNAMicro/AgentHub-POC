@@ -235,6 +235,8 @@ Don't stop to ask questions. Everything you need is in this file and Step 0.
 
 ## Avoid these known problems
 
+- Give the router model the services' skills only, never `available`/`status`: shown an offline service, it answered an outage with "not supported". Readiness is decided in code.
+- "I don't know" to the router's clarification: ask about the work itself with an example of each option, never the same question again.
 - Pre-pick specialist ports (no `PORT=0`), wait for the Hub's feeds, and kill the stack's current processes; a restarted specialist kept in a closure hung the runner.
 - A specialist restarted after a crash is refused (`identity_in_use`) until its old heartbeat expires (3 s in tests).
 - Simulate a crash with `SIGKILL`. `SIGTERM` signs out instead.

@@ -54,11 +54,17 @@ export const TUTORING_ACK = 'We received your request. A time slot will be sent 
 const WORKFLOW_TEXT = {
   offer: 'Here is the in-person tutoring request form. Fill it in and press “Send tutoring request”.',
   info: `In-person calculus tutoring (demo): ask for it here — for example “I’d like to arrange in-person help with calculus” — and I’ll send a request form for your contact details, preferred date, morning or afternoon, an optional specific time, and what you’d like help with. It’s a request, not a booking: a time slot would be sent based on your preferences (this demo sends no messages). Sessions run ${TUTORING_HOURS.days}, ${TUTORING_HOURS.open}–${TUTORING_HOURS.close}, ${TIMEZONE_LABEL}.`,
+  // The same question while that form is already open in this conversation ("what do i do now?").
+  infoOpen: 'Your tutoring request form is open above: fill in your name, email, preferred date, morning or afternoon and what you’d like help with, then press “Send tutoring request”. Nothing is sent until you press it.',
   clarify: 'Would you like me to explain a calculus topic here, or to request an in-person tutoring session?',
   disabled: 'In-person tutoring requests aren’t offered by this Tutor right now.',
   noClient: 'I can send an in-person tutoring request form, but your client didn’t declare A2UI v0.9 support, so I can’t show it.',
   alreadyOpen: 'You already have an open tutoring request form above. Fill that one in, or say “replace the form” to start a new one.',
 };
+// "How does in-person tutoring work?" — or "what do i do now?" while the request form is already open here.
+function infoText(contextId) {
+  return formHost.openForm(contextId, WORKFLOW_ID) ? WORKFLOW_TEXT.infoOpen : WORKFLOW_TEXT.info;
+}
 // Contact details stay out of logs whatever LOG_CONTENT says.
 const redact = (values) => (values && typeof values === 'object' ? Object.fromEntries(Object.entries(values).map(([k, v]) => [k, ['firstName', 'lastName', 'email'].includes(k) ? '[redacted]' : LOG_CONTENT ? v : '[not logged]'])) : values);
 
@@ -192,7 +198,7 @@ async function handleChat(ctx, bus, runId) {
   if (fixedIntent) {
     emitViz('intent_decided', runId, { outcome: fixedIntent, by: 'heuristic (fixed mode)' });
     if (fixedIntent === 'offer') return offerWorkflow(ctx, bus, runId, question, metadata);
-    text = fixedIntent === 'info' ? WORKFLOW_TEXT.info : WORKFLOW_TEXT.clarify;
+    text = fixedIntent === 'info' ? infoText(ctx.contextId) : WORKFLOW_TEXT.clarify;
     metadata.tutor = { outcome: fixedIntent === 'info' ? 'workflow_info' : 'clarify' };
   } else if (MODE === 'fixed') {
     // Part 1 connectivity reply. Still subject to the code-level check: no enabled tutoring skill → decline.
@@ -213,7 +219,7 @@ async function handleChat(ctx, bus, runId) {
         emit: (type, data) => emitViz(type, runId, data),
       });
       if (result.kind === 'offer_form') return offerWorkflow(ctx, bus, runId, question, metadata);
-      text = result.kind === 'workflow_info' ? WORKFLOW_TEXT.info : result.kind === 'workflow_disabled' ? WORKFLOW_TEXT.disabled : result.text;
+      text = result.kind === 'workflow_info' ? infoText(ctx.contextId) : result.kind === 'workflow_disabled' ? WORKFLOW_TEXT.disabled : result.text;
       metadata.tutor = { outcome: result.kind, scope: result.scope ?? null, model: result.model, latencyMs: result.latencyMs, usage: result.usage, stopReason: result.stopReason, truncated: result.truncated, requestId: result.requestId, duplicate: result.duplicate };
     } catch (err) {
       // Sanitized error only — never the provider's raw message, never a canned "success".

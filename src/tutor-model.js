@@ -97,6 +97,8 @@ For needs_clarification, write one short focused question; otherwise leave clari
 
 The service also has an in-person tutoring request workflow (a form; the server sends it, you only choose the outcome):
 - offer_tutoring_request_form: the student asks to arrange, request, book or meet for an in-person / face-to-face calculus tutoring session. Missing details are NOT a reason to clarify — the form collects them.
+  Casual wording counts: "i want help from a tutor in person", "can i meet someone", "i want to see a tutor face to face" — offer the form, don't ask.
+- If your own last question offered "an in-person session or an explanation now", a reply that picks the session ("tutoring", "a session", "in person", "meet", "the first one", "yes the session") is offer_tutoring_request_form; one that names a topic is in_scope. Never ask the same question twice: if the reply still doesn't choose, offer the form.
 - tutoring_request_info: the student asks how in-person tutoring or tutoring requests work (an informational question, not a request).
 - If it is unclear whether they want an explanation now or an in-person session, use needs_clarification.
 - A request to explain a calculus topic is in_scope, not a form request.`;

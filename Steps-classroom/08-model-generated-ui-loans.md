@@ -236,6 +236,7 @@ Run `npm test` after Phase 1. Every existing test must still pass.
 
 ## Avoid these known problems
 
+- Asked about another person's loans ("Sam's books"), say that only the student's own loans can be shown or renewed; don't silently show theirs.
 - Keep the end of earlier replies in the loan prompt: build `<recent_conversation>` with `briefReply(t.answer)` (Step 7b), not a 400-character head cut, which drops a closing "If you tell me which book you meant…".
 - Structured outputs can't describe arbitrary component trees: return JSON strings and validate in code.
 - Verify a component feature in the installed renderer before offering it. Text has no Markdown renderer, so tell the model to write plain text.

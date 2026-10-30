@@ -387,6 +387,9 @@ Make sure the UI design is animated and shows as live reflecting the connection 
 
 ## Avoid these known problems (found while building this step)
 
+- **Don't give the router model live status.** It saw `available: false, status: "disconnected"` with no rule for it, and answered a Library outage with “not supported” plus its own excuse, so the code's “unavailable” path never ran. Send the model skills only; readiness stays in code (a route to a specialist that isn't ready → unavailable).
+- **“I don't know” to the router's question must not get the same question again.** Ask about the work itself with an example of each option (“Is it math, like derivatives, or marketing, like the 4 Ps?”).
+- **The Student agent speaks to the student.** Its decline reason for “thanks!!” read “The student's message is just a thank-you…”. Everything it writes is shown as is: say “you”, never describe its reasoning; answer small talk kindly; for clarify only `clarification_question` is shown, so a greeting or a “how do I use this?” explanation goes there; “what do i do now?” after a reply continues that conversation.
 **Process and communication**
 - **Ask before removing or changing what already works.** Moving the router into the Hub also removed the Student's only model use, and that wasn't said — the user found out from the diagram. When a request is unclear about existing behaviour, ask; when a change removes something as a side effect, say so first.
 - **Stop test processes by PID or port, never with a loose `pkill`.** On macOS (BSD `pkill`), options after the pattern become extra patterns: `pkill -f "src/library-agent.js" -n` killed the demo Library, and a similar misordered command SIGTERMed ~70 unrelated processes. Use `kill $(lsof -tiTCP:<port> -sTCP:LISTEN)`; if `pkill` is unavoidable, put every option before the pattern and dry-run with `pgrep -lf` first.
@@ -438,6 +441,7 @@ Make sure the UI design is animated and shows as live reflecting the connection 
 
 ## Enhancements merged into this step
 
+- **Outage label, “I don't know”, Student agent wording** (2026-10-30, found by your full e2e run with tricky inputs and a non-tech-savvy student): see the three items above. Checked live in a real browser on your app: Library stopped → “service unavailable” (2/2); “I don't know” / “not sure” → a different, example-based question; “hi”, “how do i use this thing”, “thanks!!” → friendly replies.
 - **No budget step; ready means live** (your standing instructions, which take precedence over the Part 7 prompt's “ask before live calls”): live checks ran and were reported, and the app is handed over in live mode.
 - **Design decisions made while building:** control messages as typed A2A data parts handled before any student check; Hub-side chat-request and form-operation ledgers; forms returned as the Hub's own task; telemetry labelled server-side and redacted by default; specialist settings through a Hub developer proxy; the four-process launcher.
 - **Live Playwright pass (original Part 7):** chat to both specialists, clarify → “yes” → form, unsupported, a full study-room booking with live review, a tutoring request with a flagged typo and Send anyway, a Library outage (unavailable, “Not registered”) and re-registration, a skill edit reaching the Hub in ~0.2 s, reload, reduced motion, keyboard, dark mode and phone width. It found and fixed the stale ETag, the raw status wording and the inconsistent form-card label.

@@ -277,6 +277,7 @@ Success means the model intelligently composes useful interfaces from a real sup
 
 ## Avoid these known problems (found while building this step)
 
+- **Asked about someone else's loans, say so.** “Show me Sam Student's borrowed books” showed Alex's loans as “your current loans” without a word about Sam (no data leaked — the code gives only the verified borrower's loans). The loan prompt now says to answer that only the student's own loans can be shown or renewed.
 - **Keep the end of earlier replies in the loan prompt.** The loan model's `<recent_conversation>` used the first 400 characters of each Library reply, which drops a closing “If you tell me which book you meant…”. Use `briefReply(t.answer)` (Step 7) for every earlier reply in the prompt.
 - **Ask before reading a cut-off message as an instruction.** The prompt arrived ending in “did you”; it was clarified first (start Part 8? which budget rule applies?).
 - **Verify a component feature in the installed renderer before offering it.** `ChoicePicker.filterable` exists in the schema *and* the renderer (a real filter input); Text's Markdown does not render (no Markdown renderer is configured), so the model must write plain text.
@@ -298,6 +299,7 @@ Success means the model intelligently composes useful interfaces from a real sup
 
 ## Enhancements merged into this step
 
+- **Someone else's loans** (2026-10-30, found by your full e2e run with tricky inputs and a non-tech-savvy student): checked live on your app — “I can only show and renew your own library loans, so I can't show Sam Student's books…”.
 - **Standing rules applied:** no budget step for live checks (cost reported below), hand over in live mode, ask before removing or changing what works.
 - **Design decisions made while building:**
   - Generated surfaces are a workflow with operation contracts instead of fixed buttons, and buttons are checked against the surface that was actually sent.

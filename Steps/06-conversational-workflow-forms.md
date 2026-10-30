@@ -202,6 +202,8 @@ Explain the design before coding. Implement only this bounded enhancement, show 
 
 ## Avoid these known problems (found while building this step)
 
+- **Casual in-person requests and answers to the Tutor's own either/or question get the form.** Live, “i want help from a tutor in person” got “session or explanation?”, and “tutoring” got the same question again — no form. The scope-check prompt now lists casual wordings, says a reply that picks the session is `offer_tutoring_request_form`, and never asks the same question twice.
+- **“What do I do now?” with the form open must point at the form.** The fixed “how does tutoring work” text said “ask for it here… and I'll send a request form” although the form was on screen. When `formHost.openForm(contextId)` has the tutoring form, reply “Your tutoring request form is open above: fill in… then press “Send tutoring request”.”
 - **Tell the Tutor's model what became of its form.** History recorded only “[Sent the in-person tutoring request form.]”, so after the student submitted it and got a TR receipt, the next live answer added “I can't arrange in-person sessions or submit forms from this chat, so please contact your school or tutoring center directly” (seen in the 2026-10-30 full demo run). Record the outcome in that conversation's history — submitted: the request ID and status; cancelled: nothing submitted — never the form's values (`rememberFormOutcome`).
 - **Test helpers that wait for a reply must also accept a form.** An agent that answers with a form publishes `form_sent`, not `reply_published`; waiting only for the latter stalls every form test.
 - **DateTimeInput `min`/`max` must match the schema’s formats exactly:** `YYYY-MM-DD` for dates and `HH:MM:SS` for times. The schema says `oneOf` date | time | date-time, so with format checking off a date matches two branches and fails. Validate in tests *with* format checks (the project registers date/time/date-time itself).
@@ -230,6 +232,7 @@ Explain the design before coding. Implement only this bounded enhancement, show 
 
 ## Enhancements merged into this step
 
+- **In-person requests and “what now?”** (2026-10-30, found by your full e2e run with tricky inputs and a non-tech-savvy student): see the two items above. Checked live in a real browser on your app: the form appeared at once (2/2), and “what do i do now?” pointed at the open form.
 - **The Tutor remembers form outcomes** (2026-10-30, found in your requested full browser sweep): submitted → request ID and status, cancelled → nothing submitted, in the conversation's model history. Test: `test/scope.test.js` “the Tutor remembers that its form was submitted” (fails on the old code). Checked live in a real browser 3 times: form submitted, then a chain-rule question — no “contact your school” claim.
 - **No budget step; ready means live** (your standing instructions): live checks just run and are reported; the app is handed over in live mode.
 - **Design decisions made while building**: the model decides only the outcome; prefill is parsed in code; the Part 3 student-details form and `POST /api/forms` are removed; each workflow is its agent’s reserved built-in form skill; the room form refreshes availability automatically; review is a server-sent A2UI update; slot IDs are opaque and per form.

@@ -205,6 +205,7 @@ Don't stop to ask questions. Everything you need is in this file and Step 0.
 
 ## Avoid these known problems
 
+- The Student agent's words are shown as is: speak to the student as "you", never describe its reasoning; answer greetings and thanks kindly; for clarify only `clarification_question` is shown, so put greetings and "how do I use this?" explanations there; "what do i do now?" after a reply goes to the service that replied.
 - A keyword is not a routing decision. "The reading for my calculus course" mentions calculus but is a library request. One match means "obvious — let the Hub decide".
 - A pending clarifying question must not swallow the next message. Decide whether it answers the question or is a new request.
 - Keep the end of a reply in history, not just the start. A 300-character head cut dropped a Library reply's closing "If you tell me which book you meant…", so "claculus" lost its meaning and the Student asked "tutoring or your library loan?". Use `briefReply`.
