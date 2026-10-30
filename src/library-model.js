@@ -57,7 +57,9 @@ const skillList = (policy) => policy.skills.map((s) => s.name).join(', ');
 export const REPLIES = {
   disabled: () => 'The Library Agent has no skills enabled right now, so it isn’t answering questions.',
   out_of_scope: (policy) => `That’s outside what the Library Agent offers. I can help with: ${skillList(policy)}.`,
-  not_in_knowledge: (skill) => `The library information I have for ${skill?.name ?? 'that'} doesn’t cover that question.`,
+  // No enabled skill named (e.g. Library hours turned off, or the model named none): leave the name out rather
+  // than “the information I have for that…”.
+  not_in_knowledge: (skill) => (skill ? `The library information I have for ${skill.name} doesn’t cover that question.` : 'The library information I have doesn’t cover that question.'),
   withheld: () => 'I couldn’t verify that answer against the library’s saved information, so I’m not sending it. Please rephrase your question.',
 };
 

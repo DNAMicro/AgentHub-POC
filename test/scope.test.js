@@ -214,6 +214,13 @@ test('Library (live path): an answer is released only if its evidence is in the 
     assert.doesNotMatch(holiday.text, /10-4/);
     assert.match(holiday.text, /doesn’t cover that question/);
 
+    // "Not covered" naming no enabled skill (e.g. Library hours turned off): the reply leaves the skill name out —
+    // never “The library information I have for that…”.
+    stub.respondWith(() => decide({ verdict: 'not_in_knowledge', skill_id: '', answer: '', evidence: [] }));
+    const unnamed = await askTutor(lib.url, 'What time does the library close on Sunday?', {});
+    assert.equal(unnamed.library.outcome, 'not_in_knowledge');
+    assert.equal(unnamed.text, 'The library information I have doesn’t cover that question.');
+
     // A skill ID that isn't enabled can't be used as a source.
     stub.respondWith(() => decide({ skill_id: 'secret-skill', answer: 'x', evidence: ['Monday: 8:00–22:00'] }));
     assert.equal((await askTutor(lib.url, 'Monday hours?', {})).library.outcome, 'withheld');

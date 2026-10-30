@@ -208,6 +208,7 @@ Explain the design before coding. Implement this bounded enhancement, run tests,
 
 ## Avoid these known problems (found while building this step)
 
+- **A “not covered” reply may name no skill.** The Library's fixed reply was “The library information I have for ${skill?.name ?? 'that'} doesn’t cover that question”, and the live model often names no enabled skill (a turned-off skill, or a holiday question), so students read “…for that doesn’t cover that question”. Leave the name out when there is none. Don't turn it into “out of scope” instead: for “Are you open on Christmas?” that listed “I can help with: Library hours” (tried and reverted, 2026-10-30).
 - **The Tutor must remember what it asked.** Live: “I need help with Calculus” → “Which calculus topic…?” → “limits” → the scope check said “'limits' is too vague” and asked again, then asked “which topic?” a third time after “I want a really basic explanation”. Only answers were recorded in history, never the Tutor's clarifying questions. Record them.
 - **The scope check decides scope, not answer style.** It also asked “explaining the concept, or working through an exercise?” for “limits”. Clarify only when scope itself is unclear.
 - Fetch Agent Cards with `node:http`, **not `fetch`**. Node's fetch (undici) adds `Cache-Control: no-cache` to conditional requests, so Express returns 200 instead of 304 and revalidation never happens.
@@ -228,6 +229,7 @@ Explain the design before coding. Implement this bounded enhancement, run tests,
 
 ## Enhancements merged into this step
 
+- **No “for that” in the Library's not-covered reply** (2026-10-30, your request): with no skill named it reads “The library information I have doesn’t cover that question.” Checked live in a real browser on your app: hours skill off → that sentence; on → the hours; “Are you open on Christmas?” → that sentence.
 - **Library panel clears too** (your report): "New conversation" cleared the Tutor panel but not the Library's. Every panel now clears.
 - **Handlers removed, answer content added** (your request): adding "borrowing-book" failed because its handler was already used and there was no way to choose none. Skills no longer have handlers. Each has an answer content box the agent reads to answer, replying with only the relevant part (Monday's hours, not the whole week).
 - **Skills dialog redesign** (your request: "the form is pretty hard to fill"): collapsible cards with switches, grouped sections with help text, IDs generated from names, inline errors, unsaved-changes indicator, confirm before discarding.

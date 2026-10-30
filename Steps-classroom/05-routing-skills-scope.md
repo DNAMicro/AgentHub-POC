@@ -277,6 +277,7 @@ First run `npm test`; Steps 1–4 must pass.
 
 ## Avoid these known problems
 
+- The Library's "not covered" reply may have no skill to name (a turned-off skill, a holiday question). Write "The library information I have doesn’t cover that question." then, never "…for that…".
 - The Tutor must remember what it asked. "Which calculus topic?" → "limits" was judged "too vague" because only answers entered history. Record clarifying exchanges too.
 - The scope check decides scope, not answer style: don't ask "concept or exercise?" for an in-scope topic.
 - Fetch cards with `node:http`. Node's `fetch` adds `Cache-Control: no-cache`, so Express never answers 304.
