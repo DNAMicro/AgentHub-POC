@@ -115,6 +115,8 @@ export function datesIn(text) {
   for (const m of s.matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b/g)) found.push(`${m[2]}-${m[3]}`);
   for (const m of s.matchAll(new RegExp(`\\b${MONTH_RE}\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b`, 'gi'))) found.push(`${pad(MONTHS.indexOf(m[1].slice(0, 3).toLowerCase()) + 1)}-${pad(m[2])}`);
   for (const m of s.matchAll(new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?${MONTH_RE}\\b`, 'gi'))) found.push(`${pad(MONTHS.indexOf(m[2].slice(0, 3).toLowerCase()) + 1)}-${pad(m[1])}`);
+  // US month/day as people type it ("11/10", "11/10/2026") — not inside math ("x^1/2", "3/4x").
+  for (const m of s.matchAll(/(?<![\w^.\/])(\d{1,2})\/(\d{1,2})(?:\/(?:\d{4}|\d{2}))?(?![\w\/])/g)) if (Number(m[1]) >= 1 && Number(m[1]) <= 12 && Number(m[2]) >= 1 && Number(m[2]) <= 31) found.push(`${pad(m[1])}-${pad(m[2])}`);
   return found;
 }
 const md = (iso) => iso.slice(5);

@@ -120,6 +120,7 @@ End to end (mock stack, `POST /api/runs` with `formValues`):
 
 ## Avoid these known problems
 
+- Read dates as people type them: `parseStatedDate` must also take US month/day ("11/10", "11/10/2026") and "10 November", never inside math ("x^1/2"). Otherwise "11/10" goes to the Library and replaces the open form.
 - Live, the model skipped “next Monday”: in a plain fill, don't require the model to confirm what the code read.
 - In `fill_and_chat`, a date in the question (“…open on Sunday?”) must not be filled.
 - “I am” is capitalized; mask names before emails.

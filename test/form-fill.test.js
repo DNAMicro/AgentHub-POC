@@ -8,6 +8,8 @@ import { startStack, waitFor, openStream, post, find, forRun, stateOf, formActio
 import { startFakeAnthropic, messageReply } from './support/fake-anthropic.js';
 import { formFields, codeFills, checkFills, fillUpdates, inReview, maskPersonal, decideFill } from '../src/form-fill.js';
 import { buildReviewUpdate, buildEditUpdate, addDays, todayIn } from '../src/forms.js';
+import { parseStatedDate } from '../src/form-intent.js';
+import { datesIn } from '../src/a2ui-catalog.js';
 
 const NOW = new Date('2026-10-29T18:00:00Z'); // a Thursday (Pacific)
 const TODAY = todayIn(NOW);
@@ -46,6 +48,19 @@ test('code reads values from the student’s words; names and emails are masked 
   assert.deepEqual(codeFills('November 20', formFields(loanSurface([calculus]), { now: NOW }), { now: NOW }), { 'returnDate:L-1001': '2026-11-20' });
   assert.equal(maskPersonal('My name is Alex Student, alex@example.com'), 'My name is [name] [name], [email]');
   assert.equal(maskPersonal('Alex Student, alex@example.com'), '[name] [name], [email]');
+});
+
+test('dates the way people type them: 11/10, 11/10/26, 10 November — never inside math', () => {
+  // User report: “11/10” in the chat with a renewal form open was sent to the Library instead of filling the date.
+  const now = new Date('2026-10-30T19:00:00Z');
+  for (const [text, want] of [['11/10', '2026-11-10'], ['on 11/10 please', '2026-11-10'], ['11/10/2026', '2026-11-10'], ['11/10/26', '2026-11-10'],
+    ['1/5', '2027-01-05'], ['10 November', '2026-11-10'], ['the 10th of november', '2026-11-10'], ['november 10', '2026-11-10']]) {
+    assert.equal(parseStatedDate(text, now), want, text);
+  }
+  for (const text of ['derivative of x^1/2', 'what is 3/4x', '13/40', '2/30', '11/10/2026/1']) assert.equal(parseStatedDate(text, now), null, text);
+  const [picker] = formFields(loanSurface([calculus]), { now });
+  assert.deepEqual(codeFills('11/10', [picker], { now }), { [picker.field]: '2026-11-10' });
+  assert.ok(datesIn('Renew it until 11/10 please').includes('11-10'), 'the Library may repeat a date the student typed this way');
 });
 
 test('only values the form accepts are filled; the reason comes back with the allowed range', () => {

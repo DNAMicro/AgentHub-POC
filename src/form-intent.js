@@ -63,14 +63,24 @@ export function parseStatedDate(question, now = new Date()) {
   if (/\btoday\b/.test(q)) return today;
   const iso = /\b(\d{4}-\d{2}-\d{2})\b/.exec(q);
   if (iso) return iso[1];
-  const md = new RegExp(`\\b(${MONTHS.map((m) => m.slice(0, 3)).join('|')})[a-z]*\\.?\\s+(\\d{1,2})\\b`).exec(q);
-  if (md) {
-    const month = MONTHS.findIndex((m) => m.startsWith(md[1])) + 1;
-    let year = Number(today.slice(0, 4));
-    const candidate = (y) => `${y}-${String(month).padStart(2, '0')}-${String(Number(md[2])).padStart(2, '0')}`;
-    if (candidate(year) < today) year += 1;
-    return candidate(year);
-  }
+  // A month and day without a year means the next time that date comes round. Impossible dates (2/30) → none.
+  const onOrAfterToday = (month, dayOfMonth, year = null) => {
+    const iso = (y) => `${y}-${String(month).padStart(2, '0')}-${String(dayOfMonth).padStart(2, '0')}`;
+    let y = year ?? Number(today.slice(0, 4));
+    if (year === null && iso(y) < today) y += 1;
+    const d = new Date(`${iso(y)}T12:00:00Z`);
+    return month >= 1 && month <= 12 && d.getUTCMonth() + 1 === month && d.getUTCDate() === dayOfMonth ? iso(y) : null;
+  };
+  const monthOf = (name) => MONTHS.findIndex((m) => m.startsWith(name)) + 1;
+  const names = MONTHS.map((m) => m.slice(0, 3)).join('|');
+  const md = new RegExp(`\\b(${names})[a-z]*\\.?\\s+(\\d{1,2})\\b`).exec(q);
+  if (md) return onOrAfterToday(monthOf(md[1]), Number(md[2]));
+  // "10 November", "the 10th of november".
+  const dm = new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${names})[a-z]*\\b`).exec(q);
+  if (dm) return onOrAfterToday(monthOf(dm[2]), Number(dm[1]));
+  // US month/day the way people type it: "11/10", "11/10/26", "11/10/2026" — never inside math ("x^1/2", "3/4x").
+  const num = /(?<![\w^.\/])(\d{1,2})\/(\d{1,2})(?:\/(\d{4}|\d{2}))?(?![\w\/])/.exec(q);
+  if (num) return onOrAfterToday(Number(num[1]), Number(num[2]), num[3] ? Number(num[3].length === 2 ? `20${num[3]}` : num[3]) : null);
   const day = new RegExp(`\\b(?:next |this |on )?(${DAYS.join('|')})\\b`).exec(q);
   if (day) {
     const target = DAYS.indexOf(day[1]);

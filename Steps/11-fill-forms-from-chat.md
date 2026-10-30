@@ -46,6 +46,7 @@ README (“Fill forms from the chat”), CLAUDE.md (Part 11 notes, including the
 
 ## Avoid these known problems
 
+- **Read dates the way people type them.** “11/10” with a renewal form open wasn't read (the parser knew only “november 10” and `YYYY-MM-DD`), so the message went to the Library, which replaced the form with an empty one (user report, 2026-10-30). `parseStatedDate` also reads US month/day (“11/10”, “11/10/26”, “11/10/2026”) and “10 November” — never inside math (“x^1/2”, “3/4x”); impossible dates (“2/30”) are none.
 - **Don't require the model to confirm what the code read in a plain fill**: live, it skipped “next Monday” and the date was silently not filled. Scope to the model's fields only in `fill_and_chat`.
 - **Explain a next-year date**: `parseStatedDate` reads “october 10” after October 10 as next year; say “(the next October 10)” or the year surprises.
 - **Name patterns: “I am” is capitalized** (the intro words must match either case; the name words must be capitalized), and mask names before emails.
@@ -61,6 +62,7 @@ README (“Fill forms from the chat”), CLAUDE.md (Part 11 notes, including the
 
 ## Enhancements merged into this step
 
+- **Numeric dates** (2026-10-30, your report): “11/10”, “11/10/2026” and “10 november” fill the open renewal form; “what is the derivative of x^1/2?” is still answered as a question. Checked live in a real browser on your app.
 - **Fill plan line fixed** (2026-10-30, your request): the Student console now says “Plan: fill your form — nothing sent” / “… then send your question”. Checked live in a real browser: a renewal fill, a booking fill with a question (the question got its own “send as-is” line), and a plain question (unchanged).
 
 - **Built and checked (2026-10-29):** 183 tests pass (9 in `test/form-fill.test.js`); live on a rehearsal stack: your scenario (“I need to renew my calculus book” → “november 20” fills the date, no new form → “october 10” refused with the range → your click renews to Nov 20), a tutoring request filled from one message and recorded on your click, a booking filled with a question answered while it stays open, and fill + question in one message; the slide demo's Part 11 and the walkthrough's Scene 11.
