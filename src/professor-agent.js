@@ -57,6 +57,7 @@ const postedTo = (student) => (student ? Object.values(outbox.get().lessons)
   .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)) || b.revision - a.revision)
   .filter((l, i, all) => all.findIndex((x) => x.lessonId === l.lessonId) === i)
   .slice(0, 5) : []);
+const NEEDS_PROFESSOR_TEXT = 'I don’t have that answer here, so I’ve sent your question to the professor. Their reply will appear here in your chat.';
 async function handleChat(ctx, bus, runId) {
   const incoming = ctx.userMessage;
   const question = textOf(incoming).slice(0, 2000);
@@ -92,11 +93,15 @@ async function handleChat(ctx, bus, runId) {
   let text;
   try {
     const r = await professorReply({ question, policy: policy(), lesson, posts: lesson ? [] : postedTo(student), recent: recent.get(ctx.contextId) ?? [], onBehalf, emit: (type, data) => emitViz(type, runId, data) });
-    text = r.text;
-    metadata.professor = { outcome: r.kind, mode: PROFESSOR_MODE, model: r.model, usage: r.usage, lessonId: lesson?.lessonId ?? null, topics: r.topicIds, ...(onBehalf ? { onBehalf: true } : {}) };
-    if (lesson) {
-      recordReply(incoming.messageId, { studentId: student, text: question, about, relayed: false }, { text, model: r.model, needsProfessor: r.kind === 'needs_professor', onBehalf });
-      emitViz('student_reply', runId, { lessonId: lesson.lessonId, relayed: false, needsProfessor: r.kind === 'needs_professor' });
+    // Not answerable here → the professor's chat. The student is told so in fixed words (on the professor's
+    // behalf the assistant's own sentence already says it was passed on).
+    const handOver = r.kind === 'needs_professor';
+    text = handOver && !onBehalf ? NEEDS_PROFESSOR_TEXT : r.text;
+    // A hand-over is the course assistant speaking for the professor (the chat labels it so).
+    metadata.professor = { outcome: r.kind, mode: PROFESSOR_MODE, model: r.model, usage: r.usage, lessonId: lesson?.lessonId ?? null, topics: r.topicIds, ...(onBehalf || handOver ? { onBehalf: true } : {}) };
+    if (lesson || handOver) {
+      recordReply(incoming.messageId, { studentId: student, text: question, about, relayed: handOver && !onBehalf }, { text, model: r.model, needsProfessor: handOver, onBehalf });
+      emitViz('student_reply', runId, { lessonId: lesson?.lessonId ?? null, relayed: false, needsProfessor: handOver });
     }
   } catch (err) {
     const failure = err instanceof LlmError ? err : new LlmError('internal_error');

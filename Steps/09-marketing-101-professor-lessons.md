@@ -250,6 +250,7 @@ Do not change the course agenda or presentation as part of this implementation.
 
 ## Avoid these known problems (found while building this step)
 
+- **A course question the assistant can't answer must reach the professor.** “Can you ask my professor when I need to turn in last week's homework?” got “I don't have a due date… I won't guess a deadline” and nothing reached the professor (user report, 2026-10-30): `needs_professor` was allowed only in replies to the assistant's own messages, and plain course questions weren't copied to the professor's chat. Now any course question the professor's posts don't settle is handed over: copied into the professor's chat, flagged “Needs your answer”, and the student is told “I’ve sent your question to the professor. Their reply will appear here in your chat.”
 - **Send “opened” only for a message still in the inbox.** The page sent `POST /api/inbox/<id>/open` for any professor message it showed; once (in a full sweep, after a New conversation, with a second window) it was a message the Student agent no longer had → 404. Refresh the inbox first and skip messages that aren't in it or are already opened.
 - **New conversation must clear the Professor's console too.** `clearScreen()` emptied the chat and the Student, Hub, Tutor and Library consoles but not `els.professorLog`, so old Professor entries stayed after a reset. When you add a console, add it to `clearScreen()`.
 - **Keep the end of earlier replies in the Professor's prompts.** `recent_conversation` (first 300 characters of each answer) and `recent_chat` (first 400) drop a reply's closing question. Use `briefReply` from Step 7: `briefReply(t.answer)` and `briefReply(t.text, 150, 250)`.
@@ -298,6 +299,7 @@ Do not change the course agenda or presentation as part of this implementation.
 
 ## Enhancements merged into this step
 
+- **Unanswerable course questions go to the professor** (2026-10-30, your request): checked live in a real browser on your app — the student was told it was sent; the professor's chat showed the question flagged “Needs your answer”; the professor's ↩ Reply (“Please turn it in by Friday at 5 PM.”) appeared in the student's chat.
 - **New conversation clears the Professor console** (2026-10-30): checked live in a real browser on your app — 4 entries before, afterwards only the Professor's own “Posted list cleared” reset entry, and a reload brings nothing old back.
 - **Decisions asked before building (your answers):** a new Professor tab in the same app; per-process keys for the Professor and the Student; inspector structure only by default. These settle Step 8's two open decisions.
 - **Standing rules applied:** no budget step for live checks (the prompt asked for one; your standing rule overrides it), hand over in live mode, ask before removing or changing what works.

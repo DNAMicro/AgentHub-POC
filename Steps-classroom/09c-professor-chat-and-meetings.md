@@ -100,7 +100,7 @@ Work in the three phases from Step 0. Write the Phase 1 contracts yourself. Then
 28. On behalf, anything only the professor can decide (an extension, an exception, a grade, a personal arrangement, anything the posts don't settle) → `needs_professor`. Say it was passed on; never decide it. Accept `needs_professor` **only** when `onBehalf`.
 29. Mock `onBehalf`: a labelled keyword heuristic (extension, exception, grade, make-up, more time, "until Friday" …) → `needs_professor`.
 30. `recordReply(messageId, student, answer)` writes the student's line (and the answer, if any) into the professor's chat, once per incoming message id. A failed answer is recorded with `failed` and `needsProfessor`. Emit `student_reply`.
-31. Plain course questions (no post attached) are not copied into the professor's chat.
+31. A plain course question (no post attached) that the professor's posts don't settle — a due date, an extension, a grade, any arrangement — gets `needs_professor` too: copy the question into the professor's chat (`role: 'student'`, `relayed: true`) with the hand-over flagged `needsProfessor`, and tell the student in fixed words: “I don’t have that answer here, so I’ve sent your question to the professor. Their reply will appear here in your chat.” (`professor.onBehalf: true`, so it shows as the course assistant). The professor answers with ↩ Reply; it reaches the student's chat. Questions the model answers are not copied.
 32. **`postedTo(student)`**: with no post attached, give `professorReply` this professor's posts to that Hub-verified student. Newest first, latest revision of each, at most 5. Never another student's posts. Their dates count as given.
 33. Prompt additions: a message is the professor's own announcement. Answer only from what it says, never "ask your professor", never internal labels.
 
@@ -146,6 +146,7 @@ Work in the three phases from Step 0. Write the Phase 1 contracts yourself. Then
       - Alex's reply → `outcome: 'relayed'`, no model call, in the professor's chat;
       - `replyTo: 'student-alex'` → a message to Alex only; an unenrolled `replyTo` → 400;
       - a reply to an assistant message → `onBehalf`; an extension request → `needs_professor`, flagged;
+      - a plain course question the model hands over (fake API `needs_professor`) → the student is told it went to the professor, and the professor's chat has the question and the flagged hand-over;
     - **meetings**:
       - no times → `clarify`, `check: 'needs_times'`;
       - "Tuesday 2pm or Wednesday 10:30am" → an offer with exactly `slotsIn` of those words;
@@ -206,6 +207,7 @@ Work in the three phases from Step 0. Write the Phase 1 contracts yourself. Then
 
 ## Avoid these known problems
 
+- A course question nothing answers must reach the professor: "when is last week's homework due?" got "I don't have a due date" and nothing else (user report). Hand it over (`needs_professor`) and copy it into the professor's chat.
 - Before sending "opened" for a message shown in the chat, refresh the inbox and skip it if it isn't there (a stale message gives a 404) or is already opened.
 - New conversation must clear the Professor's Agent activity console too: add `els.professorLog` to `clearScreen()` in `public/app.js`.
 - Keep the end of each message in `recent_chat`: `briefReply(t.text, 150, 250)` (Step 7b), not a 400-character head cut.

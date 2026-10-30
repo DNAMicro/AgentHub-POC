@@ -467,6 +467,34 @@ test('a course question without an attached message is answered from what the pr
   }
 });
 
+test('a course question the assistant can’t answer goes to the professor’s chat, and the student is told so', async () => {
+  // User report: "when do I need to turn in last week's homework?" got "I don't have a due date" and nothing
+  // reached the professor. Scripted model output (plumbing, not judgment): the model hands it over.
+  const stub = await startFakeAnthropic();
+  stub.respondWith(() => messageReply(JSON.stringify({ kind: 'needs_professor', text: 'I don’t have a due date for that.', topic_ids: ['course-questions'] })));
+  const { s } = await classroom({ professorEnv: { PROFESSOR_MODE: 'live', ANTHROPIC_API_KEY: `sk-ant-test-${randomUUID()}`, ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0' } });
+  try {
+    const stream = await openStream(s.ui.url);
+    try {
+      const question = 'When do I need to turn in my homework for last week’s lesson?';
+      const res = await post(`${s.ui.url}/api/runs`, { text: question, capability: 'marketing' });
+      const { runId } = await res.json();
+      await waitFor(() => find(forRun(stream.events, runId), 'student', 'reply_received'), { timeout: 15000, what: 'reply' });
+      const reply = find(forRun(stream.events, runId), 'student', 'reply_received').data;
+      assert.match(reply.text, /sent your question to the professor/i);
+      assert.equal(reply.professor.outcome, 'needs_professor');
+      assert.equal(reply.professor.onBehalf, true, 'shown as the course assistant speaking for the professor');
+      const chat = (await professorState(s)).chat;
+      assert.ok(chat.some((m) => m.role === 'student' && m.studentId === 'student-alex' && m.text === question), 'the question is in the professor’s chat');
+      assert.ok(chat.some((m) => m.action === 'answer_student' && m.to === 'student-alex' && m.needsProfessor), 'flagged: needs the professor’s answer');
+    } finally {
+      stream.close();
+    }
+  } finally {
+    await stub.close();
+  }
+});
+
 test('replies in the chat: the professor’s message reaches the student’s chat, a reply goes to the professor in person, who answers that student only; the assistant answers replies to its own messages and hands decisions to the professor', async () => {
   const { s, stream } = await classroom();
   const received = (pred) => waitFor(() => findAll(stream.events, 'student', 'lesson_received').find((e) => pred(e.data)), { what: 'delivery to the student' });
