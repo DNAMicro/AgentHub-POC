@@ -118,6 +118,8 @@ Don't stop to ask questions. Everything you need is in this file and Step 0.
 21. **Routing** uses the same `src/router.js` from Step 5 (`decideRoute`, `validateDecision`, `routerStatus`). Its header comment now says it is the Hub's router. Keep the event names `route_decided` / `route_failed`; the Hub emits them now, not the UI server.
 22. Add `publicWords(value, services)` to `src/router.js`: in text the student reads (reason, clarifying question), replace each service's `name` with its `publicName` and drop "(<name>)". `validateDecision` applies it.
 23. The router's `services` = registry view plus `destination`, `publicName` and `description` from that peer's destination. A specialist is reachable only through its own destination.
+    - The live model sees each service **without** `available`/`status` (strip them in `decideRoute`): readiness is decided in code — a route to a specialist that isn't ready becomes `unavailable` (“service unavailable”).
+    - Router prompt: if the student answers your clarification with “I don't know” / “not sure”, never repeat the question — ask about the work itself with an example of each option.
 24. `ROUTER_MODE=direct` routes everything to the `tutoring` worker (`unavailable` if none).
 25. Keep 6 recent turns per conversation (question, agent, skill, reply snippet), so "yes" after a clarifying question works.
 26. A `route` to a non-ready specialist becomes `unavailable`: "Library Agent is not available right now (it isn’t connected)." Never show raw status codes.

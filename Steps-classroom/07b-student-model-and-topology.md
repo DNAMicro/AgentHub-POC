@@ -60,6 +60,10 @@ Don't stop to ask questions. Everything you need is in this file and Step 0.
 5. **Mock** (labelled heuristic): clarify only when nothing matched and the question has fewer than two meaningful words. Otherwise send with no capability (`heuristic`). Mock never declines.
 6. **Live:** one structured call, 400 output tokens, `STUDENT_MODEL_TIMEOUT_MS` (default 30000), the last 4 turns. Schema enum `action`: `send`, `decline`, plus `clarify` only while a clarification is still allowed. `capability` enum: the card's IDs plus `none`.
 7. The prompt gives capabilities (id, name, description, examples), recent turns, whether clarifying is allowed, and the latest message, each in its own tag. It treats them as data and never outputs URLs.
+   - Everything it writes is shown as is: it speaks to the student as "you", never "the student", and never describes its reasoning.
+   - Small talk ("hi", "thanks!!") is not declined: reply kindly and, if allowed, clarify with a friendly question.
+   - For clarify only `clarification_question` is shown: put greetings and explanations there. "How do I use this?" → one sentence (type what you need in your own words; it goes to the right service), then the question.
+   - "What do i do now?" / "did it work?" right after a reply → send to the capability that replied.
 8. Code validates the result. Unknown IDs become `null`. `clarify` needs a non-empty question and permission. `decline` needs a non-empty reason.
 9. Live failure: emit `model_call_failed`, return send with no capability, `by: 'model_failed'`. Never another model.
 10. **Pending clarification:** `planRequest({ pending })` with `pending = { original, clarificationQuestion }`. Every answer is sent as `original + '\n' + askedLine(clarificationQuestion) + '\n' + reply`, where `askedLine(q)` = `(Your Student agent asked: “q”)` — so whoever receives "yes" knows what it answers. An `UNSURE` reply → send that text (`answers_question`, `by: 'uncertain'`), no model call.

@@ -104,7 +104,7 @@ First run `npm test`; Steps 1–5 must pass.
    - "Where are the study rooms?" → `null` (a plain question).
    - `wantsReplacement`: replace / start over / new form / discard.
 9. **Prefill is parsed only from the student's words**, in every mode:
-   - dates: today, tomorrow, the day after tomorrow, weekday names, `Oct 30`, ISO dates;
+   - dates: today, tomorrow, the day after tomorrow, weekday names, `Oct 30`, `30 October`, ISO dates, and US month/day as people type it (`11/10`, `11/10/26`, `11/10/2026`) — never inside math (`x^1/2`, `3/4x`); impossible dates (`2/30`) are none; a month and day without a year means the next time it comes round;
    - morning/afternoon; a stated time (`3pm`, `14:30`);
    - group size ("for 5 people"); duration ("2 hours");
    - drop values outside the form's rules;
@@ -146,6 +146,11 @@ First run `npm test`; Steps 1–5 must pass.
    - The prompt says missing details are not a reason to clarify (the form collects them).
    - It says "explain a topic" is `in_scope`, not a form request.
    - When it's unclear whether the student wants an explanation now or a session → `needs_clarification`.
+   - Casual wording counts as a request: "i want help from a tutor in person", "can i meet someone" → `offer_tutoring_request_form`.
+   - A reply that picks the session ("tutoring", "a session", "in person", "the first one") to the Tutor's own either/or question → `offer_tutoring_request_form`. Never ask the same question twice.
+   - The answer prompt asks for plain text (Step 4).
+   - **Form outcome in history:** on submit, add `[Sent the in-person tutoring request form.]` → `[Tutoring request TR-… received — awaiting scheduling. Nothing else is needed in this chat for it.]` to that conversation's model history; on cancel, "Nothing was submitted." Never the form's values (`rememberFormOutcome(contextId, …)` in `src/tutor-model.js`, called from the form handlers with `form.contextId`).
+   - **"How does it work?" while the form is open** ("what do i do now?"): if `formHost.openForm(contextId, 'tutoring-request')`, reply "Your tutoring request form is open above: fill in … then press “Send tutoring request”. Nothing is sent until you press it." instead of the generic info text.
 3. Tutor fixed/mock (or scope enforcement off): `mockTutorIntent` decides.
 4. Library live mode: add verdicts `offer_study_room_booking_form` and `study_room_booking_info` to the **existing answer call**.
    - The prompt says "a room for study", "a room to study in", "a space for my study group" and "a group room" mean a study room → offer.
@@ -242,6 +247,7 @@ First run `npm test`; Steps 1–5 must pass.
    - review: flagged → not recorded; Send anyway records exactly those values; changed values are reviewed again;
    - review: a forged acknowledgement doesn't skip it; a failed review doesn't block; the live review (fake API) sees all fields; the email/name flag is dropped;
    - serialized actions with a slow review record once; contact details redacted in logs.
+   - (in `test/scope.test.js`, live Tutor + fake API, scripted by schema) after a form is submitted, the next answer call's history contains the request ID and "received", and never the name, email or notes.
 
 ## Phase 3 — Join and check (lead)
 

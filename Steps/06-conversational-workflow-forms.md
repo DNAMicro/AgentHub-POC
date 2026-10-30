@@ -24,7 +24,7 @@ Each agent’s workflow is its reserved built-in form skill — Tutor: `in-perso
 
 Use the existing server-side Anthropic integration for bounded intent interpretation — as new outcomes in each agent's existing structured call (the Tutor's scope check, the Library's answer call), not an extra call. In fixed/mock modes a labelled deterministic heuristic decides. Validate the decision in code before sending a form. Allowed outcomes are answer, clarify, offer_tutoring_request_form, offer_study_room_booking_form (plus “explain how the workflow works”), or out_of_scope, restricted to the receiving service’s actual capabilities.
 
-Prefill is parsed in code from the student’s own words (dates like “tomorrow”/“Friday”, morning/afternoon, a stated time, “for 5 people”, “2 hours”), never taken from model output. Never prefill names, emails or notes. Prefilled values remain visible and editable, and the form says which fields were filled in from the message.
+Prefill is parsed in code from the student’s own words (dates like “tomorrow”/“Friday”/“Oct 30”/“30 October”, or typed as US month/day “11/10” or “11/10/2026” — never inside math such as “x^1/2”; morning/afternoon, a stated time, “for 5 people”, “2 hours”), never taken from model output. Never prefill names, emails or notes. Prefilled values remain visible and editable, and the form says which fields were filled in from the message.
 
 Do not let model output invent workflows, actions, URLs, form templates, room IDs, or available times. Use registered, schema-valid A2UI templates populated with validated data.
 

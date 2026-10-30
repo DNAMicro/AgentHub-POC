@@ -178,7 +178,7 @@ Work in the three phases from Step 0. Write the Phase 1 contracts yourself. Then
 
 16. A delivered `message` bubble is labelled "<professorName> → you" (or "→ the whole class"), with " · course assistant" when `author` is `assistant`.
 17. Each bubble gets **↩ Reply**. Reply sets the chip "Replying to: <sender>". The next message carries `lessonDeliveryId`, then the chip clears (one reply). A lesson's "About" chip stays.
-18. A message counts as **opened** once it has really been seen. Use an `IntersectionObserver` at ≥ 60 % visible while `document.visibilityState === 'visible'`, then call `POST /api/inbox/:id/open`. Re-check on `visibilitychange`.
+18. A message counts as **opened** once it has really been seen. Use an `IntersectionObserver` at ≥ 60 % visible while `document.visibilityState === 'visible'`, then refresh the inbox and call `POST /api/inbox/:id/open` only if the message is still there and not yet opened (a page can briefly show a message from before a New conversation). Re-check on `visibilitychange`. `clearScreen()` empties every console, the Professor's (`els.professorLog`) included.
 19. A meeting offer shows one plain `<button>` per slot inside the bubble (group `aria-label="Pick a meeting time"`). These are chat buttons built from the signed `meeting` data, not an A2UI form.
 20. A click sends "I'll take <label>." with `lessonDeliveryId` and `meetingSlot`.
 21. When the reply's `professor.meeting.status` is `booked` or `already`, mark the booked slot (✓, `aria-pressed="true"`) and disable the other buttons.

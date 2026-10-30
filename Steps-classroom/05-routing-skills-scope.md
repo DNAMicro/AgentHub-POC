@@ -117,6 +117,7 @@ First run `npm test`; Steps 1–4 must pass.
    - Release an answer only if `skill_id` is enabled and **every evidence line appears verbatim** in that skill's content. Normalize case, quotes, dashes and spaces before comparing.
    - Otherwise return verdict `withheld` with fixed text.
    - `not_in_knowledge` and `out_of_scope` get fixed server text, never the model's prose.
+   - The `not_in_knowledge` text names the skill only when an enabled one was named: otherwise "The library information I have doesn’t cover that question." — never "…for that…".
    - Give the model today's date, so it can work out a due date or a missing year.
 8. The answer never names skills or skill IDs. It never claims to renew, hold or pay.
 9. No enabled skill → fixed `disabled` reply, no model call.
@@ -235,7 +236,7 @@ First run `npm test`; Steps 1–4 must pass.
     - add `chatVia(ui, stream, text, contextId)`. It returns the routing decision, the run's final state, and `servedBy` taken from the reply's `metadata.agentId`.
 11. Write `test/routing.test.js` (mock router unless stated). Assert the destination by the **receiving agent's own** `message_received` event. Check:
     - every routing example reaches the expected service, or none;
-    - the router request (fake API) has skills, no URLs, and a structured schema;
+    - the router request (fake API) has skills, no URLs, no live status (`available`/`status`), and a structured schema;
     - unknown agent IDs or URL-shaped choices send nothing;
     - separate contexts per service; follow-ups continue; new topics switch;
     - reconnect causes no new calls; an offline service is reported, not redirected;

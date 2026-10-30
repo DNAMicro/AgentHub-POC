@@ -82,7 +82,7 @@ Don't stop to ask questions. Everything you need is in this file and Step 0.
 
 Unit (fixed `NOW` = a Thursday):
 - fields for each workflow and a generated loan surface;
-- `codeFills` for a tutoring sentence, a booking sentence and “November 20”;
+- `codeFills` for a tutoring sentence, a booking sentence, “November 20” and “11/10”; `parseStatedDate` reads “11/10”, “11/10/26”, “10 November”, and returns none for “x^1/2”, “3/4x”, “2/30”;
 - `maskPersonal`;
 - a weekend date, an out-of-hours time, a group over the room's capacity and an out-of-range loan date are refused with their reasons;
 - the slot is cleared when a criterion changes;
