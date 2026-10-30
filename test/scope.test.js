@@ -51,6 +51,17 @@ test('mixed requests ask for clarification instead of answering; vague ones too'
   assert.equal(vague.tutor.outcome, 'clarify');
 });
 
+// Live, 2026-10-29: "I need help with Calculus" → "Which calculus topic…?" → "limits" → the Tutor asked
+// again ("'limits' is too vague") — it never kept its own clarifying question in the conversation history.
+test('the Tutor remembers its own clarifying question, so the answer to it has context', async () => {
+  const ctx = randomUUID();
+  const asked = await ask(tutor, 'Help', ctx);
+  assert.equal(asked.tutor.outcome, 'clarify');
+  const answered = await ask(tutor, 'limits', ctx);
+  assert.equal(answered.tutor.outcome, 'answer');
+  assert.match(answered.text, /Earlier in this conversation you asked: "Help"\. \(2 earlier messages in context\.\)/, 'the clarification exchange is in the history');
+});
+
 test('earlier in-scope messages do not authorize a later unrelated topic', async () => {
   const ctx = randomUUID();
   assert.equal((await ask(tutor, 'What is the limit of 1/x as x grows?', ctx)).tutor.outcome, 'answer');

@@ -96,7 +96,7 @@ Plain ESM JavaScript (`"type": "module"`), no lint/TypeScript. The only build st
 - Never read, print, or log the key or the user's key files (`.env`, `.temp`); only report presence as a boolean.
 - No hidden retries: `maxRetries: 0`, no fallback model, no canned answers on failure. Errors are mapped to sanitized codes (`toLlmError` in `src/llm.js`); don't pass raw provider messages through.
 - Duplicate-call protection is keyed by `(contextId, messageId)` in the Tutor's ledger; the Student reuses the same `messageId` only for reconciling an uncertain outcome. One in-flight model call per `contextId` (`busy` otherwise).
-- History is per A2A `contextId`, text-only (no thinking blocks are replayed), append-only per completed exchange, bounded to 10 messages / 12,000 chars. Form data is never sent to the model.
+- History is per A2A `contextId`, text-only (no thinking blocks are replayed), append-only per completed exchange (answers and the Tutor's own clarifying questions — never refusals or withheld drafts), bounded to 10 messages / 12,000 chars. Form data is never sent to the model.
 - Haiku 5.5: no `temperature`/`top_p`/`top_k` (400 on API version 2026-10-21), thinking counts toward `max_tokens` (hence `effort: "low"` with the 800-token cap), always check `stop_reason` (`refusal`, `max_tokens`) before using content.
 - Message contents are logged only when `LOG_CONTENT` is on (default on in fixed/mock — earlier tests read Tutor logs — off in live; `TUTOR_LOG_CONTENT` overrides). The UI server sets `STUDENT_LOG_CONTENT=0`.
 

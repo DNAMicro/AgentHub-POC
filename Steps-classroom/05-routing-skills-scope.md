@@ -134,6 +134,8 @@ First run `npm test`; Steps 1–4 must pass.
 3. The layers in `answer()`, in order:
    1. Code: no enabled answer skill → fixed `disabled` reply, no model call.
    2. Scope check → `in_scope | out_of_scope | needs_clarification`. Only `in_scope` continues.
+      - `needs_clarification` only when it's unclear whether the request is in scope at all ("help") or it mixes allowed and excluded topics. A short or broad request clearly inside a skill ("limits", "a really basic explanation" after naming a topic) is `in_scope` — the answer starts with a simple overview. The prompt says the scope check never asks how detailed, which kind of explanation, or concept-versus-exercise.
+      - A clarification is recorded in the Tutor's history (`remember(contextId, question, clarifyingQuestion)`), like an answer, so the student's reply to it has context. Refusals and withheld drafts are not recorded.
    3. The answer instructions contain the same current scope (`scopeText`) and optional reference notes (`knowledgeText`).
    4. One answer check (`violates`). On a violation, send a fixed `withheld` reply. Never regenerate.
    5. If the policy revision changed during the request, send a fixed `changed` reply and don't release the answer.
@@ -275,6 +277,8 @@ First run `npm test`; Steps 1–4 must pass.
 
 ## Avoid these known problems
 
+- The Tutor must remember what it asked. "Which calculus topic?" → "limits" was judged "too vague" because only answers entered history. Record clarifying exchanges too.
+- The scope check decides scope, not answer style: don't ask "concept or exercise?" for an in-scope topic.
 - Fetch cards with `node:http`. Node's `fetch` adds `Cache-Control: no-cache`, so Express never answers 304.
 - Keep `ROUTER_MODE` default `direct`. Steps 2–4 tests spawn the UI without it.
 - Mock matching: stems ("limit" ~ "limits") and small typos ("derivitive") match; different words don't.

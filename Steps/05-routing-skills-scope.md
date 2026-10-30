@@ -129,7 +129,8 @@ Use these layers:
 - Server code enforces supported operation IDs, skill IDs, actions, and schemas.
 - A conservative semantic check evaluates free-text requests against the saved skill configuration before answer generation: in_scope, out_of_scope, or needs_clarification.
 - Out-of-scope requests get a short scope response, not a substantive answer.
-- Uncertain requests get a focused clarification question.
+- Uncertain requests get a focused clarification question — only when it's unclear whether the request is in scope at all (“help”), or it mixes allowed and excluded topics. A short or broad request clearly inside a skill (“limits”, “a really basic explanation” after naming a topic) is in scope: the answer starts with a simple overview. The scope check never asks how detailed, which kind of explanation, or concept-versus-exercise.
+- The Tutor's own clarifying questions enter its conversation history (question + the clarifying question), so the student's answer to one (“limits” after “Which calculus topic?”) is understood. Refusals and withheld drafts never enter history.
 - The answer-generation instructions use the same current scope.
 - Check generated answers for material scope violations before release. If the check fails, return a safe scope response without an unlimited regeneration loop.
 For Library responses, answer only from the enabled skills' saved answer content rather than inventing facts; in live mode release only evidence-verified answers.
@@ -207,6 +208,8 @@ Explain the design before coding. Implement this bounded enhancement, run tests,
 
 ## Avoid these known problems (found while building this step)
 
+- **The Tutor must remember what it asked.** Live: “I need help with Calculus” → “Which calculus topic…?” → “limits” → the scope check said “'limits' is too vague” and asked again, then asked “which topic?” a third time after “I want a really basic explanation”. Only answers were recorded in history, never the Tutor's clarifying questions. Record them.
+- **The scope check decides scope, not answer style.** It also asked “explaining the concept, or working through an exercise?” for “limits”. Clarify only when scope itself is unclear.
 - Fetch Agent Cards with `node:http`, **not `fetch`**. Node's fetch (undici) adds `Cache-Control: no-cache` to conditional requests, so Express returns 200 instead of 304 and revalidation never happens.
 - Keep earlier steps' tests unchanged in behavior: the router's code default is `direct` (no routing), and Step 4's plumbing tests set `TUTOR_SCOPE_ENFORCEMENT=off`, because scope checks add model calls.
 - Mock heuristics (tests only) must:
@@ -234,3 +237,4 @@ Explain the design before coding. Implement this bounded enhancement, run tests,
 - **Typo tolerance** (your report): the mock scope check rejected "derivitive". Mock matching now allows small typos.
 - **Routing too strict** (your report): with a Marketing skill saved, "What is SWOT analysis?" was declined. The card update and notification had worked; the router required a "clear" literal fit. Router and Tutor scope check now count a subject's standard concepts and frameworks. Tutor answers no longer mention skill names or IDs.
 - **Named “Tutor Agent”, not “Calculus Tutor”** (your request): the tutor's subjects are configurable in the ⚙ dialog (calculus is just the default skill), so the UI, the Student's registry display name and the Tutor's card description use the neutral name.
+- **Clarifying questions remembered; scope check stops over-asking** (your report, 2026-10-29: “still not keeping context I already told it limits”): the Tutor now records its clarifying exchanges in history and its scope-check prompt says broad in-scope requests are in scope. Test in `test/scope.test.js`. Live: “I need help with Calculus” → (one question) → “limits” → explanation, 2/2; “Help”, Newton's laws and mixed requests still clarified or refused.
