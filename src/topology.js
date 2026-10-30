@@ -37,9 +37,10 @@ const STUDENT = {
   model_call_started: (d) => MODEL_CALLS.model_call_started('student', d),
   model_response_received: (d) => MODEL_CALLS.model_response_received('student', d),
   model_call_failed: (d) => MODEL_CALLS.model_call_failed('student', d),
-  request_planned: (d) => inside('student', 'routing', 'processing', d.action === 'clarify' ? 'Student decided to ask you first' : d.action === 'decline' ? 'Not a university service — Student answers itself'
+  request_planned: (d) => inside('student', 'routing', 'processing', d.action === 'clarify' ? 'Student decided to ask you first' : d.action === 'decline' ? 'Not a university service — Student answers itself' : d.action === 'fill' ? 'Student filled your form from the chat (nothing sent)'
     : d.capability ? `Student chose ${d.capabilityName ?? d.capability}${d.by === 'model' ? ' (its model)' : ''}` : d.by === 'rule' ? 'Obvious — the Hub routes it' : 'Student left routing to the Hub'),
   clarification_asked: () => inside('student', 'request', 'completed', 'Student asked you a clarifying question'),
+  form_filled: (d) => inside('student', 'form', 'completed', d.fields?.length ? `Student filled ${d.fields.length} field${d.fields.length > 1 ? 's' : ''} of your form` : 'Student looked at your form (nothing filled)'),
   // Part 9: the Student's inbound side (lessons the Hub delivered) and its session with the Hub.
   student_session: (d) => hop('student', 'hub', 'registration', d.status === 'registered' ? 'completed' : 'failed', d.status === 'registered' ? 'Student session confirmed' : `Student session not registered (${d.reason ?? d.status})`),
   lesson_received: (d) => inside('student', 'lesson', 'completed', `${d.kind === 'message' ? 'Message' : 'Lesson'} saved in the Student’s inbox`),

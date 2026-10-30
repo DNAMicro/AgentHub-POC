@@ -37,6 +37,8 @@ The original build record, in the user's own wording with every enhancement merg
 | 9a | [09a-professor-agent.md](09a-professor-agent.md) | Marketing 101 Professor behind the Hub; students ask it course questions | 4 |
 | 9b | [09b-lessons-reverse-route.md](09b-lessons-reverse-route.md) | Professor → Hub → Student lessons as new signed A2A messages, the Student's inbox, signed Student requests | 4 |
 | 9c | [09c-professor-chat-and-meetings.md](09c-professor-chat-and-meetings.md) | Professor chat tab, messages as chat with replies, `@assistant`, meeting times | 3 |
+| 10 | [10-ag-ui.md](10-ag-ui.md) | AG-UI 1.0 between the agents and the screen: one connection per page, AG-UI runs, shared form state; nothing visible changes | 3 |
+| 11 | [11-fill-forms-from-chat.md](11-fill-forms-from-chat.md) | Fill out an open form from the chat: values read by code, checked by the form's rules, names/emails hidden from the model, nothing sent until you press the button | 3 |
 
 ## What changed from the original steps, and why
 

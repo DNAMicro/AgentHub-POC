@@ -126,7 +126,7 @@ npm test   # starts the Tutor (and UI server) as child processes, runs all check
 
 ### Audience demo: the build, part by part
 
-`scripts/demo/progression.js` presents the project to an audience on the running app (`npm run demo:live`). It walks through Steps 1–9 in order: a title slide per part (what it added, which agents exist at that point), then the real app doing it, with captions, highlights on what to look at, and timed pauses. Everything on screen is live: real A2A messages and real model calls, so a full run costs a few cents and takes about 12 minutes at normal pace.
+`scripts/demo/progression.js` presents the project to an audience on the running app (`npm run demo:live`). It walks through Steps 1–11 in order: a title slide per part (what it added, which agents exist at that point), then the real app doing it, with captions, highlights on what to look at, and timed pauses. Everything on screen is live: real A2A messages and real model calls, so a full run costs a few cents and takes about 12 minutes at normal pace.
 
 ```bash
 playwright-cli -s=demo open --headed "http://127.0.0.1:4444/conversation"
@@ -219,7 +219,7 @@ Everything is live, so the model may answer in words where the script hoped for 
 | `src/topology.js` | Part 7: labels each telemetry event with its connection, direction, category and phase for the topology view. |
 | `public/topology.js` | Part 7: the live topology graph (SVG), traces, details, event list. |
 | `scripts/start-all.js` | Part 7: starts all the processes — five since Part 9 (`npm run demo` / `demo:live`). |
-| `scripts/demo/progression.js` | The audience demo: presents Steps 1–9 on the running app with slides, captions, highlights and pauses (run with playwright-cli). |
+| `scripts/demo/progression.js` | The audience demo: presents Steps 1–11 on the running app with slides, captions, highlights and pauses (run with playwright-cli). |
 | `scripts/live-eval.js` | Part 5's opt-in live spot check of routing and scope decisions. Paid; off unless `LIVE_EVAL_MAX_USD` is set. |
 | `scripts/live-smoke.js` | The paid live smoke test, off unless `LIVE_SMOKE_MAX_USD` is set. |
 | `.env.example` | Placeholder for your local `.env` (git-ignored). |
@@ -263,6 +263,8 @@ The raw request and response on the wire:
 ```
 
 ## The browser monitor: two kinds of connection
+
+> Since Part 10 the browser holds **one** connection, `/api/ui/stream`, which carries this monitoring stream plus the AG-UI events for the Conversation, Agent activity and Professor view. See “Part 10: AG-UI” below. What follows still describes the monitoring events, which are unchanged.
 
 ```
  Browser ──POST /api/runs──▶  UI server (hosts Student Agent)  ══ A2A JSON-RPC ══▶  Tutor Agent process
@@ -883,6 +885,32 @@ A lesson can contain anything the professor typed, including “ignore your inst
 ### Tests
 
 `test/professor.test.js` runs every scenario above with real processes, using the **mock** Professor (answers labelled “(Mock mode — no model.)”) and the mock router. These tests prove routing, delivery, deduplication, safety and honesty of states, not the live model's teaching quality. The lost acknowledgment is simulated with a test-only delay in the Student (`STUDENT_TEST_DELAY_FIRST_DELIVERY_ACK_MS`). The live walkthrough above was run in a browser with Haiku 5.5 for the Professor, router and Student.
+
+## Part 10: AG-UI between the agents and your screen
+
+Nothing new to look at, on purpose. The app now uses three open protocols, each for its own layer:
+
+| Layer | Protocol | Carries |
+| --- | --- | --- |
+| Agent ↔ agent | **A2A** 1.0 | Student ↔ Hub ↔ Tutor / Library / Professor |
+| What UI to show | **A2UI** v0.9 | forms and the Library's generated loan screens (inside A2A, and inside AG-UI to the screen) |
+| Agent ↔ your screen | **AG-UI** 1.0 (`@ag-ui/*` 1.0.3) | the Conversation, Agent activity and Professor view |
+
+Topology and the hop-by-hop strip keep the monitoring stream (`/api/events`), which is unchanged.
+
+- **A question is an AG-UI run.** The browser posts AG-UI run input (`POST /api/ag-ui/runs`). The reply comes back as `RUN_STARTED` → `TEXT_MESSAGE_START / CONTENT / END` → `RUN_FINISHED` (or `RUN_ERROR`). Console entries arrive as `ACTIVITY_SNAPSHOT` events, still filtered by the Hub's privacy rules. Form states are AG-UI shared state (`STATE_SNAPSHOT` / `STATE_DELTA`), the groundwork for filling forms from the chat (Step 11). Things nobody asked for, such as a lesson arriving, come in a short run the server opens itself.
+- **One connection per page.** `/api/ui/stream` carries three channels: `monitor` (the monitoring events), `student` (the Student agent's AG-UI events) and `professor` (the Professor view's). Browsers allow only six open connections per server, and three streams per page blocked every request once two windows were open.
+- **Checked by the client.** Each AG-UI channel goes to its own `@ag-ui/client` agent (`StreamAgent` in `src/ag-ui-stream-agent.js`, which reads the stream itself because `HttpAgent` in 1.0.3 doesn't implement `connect()`). The client's own checker verifies the order of every run before anything is drawn.
+- **Tests and checks:** `test/ag-ui.test.js` (schemas, run order, resume at run boundaries, interleaving during a slow run, the Professor channel, cross-site refusals, a server restart, events that arrive before the client subscribes). `scripts/browser-checks/same-screen.js` records what every tab shows in a scripted session, so a before/after comparison proves nothing visible changed.
+
+## Part 11: fill out forms from the chat
+
+While a form is open, type its values in the chat instead of clicking into it: “november 20”, “I'm Alex Student, alex@example.com, next Monday mornings, I need help with the chain rule”, “room B, 2 hours, 4 people, tomorrow”. Your own Student agent fills them into the form you're looking at, for all fields of the tutoring request, the study-room booking and the Library's generated loan renewal. **Nothing is sent to the university**, and the app never presses the form's button; that click is always yours.
+
+- **Checked by the form's own rules.** A value the form wouldn't take is not filled, and the note says why: *“Not filled — New return date (L-1001): 2027-10-10 (the next October 10) is outside the permitted range 2026-11-03 to 2026-11-23.”*
+- **Read by code.** Values come from parsers and patterns over your words. In live mode the Student's model decides whether the message fills the form, asks something, or both. A model value is used only if the code reads the same value, so it can't invent one. **Names and emails are hidden from the model** and filled by code alone.
+- **Chat still works.** A question while a form is open is sent as usual and the form stays. “Make it 1 hour — and is there a printer in the library?” fills the duration, then asks the question.
+- A booking already in review isn't changed (press “Back to edit” first). With several loans on one screen, name the book or the loan ID.
 
 ## Deliberately not included
 

@@ -302,11 +302,15 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     lastRendered = signature;
     pv.log.replaceChildren(...items);
   }
-  async function refreshProfessor() {
-    const r = await api('/api/professor/state').catch(() => null);
-    if (!r?.ok) { pv.error.textContent = r?.json?.error ?? 'The Professor agent isn’t reachable right now.'; return; }
-    pv.error.textContent = '';
-    const s = r.json;
+  // Part 10: the Professor view's state arrives over its own AG-UI stream (STATE_SNAPSHOT), pushed by the
+  // UI server — no polling here. refreshProfessor() re-renders the latest state.
+  let professorState = null;
+  function refreshProfessor() {
+    if (!professorState) return;
+    if (professorState.error) pv.error.textContent = professorState.error;
+    else if (!pv.error.textContent.startsWith('Not sent:')) pv.error.textContent = '';
+    const s = professorState.professor;
+    if (!s) return;
     pv.course.textContent = `${s.course.title} — ${s.course.note}`;
     roster = (s.roster?.enrolled ?? []).map((x) => ({ ...x, name: x.name ?? x.studentId }));
     pv.roster.replaceChildren(...roster.map((x) => el('span', { className: 'presence', dataset: { online: String(Boolean(x.online)) }, textContent: x.name, title: x.online ? 'Student agent online' : 'Student agent not connected — posts queue at the Hub' })));
@@ -368,7 +372,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     pv.error.textContent = '';
     follow.pin();
     renderProfessor();
-    const r = await api('/api/professor/chat', { method: 'POST', body: { operationId: attempt.operationId, text, ...(pending.replyTo ? { replyTo: pending.replyTo } : {}) } }).catch(() => null);
+    const r = await professorRun(text, { operationId: attempt.operationId, ...(pending.replyTo ? { replyTo: pending.replyTo } : {}) });
     pending = null;
     pv.send.disabled = false;
     if (r?.ok) {
@@ -382,14 +386,44 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
       pv.error.textContent = `Not sent: ${r?.json?.error ?? 'no answer from the Professor agent'}. Your text is back in the box; send it again to retry.`;
     }
     lastRendered = '';
-    await refreshProfessor();
+    refreshProfessor();
     follow.pin();
   });
-  setInterval(() => { if (!pv.view.hidden) refreshProfessor(); }, 3000);
+
+  // One professor message = one AG-UI run (POST /api/ag-ui/professor/runs). The server owns the run; its
+  // result (CUSTOM professor_result) arrives on the Professor stream — possibly before the 202 answer.
+  const runResults = new Map(); // runId → result | resolver
+  async function professorRun(text, forwardedProps) {
+    const input = { threadId: 'professor', runId: crypto.randomUUID(), messages: [{ id: crypto.randomUUID(), role: 'user', content: text }], state: {}, tools: [], context: [], forwardedProps };
+    const started = await api('/api/ag-ui/professor/runs', { method: 'POST', body: input }).catch(() => null);
+    if (!started?.ok) return started;
+    const { runId } = started.json;
+    const known = runResults.get(runId);
+    if (known && !(typeof known === 'function')) { runResults.delete(runId); return known; }
+    return new Promise((resolve) => runResults.set(runId, resolve));
+  }
+  function professorResult(result) {
+    const waiting = runResults.get(result.runId);
+    runResults.delete(result.runId);
+    if (typeof waiting === 'function') waiting(result);
+    else runResults.set(result.runId, result);
+  }
+  // The Professor channel of the page's single connection (app.js): a fresh StreamAgent per (re)connect.
+  function attachProfessor(agent) {
+    agent.connectAgent({}, {
+      onEvent: ({ event }) => {
+        if (event.type === 'STATE_SNAPSHOT') {
+          const first = !professorState;
+          professorState = event.snapshot;
+          refreshProfessor();
+          if (first) follow.pin();
+        } else if (event.type === 'CUSTOM' && event.name === 'professor_result') professorResult(event.value);
+      },
+    }).catch(() => {});
+  }
 
   // ---- events ------------------------------------------------------------------------------------------
   refreshInbox();
-  refreshProfessor();
   return {
     event({ source, type, data }, { live }) {
       if (source === 'student' && ['lesson_received', 'lesson_opened', 'course_available'].includes(type)) refreshInbox();
@@ -416,5 +450,6 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     // A time picked from a meeting offer: sent as a reply to that offer, naming the time; the Professor books it.
     pickSlot: ({ deliveryId, slot }) => { setAbout(null); return sendChat(`I’ll take ${slot.label}.`, { lessonDeliveryId: deliveryId, meetingSlot: slot.slotId }); },
     professorShown: () => refreshProfessor(),
+    attachProfessor,
   };
 }

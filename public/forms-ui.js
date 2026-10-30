@@ -276,6 +276,24 @@ export function createFormsUi({ log, agentName = (id) => id, onChange = () => {}
   // ---- events from the UI server ---------------------------------------------------------------
 
   return {
+    // Part 11: the open forms' current values, for the next chat run's AG-UI state (the Student agent
+    // checks a fill against them). Only forms the student can still edit.
+    openValues() {
+      const out = {};
+      for (const view of views.values()) {
+        if (view.state !== 'editing' || !view.surface) continue;
+        out[view.formId] = { workflowId: view.workflowId, values: structuredClone(view.surface.dataModel.get('/form') ?? {}) };
+      }
+      return out;
+    },
+    // Part 11: the Student agent filled fields from the chat — standard A2UI updateDataModel messages.
+    fill(formId, updates, note) {
+      const view = views.get(formId);
+      if (!view?.processor || view.state !== 'editing') return false;
+      if (updates?.length) view.processor.processMessages(structuredClone(updates));
+      if (note) notice(view, 'info', note);
+      return true;
+    },
     get busy() {
       return [...views.values()].some((v) => v.state === 'submitting');
     },

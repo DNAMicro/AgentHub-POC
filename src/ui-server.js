@@ -27,6 +27,9 @@ import { getCard, validateCard } from './cards.js';
 import { topologyLabel } from './topology.js';
 import { apiHost, briefReply, keyEnvName, useModel } from './llm.js';
 import { asksStudent, planRequest, studentAssistantStatus } from './student-assistant.js';
+import { createAgUiBridge } from './ag-ui-bridge.js';
+import { createProfessorAgUi } from './ag-ui-professor.js';
+import { decideFill } from './form-fill.js';
 import { AGENT_CARD_PATH, A2A_PROTOCOL_VERSION } from '@a2a-js/sdk';
 import { DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
@@ -76,6 +79,20 @@ export async function startUiServer({ port = 4444 } = {}) {
   const history = []; // every published event, replayed to (re)connecting browsers
   let dropped = 0; // events that fell out of the bounded history
   const clients = new Set();
+  // Part 10: the AG-UI view of the same events for the Conversation and Agent activity tabs.
+  const agui = createAgUiBridge({ bootId, historyLimit: MAX_HISTORY, hello: () => statusBody() });
+  // …and the Professor view's own AG-UI stream (its state comes from the Professor, through the Hub).
+  const professorCall = async (path, body) => {
+    const r = await fetch(`${hub.devUrl}/agents/professor/author${path}`, {
+      method: body ? 'POST' : 'GET', headers: body ? { 'Content-Type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(65000),
+    });
+    return { ok: r.ok, status: r.status, json: await r.json() };
+  };
+  const professorAgUi = createProfessorAgUi({
+    bootId, getState: () => professorCall('/state'), postChat: (body) => professorCall('/chat', body),
+    unreachable: `${hub.name} is not reachable, so the Professor view can’t load or post.`,
+  });
   const runs = new Map(); // runId → { kind, state, ... }
   const forms = new Map(); // formId → { workflowId, agentId, conversationId, contextId, taskId, formRef, state, … }
   let activeRunId = null; // a chat run or form request in flight (one at a time)
@@ -109,6 +126,11 @@ export async function startUiServer({ port = 4444 } = {}) {
       }
     }
     for (const res of clients) writeEvent(res, stamped);
+    if (!EPHEMERAL.has(event.type)) {
+      const { topo: _topo, ...plain } = stamped; // topology labels stay on the monitoring stream
+      agui.push(plain);
+      professorAgUi.onAppEvent(plain);
+    }
   }
 
   function setState(runId, state, data = {}) {
@@ -277,6 +299,34 @@ export async function startUiServer({ port = 4444 } = {}) {
     if (run.lessonDeliveryId || run.requestedCapability) {
       publish({ source: 'student', type: 'request_planned', runId, data: { action: 'send', capability: run.requestedCapability ?? null, capabilityName: run.requestedCapability ? capabilities.find((c) => c.id === run.requestedCapability)?.name ?? null : null, by: run.lessonDeliveryId ? 'lesson' : 'course', reason: run.lessonDeliveryId ? (inbox.lesson(run.lessonDeliveryId)?.kind === 'message' ? 'A reply to a message you received — the university routes it back to whoever sent it.' : 'A question about a lesson you received — the university routes it to that lesson’s professor.') : 'A question for this course.', matched: [], model: null, usage: null, error: null, relation: null } });
       return sendChat(runId, run);
+    }
+    // Part 11: a form is open in this conversation and the message fills it — on the student's side only.
+    // Nothing goes to the university; the student presses the form's own button. A pending clarifying
+    // question keeps its meaning (the message answers it).
+    const openForms = [...forms.values()].filter((f) => f.conversationId === run.contextId && f.state === 'editing' && !f.inFlight);
+    if (openForms.length && !run.pending) {
+      const fill = await decideFill({
+        text: run.text, forms: openForms, values: run.formValues ?? {}, mode: studentAssistantStatus().mode,
+        onModelEvent: (type, data) => publish({ source: 'student', type, runId, data }),
+      });
+      if (fill.action !== 'chat') {
+        for (const r of fill.results) {
+          publish({ source: 'student', type: 'form_filled', runId, data: {
+            formId: r.form.formId, workflowId: r.form.workflowId, contextId: run.contextId, question: run.typed,
+            fields: Object.keys(r.accepted).map((k) => k.split(':')[0]), rejected: r.rejected.map((x) => ({ field: x.field.split(':')[0], reason: x.reason })),
+            note: r.note, updates: r.updates, by: fill.by,
+          } });
+        }
+        const filled = fill.results.flatMap((r) => Object.keys(r.accepted)).length;
+        publish({ source: 'student', type: 'request_planned', runId, data: { action: 'fill', capability: null, capabilityName: null, by: fill.by, reason: filled ? `Fills ${filled} field${filled > 1 ? 's' : ''} of your open form; nothing is sent until you press its button.` : 'About your open form; nothing was filled (see why) and nothing is sent.', relation: null, matched: [], model: fill.model ?? null, usage: fill.usage ?? null, error: null, sent: fill.action === 'fill_and_chat' ? 'question' : 'nothing' } });
+        if (fill.action === 'fill') {
+          setState(runId, 'completed', { decision: 'student_fill' });
+          activeRunId = null;
+          return;
+        }
+        run.text = fill.question; // fill_and_chat: the fill is done; only the question goes on
+        run.typed = fill.question;
+      }
     }
     if (hubCard || (await discoverHub('send'))) {
       const last = conv.turns.at(-1);
@@ -447,27 +497,41 @@ export async function startUiServer({ port = 4444 } = {}) {
   });
 
   // Chat run. Only POSTs start A2A requests; reconnecting browsers use GET /api/events.
-  apiPost.post('/runs', (req, res) => {
-    const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
-    if (!text) return res.status(400).json({ error: 'Message text is required.' });
-    if (text.length > MAX_TEXT_LENGTH) return res.status(400).json({ error: `Message exceeds ${MAX_TEXT_LENGTH} characters.` });
-    const requestedContext = req.body?.contextId;
-    if (requestedContext !== undefined && requestedContext !== null && (typeof requestedContext !== 'string' || !CONTEXT_ID_PATTERN.test(requestedContext))) {
-      return res.status(400).json({ error: 'Malformed contextId.' });
+  // Part 11: the open forms' current values, from the browser (AG-UI run state: forms.<formId>.values). Used only
+  // to decide and check a fill; plain objects of plain values, known forms only.
+  function formValuesOf(input) {
+    if (!input || typeof input !== 'object') return {};
+    const out = {};
+    for (const [formId, values] of Object.entries(input)) {
+      if (!forms.has(formId) || !values || typeof values !== 'object' || Array.isArray(values)) continue;
+      out[formId] = Object.fromEntries(Object.entries(values).filter(([, v]) => ['string', 'number'].includes(typeof v) || (Array.isArray(v) && v.every((x) => typeof x === 'string'))));
     }
-    if (activeRunId) return res.status(409).json({ error: 'A request is already in progress.', activeRunId });
+    return out;
+  }
+  // Start one chat run; shared by POST /api/runs and the AG-UI run input (POST /api/ag-ui/runs).
+  // body: { text, contextId?, lessonDeliveryId?, meetingSlot?, capability? } → { status, json }.
+  function startChatRun(body) {
+    const fail = (status, error, extra = {}) => ({ status, json: { error, ...extra } });
+    const text = typeof body?.text === 'string' ? body.text.trim() : '';
+    if (!text) return fail(400, 'Message text is required.');
+    if (text.length > MAX_TEXT_LENGTH) return fail(400, `Message exceeds ${MAX_TEXT_LENGTH} characters.`);
+    const requestedContext = body?.contextId;
+    if (requestedContext !== undefined && requestedContext !== null && (typeof requestedContext !== 'string' || !CONTEXT_ID_PATTERN.test(requestedContext))) {
+      return fail(400, 'Malformed contextId.');
+    }
+    if (activeRunId) return fail(409, 'A request is already in progress.', { activeRunId });
 
     // contextId names the student's conversation: it is the Student↔Hub A2A contextId. The Hub keeps
     // separate downstream contexts per specialist under it.
     // Part 9: optional context from the inbox — a lesson the student received, or a course to ask.
-    const lessonDeliveryId = req.body?.lessonDeliveryId ?? null;
-    if (lessonDeliveryId !== null && (typeof lessonDeliveryId !== 'string' || !inbox.lesson(lessonDeliveryId))) return res.status(400).json({ error: 'Unknown lesson.' });
+    const lessonDeliveryId = body?.lessonDeliveryId ?? null;
+    if (lessonDeliveryId !== null && (typeof lessonDeliveryId !== 'string' || !inbox.lesson(lessonDeliveryId))) return fail(400, 'Unknown lesson.');
     // A time picked from a meeting offer: only one of the slots that offer carries.
-    const meetingSlot = req.body?.meetingSlot ?? null;
-    if (meetingSlot !== null && !inbox.lesson(lessonDeliveryId ?? '')?.meeting?.slots.some((x) => x.slotId === meetingSlot)) return res.status(400).json({ error: 'That isn’t one of the offered times.' });
-    const course = req.body?.capability ?? null;
-    if (course !== null && !capabilities.some((c) => c.id === course)) return res.status(400).json({ error: 'Unknown course or capability.' });
-    const run = { kind: 'chat', state: 'sending', text, typed: text, contextId: requestedContext ?? randomUUID(), messageId: randomUUID(), clarified: false, pending: null, lessonDeliveryId, meetingSlot, requestedCapability: course };
+    const meetingSlot = body?.meetingSlot ?? null;
+    if (meetingSlot !== null && !inbox.lesson(lessonDeliveryId ?? '')?.meeting?.slots.some((x) => x.slotId === meetingSlot)) return fail(400, 'That isn’t one of the offered times.');
+    const course = body?.capability ?? null;
+    if (course !== null && !capabilities.some((c) => c.id === course)) return fail(400, 'Unknown course or capability.');
+    const run = { kind: 'chat', state: 'sending', text, typed: text, contextId: requestedContext ?? randomUUID(), messageId: randomUUID(), clarified: false, pending: null, lessonDeliveryId, meetingSlot, requestedCapability: course, formValues: formValuesOf(body?.formValues) };
     // Our clarifying question is waiting: the planner decides whether this message answers it (then the
     // held-back question is sent with it) or is a new request (sent on its own).
     const conv = requestedContext ? conversations.get(requestedContext) : null;
@@ -479,8 +543,27 @@ export async function startUiServer({ port = 4444 } = {}) {
     runs.set(runId, run);
     publish({ source: 'system', type: 'run_started', runId, data: { kind: 'chat', text, contextId: run.contextId, newConversation: !requestedContext, messageId: run.messageId, routerMode: topology?.hub?.router?.mode ?? null, studentMode: agentStatus.student.mode, pendingClarification: Boolean(run.pending) } });
     publish({ source: 'system', type: 'state', runId, data: { state: run.state } });
-    res.status(202).json({ runId, contextId: run.contextId });
-    planAndSend(runId, run);
+    queueMicrotask(() => planAndSend(runId, run));
+    return { status: 202, json: { runId, contextId: run.contextId } };
+  }
+  apiPost.post('/runs', (req, res) => {
+    const r = startChatRun(req.body);
+    res.status(r.status).json(r.json);
+  });
+  // Part 10: a chat question as AG-UI run input (RunAgentInput). Only the LAST user message is read —
+  // the history is never trusted — and threadId names the conversation (anything else = a new one).
+  // The server owns run state: its run ID replaces the browser's and comes back in the 202 answer; the
+  // run's events arrive on the tab's AG-UI stream. forwardedProps carries the inbox context (lesson,
+  // meeting time, course) exactly as POST /api/runs takes it.
+  apiPost.post('/ag-ui/runs', (req, res) => {
+    const input = req.body ?? {};
+    if (typeof input.threadId !== 'string' || typeof input.runId !== 'string' || !Array.isArray(input.messages)) return res.status(400).json({ error: 'Not AG-UI run input (threadId, runId, messages).' });
+    const last = [...input.messages].reverse().find((m) => m?.role === 'user');
+    const text = typeof last?.content === 'string' ? last.content : Array.isArray(last?.content) ? last.content.filter((p) => p?.type === 'text').map((p) => p.text).join('') : '';
+    const props = input.forwardedProps && typeof input.forwardedProps === 'object' ? input.forwardedProps : {};
+    const formValues = Object.fromEntries(Object.entries(input.state?.forms ?? {}).map(([id, f]) => [id, f?.values]));
+    const r = startChatRun({ text, contextId: CONTEXT_ID_PATTERN.test(input.threadId) ? input.threadId : undefined, lessonDeliveryId: props.lessonDeliveryId ?? null, meetingSlot: props.meetingSlot ?? null, capability: props.capability ?? null, formValues });
+    res.status(r.status).json(r.json);
   });
 
   // "New conversation": a visualization-only marker. Browsers clear their panels when they see it,
@@ -591,7 +674,16 @@ export async function startUiServer({ port = 4444 } = {}) {
   // Event IDs are "<bootId>:<seq>". A reconnecting browser sends Last-Event-ID (or ?after=) and gets only
   // what it missed; a different bootId (server restarted) or a cursor older than the kept history gets
   // a full replay plus a truncation notice. The browser also dedupes by seq.
-  app.get('/api/events', (req, res) => {
+  // Part 10: the AG-UI event stream (Conversation and Agent activity tabs). One per browser tab.
+  app.get('/api/ag-ui/stream', (req, res) => agui.connect(req, res));
+  app.get('/api/ag-ui/professor/stream', (req, res) => professorAgUi.connect(req, res));
+  apiPost.post('/ag-ui/professor/runs', (req, res) => {
+    const r = professorAgUi.startRun(req.body);
+    res.status(r.status).json(r.json);
+  });
+
+  app.get('/api/events', (req, res) => connectMonitor(req, res));
+  function connectMonitor(req, res) {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     const cursor = String(req.headers['last-event-id'] ?? req.query.after ?? '');
     const [cursorBoot, cursorSeq] = cursor.split(':');
@@ -607,6 +699,32 @@ export async function startUiServer({ port = 4444 } = {}) {
     res.write(`event: replayed\ndata: {}\n\n`);
     clients.add(res);
     req.on('close', () => clients.delete(res));
+  }
+
+  // Part 10: ONE connection per browser page. Browsers allow only 6 open connections per server, so a page
+  // holding the monitoring stream and two AG-UI streams blocked every request once two windows were open
+  // (the live walkthrough opens two). This stream carries all three channels, each SSE event named by its
+  // channel: `monitor` / `monitor:hello` / `monitor:truncated` / `monitor:replayed` (the /api/events payload),
+  // `student` (the Student agent's AG-UI events) and `professor` (the Professor view's AG-UI events). The
+  // browser hands each AG-UI channel to its own agent, so each keeps its own run sequence and verifier.
+  // Cursors: ?monitor=<id>&student=<id> (the Professor channel is state-only: a fresh snapshot each time).
+  app.get('/api/ui/stream', (req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+    const channel = (name) => ({
+      writeHead() {},
+      end: () => res.end(),
+      // Re-name each SSE event for its channel; the channel's own cursor travels inside its data.
+      write: (chunk) => res.write(String(chunk).split('\n\n').filter(Boolean).map((block) => {
+        const lines = block.split('\n').filter((l) => !l.startsWith('id:'));
+        const named = lines.find((l) => l.startsWith('event:'));
+        const data = lines.filter((l) => !l.startsWith('event:'));
+        return `event: ${name}${named ? `:${named.slice(6).trim()}` : ''}\n${data.join('\n')}\n\n`;
+      }).join('')),
+    });
+    const as = (cursor) => ({ headers: cursor ? { 'last-event-id': String(cursor) } : {}, query: {}, on: (type, fn) => req.on(type, fn) });
+    connectMonitor(as(req.query.monitor), channel('monitor'));
+    agui.connect(as(req.query.student), channel('student'));
+    professorAgUi.connect(as(null), channel('professor'));
   });
 
   // Startup: discover the university's public card (retried on send and when the Hub feed reconnects).
@@ -637,6 +755,8 @@ export async function startUiServer({ port = 4444 } = {}) {
         inbox.stop();
         feedAbort.abort();
         for (const res of clients) res.end();
+        agui.close();
+        professorAgUi.close();
         return new Promise((r) => server.close(r));
       };
       resolve({ server, baseUrl, close, hubUrl: hub.baseUrl, universityName: hub.name });

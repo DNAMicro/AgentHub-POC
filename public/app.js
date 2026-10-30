@@ -64,7 +64,7 @@ const topology = createTopology({
 
 // Part 9: the course inbox, lesson view and toast (Conversation) and the Professor view.
 const classroom = createClassroom({
-  sendChat: (text, extra) => { chatFollow.pin(); return startRun('/api/runs', { text, contextId: currentContextId, ...extra }); },
+  sendChat: (text, extra) => { chatFollow.pin(); return startRun({ text, contextId: currentContextId, ...extra }); },
   showConversation: () => { if ($('view-conversation').hidden) showTab(tabs[0], { history: 'push' }); },
   focusComposer: () => { showTab(tabs[0], { history: 'push' }); els.message.focus(); },
   onInboxChange: () => renderState(),
@@ -112,7 +112,8 @@ const stepKey = (source, type) => {
 };
 
 let bootId = null;
-let seen = new Set(); // event seq numbers already rendered (history is replayed on reconnect)
+let seen = new Set(); // event seq numbers already rendered from AG-UI (history is replayed on reconnect)
+let seenMonitor = new Set(); // the same, for the monitoring stream
 let currentRunId = null;
 let currentRunKind = null;
 let currentState = 'idle';
@@ -347,11 +348,12 @@ function flowStep(source, type, data, at) {
   const name = (id) => AGENT_NAMES[id] ?? id;
   switch (key) {
     case 'student:request_planned': {
-      const how = data.action === 'clarify' ? 'asked you to clarify first' : data.action === 'decline' ? 'not a university service — answered here'
+      const how = data.action === 'clarify' ? 'asked you to clarify first' : data.action === 'decline' ? 'not a university service — answered here' : data.action === 'fill' ? (data.sent === 'question' ? 'filled your form, then sent your question' : 'filled your form — nothing sent')
         : data.capability ? `needs ${data.capabilityName ?? data.capability} (${data.by === 'model' ? 'its model' : data.by})`
           : { uncertain: 'your answer didn’t settle it — the Hub decides', rule: 'obvious — the Hub routes it', context: 'reply to the university — sent as-is', off: 'sent as-is (Student model off)', heuristic: 'the Hub decides', model: 'the Hub decides', model_failed: 'its model failed — the Hub decides' }[data.by] ?? 'sent as-is';
       markStep(key, at, { note: how });
       if (data.action === 'clarify') skipSteps(CHAT_AFTER(key), 'not sent — your Student agent asked you first');
+      if (data.action === 'fill' && data.sent !== 'question') skipSteps(CHAT_AFTER(key), 'not sent — your Student agent filled your form');
       if (data.action === 'decline') skipSteps(CHAT_AFTER(key), 'not sent — your Student agent answered (not offered)');
       return;
     }
@@ -450,18 +452,28 @@ function clearScreen() {
   els.inspectorLog.replaceChildren();
   inspections.clear();
   for (const f of follow.values()) f.pin();
-  els.runId.textContent = 'no run yet';
-  els.timeline.replaceChildren();
-  els.timelineError.textContent = '';
   currentContextId = null;
   renderConversation();
   renderState();
 }
 
-function resetAll() {
+// A UI-server restart: the AG-UI side clears the screen; the monitoring side resets Topology.
+function resetConversation() {
   seen = new Set();
   clearScreen();
+}
+function resetMonitor() {
+  seenMonitor = new Set();
+  clearStrip();
   topology.reset();
+}
+// The hop-by-hop strip belongs to the monitoring stream: it is cleared there (New conversation, restart),
+// never by the AG-UI side — the two streams replay independently after a reload.
+function clearStrip() {
+  monitorRunId = null;
+  els.runId.textContent = 'no run yet';
+  els.timeline.replaceChildren();
+  els.timelineError.textContent = '';
 }
 
 function reconcileButton(runId) {
@@ -796,6 +808,40 @@ function renderRouter(router) {
 
 // ---- event handling -----------------------------------------------------
 
+// Part 10: the monitoring stream (/api/events) feeds only Topology, the hop-by-hop strip and the Hub
+// telemetry badge; the Conversation and Agent activity tabs are fed by AG-UI (handle(), below).
+let monitorRunId = null;
+function monitor(event, { live = true } = {}) {
+  const { source, type, runId, at, data } = event;
+  topology.event(event, { live });
+  if (source === 'system') {
+    if (type === 'hub_feed') {
+      setBadge(els.hubFeed, data.connected, data.connected ? 'Hub telemetry: connected' : 'Hub telemetry: lost');
+      topology.hubFeed(data.connected);
+    } else if (type === 'topology') applyTopology(data, { dom: false });
+    else if (type === 'agent_status') topology.agentMode(data.agentId, { mode: data.mode, model: data.model, keyConfigured: data.keyConfigured });
+    else if (type === 'run_started') {
+      monitorRunId = runId;
+      topology.runStarted(runId, data);
+      resetTimeline(runId, data.kind ?? 'chat');
+    } else if (type === 'state') topology.runState(runId, data.state);
+    else if (type === 'conversation_reset') clearStrip();
+    return;
+  }
+  const isCurrent = runId === monitorRunId;
+  if (source === 'student') {
+    if (type === 'card_discovered') topology.studentCard(true);
+    else if (type === 'hub_card_failed') topology.studentCard(false);
+    else if (type === 'tutor_error' && isCurrent) els.timelineError.textContent = `The Tutor could not answer: ${data.message}`;
+    else if (type === 'request_failed' && isCurrent) {
+      els.timelineError.textContent = data.outcome === 'uncertain'
+        ? 'Outcome uncertain: use “Check for answer” to fetch the result of the same request (no new model call).'
+        : `Request failed: ${data.code ? `${data.error} (${data.code})` : data.error}`;
+    }
+  }
+  if (isCurrent && ['student', 'hub', 'library', 'tutor', 'professor'].includes(source)) flowStep(source, type, data, at);
+}
+
 function handle(event, { live = true } = {}) {
   const { source, type, runId, at, data } = event;
   const run = runId ? runId.slice(0, 8) : null;
@@ -808,15 +854,12 @@ function handle(event, { live = true } = {}) {
   const professor = (item) => appendTo(els.professorLog, messageItem({ at, speaker: 'professor', ...item }));
   const agentName = (id) => AGENT_NAMES[id] ?? id;
 
-  topology.event(event, { live });
   classroom.event(event, { live });
   if (source === 'system') {
     if (type === 'hub_feed') {
-      setBadge(els.hubFeed, data.connected, data.connected ? 'Hub telemetry: connected' : 'Hub telemetry: lost');
-      topology.hubFeed(data.connected);
       hub({ dir: data.connected ? 'received' : 'error', label: data.connected ? 'Telemetry connected' : 'Telemetry lost', text: data.connected ? 'Following the Hub’s event feed.' : 'The Hub’s event feed is unreachable; its state below may be out of date.', ids: {} });
     } else if (type === 'topology') {
-      applyTopology(data);
+      applyTopology(data, { topo: false });
     } else if (type === 'conversation_reset') {
       // Replayed in order on reload too, so a cleared screen stays cleared.
       clearScreen();
@@ -832,7 +875,6 @@ function handle(event, { live = true } = {}) {
         student({ dir: 'error', label: 'New conversation', text: `The library loans couldn’t be reset (${data.loans}), so renewals used earlier still count.`, ids: {} });
       }
     } else if (type === 'agent_status') {
-      topology.agentMode(data.agentId, { mode: data.mode, model: data.model, keyConfigured: data.keyConfigured });
       if (data.agentId === 'tutor') renderMode(data);
       if (data.agentId === 'professor') {
         document.getElementById('professor-role').textContent = `Marketing 101 · answers from the course pack (${data.mode === 'live' ? `live, ${data.model}` : 'mock, no model'})`;
@@ -847,14 +889,11 @@ function handle(event, { live = true } = {}) {
     } else if (type === 'run_started') {
       currentRunId = runId;
       currentRunKind = data.kind ?? 'chat';
-      topology.runStarted(runId, data);
-      resetTimeline(runId, data.kind ?? 'chat');
       if (data.kind === 'chat') {
         currentContextId = data.contextId;
         renderConversation();
       }
     } else if (type === 'state') {
-      topology.runState(runId, data.state);
       if (isCurrent) currentState = data.state;
       if (runId === awaitingRunId && !BUSY.has(data.state)) awaitingRunId = null;
     } else if (type === 'form_lifecycle') {
@@ -866,14 +905,12 @@ function handle(event, { live = true } = {}) {
       student({ dir: 'info', label: 'Form', text: data.text, ids: { form: data.formId, run } });
     }
   } else if (source === 'student') {
-    if (['reply_received', 'tutor_error', 'request_failed', 'form_received', 'clarification_asked', 'request_declined'].includes(type)) answerArrived(runId);
+    if (['reply_received', 'tutor_error', 'request_failed', 'form_received', 'clarification_asked', 'request_declined', 'form_filled'].includes(type)) answerArrived(runId);
     switch (type) {
       case 'card_discovered':
-        topology.studentCard(true);
         if (data.reason) studentConsole({ dir: 'received', label: 'University card verified', text: `${data.name}: name, endpoint and protocol match this Student’s configuration.`, ids: { endpoint: data.url, skills: data.skills?.join(', ') } });
         break;
       case 'hub_card_failed':
-        topology.studentCard(false);
         studentConsole({ dir: 'error', label: 'University card not available', text: data.error, ids: { reason: data.reason } });
         break;
       // The Student's own model (STUDENT_MODE): its plan before anything is sent, and its calls.
@@ -936,6 +973,14 @@ function handle(event, { live = true } = {}) {
         student({ dir: 'sent', speaker: 'student', label: 'You (held by your Student agent, not sent yet)', text: data.question, ids: { contextId: data.contextId, run } });
         student({ dir: 'received', speaker: 'student', label: 'Your Student agent asks', text: data.text, ids: { note: 'Your answer is sent to the university together with your question.', run } });
         break;
+      case 'form_filled': {
+        // Part 11: the Student agent used the message to fill an open form — nothing was sent to the university.
+        if (data.question) student({ dir: 'sent', speaker: 'student', label: 'You (not sent — used to fill your form)', text: data.question, ids: { form: data.formId, run } });
+        student({ dir: 'info', speaker: 'student', label: data.fields?.length ? 'Your Student agent filled in your form' : 'Your Student agent — about your form', text: data.note, ids: { form: data.formId, fields: data.fields?.join(', ') || null, note: 'Nothing was sent to the university. Press the form’s button when it’s right.', run } });
+        formsUi.fill(data.formId, data.updates, data.note);
+        studentConsole({ dir: 'info', label: 'Form filled from the chat', text: `${data.fields?.length ? `Filled: ${data.fields.join(', ')}.` : 'Nothing filled.'}${data.rejected?.length ? ` Not filled: ${data.rejected.map((r) => r.field).join(', ')}.` : ''}`, ids: { form: data.formId, how: data.by, run } });
+        break;
+      }
       case 'request_declined':
         student({ dir: 'sent', speaker: 'student', label: 'You (not sent — answered by your Student agent)', text: data.question, ids: { contextId: data.contextId, run } });
         student({ dir: 'info', speaker: 'student', label: 'Your Student agent — not offered by the university', text: data.text, ids: { note: 'Nothing was sent to the university.', run } });
@@ -979,7 +1024,6 @@ function handle(event, { live = true } = {}) {
       }
       case 'tutor_error':
         student({ dir: 'error', speaker: 'hub', label: `${universityName} — service error`, text: data.message, ids: { code: data.code, anthropicRequest: data.requestId, messageId: data.messageId, contextId: data.contextId, run } });
-        if (isCurrent) els.timelineError.textContent = `The Tutor could not answer: ${data.message}`;
         break;
       case 'request_failed': {
         const detail = data.code ? `${data.error} (${data.code})` : data.error;
@@ -987,10 +1031,8 @@ function handle(event, { live = true } = {}) {
           const item = messageItem({ at, dir: 'error', label: 'Uncertain', text: `No reply in time — the university may still be working on it. ${detail}`, ids: { request: data.messageId, run } });
           item.insertBefore(reconcileButton(runId), item.querySelector('details'));
           appendTo(els.studentLog, item);
-          if (isCurrent) els.timelineError.textContent = 'Outcome uncertain: use “Check for answer” to fetch the result of the same request (no new model call).';
         } else {
           student({ dir: 'error', label: 'Failed', text: detail, ids: { run } });
-          if (isCurrent) els.timelineError.textContent = `Request failed: ${detail}`;
         }
         break;
       }
@@ -1027,10 +1069,8 @@ function handle(event, { live = true } = {}) {
         formsUi.actionFailed(data);
         break;
     }
-    if (isCurrent) flowStep(source, type, data, at);
   } else if (source === 'hub') {
     hubEvent(hub, type, data, run);
-    if (isCurrent) flowStep(source, type, data, at);
   } else if (source === 'library') {
     if (type === 'ui_generated' || type === 'loan_operation' || (type === 'form_action_result' && data.workflowId === 'loan-renewal')) inspectorEvent(type, data, runId, at);
     switch (type) {
@@ -1054,7 +1094,6 @@ function handle(event, { live = true } = {}) {
       default:
         formAgentEvent(library, type, data, run);
     }
-    if (isCurrent) flowStep(source, type, data, at);
   } else if (source === 'professor') {
     // Part 9: the Marketing 101 Professor — student questions in, answers out, and lessons it posted.
     switch (type) {
@@ -1093,7 +1132,6 @@ function handle(event, { live = true } = {}) {
       default:
         break;
     }
-    if (isCurrent) flowStep(source, type, data, at);
   } else if (source === 'tutor') {
     switch (type) {
       case 'skills_saved':
@@ -1132,7 +1170,6 @@ function handle(event, { live = true } = {}) {
       default:
         formAgentEvent(tutor, type, data, run);
     }
-    if (isCurrent) flowStep(source, type, data, at);
   }
   renderState();
 }
@@ -1268,15 +1305,19 @@ function hubEvent(panel, type, data, run) {
   }
 }
 
-function applyTopology(snap) {
+// The Topology half comes from the monitoring stream (monitor()), the screen half from AG-UI (handle()).
+function applyTopology(snap, { topo = true, dom = true } = {}) {
   if (!snap) return;
-  topology.snapshot(snap);
+  if (topo) {
+    topology.snapshot(snap);
+    if (snap.hub?.router) topology.agentMode('hub', { mode: snap.hub.router.mode === 'live' ? 'live' : snap.hub.router.mode, model: snap.hub.router.model, keyConfigured: snap.hub.router.keyConfigured });
+  }
+  if (!dom) return;
   if (snap.hub?.name) {
     universityName = snap.hub.name;
     els.universityName.textContent = universityName;
   }
   renderRouter(snap.hub?.router);
-  if (snap.hub?.router) topology.agentMode('hub', { mode: snap.hub.router.mode === 'live' ? 'live' : snap.hub.router.mode, model: snap.hub.router.model, keyConfigured: snap.hub.router.keyConfigured });
   const hubBox = [el('div', { className: 'skills-row' }, el('span', { className: 'label', textContent: 'Destinations:' }),
     ...(snap.hub?.destinations ?? []).map((d) => el('span', { className: 'chip', textContent: `${d.destination} → ${d.workerName}` })))];
   els.hubBox.replaceChildren(...hubBox);
@@ -1334,46 +1375,167 @@ function formAgentEvent(panel, type, data, run) {
 
 // ---- connections --------------------------------------------------------
 
-// Visualization stream only. EventSource reconnects automatically with a GET and the last event ID,
-// so the server replays only what was missed; that can never start an A2A request or submit a form.
-let replaying = false;
-const stream = new EventSource('/api/events');
-function liveView(connected) {
+// One connection per page (Part 10): /api/ui/stream carries three channels. Browsers allow only 6 open
+// connections per server — a page holding three streams blocked every request once two windows were open.
+//   monitor   — the /api/events payload: Topology, the hop-by-hop strip, the Hub telemetry badge (monitor());
+//   student   — the Student agent's AG-UI events: the Conversation and Agent activity tabs (handle());
+//   professor — the Professor view's AG-UI events (classroom.js).
+// Each AG-UI channel goes to its own StreamAgent (its own run sequence and verifier). None of them can
+// start an A2A request or submit a form; only POSTs do.
+let monitorReplaying = false;
+let connected = false;
+let monitorLast = null; // cursor of the monitor channel (its event IDs, <bootId>:<seq>)
+function liveView() {
   setBadge(els.browserFeed, connected, connected ? 'Live view: connected' : 'Live view: reconnecting…');
   els.liveBanner.hidden = connected;
   els.liveBanner.textContent = connected ? '' : 'Live view disconnected — reconnecting. What you see is the last known state; the agents may still be working.';
   topology.liveView(connected);
 }
-stream.addEventListener('open', () => liveView(true));
-stream.addEventListener('error', () => liveView(false));
-stream.addEventListener('hello', (e) => {
-  const hello = JSON.parse(e.data);
-  if (bootId !== null && hello.bootId !== bootId) resetAll(); // UI server restarted: seq numbers restart too
+function onMonitorHello(hello) {
+  if (bootId !== null && hello.bootId !== bootId) {
+    // The UI server restarted: its seq numbers and runs start again. Both sides reset before any of its events.
+    resetMonitor();
+    resetConversation();
+    aguiLast = null;
+    aguiBoot = null;
+  }
   bootId = hello.bootId;
-  replaying = !hello.resumed;
-  if (replaying) formsUi.setReplaying(true); // full history follows; forms are reconstructed when it ends
+  monitorReplaying = !hello.resumed;
   setBadge(els.hubFeed, hello.hubFeedConnected, hello.hubFeedConnected ? 'Hub telemetry: connected' : 'Hub telemetry: lost');
   topology.hubFeed(hello.hubFeedConnected);
   topology.studentCard(hello.university?.cardValid ?? null);
-  renderMode(hello.agents?.tutor);
-  for (const [id, a] of Object.entries(hello.agents ?? {})) {
-    if (agents[id] && a?.skills) agents[id].advertised = a.skills;
-    if (a?.mode) topology.agentMode(id, { mode: a.mode, model: a.model, keyConfigured: a.keyConfigured });
+  for (const [id, a] of Object.entries(hello.agents ?? {})) if (a?.mode) topology.agentMode(id, { mode: a.mode, model: a.model, keyConfigured: a.keyConfigured });
+  applyTopology(hello.topology, { dom: false });
+}
+function onMonitorEvent(event) {
+  monitorLast = event.id;
+  if (seenMonitor.has(event.seq)) return;
+  seenMonitor.add(event.seq);
+  monitor(event, { live: !monitorReplaying });
+}
+
+// AG-UI: one StreamAgent per subscription (the client's run-order verifier lives as long as one
+// connectAgent call). On a drop, a new agent resumes from the last event ID; on a new bootId (the UI
+// server restarted) the screen is reset first. Each AG-UI event is turned back into the app event the
+// screen code already renders — the reply text from TEXT_MESSAGE_*, console entries from
+// ACTIVITY_SNAPSHOT, form lifecycles from STATE_DELTA, everything else from CUSTOM.
+let aguiReplaying = false;
+let aguiBoot = null;
+let aguiLast = null;
+const replyTexts = new Map(); // AG-UI messageId → reply text (joined with its reply_received metadata)
+function fromAgUi(event) {
+  switch (event.type) {
+    case 'TEXT_MESSAGE_START': replyTexts.set(event.messageId, ''); return null;
+    case 'TEXT_MESSAGE_CONTENT': replyTexts.set(event.messageId, (replyTexts.get(event.messageId) ?? '') + event.delta); return null;
+    case 'ACTIVITY_SNAPSHOT': return event.content;
+    case 'STATE_DELTA': {
+      const app = event.metadata?.appEvent;
+      const op = event.delta?.[0];
+      return app && op ? { ...app, data: op.value } : null;
+    }
+    case 'CUSTOM': {
+      if (event.name === 'reply_received') {
+        const app = event.value;
+        const text = replyTexts.get(app.textMessageId) ?? '';
+        replyTexts.delete(app.textMessageId);
+        const { textMessageId: _id, ...rest } = app;
+        return { ...rest, data: { ...app.data, text } };
+      }
+      return event.value && typeof event.value === 'object' && 'type' in event.value ? event.value : null;
+    }
+    default: return null;
   }
-  applyTopology(hello.topology);
-  for (const id of ['tutor', 'library']) renderSkillsBox(id);
-});
-stream.addEventListener('truncated', (e) => topology.truncated(JSON.parse(e.data)));
-stream.addEventListener('replayed', () => {
-  if (replaying) formsUi.replayDone();
-  replaying = false;
-});
-stream.addEventListener('message', (e) => {
-  const event = JSON.parse(e.data);
-  if (seen.has(event.seq)) return;
-  seen.add(event.seq);
-  handle(event, { live: !replaying });
-});
+}
+function onAgUiControl(event) {
+  if (event.type !== 'CUSTOM') return false;
+  if (event.name === 'hello') {
+    const hello = event.value;
+    aguiReplaying = !hello.resumed;
+    if (aguiReplaying) formsUi.setReplaying(true); // full history follows; forms are reconstructed when it ends
+    renderMode(hello.agents?.tutor);
+    for (const [id, a] of Object.entries(hello.agents ?? {})) if (agents[id] && a?.skills) agents[id].advertised = a.skills;
+    applyTopology(hello.topology, { topo: false });
+    for (const id of ['tutor', 'library']) renderSkillsBox(id);
+    return true;
+  }
+  if (event.name === 'replayed') {
+    if (aguiReplaying) formsUi.replayDone();
+    aguiReplaying = false;
+    return true;
+  }
+  return event.name === 'truncated' || event.name === 'server_run';
+}
+// Leaving the page ends the stream quietly (a cut connection would otherwise be logged as an error).
+const uiStop = new AbortController();
+for (const type of ['beforeunload', 'pagehide']) addEventListener(type, () => uiStop.abort());
+addEventListener('pageshow', (e) => { if (e.persisted) location.reload(); }); // restored from the back/forward cache: its stream was closed
+async function connectUi() {
+  const { StreamAgent, bufferedChannel } = await import('/vendor/ag-ui.js');
+  for (;;) {
+    const studentEvents = bufferedChannel();
+    const professorEvents = bufferedChannel();
+    let student = null;
+    // The agents start after the monitor's hello (it comes first), so a server restart is known before
+    // the first AG-UI event of the new process reaches a verifier.
+    const startAgents = () => {
+      student = new StreamAgent({ events: studentEvents.observable, after: aguiLast, bootId: aguiBoot });
+      student.connectAgent({}, {
+        onEvent: ({ event }) => {
+          if (onAgUiControl(event)) return;
+          const app = fromAgUi(event);
+          if (!app || seen.has(app.seq)) return;
+          seen.add(app.seq);
+          handle(app, { live: !aguiReplaying });
+          if (student.messages.length > 600) student.setMessages(student.messages.slice(-400)); // console entries add up
+        },
+      }).catch(() => {});
+      classroom.attachProfessor(new StreamAgent({ events: professorEvents.observable }));
+    };
+    try {
+      const query = new URLSearchParams();
+      if (monitorLast) query.set('monitor', monitorLast);
+      if (aguiLast) query.set('student', aguiLast);
+      const res = await fetch(`/api/ui/stream?${query}`, { signal: uiStop.signal });
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+      connected = true;
+      liveView();
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+        let end;
+        while ((end = buffer.indexOf('\n\n')) >= 0) {
+          const block = buffer.slice(0, end);
+          buffer = buffer.slice(end + 2);
+          const name = block.split('\n').find((l) => l.startsWith('event:'))?.slice(6).trim() ?? '';
+          const data = block.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).replace(/^ /, '')).join('\n');
+          if (!data) continue;
+          const payload = JSON.parse(data);
+          if (name === 'student') studentEvents.next(payload);
+          else if (name === 'professor') professorEvents.next(payload);
+          else if (name === 'monitor') onMonitorEvent(payload);
+          else if (name === 'monitor:hello') { onMonitorHello(payload); startAgents(); }
+          else if (name === 'monitor:truncated') topology.truncated(payload);
+          else if (name === 'monitor:replayed') monitorReplaying = false;
+        }
+      }
+    } catch { /* dropped, refused or the page is being left */ }
+    studentEvents.complete();
+    professorEvents.complete();
+    connected = false;
+    liveView();
+    if (uiStop.signal.aborted) return;
+    if (student && !student.bootChanged) {
+      aguiLast = student.lastId;
+      aguiBoot = student.bootId;
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+}
+connectUi();
 
 // ---- tabs (WAI-ARIA tabs: arrow keys move between them) ---------------------------------
 // Each tab is a link with its own address (/conversation, /activity, /topology), so it can be opened in
@@ -1412,12 +1574,16 @@ for (const t of tabs) {
 showTab(tabForPath(location.pathname));
 window.addEventListener('popstate', () => showTab(tabForPath(location.pathname))); // Back / Forward
 
-async function startRun(path, body) {
+// Part 10: a chat question is AG-UI run input (RunAgentInput). Only the new message is sent; the server
+// owns the run (its run ID comes back here), and the run's events arrive on the AG-UI stream.
+async function startRun({ text, contextId, ...forwardedProps }) {
   els.formError.textContent = '';
   awaitingRunId = 'pending';
   renderState();
+  // Part 11: the open forms' current values travel in the run's state, so the Student agent can fill them.
+  const input = { threadId: contextId ?? 'new', runId: crypto.randomUUID(), messages: [{ id: crypto.randomUUID(), role: 'user', content: text }], state: { forms: formsUi.openValues() }, tools: [], context: [], forwardedProps };
   try {
-    const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const res = await fetch('/api/ag-ui/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
     const reply = await res.json();
     if (!res.ok) throw new Error(reply.error ?? `HTTP ${res.status}`);
     // The run may already have left its busy state (its events can arrive before this response).
@@ -1446,7 +1612,7 @@ els.form.addEventListener('submit', async (e) => {
   if (els.send.disabled || !text.trim()) return;
   els.message.value = ''; // cleared on send…
   chatFollow.pin(); // your own message: always show the newest part of the conversation
-  const started = await startRun('/api/runs', { text, contextId: currentContextId, ...classroom.composerContext() });
+  const started = await startRun({ text, contextId: currentContextId, ...classroom.composerContext() });
   if (!started && !els.message.value) els.message.value = text; // …and given back if the request never started
   if (started) classroom.sent();
 });

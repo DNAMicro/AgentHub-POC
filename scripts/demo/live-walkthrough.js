@@ -4,7 +4,7 @@
 // every scene-N.js and writes scripts/demo/live-walkthrough.js, which is
 //   playwright-cli -s=demo2 open --headed "http://127.0.0.1:4444/conversation"
 //   playwright-cli -s=demo2 run-code "$(cat scripts/demo/live-walkthrough.js)"
-// Query options of the opened address: from, to (steps 1-9), fresh=0 (keep the conversation),
+// Query options of the opened address: from, to (steps 1-11; default: the last scene), fresh=0 (keep the conversation),
 // type=<ms per character, default 55>, auto=<secs> (rehearsal only: advance by itself), shots=<dir>
 // (rehearsal: NNN-L.png / NNN-R.png per moment). Keys (either window): -> / PageDown / Space = next,
 // N = skip the rest of this step, H = hold on/off. The overlay (step label + cursor dot) lives in its own
@@ -19,7 +19,7 @@ async (page) => {
   const num = (v, d) => (v !== undefined && v !== '' && Number.isFinite(Number(v)) ? Number(v) : d);
   const opts = {
     from: num(q.from, 1),
-    to: num(q.to, 9),
+    to: num(q.to, 99), // every scene by default (the last one ends the show)
     fresh: q.fresh !== '0',
     TYPE: num(q.type, 55),
     auto: q.auto ? num(q.auto, 0) : 0,
@@ -812,6 +812,71 @@ scenes.push({
       if (!(await seen(slot, 30000))) return;
       await click(slot);
       await seen(offer.locator('.slot[aria-pressed="true"]'), 120000);
+    });
+  },
+});
+
+// Step 10 · AG-UI — the same screen, now fed by AG-UI events: Alex asks, then reloads, and the conversation comes back
+scenes.push({
+  n: 10,
+  title: 'AG-UI',
+  async run() {
+    // (a) A question as AG-UI run input; the reply arrives as an AG-UI run (the Topology popup still animates
+    // from the monitoring stream).
+    let answered = false;
+    await moment('Alex asks; the reply arrives as an AG-UI run', async () => {
+      await tab('conversation');
+      const reply = await ask('What is a limit, in one sentence?');
+      answered = await seen(reply.filter({ hasText: /limit/i }), 60000);
+      if (!answered) problems.push('Step 10 · no reply about limits arrived');
+    });
+    if (!answered) return;
+
+    // (b) A reload rebuilds the conversation from the AG-UI stream's replay — exactly as it was.
+    await moment('Alex reloads; the conversation comes back unchanged', async () => {
+      const before = await items.count();
+      await left.reload();
+      await sleep(3000);
+      const back = await seen(left.locator('#student-log > li').filter({ hasText: 'What is a limit, in one sentence?' }), 15000);
+      const after = await left.locator('#student-log > li').count();
+      if (!back || after !== before) problems.push(`Step 10 · after the reload the chat had ${after} items (before: ${before})`);
+    });
+  },
+});
+
+// Step 11 · Fill from chat — Alex opens a renewal form, types the date in the chat, and presses Renew
+scenes.push({
+  n: 11,
+  title: 'Fill from chat',
+  async run() {
+    // (a) A fresh conversation (New conversation also puts the sample loans back), then the renewal form.
+    let form = null;
+    await moment('Alex asks to renew the calculus book; the Library sends a renewal form', async () => {
+      await tab('conversation');
+      const fresh = left.locator('#new-conversation');
+      if (await fresh.isVisible().catch(() => false)) { await click(fresh); await sleep(2000); }
+      await ask('I need to renew my calculus book');
+      const reply = items.nth((await items.count()) - 1); // pinned: items.last() moves to newer chat items
+      if (await seen(reply.locator('input[type="date"]'), 30000)) form = reply;
+      else problems.push('Step 11 · the Library answered without a renewal form (nothing to fill)');
+    });
+    if (!form) return;
+
+    // (b) The date typed in the chat lands in the open form — nothing is sent to the university.
+    let filled = false;
+    await moment('Alex types the date in the chat; it fills the form', async () => {
+      await ask('november 20');
+      filled = (await form.locator('input[type="date"]').first().inputValue().catch(() => '')) === '2026-11-20';
+      if (!filled) problems.push('Step 11 · “november 20” did not fill the date');
+    });
+    if (!filled) return;
+
+    // (c) The final click is Alex's.
+    await moment('Alex presses Renew', async () => {
+      const before = await items.count();
+      await click(form.getByRole('button').filter({ hasText: /renew/i }).first());
+      await settle(before - 1);
+      if (!(await seen(items.last().filter({ hasText: /Renewed|now due/i }), 30000))) problems.push('Step 11 · no renewal receipt');
     });
   },
 });

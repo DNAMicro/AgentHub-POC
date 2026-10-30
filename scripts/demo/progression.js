@@ -289,7 +289,7 @@ async (page) => {
     await submit(anyway.locator('xpath=ancestor::li[1]'), 'Send anyway', 'Live: sending the reviewed values…');
   }
 
-  const STEPS = ['A2A', 'Browser monitor', 'A2UI form', 'Haiku tutor', 'Routing & skills', 'Forms on request', 'University Hub', 'Generated UI', 'Professor'];
+  const STEPS = ['A2A', 'Browser monitor', 'A2UI form', 'Haiku tutor', 'Routing & skills', 'Forms on request', 'University Hub', 'Generated UI', 'Professor', 'AG-UI', 'Fill from chat'];
   const PARTS = [
     {
       n: 1, title: 'Two agents talking over A2A',
@@ -546,6 +546,45 @@ async (page) => {
         await tab('conversation');
       },
     },
+    {
+      n: 10, title: 'Same screen, now on AG-UI',
+      lead: 'Nothing new to look at — on purpose. The Conversation, Agent activity and Professor view now receive their updates as AG-UI events (the open Agent–User Interaction protocol), and a question is sent as AG-UI run input. A2A between the agents is unchanged; Topology keeps its own monitoring stream.',
+      bullets: ['A question is an AG-UI run: started → the reply as text-message events → finished (or an error)', 'Console entries arrive as AG-UI activity events, still filtered by the Hub’s privacy rules', 'Form states are AG-UI shared state — the groundwork for filling forms from the chat'],
+      arch: 'Agents ──A2A──▶ Student agent ──AG-UI events──▶ your screen\n            (A2UI forms travel inside AG-UI)',
+      async run(k) {
+        await tab('conversation');
+        const r = await ask('What is a limit, in one sentence?');
+        await show(r, 'Arrived as an AG-UI run', 10, [k, 'Same answer, new road to the screen', 'RUN_STARTED, the reply as TEXT_MESSAGE events, RUN_FINISHED — checked by the AG-UI client before anything is drawn. Behind it, the agents still talk A2A.']);
+        await tab('activity');
+        await show(page.locator('#hub-log'), 'Console entries are AG-UI activity events', 9, [k, 'Agent activity over AG-UI', 'Each entry is an ACTIVITY_SNAPSHOT event, after the Hub’s privacy filter — exactly what the console showed before.']);
+        await tab('topology');
+        await show(page.locator('#topo'), 'Topology keeps the monitoring stream', 8, [k, 'Two streams, two jobs', 'The graph and the hop-by-hop strip watch the agents; AG-UI carries the conversation. Neither can send a message or submit a form.']);
+        await tab('conversation');
+      },
+    },
+    {
+      n: 11, title: 'Fill out forms from the chat',
+      lead: 'While a form is open you can type its values in the chat — a date, a name, a room. Your own Student agent fills them into the form you are looking at. Nothing is sent until you press the form’s button yourself.',
+      bullets: ['Values are read by code from your words and checked with the form’s own rules — a date it won’t take is refused, with the allowed range', 'Names and emails are found by code and hidden from the model', 'A question while a form is open still goes to the university; “fill this and ask that” does both'],
+      arch: 'You ──chat──▶ Student agent ──A2UI update──▶ the open form on your screen\n              (nothing goes to the university until you press its button)',
+      async run(k) {
+        await cap(k, 'A new conversation', 'New conversation also puts the sample loans back, so the calculus book can be renewed again.');
+        await freshConversation();
+        await ask('I need to renew my calculus book');
+        const form = items.nth((await items.count()) - 1); // pinned: items.last() would move to newer chat items
+        const date = form.locator('input[type="date"]').first();
+        if (!(await date.count())) { await show(form, 'This time the Library answered in words', 10, [k, 'No form to fill', 'The Library’s model chose to answer without a screen; filling from the chat needs an open form.']); return; }
+        await show(form, 'An open renewal form', 8, [k, 'The Library’s form', 'Its date picker only offers the dates the loan policy permits.']);
+        await ask('november 20');
+        await show(form, 'Filled from the chat', 11, [k, 'Your words, the form’s field', 'Your Student agent read “november 20”, checked it against the permitted range and put it in the date picker — nothing was sent to the university.']);
+        const refused = await ask('october 10');
+        await show(refused, 'Refused — outside the range', 10, [k, 'Checked by the form’s own rules', 'A date the form wouldn’t take is not filled, and the note says why. The form keeps November 20.']);
+        const before = await items.count();
+        await form.getByRole('button').filter({ hasText: /renew/i }).first().click();
+        await settle(before - 1, 'Live: your click — the loan service re-checks and renews…');
+        await show(items.last(), 'Your click renews it', 9, [k, 'The final click is always yours', 'The app never presses a form’s button for you.']);
+      },
+    },
   ];
 
   // ---- the show ----------------------------------------------------------------------------------
@@ -557,7 +596,7 @@ async (page) => {
   if (FROM <= 1) {
     await call('slide', {
       kicker: 'AgentHub-POC · live demo', title: 'From two agents to a university',
-      lead: `Nine steps, each built on the last. Everything you will see is the real app: ${PARTS.length > 8 ? 'five' : 'several'} local processes talking over the Agent-to-Agent protocol, with live Claude Haiku 5.5 calls. All people, books and courses are fictional.`,
+      lead: `${['Nine', 'Ten', 'Eleven', 'Twelve'][PARTS.length - 9] ?? PARTS.length} steps, each built on the last. Everything you will see is the real app: ${PARTS.length > 8 ? 'five' : 'several'} local processes talking over the Agent-to-Agent protocol, with live Claude Haiku 5.5 calls. All people, books and courses are fictional.`,
       bullets: ['Each part starts with what it added, then shows it working', 'Highlights mark what to look at; pauses give you time to read'],
       steps: STEPS, now: 0,
     });
