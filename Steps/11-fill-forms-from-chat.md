@@ -50,6 +50,8 @@ README (“Fill forms from the chat”), CLAUDE.md (Part 11 notes, including the
 - **Explain a next-year date**: `parseStatedDate` reads “october 10” after October 10 as next year; say “(the next October 10)” or the year surprises.
 - **Name patterns: “I am” is capitalized** (the intro words must match either case; the name words must be capitalized), and mask names before emails.
 - **In demo scripts, pin a chat item by index** (`items.nth(i)`): `items.last()` is live and moved to the refusal note, so “click Renew” timed out.
+- **Give a fill its own plan line.** The Student console showed a fill's `request_planned` as “Plan: send as-is — No capability chosen; the Hub routes it”, although nothing went to the Hub (found while taking the companion-site screenshots). Handle `action: 'fill'`: “Plan: fill your form — nothing sent”, or “Plan: fill your form, then send your question” when `sent` is `question` (the question then gets its own normal plan line).
+- **A booking fill triggers the form's own availability lookup.** Since Part 6 the booking form looks up demo times 0.5 s after date, room, duration or group size change — typed or filled — sending only those four values (no name or email) and reserving nothing. The chat message itself still goes nowhere.
 - **Fake Messages API:** `messageReply()` already returns `{ status, json }` — don't wrap it in another `{ json }` (the code then sees a failed call and falls back, which hides the test's intent).
 
 - (Seen live before this step) A chat message while a loan surface was open made the Library generate a new surface and supersede the old one. A filling message is not sent at all.
@@ -58,6 +60,8 @@ README (“Fill forms from the chat”), CLAUDE.md (Part 11 notes, including the
 - (Carried) Every hop must understand a follow-up; histories keep the start and end of replies (`briefReply`). Run browser and reset checks on a separate stack, never on the user's running demo.
 
 ## Enhancements merged into this step
+
+- **Fill plan line fixed** (2026-10-30, your request): the Student console now says “Plan: fill your form — nothing sent” / “… then send your question”. Checked live in a real browser: a renewal fill, a booking fill with a question (the question got its own “send as-is” line), and a plain question (unchanged).
 
 - **Built and checked (2026-10-29):** 183 tests pass (9 in `test/form-fill.test.js`); live on a rehearsal stack: your scenario (“I need to renew my calculus book” → “november 20” fills the date, no new form → “october 10” refused with the range → your click renews to Nov 20), a tutoring request filled from one message and recorded on your click, a booking filled with a question answered while it stays open, and fill + question in one message; the slide demo's Part 11 and the walkthrough's Scene 11.
 - **Adversarial review before building** (your request): folded in the run-`state` route for current values, `updateDataModel` for filling, the real validators, the review-stage and slot rules, the invented-value rule, `fill_and_chat`, precedence, `STUDENT_MODE=off`, several loan pickers, and keeping filled values out of logs and telemetry. Defaults taken from your earlier answers: filling and asking in one message does both; no fills during booking review. The names/emails-to-model question was asked; until you decide, they are masked and filled by code.

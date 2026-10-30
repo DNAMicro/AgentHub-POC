@@ -74,6 +74,7 @@ Don't stop to ask questions. Everything you need is in this file and Step 0.
    - “Your Student agent filled in your form” (or “— about your form”) with the note;
    - `formsUi.fill(…)`;
    - a Student console line (field names only).
+   - In the `request_planned` console line, handle `action: 'fill'`: label “Plan: fill your form — nothing sent” (or “Plan: fill your form, then send your question” when `sent === 'question'`), never the default “send as-is / the Hub routes it”.
    - Add `form_filled` to the `answerArrived` list.
 5. **Strip** (`flowStep`): `request_planned` action `fill` → “filled your form — nothing sent” (or “filled your form, then sent your question”), and skip the later steps with “not sent — your Student agent filled your form” unless `sent === 'question'`. **Topology labels:** “Student filled your form from the chat (nothing sent)”; `form_filled` → “Student filled N fields of your form”.
 
@@ -124,6 +125,7 @@ End to end (mock stack, `POST /api/runs` with `formValues`):
 - “I am” is capitalized; mask names before emails.
 - `parseStatedDate` reads a past day as next year: say so in the note.
 - In demo scripts, `items.last()` moves: pin a chat item with `items.nth(i)`.
+- A fill's plan line must not fall through to “Plan: send as-is — the Hub routes it”: nothing went to the Hub.
 
 ## Done when
 
