@@ -6,7 +6,7 @@
 // live — the Library's configured model (structured output; bounded repair from validation errors).
 // mock — a LABELLED deterministic text overview for offline demos/tests. It never generates UI: mock
 //        output is not evidence of model judgment.
-import { callModel, keyConfigured, LlmError, modelName, sumUsage, toLlmError } from './llm.js';
+import { briefReply, callModel, keyConfigured, LlmError, modelName, sumUsage, toLlmError } from './llm.js';
 import { WORKFLOWS } from './forms.js';
 import { allowedDatesFrom, catalogForModel, inventedDates, validateGeneratedUi } from './a2ui-catalog.js';
 
@@ -96,7 +96,7 @@ export async function replyAboutLoans({ question, recent = [], loans, policy, op
     quote('today', policy.today),
     quote('loans (authoritative, this student only)', loans),
     quote('open_surface', openSurface ?? 'none'),
-    quote('recent_conversation', recent.slice(-LIMITS.recentTurns).map((t) => `Student: ${t.question.slice(0, 400)}\nLibrary: ${String(t.answer).slice(0, 400)}`).join('\n') || '(none)'),
+    quote('recent_conversation', recent.slice(-LIMITS.recentTurns).map((t) => `Student: ${t.question.slice(0, 400)}\nLibrary: ${briefReply(t.answer)}`).join('\n') || '(none)'),
     quote('student_message', question),
   ].join('\n\n');
   const messages = [{ role: 'user', content: base }];

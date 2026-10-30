@@ -17,7 +17,7 @@ import { AgentEvent, DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sd
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
 import { hostGuard, sameOriginGuard } from './local-guard.js';
 import { loadHubConfig } from './config.js';
-import { apiHost, keyEnvName, useModel } from './llm.js';
+import { apiHost, briefReply, keyEnvName, useModel } from './llm.js';
 import { createHubRegistry } from './hub-registry.js';
 import { CONTROL_MEDIA_TYPES, DEREGISTER_MEDIA_TYPE, HEARTBEAT_MEDIA_TYPE, REGISTER_MEDIA_TYPE } from './hub-link.js';
 import { createLessonService } from './hub-lessons.js';
@@ -277,7 +277,7 @@ export function startHubServer({ port } = {}) {
       const text = decision.decision === 'clarify' ? decision.clarificationQuestion || 'Could you say a bit more about what you need?'
         : decision.decision === 'unavailable' ? `${decision.reason} Please try again in a little while.`
           : `The university assistant can’t help with that here. ${decision.reason ?? ''}`.trim();
-      conv.turns = [...conv.turns, { question, agentId: null, skillId: null, answer: text.slice(0, 300) }].slice(-ROUTING_TURNS);
+      conv.turns = [...conv.turns, { question, agentId: null, skillId: null, answer: briefReply(text) }].slice(-ROUTING_TURNS);
       return plain(text, { hub: hubMeta }, decision.decision);
     }
 
@@ -297,7 +297,7 @@ export function startHubServer({ port } = {}) {
         metadata: { hubOperationId: operationId, via: cfg.agentId, studentId: conv.studentId, hubSignature: registry.signFor(agentId, { studentId: conv.studentId, contextId: downstreamContextId, operationId }), ...(lesson && agentId === lesson.professorId ? { lessonId: lesson.lessonId, lessonRevision: lesson.revision, ...(lesson.slotIds.includes(meetingSlot) ? { meetingSlot } : {}) } : {}) },
       });
       registry.markReachable(agentId, true);
-      conv.turns = [...conv.turns, { question, agentId, skillId: decision.skillId, answer: String(reply.text ?? '').slice(0, 300) }].slice(-ROUTING_TURNS);
+      conv.turns = [...conv.turns, { question, agentId, skillId: decision.skillId, answer: briefReply(reply.text) }].slice(-ROUTING_TURNS);
       const base = { runId, operationId, agentId, servedByName: peer.displayName, hub: hubMeta };
       if (reply.form) {
         const formRef = createFormRef(reply.form, agentId, conv, ctx, operationId);

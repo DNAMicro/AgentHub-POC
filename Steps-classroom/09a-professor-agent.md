@@ -169,6 +169,7 @@ This step adds no lessons, inbox or signing of Student requests. Those come in S
 
 ## Avoid these known problems
 
+- Keep the end of earlier replies in the Professor's `recent_conversation`: `briefReply(t.answer)` (Step 7b), not a 300-character head cut.
 - Don't let a course question fall through: "Can I return my homework late for marketing class" must reach Marketing 101, not the Library. Give the Professor the `course-questions` skill and add the named-course rule to both the router and the Student's prompt.
 - Don't let agent names reach the student's chat. The router once asked "Calculus (Tutor Agent) or Marketing 101 (Marketing 101 Professor)?". Pass `publicName` and run `publicWords` in code.
 - Join capability names with `Intl.ListFormat`, not string concatenation ("Tutoring and Library services and Marketing 101" reads badly).

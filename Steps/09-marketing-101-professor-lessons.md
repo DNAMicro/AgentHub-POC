@@ -250,6 +250,7 @@ Do not change the course agenda or presentation as part of this implementation.
 
 ## Avoid these known problems (found while building this step)
 
+- **Keep the end of earlier replies in the Professor's prompts.** `recent_conversation` (first 300 characters of each answer) and `recent_chat` (first 400) drop a reply's closing question. Use `briefReply` from Step 7: `briefReply(t.answer)` and `briefReply(t.text, 150, 250)`.
 - **Signing breaks direct test calls.** Eight existing tests called the Hub directly as `student-alex`; once requests must be signed, give tests their own signed student (`signedStudent`) instead of sharing the UI's identity. A second UI for the same student is now correctly refused (its endpoint isn't the configured one), so a test that needs a differently configured UI starts its own stack.
 - **A server-assigned contextId can't be signed.** `askTutor` sent `contextId: ''` and the server filled it in after signing. A signed request must choose its own context id.
 - **Pass new options all the way down.** `signer` was added to `askTutor`'s options but not passed to the inner `exchange()`, which threw “signer is not defined” (every chat failed).

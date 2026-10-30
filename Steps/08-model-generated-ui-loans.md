@@ -277,6 +277,7 @@ Success means the model intelligently composes useful interfaces from a real sup
 
 ## Avoid these known problems (found while building this step)
 
+- **Keep the end of earlier replies in the loan prompt.** The loan model's `<recent_conversation>` used the first 400 characters of each Library reply, which drops a closing “If you tell me which book you meant…”. Use `briefReply(t.answer)` (Step 7) for every earlier reply in the prompt.
 - **Ask before reading a cut-off message as an instruction.** The prompt arrived ending in “did you”; it was clarified first (start Part 8? which budget rule applies?).
 - **Verify a component feature in the installed renderer before offering it.** `ChoicePicker.filterable` exists in the schema *and* the renderer (a real filter input); Text's Markdown does not render (no Markdown renderer is configured), so the model must write plain text.
 - **Structured outputs can't describe arbitrary component trees.** Return the components and data model as JSON strings and validate them in code against the official schema.

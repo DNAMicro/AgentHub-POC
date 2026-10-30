@@ -25,8 +25,8 @@ import { A2UI_VERSION, WORKFLOWS, checkAction, surfaceButtons, validateBookingCr
 import { loadStudentConfig } from './config.js';
 import { getCard, validateCard } from './cards.js';
 import { topologyLabel } from './topology.js';
-import { apiHost, keyEnvName, useModel } from './llm.js';
-import { planRequest, studentAssistantStatus } from './student-assistant.js';
+import { apiHost, briefReply, keyEnvName, useModel } from './llm.js';
+import { asksStudent, planRequest, studentAssistantStatus } from './student-assistant.js';
 import { AGENT_CARD_PATH, A2A_PROTOCOL_VERSION } from '@a2a-js/sdk';
 import { DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
@@ -259,7 +259,7 @@ export async function startUiServer({ port = 4444 } = {}) {
     })
       .then((reply) => {
         const conv = conversationFor(run.contextId);
-        conv.turns = [...conv.turns, { question: run.text, capability: reply?.hub?.destination ?? null, answer: String(reply?.text ?? '').slice(0, 300) }].slice(-6);
+        conv.turns = [...conv.turns, { question: run.text, capability: reply?.hub?.destination ?? null, answer: briefReply(reply?.text) }].slice(-6);
         setState(runId, 'completed', { servedBy: reply?.servedBy ?? null, decision: reply?.hub?.decision ?? null });
       })
       .catch((err) => setState(runId, err.outcome === 'uncertain' ? 'uncertain' : 'failed', err.tutorError ? { tutorError: err.tutorError.code } : {}))
@@ -282,7 +282,7 @@ export async function startUiServer({ port = 4444 } = {}) {
       const last = conv.turns.at(-1);
       const plan = await planRequest({
         question: run.text, capabilities, recentTurns: conv.turns, pending: run.pending,
-        followsQuestion: Boolean(last && /\?\s*$/.test(last.answer ?? '')),
+        followsQuestion: Boolean(last && asksStudent(last.answer)),
         onModelEvent: (type, data) => publish({ source: 'student', type, runId, data }),
       });
       run.text = plan.text ?? run.text; // the held-back question + this answer, or this message alone
@@ -290,7 +290,8 @@ export async function startUiServer({ port = 4444 } = {}) {
       const name = capabilities.find((c) => c.id === plan.capability)?.name ?? null;
       publish({ source: 'student', type: 'request_planned', runId, data: { action: plan.action, capability: plan.capability, capabilityName: name, by: plan.by, reason: plan.reason, relation: plan.relation ?? null, matched: plan.matched?.map((m) => ({ id: m.id, terms: m.terms })) ?? [], model: plan.model ?? null, usage: plan.usage ?? null, error: plan.error ?? null } });
       if (plan.action === 'clarify') {
-        conv.pending = { original: run.text, clarificationQuestion: plan.clarificationQuestion };
+        // Asking again after a bare "yes": still holding the student's original message.
+        conv.pending = { original: plan.reasked ? run.pending.original : run.text, clarificationQuestion: plan.clarificationQuestion, reasked: Boolean(plan.reasked) };
         publish({ source: 'student', type: 'clarification_asked', runId, data: { question: run.text, text: plan.clarificationQuestion, contextId: run.contextId } });
         setState(runId, 'completed', { decision: 'student_clarify' });
         activeRunId = null;
@@ -300,7 +301,7 @@ export async function startUiServer({ port = 4444 } = {}) {
         // Clearly not a university service: the Student answers itself and nothing is sent.
         const offered = new Intl.ListFormat('en', { type: 'conjunction' }).format(capabilities.map((c) => c.name ?? c.id));
         const text = `${plan.reason}${offered ? ` The university can help with: ${offered}.` : ''}`;
-        conv.turns = [...conv.turns, { question: run.text, capability: null, answer: text.slice(0, 300) }].slice(-6);
+        conv.turns = [...conv.turns, { question: run.text, capability: null, answer: briefReply(text) }].slice(-6);
         publish({ source: 'student', type: 'request_declined', runId, data: { question: run.text, text, contextId: run.contextId } });
         setState(runId, 'completed', { decision: 'student_decline' });
         activeRunId = null;

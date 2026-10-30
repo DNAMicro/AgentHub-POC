@@ -145,3 +145,11 @@ export async function callModel({ system, messages, maxTokens, timeoutMs, schema
 }
 
 export const costOf = (u, name = current.name) => ((u?.inputTokens ?? 0) * MODELS[name].inputPerMTok + (u?.outputTokens ?? 0) * MODELS[name].outputPerMTok) / 1e6;
+
+// A reply as kept in a routing/planning history: the start (what it is about) and the end (where a
+// reply asks its question or invites the next message). A plain head cut dropped "If you tell me which
+// book you meant…" from a long loan list, so the next message lost its meaning.
+export function briefReply(text, head = 200, tail = 300) {
+  const s = String(text ?? '');
+  return s.length <= head + tail + 3 ? s : `${s.slice(0, head)} … ${s.slice(-tail)}`;
+}

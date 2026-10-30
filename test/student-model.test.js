@@ -10,7 +10,8 @@ import { askTutor } from '../src/student-agent.js';
 import { topologyLabel } from '../src/topology.js';
 
 process.env.STUDENT_MODE = 'mock'; // read at import time
-const { planRequest, matchCapabilities } = await import('../src/student-assistant.js');
+const { planRequest, matchCapabilities, asksStudent } = await import('../src/student-assistant.js');
+const { briefReply } = await import('../src/llm.js');
 
 const CAPABILITIES = [
   { id: 'tutoring', name: 'Tutoring', description: 'Academic tutoring.', tags: ['tutoring', 'explain', 'calculus', 'derivative', 'integral'], examples: [] },
@@ -38,13 +39,59 @@ test('obvious requests are decided by rule (no model); unclear ones are not', as
   // A clarifying question is pending: an answer is joined to the earlier message; a new request isn't.
   const pending = { original: 'I need help', clarificationQuestion: 'Tutoring or library?' };
   const answer = await planRequest({ question: 'the library one', capabilities: CAPABILITIES, pending });
-  assert.deepEqual([answer.relation, answer.text], ['answers_question', 'I need help\nthe library one']);
+  assert.deepEqual([answer.relation, answer.text], ['answers_question', 'I need help\n(Your Student agent asked: “Tutoring or library?”)\nthe library one']);
   const fresh = await planRequest({ question: 'Please explain the derivative of a product', capabilities: CAPABILITIES, pending });
   assert.deepEqual([fresh.relation, fresh.text], ['new_request', 'Please explain the derivative of a product']);
   const unsure = await planRequest({ question: 'not sure', capabilities: CAPABILITIES, pending });
-  assert.deepEqual([unsure.relation, unsure.by, unsure.text], ['answers_question', 'uncertain', 'I need help\nnot sure']);
+  assert.deepEqual([unsure.relation, unsure.by, unsure.text], ['answers_question', 'uncertain', 'I need help\n(Your Student agent asked: “Tutoring or library?”)\nnot sure']);
   const reply = await planRequest({ question: 'yes', capabilities: CAPABILITIES, followsQuestion: true });
   assert.deepEqual([reply.action, reply.capability, reply.by], ['send', null, 'context'], 'a reply to the university’s question goes on as-is');
+});
+
+// The real 6:56 PM conversation: the Library listed six loans and ended by inviting the student to name
+// one; "claculus" answered that invitation, but the history kept only the first 300 characters.
+const LOANS_REPLY = 'You have six current loans, and none of them can be renewed right now. L-1001 Calculus, L-1002 Principles of Marketing, L-1004 Statistics in Practice and L-1005 Marketing Research Methods have each already been renewed 2 times, the maximum. L-1003 Organic Chemistry Lab Manual is on hold by another borrower and is due today, 2026-10-29. L-1006 World History Reader is a course-reserve copy, which can\'t be renewed; it is due 2026-10-27 and should go back to the reserve desk. If you tell me which book you meant, I can explain its reason in more detail.';
+
+test('history keeps the start and the end of a long reply (closing questions and invitations survive)', () => {
+  const kept = briefReply(LOANS_REPLY);
+  assert.ok(kept.length <= 520, `bounded (${kept.length})`);
+  assert.ok(kept.startsWith('You have six current loans'), 'keeps the start');
+  assert.ok(kept.endsWith('If you tell me which book you meant, I can explain its reason in more detail.'), 'keeps the end');
+  assert.equal(briefReply('Short answer.'), 'Short answer.', 'short replies are unchanged');
+});
+
+test('the university asked something: a trailing question or a closing invitation, not any statement', async () => {
+  assert.equal(asksStudent('Which day would you like?'), true);
+  assert.equal(asksStudent(briefReply(LOANS_REPLY)), true, 'an invitation that ends with a period still counts');
+  for (const invite of ['Let me know which one you want.', 'Tell me which book you meant.', 'If you’d like, I can show another example.']) assert.equal(asksStudent(invite), true, invite);
+  for (const plain of ['The integral of 1/x is ln|x| + C.', 'Your loan is due 2026-11-20. Is that ok? It cannot be renewed.', '']) assert.equal(asksStudent(plain), false, plain);
+  const reply = await planRequest({ question: 'claculus', capabilities: CAPABILITIES, followsQuestion: asksStudent(briefReply(LOANS_REPLY)) });
+  assert.deepEqual([reply.action, reply.by], ['send', 'context'], 'goes to the university, which has the conversation');
+});
+
+test('an answer to the Student’s clarifying question is sent with that question, so a short answer means something', async () => {
+  const pending = { original: 'claculus', clarificationQuestion: 'Did you mean Calculus tutoring, or something about your Calculus library loan?' };
+  const answer = await planRequest({ question: 'the loan one', capabilities: CAPABILITIES, pending });
+  assert.equal(answer.relation, 'answers_question');
+  assert.equal(answer.text, 'claculus\n(Your Student agent asked: “Did you mean Calculus tutoring, or something about your Calculus library loan?”)\nthe loan one');
+});
+
+test('a bare “yes” to an either/or question is not a choice: ask once more (no model), then let the university decide', async () => {
+  const pending = { original: 'claculus', clarificationQuestion: 'Did you mean Calculus tutoring, or something about your Calculus library loan?' };
+  for (const yes of ['yes', 'Yes!', 'ok', 'sure.', 'yeah']) {
+    const again = await planRequest({ question: yes, capabilities: CAPABILITIES, pending });
+    assert.deepEqual([again.action, again.by, again.reasked, again.model ?? null], ['clarify', 'rule', true, null], yes);
+    assert.match(again.clarificationQuestion, /^Which one do you mean\? Did you mean Calculus tutoring, or something about your Calculus library loan\?$/);
+  }
+  const second = await planRequest({ question: 'yes', capabilities: CAPABILITIES, pending: { ...pending, reasked: true } });
+  assert.deepEqual([second.action, second.capability, second.by, second.relation], ['send', null, 'uncertain', 'answers_question'], 'never guessed');
+  assert.equal(second.text, 'claculus\n(Your Student agent asked: “Did you mean Calculus tutoring, or something about your Calculus library loan?”)\nyes');
+  // A yes/no question: "yes" does answer it.
+  const yesNo = await planRequest({ question: 'yes', capabilities: CAPABILITIES, pending: { original: 'claculus', clarificationQuestion: 'Did you mean calculus tutoring?' } });
+  assert.notEqual(yesNo.action, 'clarify');
+  // Picking an option is an answer, not a bare yes.
+  const picked = await planRequest({ question: 'yes, the library loan', capabilities: CAPABILITIES, pending });
+  assert.notEqual(picked.reasked, true);
 });
 
 test('topology: the Student’s own model calls are drawn on its own line', () => {
@@ -98,8 +145,24 @@ test('an unclear question: the Student asks first, sends nothing, then sends que
 
   const second = await chatVia(stack.ui, stream, 'with renewing a library book', first.contextId);
   const sent = find(second.events, 'student', 'request_sent').data;
-  assert.equal(sent.text, 'I need help\nwith renewing a library book');
+  assert.equal(sent.text, `I need help\n(Your Student agent asked: “${asked.data.text}”)\nwith renewing a library book`);
   assert.equal(second.reply.servedBy, 'library');
+});
+
+test('a bare “yes” to the Student’s either/or question: it asks once more, keeps the original, then sends the real answer', async () => {
+  const stream = await open(stack.ui.url);
+  const first = await chatVia(stack.ui, stream, 'I need help');
+  const asked = find(first.events, 'student', 'clarification_asked').data.text;
+  assert.match(asked, / or /, 'the mock question offers options');
+  const yes = await chatVia(stack.ui, stream, 'yes', first.contextId);
+  const again = find(yes.events, 'student', 'clarification_asked');
+  assert.ok(again, 'asked again');
+  assert.equal(again.data.text, `Which one do you mean? ${asked}`);
+  assert.ok(!find(yes.events, 'student', 'request_sent'), 'nothing went to the Hub');
+  const answer = await chatVia(stack.ui, stream, 'with renewing a library book', first.contextId);
+  const sent = find(answer.events, 'student', 'request_sent').data;
+  assert.equal(sent.text, `I need help\n(Your Student agent asked: “Which one do you mean? ${asked}”)\nwith renewing a library book`, 'the original message is kept');
+  assert.equal(answer.reply.servedBy, 'library');
 });
 
 test('the Hub ignores a capability it doesn’t offer and routes the request itself', async () => {
@@ -208,7 +271,7 @@ test('live mode: clearly not a university service → the Student answers itself
     const a = await chatVia(live.ui, stream, 'I don’t know', c.contextId);
     assert.equal(stub.requests.length, calls, 'no Student model call for an unsure answer');
     assert.equal(find(a.events, 'student', 'request_planned').data.by, 'uncertain');
-    assert.equal(find(a.events, 'student', 'request_sent').data.text, 'Can you help me with chapter five?\nI don’t know');
+    assert.equal(find(a.events, 'student', 'request_sent').data.text, 'Can you help me with chapter five?\n(Your Student agent asked: “Is this about a class or a library book?”)\nI don’t know');
     assert.ok(!find(a.events, 'student', 'request_declined'));
 
     // Asked first, then a different, self-contained request: the model says so and it's sent on its own.
