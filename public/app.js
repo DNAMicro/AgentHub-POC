@@ -448,6 +448,7 @@ function clearScreen() {
   els.tutorLog.replaceChildren();
   els.libraryLog.replaceChildren();
   els.hubLog.replaceChildren();
+  els.professorLog.replaceChildren();
   els.studentConsole.replaceChildren();
   els.inspectorLog.replaceChildren();
   inspections.clear();

@@ -206,6 +206,7 @@ Work in the three phases from Step 0. Write the Phase 1 contracts yourself. Then
 
 ## Avoid these known problems
 
+- New conversation must clear the Professor's Agent activity console too: add `els.professorLog` to `clearScreen()` in `public/app.js`.
 - Keep the end of each message in `recent_chat`: `briefReply(t.text, 150, 250)` (Step 7b), not a 400-character head cut.
 - Don't put an assistant between the professor and the class. A plain message gets no assistant reply.
 - An email address is not a tag. Tag suggestions match first names (every id starts with `student-`; both surnames are "Student").

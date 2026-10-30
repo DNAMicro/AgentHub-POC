@@ -250,6 +250,7 @@ Do not change the course agenda or presentation as part of this implementation.
 
 ## Avoid these known problems (found while building this step)
 
+- **New conversation must clear the Professor's console too.** `clearScreen()` emptied the chat and the Student, Hub, Tutor and Library consoles but not `els.professorLog`, so old Professor entries stayed after a reset. When you add a console, add it to `clearScreen()`.
 - **Keep the end of earlier replies in the Professor's prompts.** `recent_conversation` (first 300 characters of each answer) and `recent_chat` (first 400) drop a reply's closing question. Use `briefReply` from Step 7: `briefReply(t.answer)` and `briefReply(t.text, 150, 250)`.
 - **Signing breaks direct test calls.** Eight existing tests called the Hub directly as `student-alex`; once requests must be signed, give tests their own signed student (`signedStudent`) instead of sharing the UI's identity. A second UI for the same student is now correctly refused (its endpoint isn't the configured one), so a test that needs a differently configured UI starts its own stack.
 - **A server-assigned contextId can't be signed.** `askTutor` sent `contextId: ''` and the server filled it in after signing. A signed request must choose its own context id.
@@ -296,6 +297,7 @@ Do not change the course agenda or presentation as part of this implementation.
 
 ## Enhancements merged into this step
 
+- **New conversation clears the Professor console** (2026-10-30): checked live in a real browser on your app — 4 entries before, afterwards only the Professor's own “Posted list cleared” reset entry, and a reload brings nothing old back.
 - **Decisions asked before building (your answers):** a new Professor tab in the same app; per-process keys for the Professor and the Student; inspector structure only by default. These settle Step 8's two open decisions.
 - **Standing rules applied:** no budget step for live checks (the prompt asked for one; your standing rule overrides it), hand over in live mode, ask before removing or changing what works.
 - **Session challenge** (security, my addition): accepting the Student's key at registration on trust would let any local process register first. The Hub instead proves the registrant serves the configured endpoint.
