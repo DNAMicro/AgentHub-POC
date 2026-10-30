@@ -134,7 +134,15 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
       watcher.unobserve(e.target);
       if (seen.has(id)) continue;
       seen.add(id);
-      api(`/api/inbox/${encodeURIComponent(id)}/open`, { method: 'POST' }).then(() => refreshInbox()).catch(() => seen.delete(id));
+      // Only a message still in the inbox and not yet opened: a page can briefly show a message the Student
+      // agent no longer has (e.g. history from before a New conversation), and its "open" would be a 404.
+      refreshInbox()
+        .then(() => {
+          const l = inbox.lessons.find((x) => x.deliveryId === id);
+          if (!l || l.openedAt) return null;
+          return api(`/api/inbox/${encodeURIComponent(id)}/open`, { method: 'POST' }).then(() => refreshInbox());
+        })
+        .catch(() => seen.delete(id));
     }
   }, { threshold: 0.6 }) : null;
   function messageShown(item) {

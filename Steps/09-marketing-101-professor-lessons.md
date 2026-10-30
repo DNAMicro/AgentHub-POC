@@ -250,6 +250,7 @@ Do not change the course agenda or presentation as part of this implementation.
 
 ## Avoid these known problems (found while building this step)
 
+- **Send “opened” only for a message still in the inbox.** The page sent `POST /api/inbox/<id>/open` for any professor message it showed; once (in a full sweep, after a New conversation, with a second window) it was a message the Student agent no longer had → 404. Refresh the inbox first and skip messages that aren't in it or are already opened.
 - **New conversation must clear the Professor's console too.** `clearScreen()` emptied the chat and the Student, Hub, Tutor and Library consoles but not `els.professorLog`, so old Professor entries stayed after a reset. When you add a console, add it to `clearScreen()`.
 - **Keep the end of earlier replies in the Professor's prompts.** `recent_conversation` (first 300 characters of each answer) and `recent_chat` (first 400) drop a reply's closing question. Use `briefReply` from Step 7: `briefReply(t.answer)` and `briefReply(t.text, 150, 250)`.
 - **Signing breaks direct test calls.** Eight existing tests called the Hub directly as `student-alex`; once requests must be signed, give tests their own signed student (`signedStudent`) instead of sharing the UI's identity. A second UI for the same student is now correctly refused (its endpoint isn't the configured one), so a test that needs a differently configured UI starts its own stack.
