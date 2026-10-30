@@ -158,6 +158,7 @@ Don't stop to ask questions. Everything you need is in this file and Step 0.
 12. Steps are at least 100 px wide; all nine fit at desktop width. Grid children use `minmax(0, 1fr)`. Reduced motion stops the pulse. Replay after reload rebuilds the strip.
 13. Chat items: the held question ("You (held by your Student agent, not sent yet)") and "Your Student agent asks". A decline shows "You (not sent — answered by your Student agent)" and "Your Student agent — not offered by the university".
 14. "Live view disconnected" is a banner (`#live-banner`) separate from agent status. The graph greys out; agents aren't marked offline.
+14b. **The chat fills the window's height at every width.** While the Conversation or Professor view shows, `body` is exactly `100dvh` (`body:has(#view-conversation:not([hidden]), #view-professor:not([hidden]))`); grid rows `minmax(420px, 1fr) auto` (phones ≤720 px: `minmax(80dvh, 1fr)`). Never give the chat a fixed or capped height such as `min(76dvh, 820px)`: a tall window then shows an empty band under it.
 15. **`followBottom(log)`** for the chat and all four consoles:
     - While the reader is within 40 px of the bottom, stay at the newest item on every size change (a `ResizeObserver` on each child, attached by a `MutationObserver`).
     - An upward wheel, touch drag, ArrowUp/PageUp/Home, or a scroll that lowers `scrollTop` stops following.
@@ -252,6 +253,7 @@ Then append the "CLAUDE.md notes" below to `CLAUDE.md` and commit `Step 7b: Seei
 - Strip: real events only (STEPS, flowStep, markStep, skipSteps, updateActiveStep); data-state + data-active.
 - Telemetry redaction is an allowlist (SAFE_FIELDS, CONFIG_EVENT_TYPES) unless HUB_TELEMETRY_SHOW_CONTENT=1.
 - Event IDs <bootId>:<seq>; Last-Event-ID resumes; UI_HISTORY_LIMIT bounds history with a truncated notice; heartbeats are never stored.
+- Don't cap the chat's height; it fills the window (check a tall window, a short one and a phone).
 - Logs scroll only through followBottom; never set scrollTop directly. Re-check with scripts/browser-checks/chat-scroll.js after chat UI changes.
 ```
 

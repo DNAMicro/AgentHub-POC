@@ -122,10 +122,10 @@ h1 { margin: 0; font-size: 1.2rem; font-weight: 700; letter-spacing: -0.01em; }
 @keyframes blink { 50% { opacity: 0.25; } }
 .view { flex: 1; min-height: 0; padding: 12px; gap: 12px; }
 .view[hidden] { display: none !important; }
-.view-conversation { display: grid; grid-template-rows: minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); max-width: 1080px; width: 100%; margin: 0 auto; }
+.view-conversation { display: grid; grid-template-rows: minmax(420px, 1fr) auto; grid-template-columns: minmax(0, 1fr); max-width: 1080px; width: 100%; margin: 0 auto; }
 .view-conversation .timeline-panel { margin: 0; }
 .view-activity { display: grid; grid-template-columns: repeat(5, minmax(220px, 1fr)); }
-.view-professor { display: grid; grid-template-rows: minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); max-width: 1080px; width: 100%; margin: 0 auto; }
+.view-professor { display: grid; grid-template-rows: minmax(420px, 1fr); grid-template-columns: minmax(0, 1fr); max-width: 1080px; width: 100%; margin: 0 auto; }
 .view-topology { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); }
 .panel {
   display: flex; flex-direction: column; min-height: 0; min-width: 0;
@@ -383,18 +383,17 @@ h2 { margin: 0; font-size: 1.07rem; font-weight: 700; color: var(--agent, var(--
 /* ---- narrower screens: consoles two by two, topology details below the graph; phones stack ---- */
 @media (max-width: 1200px) {
   body { height: auto; min-height: 100dvh; }
-  .view-conversation > .chat { height: min(76dvh, 820px); }
   .view-activity { grid-template-columns: 1fr 1fr; }
   .view-activity > .console { height: 56dvh; }
   .view-topology { grid-template-columns: 1fr; }
   .topo-side { max-height: none; }
-  .view-professor > .chat { height: min(80dvh, 860px); }
 }
 @media (max-width: 720px) {
   .topbar { padding: 10px 16px; }
   .tabs { padding: 6px 8px 0; }
   .view { padding: 8px; }
-  .view-conversation > .chat { height: 80dvh; }
+  .view-conversation { grid-template-rows: minmax(80dvh, 1fr) auto; } /* phones: the chat keeps most of the screen */
+  .view-professor { grid-template-rows: minmax(80dvh, 1fr); }
   .view-activity { grid-template-columns: 1fr; }
   .view-activity > .console { height: 60dvh; }
   .chat-log .msg { max-width: 94%; }
@@ -688,3 +687,8 @@ dialog#skills-dialog::backdrop { background: rgb(0 0 0 / 0.5); }
 .meeting-times .slot:disabled { cursor: default; opacity: 0.5; }
 .meeting-times .slot[aria-pressed="true"] { opacity: 1; color: var(--surface); background: var(--professor); }
 .meeting-times .slot[aria-pressed="true"]::before { content: "✓ "; }
+
+/* The chat fills the window's height at every width (user request, 2026-10-30): while the Conversation
+   or Professor view is showing, the page is exactly one window tall and the chat takes what the header
+   and the hop-by-hop strip leave, with its own scroll. Short windows keep a usable chat (the grid rows' 420px minimum) and scroll the page. */
+body:has(#view-conversation:not([hidden]), #view-professor:not([hidden])) { height: 100dvh; }
