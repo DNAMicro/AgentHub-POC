@@ -57,7 +57,7 @@ const postedTo = (student) => (student ? Object.values(outbox.get().lessons)
   .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)) || b.revision - a.revision)
   .filter((l, i, all) => all.findIndex((x) => x.lessonId === l.lessonId) === i)
   .slice(0, 5) : []);
-const NEEDS_PROFESSOR_TEXT = 'I don’t have that answer here, so I’ve sent your question to the professor. Their reply will appear here in your chat.';
+const NEEDS_PROFESSOR_TEXT = `I don’t have that answer here, so I’ve sent your question to ${COURSE.professorName}. Their reply will appear here in your chat.`;
 const NOT_PASSED_TEXT = 'I don’t have that answer here, and I couldn’t pass your question on because your request wasn’t verified by the university.';
 async function handleChat(ctx, bus, runId) {
   const incoming = ctx.userMessage;
@@ -80,14 +80,14 @@ async function handleChat(ctx, bus, runId) {
     const r = bookSlot(lesson.meeting.meetingId, incoming.metadata.meetingSlot, student);
     recordReply(incoming.messageId, { studentId: student, text: question, about, relayed: false }, { text: r.text, model: null, needsProfessor: r.needsProfessor, onBehalf: true, meeting: { status: r.status, label: r.slot?.label ?? null } });
     emitViz('meeting_choice', runId, { meetingId: lesson.meeting.meetingId, slotId: incoming.metadata.meetingSlot, status: r.status });
-    metadata.professor = { outcome: 'meeting', onBehalf: true, mode: PROFESSOR_MODE, model: null, usage: null, lessonId: lesson.lessonId, topics: [], meeting: { meetingId: lesson.meeting.meetingId, status: r.status, slotId: r.slot?.slotId ?? null } };
+    metadata.professor = { name: COURSE.professorName, outcome: 'meeting', onBehalf: true, mode: PROFESSOR_MODE, model: null, usage: null, lessonId: lesson.lessonId, topics: [], meeting: { meetingId: lesson.meeting.meetingId, status: r.status, slotId: r.slot?.slotId ?? null } };
     return publishReply(ctx, bus, runId, incoming, r.text, metadata);
   }
   if (lesson && lesson.kind === 'message' && author === 'professor') {
     recordReply(incoming.messageId, { studentId: student, text: question, about, relayed: true });
     emitViz('student_reply', runId, { lessonId: lesson.lessonId, relayed: true });
     const text = 'Sent to your professor. Their answer will appear here in your chat.';
-    metadata.professor = { outcome: 'relayed', mode: PROFESSOR_MODE, model: null, usage: null, lessonId: lesson.lessonId, topics: [] };
+    metadata.professor = { name: COURSE.professorName, outcome: 'relayed', mode: PROFESSOR_MODE, model: null, usage: null, lessonId: lesson.lessonId, topics: [] };
     return publishReply(ctx, bus, runId, incoming, text, metadata);
   }
   const onBehalf = Boolean(lesson && lesson.kind === 'message' && author === 'assistant');
@@ -100,7 +100,7 @@ async function handleChat(ctx, bus, runId) {
     const handOver = r.kind === 'needs_professor' && Boolean(student);
     text = handOver && !onBehalf ? NEEDS_PROFESSOR_TEXT : r.kind === 'needs_professor' && !student ? NOT_PASSED_TEXT : r.text;
     // A hand-over is the course assistant speaking for the professor (the chat labels it so).
-    metadata.professor = { outcome: r.kind, mode: PROFESSOR_MODE, model: r.model, usage: r.usage, lessonId: lesson?.lessonId ?? null, topics: r.topicIds, ...(onBehalf || handOver ? { onBehalf: true } : {}) };
+    metadata.professor = { name: COURSE.professorName, outcome: r.kind, mode: PROFESSOR_MODE, model: r.model, usage: r.usage, lessonId: lesson?.lessonId ?? null, topics: r.topicIds, ...(onBehalf || handOver ? { onBehalf: true } : {}) };
     if (lesson || handOver) {
       recordReply(incoming.messageId, { studentId: student, text: question, about, relayed: handOver && !onBehalf }, { text, model: r.model, needsProfessor: handOver, onBehalf });
       emitViz('student_reply', runId, { lessonId: lesson?.lessonId ?? null, relayed: false, needsProfessor: handOver });

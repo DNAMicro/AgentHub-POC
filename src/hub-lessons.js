@@ -32,6 +32,7 @@ export function createLessonService({ cfg, registry, emit = () => {}, file = pro
   const endpointOf = (studentId) => cfg.studentEndpoints?.[studentId] ?? null;
   const coursesOf = (professorId) => Object.entries(cfg.courses ?? {}).filter(([, c]) => c.professor === professorId);
   const nameOf = (agentId) => registry.peer(agentId)?.displayName ?? agentId;
+  const professorNameOf = (courseId, agentId) => cfg.courses?.[courseId]?.professorName ?? nameOf(agentId);
 
   // ---- student sessions ---------------------------------------------------------------------------
   async function registerStudent(msg) {
@@ -148,7 +149,7 @@ export function createLessonService({ cfg, registry, emit = () => {}, file = pro
       const lesson = store.get().lessons[`${d.lessonId}#${d.revision}`];
       const value = {
         type: 'lesson_delivery', deliveryId, lessonId: d.lessonId, revision: d.revision, courseId: d.courseId, kind: lesson.kind ?? 'lesson', author: lesson.author ?? 'professor', meeting: lesson.meeting ?? null, toAll: lesson.audience === 'all',
-        courseTitle: cfg.courses[d.courseId]?.title ?? d.courseId, professorId: d.professorId, professorName: nameOf(d.professorId),
+        courseTitle: cfg.courses[d.courseId]?.title ?? d.courseId, professorId: d.professorId, professorName: professorNameOf(d.courseId, d.professorId),
         title: lesson.title, text: lesson.text, postedAt: lesson.postedAt, contentHash: lesson.hash,
       };
       store.update((s) => { s.deliveries[deliveryId].attempts += 1; });
@@ -219,7 +220,7 @@ export function createLessonService({ cfg, registry, emit = () => {}, file = pro
         if (store.get().notices[key] === 'sent' || inFlight.has(key)) continue;
         inFlight.add(key);
         try {
-          const value = { type: 'course_available', noticeId, courseId, courseTitle: c.title, professorName: nameOf(c.professor), at: new Date().toISOString() };
+          const value = { type: 'course_available', noticeId, courseId, courseTitle: c.title, professorName: professorNameOf(courseId, c.professor), at: new Date().toISOString() };
           const r = await sendData(endpoint, { mediaType: COURSE_AVAILABLE_MEDIA_TYPE, value, metadata: { hubSignature: sign(session.callKey, ['notice', studentId, noticeId]) }, timeoutMs: deliverTimeoutMs });
           if (r.ok && r.value?.status === 'ok') {
             store.update((s) => { s.notices[key] = 'sent'; });

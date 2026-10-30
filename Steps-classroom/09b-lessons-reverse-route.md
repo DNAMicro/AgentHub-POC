@@ -65,7 +65,7 @@ The Professor chat tab, `@assistant`, replies to messages and meetings come in S
 
 1. Add `student-sam` to the Step 7a allowlist: `students: ['student-alex', 'student-sam']`. `studentNames: { 'student-alex': 'Alex Student', 'student-sam': 'Sam Student' }`.
 2. `studentEndpoints: { 'student-alex': 'http://127.0.0.1:4444' }`. `STUDENT_URL` overrides the first student's endpoint. Each key must be a configured student; each URL must be localhost.
-3. `courses: { 'mkt-101': { title: 'Marketing 101', professor: 'professor', enrolled: ['student-alex', 'student-sam'] } }`. The professor must be a peer; enrolled ids must be configured students. Mirror all of this in `config/hub.example.json`.
+3. `courses: { 'mkt-101': { title: 'Marketing 101', professor: 'professor', professorName: 'Professor Amir', enrolled: ['student-alex', 'student-sam'] } }`. `professorName` (optional, non-empty) is what students see on deliveries and notices — fall back to the peer's display name. Add “Taught by Professor Amir” to the `marketing` destination's description, tags “professor amir” and “amir”, and the example “Can you ask Professor Amir about the homework?”, so a question that names him routes to Marketing 101. The professor must be a peer; enrolled ids must be configured students. Mirror all of this in `config/hub.example.json`.
 
 **`src/hub-lessons.js`** — `createLessonService({ cfg, registry, emit, file = HUB_LESSON_FILE ?? 'data/hub-lessons.json', deliverTimeoutMs = HUB_DELIVER_TIMEOUT_MS ?? 5000, retryMs = HUB_DELIVER_RETRY_MS ?? 3000 })`:
 

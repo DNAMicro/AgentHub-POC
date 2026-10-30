@@ -14,7 +14,7 @@
   "students": ["student-alex", "student-sam"],
   "studentNames": { "student-alex": "Alex Student", "student-sam": "Sam Student" },
   "studentEndpoints": { "student-alex": "http://127.0.0.1:4444" },
-  "courses": { "mkt-101": { "title": "Marketing 101", "professor": "professor", "enrolled": ["student-alex", "student-sam"] } },
+  "courses": { "mkt-101": { "title": "Marketing 101", "professor": "professor", "professorName": "Professor Amir", "enrolled": ["student-alex", "student-sam"] } },
   "heartbeatExpiryMs": 10000,
   "timeouts": { "dispatchMs": 60000, "formActionMs": 8000, "cardFetchMs": 3000 },
   "model": { "name": "claude-haiku-5-5", "apiKeyEnv": "ANTHROPIC_API_KEY" }

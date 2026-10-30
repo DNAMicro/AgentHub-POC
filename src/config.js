@@ -139,9 +139,9 @@ export function loadHubConfig() {
       },
       // Part 9: the Marketing 101 course (a fictional class) — questions go to its professor.
       marketing: {
-        worker: 'professor', name: 'Marketing 101', description: 'Marketing 101 (a fictional introductory course): marketing concepts, course lessons, worked examples, checking your understanding, and questions about the course itself (homework, assignments, the professor’s messages).',
-        tags: ['marketing', 'marketing 101', 'segmentation', 'targeting', 'positioning', 'branding', 'pricing', 'promotion', 'customer value', 'lesson'],
-        examples: ['What is the difference between segmentation and targeting?', 'Can you explain the lesson about customer value?'],
+        worker: 'professor', name: 'Marketing 101', description: 'Marketing 101 (a fictional introductory course): marketing concepts, course lessons, worked examples, checking your understanding, and questions about the course itself (homework, assignments, the professor’s messages). Taught by Professor Amir: questions for or about Professor Amir go here.',
+        tags: ['marketing', 'marketing 101', 'segmentation', 'targeting', 'positioning', 'branding', 'pricing', 'promotion', 'customer value', 'lesson', 'professor amir', 'amir'],
+        examples: ['What is the difference between segmentation and targeting?', 'Can you explain the lesson about customer value?', 'Can you ask Professor Amir about the homework?'],
       },
     },
     students: ['student-alex', 'student-sam'],
@@ -151,7 +151,8 @@ export function loadHubConfig() {
     // endpoint, served by the UI server), and who teaches and is enrolled in each course.
     studentEndpoints: { 'student-alex': 'http://127.0.0.1:4444' },
     // Sam Student (fictional) is enrolled but has no Student agent in this demo: posts to "all" queue for them.
-    courses: { 'mkt-101': { title: 'Marketing 101', professor: 'professor', enrolled: ['student-alex', 'student-sam'] } },
+    // professorName is what students see and call the professor (fictional); the agent keeps its own name.
+    courses: { 'mkt-101': { title: 'Marketing 101', professor: 'professor', professorName: 'Professor Amir', enrolled: ['student-alex', 'student-sam'] } },
     heartbeatExpiryMs: 10000,
     timeouts: { dispatchMs: 60000, formActionMs: 8000, cardFetchMs: 3000 },
     model: DEFAULT_MODEL_CFG,
@@ -196,6 +197,7 @@ export function loadHubConfig() {
     check(p, ID.test(courseId), `course "${courseId}" must be a lowercase id.`);
     check(p, typeof c?.title === 'string' && c.title.length > 0, `course ${courseId}: title is required.`);
     check(p, ids.has(c?.professor), `course ${courseId}: professor "${c?.professor}" is not an allowlisted peer.`);
+    check(p, c?.professorName === undefined || (typeof c.professorName === 'string' && c.professorName.length > 0), `course ${courseId}: professorName must be a non-empty string.`);
     check(p, Array.isArray(c?.enrolled) && c.enrolled.every((s) => cfg.students.includes(s)), `course ${courseId}: enrolled must list configured students.`);
   }
   check(p, positive(cfg.heartbeatExpiryMs) && cfg.heartbeatExpiryMs >= 500, 'heartbeatExpiryMs must be an integer ≥ 500.');

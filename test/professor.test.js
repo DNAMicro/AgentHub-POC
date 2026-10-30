@@ -92,6 +92,7 @@ test('course availability appears once, even after the Professor and the Student
   await waitFor(async () => (await inbox(s)).notices.length === 1, { what: 'availability notice' });
   const [notice] = (await inbox(s)).notices;
   assert.equal(notice.courseTitle, 'Marketing 101');
+  assert.equal(notice.professorName, 'Professor Amir', 'students see the course’s professor by name');
   // Professor restart (new instance, new key) and Student restart: no second announcement.
   await stop(s.professor);
   s.professor = await startProfessor({ ...s.specialistEnv, PORT: String(s.professorPort), PROFESSOR_OUTBOX_FILE: s.files.outbox });
@@ -110,6 +111,7 @@ test('opening the notification opens that lesson; follow-ups keep its context an
   await postLesson(s, { title: 'Price signals value', text: 'Pricing communicates value; a reusable bottle priced too low can look flimsy.' });
   const box = await inbox(s);
   assert.equal(box.lessons.length, 2);
+  assert.ok(box.lessons.every((l) => l.professorName === 'Professor Amir'), 'each delivery names the professor');
   const target = box.lessons.find((l) => l.title === 'Price signals value');
   const opened = await (await post(`${s.ui.url}/api/inbox/${target.deliveryId}/open`, {})).json();
   assert.equal(opened.title, 'Price signals value');
@@ -481,7 +483,7 @@ test('a course question the assistant can’t answer goes to the professor’s c
       const { runId } = await res.json();
       await waitFor(() => find(forRun(stream.events, runId), 'student', 'reply_received'), { timeout: 15000, what: 'reply' });
       const reply = find(forRun(stream.events, runId), 'student', 'reply_received').data;
-      assert.match(reply.text, /sent your question to the professor/i);
+      assert.match(reply.text, /sent your question to Professor Amir/i);
       assert.equal(reply.professor.outcome, 'needs_professor');
       assert.equal(reply.professor.onBehalf, true, 'shown as the course assistant speaking for the professor');
       const chat = (await professorState(s)).chat;

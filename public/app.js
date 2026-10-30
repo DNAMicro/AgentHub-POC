@@ -1016,11 +1016,11 @@ function handle(event, { live = true } = {}) {
         }
         // A reply to the professor's own message went to the professor in person: no answer yet, just a note.
         if (data.professor?.outcome === 'relayed') {
-          student({ dir: 'info', speaker: 'professor', kind: 'note', label: `Sent to ${data.servedByName ?? 'your professor'}`, text: data.text, ids: { messageId: data.messageId, inReplyTo: data.inReplyTo, contextId: data.contextId, run } });
+          student({ dir: 'info', speaker: 'professor', kind: 'note', label: `Sent to ${data.professor.name ?? data.servedByName ?? 'your professor'}`, text: data.text, ids: { messageId: data.messageId, inReplyTo: data.inReplyTo, contextId: data.contextId, run } });
           studentConsole({ dir: 'received', label: 'A2A reply from the Hub', text: `${agentName(data.servedBy)} took your reply for the professor (no model answer).`, ids: { messageId: data.messageId, contextId: data.contextId, run } });
           break;
         }
-        const label = own ? `${universityName}${decision === 'clarify' ? ' asks' : decision === 'unavailable' ? ' — service unavailable' : decision === 'unsupported' ? ' — not supported' : ''}` : `${viaUniversity(data.servedBy)}${data.professor?.onBehalf ? ' · course assistant, for the professor' : ''}`;
+        const label = own ? `${universityName}${decision === 'clarify' ? ' asks' : decision === 'unavailable' ? ' — service unavailable' : decision === 'unsupported' ? ' — not supported' : ''}` : (data.professor?.name ? `${universityName} · ${data.professor.name}${data.professor.onBehalf ? '’s course assistant' : ''}` : viaUniversity(data.servedBy));
         student({ dir: own && decision !== 'clarify' ? 'info' : 'received', speaker: own ? 'hub' : data.servedBy ?? 'hub', label, text: data.text, ids: { answeredBy: own ? 'the Hub itself (no service called)' : agentName(data.servedBy), destination: data.hub?.destination, model: fmtUsage(data.tutor), outcome: data.tutor?.outcome ?? data.library?.outcome, messageId: data.messageId, inReplyTo: data.inReplyTo, contextId: data.contextId, taskId: data.taskId || '(none — direct Message reply)', run } });
         studentConsole({ dir: 'received', label: 'A2A reply from the Hub', text: own ? `Answered by the Hub (${decision}).` : `Relayed from ${agentName(data.servedBy)}.`, ids: { messageId: data.messageId, contextId: data.contextId, run } });
         break;
