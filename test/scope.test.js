@@ -314,7 +314,8 @@ test('A2UI submissions stay with the issuing agent and are checked against its c
     const a = (await formVia(trio.ui, stream, 'I want to arrange in-person help with calculus')).form;
     await submit(a.formId, 'How do I renew a borrowed book?');
     await waitLifecycle(stream, a.formId, ['accepted']);
-    assert.ok(findAll(stream.events, 'tutor', 'form_action_received').some((e) => e.data.formId === a.formId));
+    // The Tutor's own event travels Tutor → Hub → UI server and can land after the lifecycle event: wait for it.
+    await waitFor(() => findAll(stream.events, 'tutor', 'form_action_received').some((e) => e.data.formId === a.formId), { what: 'tutor form_action_received' });
     assert.equal(findAll(stream.events, 'library', 'message_received').length, 0, 'Library received nothing');
 
     // Workflow skill disabled after the form was issued → a clear error, not a reroute.

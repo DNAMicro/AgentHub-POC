@@ -129,7 +129,7 @@ test('Hub-level unknown outcome: no automatic retry; reconcile with the same ope
 
 test('registration states: heartbeat expiry → stale, sign-out → disconnected, disabled — none receive new requests', async () => {
   const own = await startStack({ hubEnv: { ROUTER_MODE: 'mock' }, libraryEnv: { SPECIALIST_ENABLED: '0' }, readyAgents: ['tutor'] });
-  await waitFor(async () => (await hubEntry(own.hub, 'library'))?.status === 'disabled', { what: 'library disabled' }).catch(() => {});
+  await waitFor(async () => (await hubEntry(own.hub, 'library'))?.status === 'disabled', { what: 'library disabled' });
   try {
     const s = await openStream(own.ui.url);
     assert.equal((await hubEntry(own.hub, 'library')).status, 'disabled');
@@ -146,11 +146,12 @@ test('registration states: heartbeat expiry → stale, sign-out → disconnected
     const t = await chatVia(own.ui, s, 'Explain the derivative of x squared');
     assert.equal(t.decision.decision, 'unavailable');
     assert.equal(find(t.events, 'hub', 'forward_attempted'), undefined, 'nothing dispatched to a stale specialist');
-    assert.ok(findAll(s.events, 'hub', 'registry_status').some((e) => e.data.agentId === 'tutor' && e.data.status === 'stale'));
+    // Telemetry can arrive after the HTTP status changed: wait for the event, don't assume it's there.
+    await waitFor(() => findAll(s.events, 'hub', 'registry_status').some((e) => e.data.agentId === 'tutor' && e.data.status === 'stale'), { what: 'registry_status stale event' });
 
     own.library.proc.kill('SIGTERM'); // a clean shutdown signs out
     await waitFor(async () => (await hubEntry(own.hub, 'library')).status === 'disconnected', { what: 'signed out' });
-    assert.ok(findAll(s.events, 'hub', 'deregistered').some((e) => e.data.agentId === 'library'));
+    await waitFor(() => findAll(s.events, 'hub', 'deregistered').some((e) => e.data.agentId === 'library'), { what: 'deregistered event' });
     s.close();
   } finally {
     own.kill();
