@@ -72,6 +72,7 @@ Plain ESM JavaScript (`"type": "module"`), no lint/TypeScript. The only build st
 
 - Prefer killing by PID or port: `kill $(lsof -tiTCP:<port> -sTCP:LISTEN)`, or save `$!` when backgrounding and `kill` that.
 - If you must use `pkill`/`pgrep`, **all options go before the pattern**: `pkill -U "$(id -u)" -f 'src/ui-server\.js'`. BSD `pkill` stops option parsing at the first non-option, so `pkill -f "src/ui-server.js" -U $(id -u)` treats `-U` and `501` as extra patterns — on 2026-10-26 that SIGTERMed ~70 unrelated processes (Chrome/Claude/Codex GPU helpers, system extensions) and blanked every window.
+- The shell is **zsh**: an unquoted `$PIDS` is NOT split into words, so `kill $PIDS` fails with “illegal pid: 1 2 3” and nothing stops (2026-10-30: the demo kept running on the old code). Use `kill ${=PIDS}` or `xargs kill`, and check the ports are free before restarting.
 - Never use short or generic `-f` patterns (`node`, `501`, `-U`). Dry-run with `pgrep -lf '<pattern>'` first and confirm only your own test processes match.
 
 ## Architecture notes
