@@ -175,9 +175,9 @@ Run `npm test` after Phase 1. Every existing test must still pass.
 1. **`src/form-host.js`**: `issue(ctx, bus, { workflowId, payload, version, data, extra, supersedes, … })`.
    - `payload(formId)` replaces `wf.build`. Store it as `form.a2ui`, `data` as `form.data`; spread `extra` into the metadata.
    - Check actions with `checkAction(..., { buttons: surfaceButtons(form.a2ui) })`. Pass handlers `operationId` and `trusted` (incoming metadata).
-2. **Skill**: add the Library built-in skill in `src/library-fixture.js`: id `book-loans`, kind `form`, name "My loans and renewals", tags `my loans`, `renew my book`, `due date`, `extend a loan`, `borrowed books`. Library rules: `form: { ids: ['study-room-booking', 'book-loans'] }`.
+2. **Skill**: add the Library built-in skill in `src/library-fixture.js`: id `book-loans`, kind `form`, name "My loans and renewals", tags `my loans`, `renew my book`, `due date`, `extend a loan`, `borrowed books`. Library rules: `form: { ids: ['study-room-booking', 'book-loans'] }`. In the `renewals` content, replace the line “The Library Agent can’t see accounts or renew anything — it gives guidance only.” with “To renew one of your own items, ask about it by name (for example “renew my calculus book”): the Library Agent checks it and, if it can be renewed, sends you a renewal form.” (update the Step 5 test that matched the old line).
 3. **`src/form-intent.js`**: `mockOwnLoans(question)`, a labelled heuristic. It matches possessive loan phrasing ("my loans", "when is my … due", "everything I borrowed", "extend the/my", "why can't I renew"). It is false when the question starts with "how do/can/should I …".
-4. **`src/library-model.js`**: add verdict `my_loans` to the live classification. The prompt says general rules ("how do I renew my book?") stay with the knowledge skills. Mock mode uses `mockOwnLoans` and emits `intent_decided` with `by: 'heuristic'`.
+4. **`src/library-model.js`**: add verdict `my_loans` to the live classification. The prompt says general rules ("how do I renew my book?") stay with the knowledge skills; a request to renew or extend *their* item is `my_loans` even with a misspelled verb ("revnew my calculus book"); and the Library never tells a student it can't see their loans. Mock mode uses `mockOwnLoans` and emits `intent_decided` with `by: 'heuristic'`.
 5. **`src/loan-model.js`**: `replyAboutLoans({ question, recent, loans, policy, openSurface, emit })`.
    - One structured call, with the Library's own model, `effort: low`, 4000 output tokens, timeout `LIBRARY_LOAN_TIMEOUT_MS` (default 60000).
    - Schema: `{ kind: 'answer'|'clarify'|'ui', text, loan_ids, components_json, data_model_json }`. Components and data model are **JSON strings**; code parses them.
@@ -248,6 +248,7 @@ Run `npm test` after Phase 1. Every existing test must still pass.
 - A metadata field is not authentication. Any local process can call the Library with `studentId: "student-sam"`. Accept only a Hub-signed identity, and check it again at submission.
 - Don't reject dates the backend's range implies. "Push back two weeks" (due + 14) is inside the range and must pass.
 - A surface without buttons isn't waiting for anything. Label it Read-only.
+- A misspelled request is still a request. Live, "need to revnew my calculus book" got general guidance 3 times out of 3, quoting the old "can't see accounts" line. Tell the classifier to read past misspelled verbs, and update that content line.
 
 ## Done when
 

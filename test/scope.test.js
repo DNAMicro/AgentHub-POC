@@ -160,7 +160,7 @@ test('Library (mock) answers only from saved answer content — just the relevan
     assert.equal(tutoring.library.outcome, 'out_of_scope');
     const renew = await askTutor(lib.url, 'How do I renew a borrowed book?', {});
     assert.equal(renew.library.skillId, 'renewals');
-    assert.match(renew.text, /can’t see accounts or renew anything/);
+    assert.match(renew.text, /ask about it by name/);
 
     // A new skill answers from whatever content is saved with it.
     assert.equal((await save(lib, (c) => c.skills.push({

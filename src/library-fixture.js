@@ -32,7 +32,7 @@ export const LIBRARY_DEFAULT_SKILLS = {
       [
         'You can renew an item up to 2 times, 21 days each time, if nobody has placed a hold on it.',
         'Renew through your library account page or at the front desk.',
-        'The Library Agent can’t see accounts or renew anything — it gives guidance only.',
+        'To renew one of your own items, ask about it by name (for example “renew my calculus book”): the Library Agent checks it and, if it can be renewed, sends you a renewal form.',
       ].join('\n')),
     skill('returns', 'Returns guidance', 'Where and how to return items, and overdue fees.',
       ['library', 'returns', 'overdue'], ['Where do I return a book after hours?'], ['how and where to return items', 'overdue fees'],
