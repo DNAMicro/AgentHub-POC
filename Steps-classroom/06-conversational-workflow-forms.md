@@ -271,6 +271,7 @@ First run `npm test`; Steps 1–5 must pass.
 
 ## Avoid these known problems
 
+- Tell the Tutor's model what became of its form. With only “[Sent the form]” in history, a later answer told the student to contact the tutoring center although the request had been received. On submit, add the request ID and status to that conversation's history; on cancel, “nothing was submitted”. Never the form's values.
 - An agent that answers with a form publishes `form_sent`, not `reply_published`. Wait helpers must accept both.
 - DateTimeInput `min`/`max`: `YYYY-MM-DD` or `HH:MM:SS`. Validate schemas with format checks on.
 - "Where are the study rooms?" is a plain question; only "how do I book/reserve…" is booking info.

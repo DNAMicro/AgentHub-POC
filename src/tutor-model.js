@@ -227,6 +227,13 @@ function remember(contextId, question, answerText) {
   if (histories.size > LIMITS.maxConversations) histories.delete(histories.keys().next().value);
 }
 
+// What became of a form this Tutor sent (submitted → request ID and status, or cancelled) — never the form's
+// values. Without it the model only knew a form was sent, and later told the student to arrange the session
+// elsewhere although the request had been received.
+export function rememberFormOutcome(contextId, studentAction, result) {
+  if (contextId) remember(contextId, `[${studentAction}]`, `[${result}]`);
+}
+
 const log = (...args) => console.log('[Tutor Agent]', ...args);
 const skillList = (policy) => policy.skills.map((s) => s.name).join(', ');
 
@@ -265,7 +272,7 @@ export async function answer({ contextId, messageId, question, getPolicy, workfl
       emit('intent_decided', { outcome: verdict, reason, by, contextId, messageId });
       if (verdict === 'offer') {
         if (!workflow.enabled) return done('workflow_disabled', '', { scope: { verdict: 'workflow_disabled', policyRevision: policy.revision } });
-        remember(contextId, question, '[Sent the in-person tutoring request form.]');
+        remember(contextId, question, '[Sent the in-person tutoring request form. The student fills it in and sends it from their screen.]');
         return done('offer_form', '', { scope: { verdict: 'offer_tutoring_request_form', reason, policyRevision: policy.revision } });
       }
       if (verdict === 'info') return done('workflow_info', '', { scope: { verdict: 'tutoring_request_info', reason, policyRevision: policy.revision } });

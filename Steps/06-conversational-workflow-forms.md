@@ -202,6 +202,7 @@ Explain the design before coding. Implement only this bounded enhancement, show 
 
 ## Avoid these known problems (found while building this step)
 
+- **Tell the Tutor's model what became of its form.** History recorded only “[Sent the in-person tutoring request form.]”, so after the student submitted it and got a TR receipt, the next live answer added “I can't arrange in-person sessions or submit forms from this chat, so please contact your school or tutoring center directly” (seen in the 2026-10-30 full demo run). Record the outcome in that conversation's history — submitted: the request ID and status; cancelled: nothing submitted — never the form's values (`rememberFormOutcome`).
 - **Test helpers that wait for a reply must also accept a form.** An agent that answers with a form publishes `form_sent`, not `reply_published`; waiting only for the latter stalls every form test.
 - **DateTimeInput `min`/`max` must match the schema’s formats exactly:** `YYYY-MM-DD` for dates and `HH:MM:SS` for times. The schema says `oneOf` date | time | date-time, so with format checking off a date matches two branches and fails. Validate in tests *with* format checks (the project registers date/time/date-time itself).
 - **Informational vs. request heuristics:** “Where are the study rooms?” is a plain question, not a booking question — only treat “how do I book/reserve…” as booking info.
@@ -229,6 +230,7 @@ Explain the design before coding. Implement only this bounded enhancement, show 
 
 ## Enhancements merged into this step
 
+- **The Tutor remembers form outcomes** (2026-10-30, found in your requested full browser sweep): submitted → request ID and status, cancelled → nothing submitted, in the conversation's model history. Test: `test/scope.test.js` “the Tutor remembers that its form was submitted” (fails on the old code). Checked live in a real browser 3 times: form submitted, then a chain-rule question — no “contact your school” claim.
 - **No budget step; ready means live** (your standing instructions): live checks just run and are reported; the app is handed over in live mode.
 - **Design decisions made while building**: the model decides only the outcome; prefill is parsed in code; the Part 3 student-details form and `POST /api/forms` are removed; each workflow is its agent’s reserved built-in form skill; the room form refreshes availability automatically; review is a server-sent A2UI update; slot IDs are opaque and per form.
 - **Full Playwright pass of every scenario** (your request): run against the live servers; it found and fixed the capacity message, the review/lookup labels and the agent-reply visibility.

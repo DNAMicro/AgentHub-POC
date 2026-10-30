@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { startTutor, startLibrary, startTrio, openStream, waitFor, put, post, find, findAll, forRun, stateOf, unusedPort, formVia, formAction, lastLifecycle, waitLifecycle } from './support/harness.js';
 import { addDays, todayIn } from '../src/forms.js';
 import { startFakeAnthropic, messageReply } from './support/fake-anthropic.js';
-import { askTutor } from '../src/student-agent.js';
+import { askTutor, sendFormAction } from '../src/student-agent.js';
 import { TUTOR_DEFAULT_SKILLS } from '../src/tutor-agent.js';
 
 const ask = (agent, text, contextId = randomUUID()) => askTutor(agent.url, text, { contextId });
@@ -254,6 +254,45 @@ test('live path (Part 6): the model only picks the outcome; code sends the regis
   } finally {
     t.proc.kill();
     lib.proc.kill();
+    await stub.close();
+  }
+});
+
+test('the Tutor remembers that its form was submitted (request ID and status only, no form values)', async () => {
+  // Scripted model output (plumbing, not judgment): each call is answered by the schema it asks for.
+  const stub = await startFakeAnthropic();
+  let offered = false;
+  stub.respondWith((body) => {
+    const props = body.output_config?.format?.schema?.properties ?? {};
+    if (props.verdict) {
+      const verdict = offered ? 'in_scope' : 'offer_tutoring_request_form';
+      offered = true;
+      return messageReply(JSON.stringify({ verdict, reason: 'scripted', clarification_question: '' }));
+    }
+    if (props.flags) return messageReply(JSON.stringify({ flags: [] }));
+    if (props.violates) return messageReply(JSON.stringify({ violates: false, reason: '' }));
+    return messageReply('The chain rule: differentiate the outside, then multiply by the derivative of the inside.');
+  });
+  const t = await startTutor({ TUTOR_MODE: 'live', ANTHROPIC_API_KEY: 'sk-ant-test-scope-placeholder', ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0', STUDENT_A2A_URL: deadStudent });
+  try {
+    const contextId = randomUUID();
+    const r = await askTutor(t.url, 'I want to arrange in-person help with calculus on Friday morning', { contextId });
+    assert.equal(r.form.workflowId, 'tutoring-request');
+    const weekday = (() => { for (let n = 2; ; n++) { const d = addDays(todayIn(), n); if (![0, 6].includes(new Date(`${d}T12:00:00Z`).getUTCDay())) return d; } })();
+    const context = { firstName: 'Alex', lastName: 'Student', email: 'alex@example.com', preferredDate: weekday, period: ['morning'], specificTime: '', notes: 'Chain rule practice' };
+    const sent = await sendFormAction(t.url, { form: r.form, operationId: randomUUID(), action: { name: 'submitTutoringRequest', surfaceId: r.form.formId, sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context } });
+    const requestId = sent.body.receipt.requestId;
+    assert.match(requestId, /^TR-/);
+
+    stub.requests.length = 0;
+    await askTutor(t.url, 'Can you explain the chain rule?', { contextId });
+    const answerCall = stub.requests.find((q) => !q.body.output_config?.format);
+    const seen = JSON.stringify(answerCall.body.messages);
+    assert.match(seen, /Sent the in-person tutoring request form/);
+    assert.match(seen, new RegExp(`${requestId} received`), 'the model knows the request was received');
+    assert.doesNotMatch(seen, /alex@example\.com|Alex|Chain rule practice/, 'never the form’s values');
+  } finally {
+    t.proc.kill();
     await stub.close();
   }
 });

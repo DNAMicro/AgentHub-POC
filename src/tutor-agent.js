@@ -17,7 +17,7 @@ import { hostGuard } from './local-guard.js';
 import { createSkillService } from './agent-settings.js';
 import { loadSpecialistConfig } from './config.js';
 import { createHubLink } from './hub-link.js';
-import { LOG_CONTENT, MODE, TutorError, answer, status as tutorStatus } from './tutor-model.js';
+import { LOG_CONTENT, MODE, TutorError, answer, rememberFormOutcome, status as tutorStatus } from './tutor-model.js';
 import { apiHost, keyEnvName, useModel } from './llm.js';
 import { A2UI_EXTENSION_URI, A2UI_MIME_TYPE, BASIC_CATALOG_ID, TIMEZONE_LABEL, TUTORING_HOURS, WORKFLOWS, buildTutoringForm, isA2uiPart, validateTutoringRequest } from './forms.js';
 import { createFormHost } from './form-host.js';
@@ -153,12 +153,14 @@ const formHost = createFormHost({
           if (flagged) return flagged;
           const record = tutoringStore.createTutoringRequest(checked.values);
           log('recorded tutoring request', { requestId: record.requestId, preferences: LOG_CONTENT ? record.preferences : '[not logged]' });
+          rememberFormOutcome(form.contextId, 'Sent the in-person tutoring request form.', `Tutoring request ${record.requestId} received — awaiting scheduling. Nothing else is needed in this chat for it.`);
           return {
             status: 'accepted', message: TUTORING_ACK, values: checked.values,
             receipt: { requestId: record.requestId, status: record.status, preferences: record.preferences, timezone: TIMEZONE_LABEL, demo: true, note: 'Demo request — this spike sends no email or scheduling message.' },
           };
         },
-        async cancelForm() {
+        async cancelForm(form) {
+          rememberFormOutcome(form.contextId, 'Cancelled the in-person tutoring request form.', 'Nothing was submitted.');
           return { status: 'cancelled', message: 'Form cancelled. Nothing was submitted.' };
         },
       },
