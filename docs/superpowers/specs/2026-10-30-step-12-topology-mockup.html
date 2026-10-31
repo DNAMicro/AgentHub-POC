@@ -82,33 +82,44 @@ svg.topo { width: 100%; height: auto; display: block; max-height: 72dvh; }
 .tone-guard .pill { fill: var(--guard-tint); stroke: transparent; } .tone-guard .ptext { fill: var(--guard); }
 /* agent rules badge (Step 13 preview): a small shield circle inside the agent's own disc.
    Its dashed orbit turns while a rule runs, the same way an agent's orbit turns on production when it is busy. */
-.agbase { fill: var(--surface); stroke: var(--guard); stroke-width: 1.6; transition: fill .3s, stroke .3s; }
-.agshield { fill: none; stroke: var(--guard); stroke-width: 1.6; stroke-linejoin: round; transition: stroke .3s, fill .3s; }
-.agorbit { fill: none; stroke: var(--guard); stroke-width: 2.2; stroke-dasharray: 7 5; stroke-linecap: round; opacity: 0; transition: opacity .3s, stroke .3s; }
-.agpulse { fill: none; stroke: var(--guard); stroke-width: 2.5; pointer-events: none; }
+.agbase { fill: var(--guard-tint); stroke: var(--guard); stroke-width: 2; transition: fill .3s, stroke .3s; }
+/* a solid shield with a check mark: protected. It flips to white on a coloured disc while a rule runs. */
+.agshield { fill: var(--guard); stroke: var(--guard); stroke-width: 1; stroke-linejoin: round; transition: stroke .3s, fill .3s; }
+.agtick, .agx { fill: none; stroke: var(--surface); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: stroke .3s; }
+.agx { display: none; }
+.agorbit { fill: none; stroke: var(--guard); stroke-width: 2.6; stroke-dasharray: 8 5; stroke-linecap: round; opacity: 0; transition: opacity .3s, stroke .3s; }
+.agpulse { fill: none; stroke: var(--guard); stroke-width: 3; pointer-events: none; }
 .agbadge.check .agbase { fill: var(--guard); }
-.agbadge.check .agshield { stroke: var(--surface); fill: color-mix(in srgb, var(--surface) 30%, transparent); }
+.agbadge.check .agshield { fill: var(--surface); stroke: var(--surface); }
+.agbadge.check .agtick { stroke: var(--guard); }
 .agbadge.check .agorbit { opacity: 1; }
 .agbadge.block .agbase { fill: var(--bad); stroke: var(--bad); }
-.agbadge.block .agshield { stroke: var(--surface); }
+.agbadge.block .agshield { fill: var(--surface); stroke: var(--surface); }
+.agbadge.block .agtick { display: none; }
+.agbadge.block .agx { display: inline; stroke: var(--bad); }
 .agbadge.block .agorbit { opacity: 1; stroke: var(--bad); stroke-dasharray: none; }
 .agbadge.block .agpulse { stroke: var(--bad); }
 .agbadge.pass .agbase { fill: var(--ok); stroke: var(--ok); }
-.agbadge.pass .agshield { stroke: var(--surface); }
+.agbadge.pass .agshield { fill: var(--surface); stroke: var(--surface); }
+.agbadge.pass .agtick { stroke: var(--ok); }
 .agbadge.pass .agorbit { opacity: .9; stroke: var(--ok); stroke-dasharray: none; }
 .agbadge.pass .agpulse { stroke: var(--ok); }
-.agbadge.none .agbase { stroke: var(--warn); stroke-dasharray: 2 3; }
-.agbadge.none .agshield { stroke: var(--warn); opacity: .5; }
+.agbadge.none .agbase { fill: var(--surface); stroke: var(--warn); stroke-dasharray: 3 3; }
+.agbadge.none .agshield { fill: none; stroke: var(--warn); stroke-width: 1.2; }
+.agbadge.none .agtick { display: none; }
 /* the Hub's guardrail: a big circle inside the Hub holding its two parts, Rules and Decision Model */
 .agbadge.hubguard .agbase { fill: color-mix(in srgb, var(--guard) 6%, var(--surface)); stroke-width: 2; }
-.agbadge.hubguard .agshield { stroke-width: 1.4; }
+.agbadge.hubguard .agshield { stroke-width: 1; }
 .agbadge.hubguard .agorbit { stroke-width: 2.6; stroke-dasharray: 12 9; }
 .agbadge.hubguard.check .agbase { fill: var(--guard-tint); stroke: var(--guard); }
-.agbadge.hubguard.check .agshield { stroke: var(--guard); fill: color-mix(in srgb, var(--guard) 25%, transparent); }
+.agbadge.hubguard.check .agshield { stroke: var(--guard); fill: var(--guard); }
+.agbadge.hubguard.check .agtick { stroke: var(--surface); }
 .agbadge.hubguard.pass .agbase { fill: var(--ok-bg); stroke: var(--ok); }
-.agbadge.hubguard.pass .agshield { stroke: var(--ok); }
+.agbadge.hubguard.pass .agshield { stroke: var(--ok); fill: var(--ok); }
+.agbadge.hubguard.pass .agtick { stroke: var(--surface); }
 .agbadge.hubguard.block .agbase { fill: var(--bad-bg); stroke: var(--bad); }
-.agbadge.hubguard.block .agshield { stroke: var(--bad); }
+.agbadge.hubguard.block .agshield { stroke: var(--bad); fill: var(--bad); }
+.agbadge.hubguard.block .agx { stroke: var(--surface); }
 .gtitle { font: 700 11px var(--font); fill: var(--guard); }
 .hubguard.pass .gtitle { fill: var(--ok); } .hubguard.block .gtitle { fill: var(--bad); }
 .agbadge.hubguard.pass .agorbit { opacity: 0; }
@@ -290,13 +301,16 @@ for (const [id, n] of Object.entries(N)) {
   // Outline while installed; filled with a turning orbit while a rule runs; red when it refuses; green when it passes.
   if (AGENT_RULES[id]) {
     const big = id === 'hub';   // the Hub's guardrail is a big circle holding its two parts
-    const R = big ? 64 : 12;
-    const b = s('g', { class: 'agbadge' + (big ? ' hubguard' : ''), transform: big ? 'translate(0 16)' : `translate(0 ${-n.r + 24})` });
+    const R = big ? 64 : 17;
+    const b = s('g', { class: 'agbadge' + (big ? ' hubguard' : ''), transform: big ? 'translate(0 16)' : `translate(0 ${-n.r + 28})` });
     b.append(s('title', {}, `${n.name.replace('\n', ' ')} ${AGENT_RULES[id].label || 'rules'}: ${AGENT_RULES[id].ids.join(', ')}`));
     b.append(s('circle', { class: 'agpulse', r: R + 4, 'stroke-opacity': 0 }));
     b.append(s('circle', { class: 'agorbit', r: R + 4 }));
     b.append(s('circle', { class: 'agbase', r: R }));
-    b.append(s('path', { class: 'agshield', d: 'M0,-6.5 L5.5,-4.4 L5.5,-0.6 C5.5,2.6 3.1,4.6 0,5.8 C-3.1,4.6 -5.5,2.6 -5.5,-0.6 L-5.5,-4.4 Z', transform: big ? 'translate(-33 -29) scale(1.65)' : '' }));
+    const icon = s('g', { transform: big ? 'translate(-33 -29) scale(1.65)' : 'scale(1.55)' });
+    icon.append(s('path', { class: 'agshield', d: 'M0,-6.5 L5.5,-4.4 L5.5,-0.6 C5.5,2.6 3.1,4.6 0,5.8 C-3.1,4.6 -5.5,2.6 -5.5,-0.6 L-5.5,-4.4 Z' }),
+      s('path', { class: 'agtick', d: 'M-2.6,-0.5 L-0.7,1.5 L2.8,-2.3' }), s('path', { class: 'agx', d: 'M-2.1,-2.4 L2.1,1.6 M2.1,-2.4 L-2.1,1.6' }));
+    b.append(icon);
     if (big) {
       // product name on two lines beside the shield, so it fits the circle's width
       const ttl = s('text', { class: 'gtitle', x: -20, y: -32 });
