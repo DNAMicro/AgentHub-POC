@@ -245,6 +245,10 @@ Hub `/dev/guardrails/*`, origin-guarded like the other `/dev` routes.
   model box, like each agent's). Discs show the name only: sub-lines such as "Marketing 101 / +
   assistant", "Front door and router / router: live", "Tutoring", "You / student-alex" are removed
   as redundant (owner's request), as are "a person / Professor view" on Professor Amir's box.
+- **The course agent is shown as "Marketing 101 Class" (owner's request, 2026-10-31):** the professor is
+  part of the class, so the Topology node, its events and captions say "Marketing 101 Class" and its model
+  box "Class model (the assistant)". This is a display label only: the agent card, logs and test regexes
+  keep "Marketing 101 Professor"; Professor Amir stays the person's name.
 - **Professor Amir as a person (owner's request, 2026-10-30):** a person node (rounded square with a
   head-and-shoulders mark, berry) beside the Professor agent, joined by a dotted "Professor view" lane.
   It animates only on what the human really does: a hand-over arriving (`needsProfessor` entry → "1

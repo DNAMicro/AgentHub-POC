@@ -6,7 +6,7 @@
 <title>Topology Mockup · Guardrail and Professor Amir</title>
 <style>
 /* Mockup of the Topology tab after Step 12: the app's switchboard (public/styles.css tokens), plus the
-   Guardrail jack with its two satellites, and Professor Amir as a PERSON beside the Professor agent.
+   Guardrail jack with its two satellites, and Professor Amir as a PERSON beside the Marketing 101 Class agent.
    A person is drawn as a rounded square with a head-and-shoulders mark; agents stay discs, models boxes. */
 @font-face { font-family: "Atkinson Hyperlegible Next"; src: url("../../../public/fonts/atkinson-hyperlegible-next-latin.woff2") format("woff2"); font-weight: 200 800; font-display: swap; }
 @font-face { font-family: "IBM Plex Mono"; src: url("../../../public/fonts/ibm-plex-mono-400-latin.woff2") format("woff2"); font-weight: 400; font-display: swap; }
@@ -159,7 +159,7 @@ svg.topo { width: 100%; height: auto; display: block; max-height: 72dvh; }
       <span class="clock" id="clock" style="margin-left:0">live · 23:30:00</span>
     </div>
     <div class="caption" id="caption">Pick a scenario.</div>
-    <svg class="topo" id="topo" viewBox="0 0 1200 720" role="img" aria-label="Topology: Student agent, University Hub with its guardrail shield (connected to the rule engine and the guardrail model), the Tutor, Library and Professor agents with their models, and Professor Amir, a person, connected to the Professor agent through the Professor view."></svg>
+    <svg class="topo" id="topo" viewBox="0 0 1200 720" role="img" aria-label="Topology: Student agent, University Hub with its guardrail shield (connected to the rule engine and the guardrail model), the Tutor, Library and Marketing 101 Class agents with their models, and Professor Amir, a person, connected to the Professor agent through the Professor view."></svg>
     <div class="legend">
       <span><i><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="var(--muted)"/></svg></i>Question or answer</span>
       <span><i><svg width="12" height="12"><rect x="1" y="1" width="10" height="10" fill="var(--muted)"/></svg></i>Lesson, message or post</span>
@@ -188,19 +188,19 @@ const N = {
   student: { x: 130, y: 300, r: 58, name: 'Student agent', sub: 'You', mono: 'student-alex', c: '--student' },
   hub:     { x: 450, y: 300, r: 72, name: 'University Hub', sub: 'Front door and router', mono: 'router: live', c: '--hub' },
   tutor:   { x: 770, y: 100, r: 56, name: 'Tutor Agent', sub: 'Tutoring', c: '--tutor' },
-  prof:    { x: 770, y: 330, r: 58, name: 'Professor', sub: 'Marketing 101', mono: '+ assistant', c: '--professor' },
+  prof:    { x: 770, y: 330, r: 58, name: 'Marketing 101\nClass', c: '--professor' },
   library: { x: 770, y: 570, r: 56, name: 'Library Agent', sub: 'Library', c: '--library' },
   // model boxes
   mStudent: { x: 130, y: 90, w: 176, h: 62, box: true, name: 'Student’s model', mono: 'claude-haiku-5-5', c: '--model' },
   mHub:     { x: 450, y: 90, w: 176, h: 62, box: true, name: 'Hub router’s model', mono: 'claude-haiku-5-5', c: '--model' },
   mTutor:   { x: 1010, y: 100, w: 176, h: 62, box: true, name: 'Tutor’s model', mono: 'claude-haiku-5-5', c: '--model' },
-  mProf:    { x: 1010, y: 250, w: 176, h: 62, box: true, name: 'Professor’s model', mono: 'the assistant', c: '--model' },
+  mProf:    { x: 1010, y: 250, w: 176, h: 62, box: true, name: 'Class model', mono: 'the assistant', c: '--model' },
   mLibrary: { x: 1010, y: 570, w: 176, h: 62, box: true, name: 'Library’s model', mono: 'claude-haiku-5-5', c: '--model' },
   // guardrail satellites
   rules:    { x: 330, y: 575, w: 176, h: 62, box: true, name: 'Rule engine', mono: 'workerd :41245', c: '--guard' },
   mGuard:   { x: 570, y: 575, w: 176, h: 62, box: true, name: 'Guardrail model', mono: 'judge · haiku-5-5', c: '--guard' },
   // the person
-  amir:     { x: 1010, y: 420, w: 176, h: 62, person: true, name: 'Professor Amir', sub: 'a person', mono: 'Professor view', c: '--person' },
+  amir:     { x: 1010, y: 420, w: 176, h: 62, person: true, name: 'Professor Amir', c: '--person' },
 };
 const E = [
   ['student', 'hub', 'A2A'], ['hub', 'tutor', 'A2A'], ['hub', 'prof', 'A2A'], ['hub', 'library', 'A2A'],
@@ -260,7 +260,10 @@ for (const [id, n] of Object.entries(N)) {
   } else {
     g.append(s('circle', { class: 'disc', r: n.r }));
     // name only: the role is clear from the name and the lanes (no sub-lines)
-    g.append(s('text', { class: 'nname', y: id === 'hub' ? 24 : AGENT_RULES[id] ? 12 : 5, 'text-anchor': 'middle', style: id === 'hub' ? 'font-size:16px' : '' }, n.name));
+    const lines = n.name.split('\n'), y0 = (id === 'hub' ? 24 : AGENT_RULES[id] ? 12 : 5) - (lines.length - 1) * 8;
+    const nm = s('text', { class: 'nname', y: y0, 'text-anchor': 'middle', style: id === 'hub' ? 'font-size:16px' : '' });
+    lines.forEach((line, i) => nm.append(s('tspan', { x: 0, dy: i ? 17 : 0 }, line)));
+    g.append(nm);
   }
   // status pill
   const py = n.r ? n.r + 20 : n.h / 2 + 18;
@@ -271,7 +274,7 @@ for (const [id, n] of Object.entries(N)) {
   // Outline while installed; filled with a turning orbit while a rule runs; red when it refuses; green when it passes.
   if (AGENT_RULES[id]) {
     const b = s('g', { class: 'agbadge', transform: id === 'hub' ? `translate(0 ${-n.r + 36}) scale(1.35)` : `translate(0 ${-n.r + 20})` });
-    b.append(s('title', {}, `${n.name} ${AGENT_RULES[id].label || 'rules'}: ${AGENT_RULES[id].ids.join(', ')}`));
+    b.append(s('title', {}, `${n.name.replace('\n', ' ')} ${AGENT_RULES[id].label || 'rules'}: ${AGENT_RULES[id].ids.join(', ')}`));
     b.append(s('circle', { class: 'agpulse', r: 16, 'stroke-opacity': 0 }));
     b.append(s('circle', { class: 'agorbit', r: 16 }));
     b.append(s('circle', { class: 'agbase', r: 12 }));
@@ -400,18 +403,18 @@ const SCN = {
     { go: [['student', 'hub']], cap: ['Student agent → Hub:', '“Hi Mr. Amir, can I submit my homework late?”'], ev: ['Student agent → University Hub', 'Question', 'chat, sent'] },
     ...checkIn('the student’s message'), ...judge('1.6 s'),
     pass('Student message'),
-    { go: [['hub', 'prof']], cap: ['Hub → Professor agent:', 'routed to Marketing 101.'], ev: ['University Hub → Professor', 'Question', 'routed: Marketing 101 · 2.7 s'] },
-    { go: [['prof', 'mProf', 'q']], cap: ['The assistant (model)', 'reads the course pack. Late homework isn’t covered there.'], ev: ['Professor → Professor’s model', 'Assistant reads the question', 'model call, sent'], evColor: '--professor' },
-    { go: [['mProf', 'prof', 'q', 1200]], ev: ['Professor’s model → Professor', 'Assistant: needs the professor', 'decision: needs_professor'], evColor: '--model' },
-    { go: [['prof', 'amir', 'post']], cap: ['Hand-over to Professor Amir:', 'a person now has the question in the Professor view.'], ev: ['Professor → Professor Amir', 'Hand-over received', 'Professor view: 1 waiting', 'sq'], evColor: '--person', then: () => status('amir', '● 1 waiting', 'warn') },
-    { go: [['prof', 'hub']], cap: ['Assistant → student (fixed words):', '“I’ve passed this on to Professor Amir, who will get back to you.”'], ev: ['Professor → University Hub', 'Reply (assistant, on behalf)', 'professor.onBehalf: true'], evColor: '--professor' },
+    { go: [['hub', 'prof']], cap: ['Hub → Marketing 101 Class:', 'routed to Marketing 101.'], ev: ['University Hub → Marketing 101 Class', 'Question', 'routed: Marketing 101 · 2.7 s'] },
+    { go: [['prof', 'mProf', 'q']], cap: ['The assistant (model)', 'reads the course pack. Late homework isn’t covered there.'], ev: ['Marketing 101 Class → Class model', 'Assistant reads the question', 'model call, sent'], evColor: '--professor' },
+    { go: [['mProf', 'prof', 'q', 1200]], ev: ['Class model → Marketing 101 Class', 'Assistant: needs the professor', 'decision: needs_professor'], evColor: '--model' },
+    { go: [['prof', 'amir', 'post']], cap: ['Hand-over to Professor Amir:', 'a person now has the question in the Professor view.'], ev: ['Marketing 101 Class → Professor Amir', 'Hand-over received', 'Professor view: 1 waiting', 'sq'], evColor: '--person', then: () => status('amir', '● 1 waiting', 'warn') },
+    { go: [['prof', 'hub']], cap: ['Assistant → student (fixed words):', '“I’ve passed this on to Professor Amir, who will get back to you.”'], ev: ['Marketing 101 Class → University Hub', 'Reply (assistant, on behalf)', 'professor.onBehalf: true'], evColor: '--professor' },
     clearGuard(), ...checkIn('the reply'), pass('Assistant reply'),
     { go: [['hub', 'student']], ev: ['University Hub → Student agent', 'Reply delivered', 'result returned'], evColor: '--hub', pause: 1100 },
     clearGuard(),
-    { go: [['amir', 'prof', 'post', 1100]], cap: ['Professor Amir replies directly:', '“Yes, by Monday 9 AM.” Written by the person, not the assistant.'], capColor: '--person', ev: ['Professor Amir → Professor', 'Reply written by Professor Amir', 'author: professor · ↩ Reply to student-alex', 'sq'], evColor: '--person', then: () => status('amir', '✓ Answered', 'ok') },
-    { then: () => { ruleRing('prof', 'check'); flash('prof'); }, cap: ['Professor agent rule:', 'enrolled-only@1 checks that every recipient is enrolled in Marketing 101.'], capColor: '--professor', ev: ['Professor', 'Agent rule check', 'enrolled-only@1', 'dm'], evColor: '--professor', pause: 2000 },
-    { then: () => ruleRing('prof', 'pass'), cap: ['Rule passes:', 'the recipients are enrolled. The post can go to the Hub.'], capColor: '--ok', ev: ['Professor', 'Agent rule: passed', 'enrolled-only@1 · 0.1 ms', 'dm'], evColor: '--ok', pause: 900 },
-    { go: [['prof', 'hub', 'post']], cap: ['Professor agent → Hub:', 'posted as a message from Professor Amir (no model call).'], ev: ['Professor → University Hub', 'Post: message', 'author: professor · audience: student-alex', 'sq'], evColor: '--professor' },
+    { go: [['amir', 'prof', 'post', 1100]], cap: ['Professor Amir replies directly:', '“Yes, by Monday 9 AM.” Written by the person, not the assistant.'], capColor: '--person', ev: ['Professor Amir → Marketing 101 Class', 'Reply written by Professor Amir', 'author: professor · ↩ Reply to student-alex', 'sq'], evColor: '--person', then: () => status('amir', '✓ Answered', 'ok') },
+    { then: () => { ruleRing('prof', 'check'); flash('prof'); }, cap: ['Class agent rule:', 'enrolled-only@1 checks that every recipient is enrolled in Marketing 101.'], capColor: '--professor', ev: ['Marketing 101 Class', 'Agent rule check', 'enrolled-only@1', 'dm'], evColor: '--professor', pause: 2000 },
+    { then: () => ruleRing('prof', 'pass'), cap: ['Rule passes:', 'the recipients are enrolled. The post can go to the Hub.'], capColor: '--ok', ev: ['Marketing 101 Class', 'Agent rule: passed', 'enrolled-only@1 · 0.1 ms', 'dm'], evColor: '--ok', pause: 900 },
+    { go: [['prof', 'hub', 'post']], cap: ['Class agent → Hub:', 'posted as a message from Professor Amir (no model call).'], ev: ['Marketing 101 Class → University Hub', 'Post: message', 'author: professor · audience: student-alex', 'sq'], evColor: '--professor' },
     ...checkIn('the professor’s post'), ...judge('1.9 s', 'allow', false),
     pass('Professor post'),
     { go: [['hub', 'student', 'post']], cap: ['Delivered to Alex', 'labelled “Professor Amir”. The hand-over card in the Professor view turns “Answered”.'], ev: ['University Hub → Student agent', 'Message delivered', 'saved in the Student’s chat', 'sq'], evColor: '--hub' },
@@ -420,29 +423,29 @@ const SCN = {
     { go: [['student', 'hub']], cap: ['Student agent → Hub:', '“When is the Marketing 101 midterm?”'], ev: ['Student agent → University Hub', 'Question', 'chat, sent'] },
     ...checkIn('the student’s message'), ...judge('1.5 s'),
     pass('Student message'),
-    { go: [['hub', 'prof']], ev: ['University Hub → Professor', 'Question', 'routed: Marketing 101 · 2.6 s'] },
-    { go: [['prof', 'mProf', 'q']], cap: ['The assistant (model) answers', 'from the course pack. Professor Amir isn’t involved.'], ev: ['Professor → Professor’s model', 'Assistant answers', 'model call, sent'], evColor: '--professor', then: () => nodes.amir.classList.add('dim') },
-    { go: [['mProf', 'prof', 'q', 1200]], ev: ['Professor’s model → Professor', 'Answer', 'decision: answer'], evColor: '--model' },
-    { go: [['prof', 'hub']], cap: ['Reply comes back,', 'labelled “Professor Amir’s course assistant”.'], ev: ['Professor → University Hub', 'Reply (assistant)', 'author: assistant'], evColor: '--professor' },
+    { go: [['hub', 'prof']], ev: ['University Hub → Marketing 101 Class', 'Question', 'routed: Marketing 101 · 2.6 s'] },
+    { go: [['prof', 'mProf', 'q']], cap: ['The assistant (model) answers', 'from the course pack. Professor Amir isn’t involved.'], ev: ['Marketing 101 Class → Class model', 'Assistant answers', 'model call, sent'], evColor: '--professor', then: () => nodes.amir.classList.add('dim') },
+    { go: [['mProf', 'prof', 'q', 1200]], ev: ['Class model → Marketing 101 Class', 'Answer', 'decision: answer'], evColor: '--model' },
+    { go: [['prof', 'hub']], cap: ['Reply comes back,', 'labelled “Professor Amir’s course assistant”.'], ev: ['Marketing 101 Class → University Hub', 'Reply (assistant)', 'author: assistant'], evColor: '--professor' },
     clearGuard(), ...checkIn('the reply'), pass('Assistant reply'),
     { go: [['hub', 'student']], ev: ['University Hub → Student agent', 'Reply delivered', 'result returned'], evColor: '--hub' },
   ],
   post: [
-    { go: [['amir', 'prof', 'post', 1100]], cap: ['Professor Amir types a message to the class', '(no @assistant), so these are the professor’s own words.'], capColor: '--person', ev: ['Professor Amir → Professor', 'Direct post written by Professor Amir', 'author: professor · audience: all', 'sq'], evColor: '--person', then: () => status('amir', '● Sending', 'warn') },
-    { then: () => { ruleRing('prof', 'check'); flash('prof'); }, cap: ['Professor agent rule:', 'enrolled-only@1 checks that every recipient is enrolled in Marketing 101.'], capColor: '--professor', ev: ['Professor', 'Agent rule check', 'enrolled-only@1', 'dm'], evColor: '--professor', pause: 2000 },
-    { then: () => ruleRing('prof', 'pass'), cap: ['Rule passes:', 'the recipients are enrolled. The post can go to the Hub.'], capColor: '--ok', ev: ['Professor', 'Agent rule: passed', 'enrolled-only@1 · 0.1 ms', 'dm'], evColor: '--ok', pause: 900 },
-    { go: [['prof', 'hub', 'post']], cap: ['Professor agent → Hub:', 'no model call. The assistant isn’t involved.'], ev: ['Professor → University Hub', 'Post: message', 'author: professor', 'sq'], evColor: '--professor', then: () => nodes.mProf.classList.add('dim') },
+    { go: [['amir', 'prof', 'post', 1100]], cap: ['Professor Amir types a message to the class', '(no @assistant), so these are the professor’s own words.'], capColor: '--person', ev: ['Professor Amir → Marketing 101 Class', 'Direct post written by Professor Amir', 'author: professor · audience: all', 'sq'], evColor: '--person', then: () => status('amir', '● Sending', 'warn') },
+    { then: () => { ruleRing('prof', 'check'); flash('prof'); }, cap: ['Class agent rule:', 'enrolled-only@1 checks that every recipient is enrolled in Marketing 101.'], capColor: '--professor', ev: ['Marketing 101 Class', 'Agent rule check', 'enrolled-only@1', 'dm'], evColor: '--professor', pause: 2000 },
+    { then: () => ruleRing('prof', 'pass'), cap: ['Rule passes:', 'the recipients are enrolled. The post can go to the Hub.'], capColor: '--ok', ev: ['Marketing 101 Class', 'Agent rule: passed', 'enrolled-only@1 · 0.1 ms', 'dm'], evColor: '--ok', pause: 900 },
+    { go: [['prof', 'hub', 'post']], cap: ['Class agent → Hub:', 'no model call. The assistant isn’t involved.'], ev: ['Marketing 101 Class → University Hub', 'Post: message', 'author: professor', 'sq'], evColor: '--professor', then: () => nodes.mProf.classList.add('dim') },
     ...checkIn('the post'), ...judge('2.1 s', 'allow', false),
     pass('Professor post'),
     { go: [['hub', 'student', 'post']], cap: ['Delivered to every enrolled student.', 'student-sam’s copy waits until that student’s agent connects.'], ev: ['University Hub → Student agent', 'Message delivered', 'deliveries: alex delivered · sam queued', 'sq'], evColor: '--hub', then: () => status('amir', '✓ Delivered 1 · queued 1', 'ok') },
   ],
   postBlocked: [
-    { go: [['amir', 'prof', 'post', 1100]], cap: ['Professor Amir posts:', '“Jordan Lee’s phone is 555-0142, call her about the group project.”'], capColor: '--person', ev: ['Professor Amir → Professor', 'Direct post written by Professor Amir', 'author: professor · audience: all', 'sq'], evColor: '--person', then: () => status('amir', '● Sending', 'warn') },
-    { go: [['prof', 'hub', 'post']], ev: ['Professor → University Hub', 'Post: message', 'author: professor', 'sq'], evColor: '--professor' },
+    { go: [['amir', 'prof', 'post', 1100]], cap: ['Professor Amir posts:', '“Jordan Lee’s phone is 555-0142, call them about the group project.”'], capColor: '--person', ev: ['Professor Amir → Marketing 101 Class', 'Direct post written by Professor Amir', 'author: professor · audience: all', 'sq'], evColor: '--person', then: () => status('amir', '● Sending', 'warn') },
+    { go: [['prof', 'hub', 'post']], ev: ['Marketing 101 Class → University Hub', 'Post: message', 'author: professor', 'sq'], evColor: '--professor' },
     ...checkIn('the post'), ...judge('2.0 s', 'block', false),
     { then: () => { ruleRing('hub', 'block'); status('hub', '✕ Guardrail: blocked', 'bad'); }, cap: ['Guardrail blocks the post:', 'personal data about someone else. Nothing is delivered.'], capColor: '--bad', ev: ['Hub guardrail', 'Blocked', 'category: someone else’s personal data', 'dm'], evColor: '--bad' },
-    { go: [['hub', 'prof', 'post']], ev: ['University Hub → Professor', 'Post refused', 'reason: personal data about someone else', 'sq'], evColor: '--bad' },
-    { go: [['prof', 'amir', 'post']], cap: ['Professor Amir sees it in the Professor view:', '“Not sent. It contains personal details about someone else.”'], capColor: '--person', ev: ['Professor → Professor Amir', 'Shown: not sent, with the reason', 'Professor view', 'sq'], evColor: '--person', then: () => status('amir', '✕ Not sent', 'bad') },
+    { go: [['hub', 'prof', 'post']], ev: ['University Hub → Marketing 101 Class', 'Post refused', 'reason: personal data about someone else', 'sq'], evColor: '--bad' },
+    { go: [['prof', 'amir', 'post']], cap: ['Professor Amir sees it in the Professor view:', '“Not sent. It contains personal details about someone else.”'], capColor: '--person', ev: ['Marketing 101 Class → Professor Amir', 'Shown: not sent, with the reason', 'Professor view', 'sq'], evColor: '--person', then: () => status('amir', '✕ Not sent', 'bad') },
   ],
   ssn: [
     { go: [['student', 'hub']], cap: ['Student agent → Hub:', '“My SSN is 078-05-1120, why is my aid late?”'], ev: ['Student agent → University Hub', 'Question', 'chat, sent'] },
