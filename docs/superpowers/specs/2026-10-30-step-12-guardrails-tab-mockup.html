@@ -640,21 +640,22 @@ function topo(kind) {
   const color = { block: 'var(--bad)', allow: 'var(--ok)', timeout: 'var(--idle)' }[kind];
   const fill = { block: 'var(--bad-bg)', allow: 'var(--ok-bg)', timeout: 'var(--field)' }[kind];
   add('rect', { class: 'node', x: 10, y: 130, width: 80, height: 40, rx: 20 }); add('text', { class: 't', x: 50, y: 155, 'text-anchor': 'middle' }, 'Student');
-  add('rect', { class: 'node', x: 120, y: 130, width: 80, height: 40, rx: 20 }); add('text', { class: 't', x: 160, y: 155, 'text-anchor': 'middle' }, 'Hub');
-  add('line', { class: 'e', x1: 90, y1: 150, x2: 120, y2: 150 });
-  add('rect', { x: 110, y: 50, width: 100, height: 40, rx: 20, style: `fill:${fill};stroke:${color};stroke-width:2` }); add('text', { class: 't', x: 160, y: 75, 'text-anchor': 'middle' }, 'Guardrail');
-  add('line', { class: 'eg', x1: 160, y1: 130, x2: 160, y2: 90 });
-  add('rect', { class: 'gs', x: 230, y: 18, width: 84, height: 30, rx: 15 }); add('text', { class: 's', x: 272, y: 37, 'text-anchor': 'middle' }, 'Rule engine');
-  add('rect', { class: 'gs', x: 230, y: 92, width: 84, height: 30, rx: 15 }); add('text', { class: 's', x: 272, y: 111, 'text-anchor': 'middle' }, 'Guardrail model');
-  add('line', { class: 'eg', x1: 210, y1: 64, x2: 230, y2: 36 }); add('line', { class: 'eg', x1: 210, y1: 76, x2: 230, y2: 104 });
+  // the guardrail is a shield inside the Hub (no separate node); its colour shows the verdict
+  add('rect', { class: 'node', x: 110, y: 128, width: 100, height: 44, rx: 22 }); add('text', { class: 't', x: 174, y: 155, 'text-anchor': 'middle' }, 'Hub');
+  add('circle', { cx: 134, cy: 150, r: 13, style: `fill:${fill};stroke:${color};stroke-width:2` });
+  add('path', { d: 'M134,143 L139.5,145.2 L139.5,149 C139.5,152.4 137,154.6 134,155.8 C131,154.6 128.5,152.4 128.5,149 L128.5,145.2 Z', style: `fill:none;stroke:${color};stroke-width:1.6;stroke-linejoin:round` });
+  add('line', { class: 'e', x1: 90, y1: 150, x2: 110, y2: 150 });
+  add('rect', { class: 'gs', x: 226, y: 30, width: 88, height: 30, rx: 15 }); add('text', { class: 's', x: 270, y: 49, 'text-anchor': 'middle' }, 'Rule engine');
+  add('rect', { class: 'gs', x: 226, y: 76, width: 88, height: 30, rx: 15 }); add('text', { class: 's', x: 270, y: 95, 'text-anchor': 'middle' }, 'Guardrail model');
+  add('line', { class: 'eg', x1: 196, y1: 132, x2: 240, y2: 60 }); add('line', { class: 'eg', x1: 204, y1: 138, x2: 250, y2: 106 });
   for (const [i, name] of ['Tutor', 'Library', 'Marketing 101'].entries()) {
     const y = 190 + i * 36; add('rect', { class: 'node', x: 210, y, width: 104, height: 28, rx: 14, style: kind !== 'allow' ? 'opacity:.4' : (i === 2 ? 'stroke:var(--professor);stroke-width:2' : '') });
     add('text', { class: 's', x: 262, y: y + 18, 'text-anchor': 'middle' }, name);
     add('line', { class: kind === 'allow' && i === 2 ? 'e' : 'e', x1: 200, y1: 160, x2: 210, y2: y + 14, style: kind === 'allow' && i === 2 ? 'stroke:var(--professor);stroke-width:2' : 'opacity:.35' });
   }
   if (kind === 'block') { add('path', { class: 'eb', d: 'M120,165 C100,200 70,200 52,172' }); add('text', { class: 'bt', x: 86, y: 214, 'text-anchor': 'middle' }, 'blocked'); }
-  if (kind === 'timeout') add('text', { class: 's', x: 160, y: 40, 'text-anchor': 'middle' }, 'no verdict in 8 s');
-  if (kind === 'allow') add('text', { class: 's', x: 160, y: 40, 'text-anchor': 'middle' }, 'pass, 1.6 s');
+  if (kind === 'timeout') add('text', { class: 's', x: 134, y: 118, 'text-anchor': 'middle' }, 'no verdict in 8 s');
+  if (kind === 'allow') add('text', { class: 's', x: 134, y: 118, 'text-anchor': 'middle' }, 'pass, 1.6 s');
   $('#topo').replaceChildren(svg);
 }
 function scenario(key) {

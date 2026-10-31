@@ -159,14 +159,14 @@ svg.topo { width: 100%; height: auto; display: block; max-height: 72dvh; }
       <span class="clock" id="clock" style="margin-left:0">live · 23:30:00</span>
     </div>
     <div class="caption" id="caption">Pick a scenario.</div>
-    <svg class="topo" id="topo" viewBox="0 0 1200 720" role="img" aria-label="Topology: Student agent, University Hub with its Guardrail, rule engine and guardrail model, the Tutor, Library and Professor agents with their models, and Professor Amir, a person, connected to the Professor agent through the Professor view."></svg>
+    <svg class="topo" id="topo" viewBox="0 0 1200 720" role="img" aria-label="Topology: Student agent, University Hub with its guardrail shield (connected to the rule engine and the guardrail model), the Tutor, Library and Professor agents with their models, and Professor Amir, a person, connected to the Professor agent through the Professor view."></svg>
     <div class="legend">
       <span><i><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="var(--muted)"/></svg></i>Question or answer</span>
       <span><i><svg width="12" height="12"><rect x="1" y="1" width="10" height="10" fill="var(--muted)"/></svg></i>Lesson, message or post</span>
       <span><i><svg width="12" height="12"><rect x="2" y="2" width="8" height="8" transform="rotate(45 6 6)" fill="var(--guard)"/></svg></i>Guardrail check</span>
       <span><i><svg width="22" height="8"><line x1="0" y1="4" x2="22" y2="4" stroke="var(--muted)" stroke-width="2" stroke-dasharray="5 5"/></svg></i>Model call (HTTPS)</span>
       <span><i><svg width="22" height="8"><line x1="0" y1="4" x2="22" y2="4" stroke="var(--person)" stroke-width="2.4" stroke-dasharray="2 4"/></svg></i>A person, through the Professor view</span>
-      <span><i><svg width="16" height="16"><circle cx="8" cy="8" r="6" fill="var(--guard)" stroke="var(--guard)" stroke-width="1.5"/><circle cx="8" cy="8" r="7.5" fill="none" stroke="var(--guard)" stroke-width="1" stroke-dasharray="3 2"/></svg></i>Shield inside an agent = its own rules: outline = installed, filled and turning = running, red = refused, green = passed</span>
+      <span><i><svg width="16" height="16"><circle cx="8" cy="8" r="6" fill="var(--guard)" stroke="var(--guard)" stroke-width="1.5"/><circle cx="8" cy="8" r="7.5" fill="none" stroke="var(--guard)" stroke-width="1" stroke-dasharray="3 2"/></svg></i>Shield inside a circle = its guardrail (Hub, Step 12) or its own rules (agents, Step 13): outline = ready, filled and turning = checking, red = refused, green = passed</span>
     </div>
   </section>
 
@@ -187,7 +187,6 @@ const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v
 const N = {
   student: { x: 130, y: 300, r: 58, name: 'Student agent', sub: 'You', mono: 'student-alex', c: '--student' },
   hub:     { x: 450, y: 300, r: 72, name: 'University Hub', sub: 'Front door and router', mono: 'router: live', c: '--hub' },
-  guard:   { x: 450, y: 535, r: 50, name: 'Guardrail', sub: 'new · Step 12', c: '--guard' },
   tutor:   { x: 770, y: 100, r: 56, name: 'Tutor Agent', sub: 'Tutoring', c: '--tutor' },
   prof:    { x: 770, y: 330, r: 58, name: 'Professor', sub: 'Marketing 101', mono: '+ assistant', c: '--professor' },
   library: { x: 770, y: 570, r: 56, name: 'Library Agent', sub: 'Library', c: '--library' },
@@ -198,15 +197,15 @@ const N = {
   mProf:    { x: 1010, y: 250, w: 176, h: 62, box: true, name: 'Professor’s model', mono: 'the assistant', c: '--model' },
   mLibrary: { x: 1010, y: 570, w: 176, h: 62, box: true, name: 'Library’s model', mono: 'claude-haiku-5-5', c: '--model' },
   // guardrail satellites
-  rules:    { x: 190, y: 500, w: 176, h: 62, box: true, name: 'Rule engine', mono: 'workerd :41245', c: '--guard' },
-  mGuard:   { x: 190, y: 612, w: 176, h: 62, box: true, name: 'Guardrail model', mono: 'judge · haiku-5-5', c: '--guard' },
+  rules:    { x: 330, y: 575, w: 176, h: 62, box: true, name: 'Rule engine', mono: 'workerd :41245', c: '--guard' },
+  mGuard:   { x: 570, y: 575, w: 176, h: 62, box: true, name: 'Guardrail model', mono: 'judge · haiku-5-5', c: '--guard' },
   // the person
-  amir:     { x: 1010, y: 420, w: 176, h: 86, person: true, name: 'Professor Amir', sub: 'a person', mono: 'Professor view', c: '--person' },
+  amir:     { x: 1010, y: 420, w: 176, h: 62, person: true, name: 'Professor Amir', sub: 'a person', mono: 'Professor view', c: '--person' },
 };
 const E = [
   ['student', 'hub', 'A2A'], ['hub', 'tutor', 'A2A'], ['hub', 'prof', 'A2A'], ['hub', 'library', 'A2A'],
   ['student', 'mStudent', 'HTTPS', 'model'], ['hub', 'mHub', 'HTTPS', 'model'], ['tutor', 'mTutor', 'HTTPS', 'model'], ['prof', 'mProf', 'HTTPS', 'model'], ['library', 'mLibrary', 'HTTPS', 'model'],
-  ['hub', 'guard', 'in-Hub'], ['guard', 'rules', 'HTTP', 'model'], ['guard', 'mGuard', 'HTTPS', 'model'],
+  ['hub', 'rules', 'HTTP', 'model'], ['hub', 'mGuard', 'HTTPS', 'model'],
   ['prof', 'amir', 'Professor view', 'person'],
 ];
 const key = (a, b) => [a, b].sort().join('|');
@@ -228,6 +227,7 @@ function lanePts(a, b, off) {
 
 // Step 13 preview: rules installed at the agent that owns the skill (placed by skill, fetched at sign-in)
 const AGENT_RULES = {
+  hub:     { ids: ['safety rules (rule engine)', 'AI judge (guardrail model)'], label: 'Guardrail' },
   tutor:   { ids: ['tutoring-hours@2', 'no-online-friday@1'] },
   prof:    { ids: ['enrolled-only@1'] },
   library: { ids: ['loan-renewal-limit@1', 'room-hours@1'] },
@@ -250,21 +250,17 @@ for (const [id, n] of Object.entries(N)) {
   g.append(s('circle', { class: 'ring', r: 10 }));
   if (n.person) {
     g.append(s('rect', { class: 'box', x: -n.w / 2, y: -n.h / 2, width: n.w, height: n.h, rx: 22 }));
-    g.append(s('circle', { class: 'person-mark', cx: -58, cy: -12, r: 9 }));
-    g.append(s('path', { class: 'person-mark', d: 'M-74,14 C-74,0 -42,0 -42,14 Z' }));
-    g.append(s('text', { class: 'nname sm', x: -30, y: -10 }, n.name));
-    g.append(s('text', { class: 'nsub', x: -30, y: 7 }, n.sub));
-    g.append(s('text', { class: 'nmono', x: -30, y: 24 }, n.mono));
+    g.append(s('circle', { class: 'person-mark', cx: -58, cy: -8, r: 8 }));
+    g.append(s('path', { class: 'person-mark', d: 'M-72,16 C-72,3 -44,3 -44,16 Z' }));
+    g.append(s('text', { class: 'nname sm', x: -30, y: 5 }, n.name));
   } else if (n.box) {
     g.append(s('rect', { class: 'box', x: -n.w / 2, y: -n.h / 2, width: n.w, height: n.h, rx: 12 }));
     g.append(s('text', { class: 'nname sm', y: -6, 'text-anchor': 'middle' }, n.name));
     g.append(s('text', { class: 'nmono', y: 13, 'text-anchor': 'middle' }, n.mono));
   } else {
     g.append(s('circle', { class: 'disc', r: n.r }));
-    if (id === 'guard') g.append(s('path', { d: 'M0,-34 L14,-28 L14,-18 C14,-10 8,-5 0,-2 C-8,-5 -14,-10 -14,-18 L-14,-28 Z', fill: 'none', stroke: `var(${n.c})`, 'stroke-width': 2, transform: 'translate(0 -8)' }));
-    g.append(s('text', { class: 'nname', y: id === 'guard' ? 12 : (n.mono ? -8 : -2), 'text-anchor': 'middle', style: id === 'hub' ? 'font-size:16px' : '' }, n.name));
-    g.append(s('text', { class: 'nsub', y: id === 'guard' ? 28 : (n.mono ? 9 : 15), 'text-anchor': 'middle' }, n.sub));
-    if (n.mono) g.append(s('text', { class: 'nmono', y: 25, 'text-anchor': 'middle' }, n.mono));
+    // name only: the role is clear from the name and the lanes (no sub-lines)
+    g.append(s('text', { class: 'nname', y: id === 'hub' ? 24 : AGENT_RULES[id] ? 12 : 5, 'text-anchor': 'middle', style: id === 'hub' ? 'font-size:16px' : '' }, n.name));
   }
   // status pill
   const py = n.r ? n.r + 20 : n.h / 2 + 18;
@@ -274,8 +270,8 @@ for (const [id, n] of Object.entries(N)) {
   // Step 13 preview: an agent's own rules are a small shield badge inside its disc, above the name.
   // Outline while installed; filled with a turning orbit while a rule runs; red when it refuses; green when it passes.
   if (AGENT_RULES[id]) {
-    const b = s('g', { class: 'agbadge', transform: `translate(0 ${-n.r + 20})` });
-    b.append(s('title', {}, `${n.name} rules: ${AGENT_RULES[id].ids.join(', ')}`));
+    const b = s('g', { class: 'agbadge', transform: id === 'hub' ? `translate(0 ${-n.r + 36}) scale(1.35)` : `translate(0 ${-n.r + 20})` });
+    b.append(s('title', {}, `${n.name} ${AGENT_RULES[id].label || 'rules'}: ${AGENT_RULES[id].ids.join(', ')}`));
     b.append(s('circle', { class: 'agpulse', r: 16, 'stroke-opacity': 0 }));
     b.append(s('circle', { class: 'agorbit', r: 16 }));
     b.append(s('circle', { class: 'agbase', r: 12 }));
@@ -323,7 +319,7 @@ function resetAll() {
   for (const l of Object.values(lanes)) { l.classList.remove('lit'); l.style.removeProperty('--lit'); }
   gPackets.replaceChildren();
   status('student', '✓ Online', 'ok'); status('hub', '✓ Ready', 'ok'); status('tutor', '✓ Ready', 'ok'); status('prof', '✓ Ready', 'ok'); status('library', '✓ Ready', 'ok');
-  status('guard', '✓ On', 'guard'); status('rules', '✓ Up · 2 rules active', 'guard'); status('mGuard', '○ Ready', ''); status('amir', '● Online', 'ok');
+  status('rules', '✓ Up · 2 rules active', 'guard'); status('mGuard', '○ Ready', ''); status('amir', '● Online', 'ok');
 }
 resetAll();
 
@@ -356,7 +352,7 @@ function move(from, to, kind, colorVar, t, ms = 900) {
     requestAnimationFrame(step);
   });
 }
-const COLOR = { student: '--student', hub: '--hub', guard: '--guard', rules: '--guard', mGuard: '--guard', tutor: '--tutor', prof: '--professor', library: '--library', amir: '--person', mHub: '--model', mProf: '--model' };
+const COLOR = { student: '--student', hub: '--hub', rules: '--guard', mGuard: '--guard', tutor: '--tutor', prof: '--professor', library: '--library', amir: '--person', mHub: '--model', mProf: '--model' };
 function event(who, title, detail, colorVar, shapeCls = '') {
   clockT += 1 + Math.floor(Math.random() * 2);
   const tt = `23:30:${String(clockT).padStart(2, '0')}`;
@@ -379,24 +375,25 @@ function caption(html, colorVar) {
 /* A step: { go: [[from, to, kind]...] (run together), cap: [bold, rest], ev: [who, title, detail, shape], then: fn, pause } */
 async function play(steps, t) {
   for (const st of steps) {
-    if (st.cap) caption(st.cap, st.capColor || COLOR[st.go?.[0]?.[0]] || '--text');
-    if (st.go) await Promise.all(st.go.map(([a, b, k, ms]) => move(a, b, k || 'q', COLOR[a] || '--muted', t, ms)));
+    const hop = st.go?.[0], hopColor = hop && (hop[2] === 'check' ? '--guard' : COLOR[hop[0]]);
+    if (st.cap) caption(st.cap, st.capColor || hopColor || '--text');
+    if (st.go) await Promise.all(st.go.map(([a, b, k, ms]) => move(a, b, k || 'q', k === 'check' ? '--guard' : (COLOR[a] || '--muted'), t, ms)));
     if (st.then) st.then();
-    if (st.ev) event(st.ev[0], st.ev[1], st.ev[2], st.evColor || COLOR[st.go?.[0]?.[0]] || '--muted', st.ev[3] || '');
+    if (st.ev) event(st.ev[0], st.ev[1], st.ev[2], st.evColor || hopColor || '--muted', st.ev[3] || '');
     await wait(st.pause ?? 450, t);
   }
 }
 const checkIn = (label) => [
-  { go: [['hub', 'guard', 'check']], cap: ['Hub → Guardrail:', `check ${label} before anyone sees it.`], ev: ['University Hub → Guardrail', `Check ${label}`, 'hop, check started', 'dm'] , then: () => nodes.guard.classList.add('verdict-check') },
-  { go: [['guard', 'rules', 'check', 600]], cap: ['Rule engine:', 'only rules whose quick trigger matches wake up.'], ev: ['Guardrail → Rule engine', 'Scan', 'no findings · 2 ms', 'dm'] },
-  { go: [['rules', 'guard', 'check', 500]], then: () => status('rules', '✓ No findings · 2 ms', 'ok') },
+  { then: () => { ruleRing('hub', 'check'); status('hub', '… Guardrail checking', 'guard'); }, cap: ['Hub guardrail:', `checks ${label} before anyone sees it.`], capColor: '--guard', ev: ['Hub guardrail', `Check ${label}`, 'check started', 'dm'], evColor: '--guard', pause: 700 },
+  { go: [['hub', 'rules', 'check', 600]], cap: ['Rule engine:', 'only rules whose quick trigger matches wake up.'], ev: ['Hub guardrail → Rule engine', 'Scan', 'no findings · 2 ms', 'dm'] },
+  { go: [['rules', 'hub', 'check', 500]], then: () => status('rules', '✓ No findings · 2 ms', 'ok') },
 ];
 const judge = (ms, verdict = 'allow', withRouter = true) => [
-  { go: [['guard', 'mGuard', 'check'], ...(withRouter ? [['hub', 'mHub', 'q']] : [])], cap: [withRouter ? 'Judge and router together:' : 'AI judge:', withRouter ? 'the guardrail model and the router’s model work at the same time.' : 'reads the message in context.'], ev: ['Guardrail → Guardrail model', 'Judge call', 'model call, sent', 'dm'], then: () => status('mGuard', '… judging', 'guard') },
-  { go: [['mGuard', 'guard', 'check', 1300], ...(withRouter ? [['mHub', 'hub', 'q', 1700]] : [])], ev: ['Guardrail model → Guardrail', `Judge: ${verdict}`, `${ms} · categories checked: 3`, 'dm'], then: () => status('mGuard', verdict === 'allow' ? `✓ allow · ${ms}` : `✕ block · ${ms}`, verdict === 'allow' ? 'ok' : 'bad') },
+  { go: [['hub', 'mGuard', 'check'], ...(withRouter ? [['hub', 'mHub', 'q']] : [])], cap: [withRouter ? 'Judge and router together:' : 'AI judge:', withRouter ? 'the guardrail model and the router’s model work at the same time.' : 'reads the message in context.'], ev: ['Hub guardrail → Guardrail model', 'Judge call', 'model call, sent', 'dm'], then: () => status('mGuard', '… judging', 'guard') },
+  { go: [['mGuard', 'hub', 'check', 1300], ...(withRouter ? [['mHub', 'hub', 'q', 1700]] : [])], ev: ['Guardrail model → Hub guardrail', `Judge: ${verdict}`, `${ms} · categories checked: 3`, 'dm'], then: () => status('mGuard', verdict === 'allow' ? `✓ allow · ${ms}` : `✕ block · ${ms}`, verdict === 'allow' ? 'ok' : 'bad') },
 ];
-const pass = (label) => ({ then: () => { nodes.guard.classList.remove('verdict-check'); nodes.guard.classList.add('verdict-pass'); status('guard', '✓ Pass', 'ok'); }, cap: ['Guardrail:', `${label} is clean. It goes on.`], capColor: '--ok', ev: ['Guardrail', 'Allowed', label, 'dm'], evColor: '--ok' });
-const clearGuard = () => ({ then: () => { nodes.guard.classList.remove('verdict-pass', 'verdict-block', 'verdict-check'); status('guard', '✓ On', 'guard'); }, pause: 150 });
+const pass = (label) => ({ then: () => { ruleRing('hub', 'pass'); status('hub', '✓ Guardrail: pass', 'ok'); }, cap: ['Guardrail:', `${label} is clean. It goes on.`], capColor: '--ok', ev: ['Hub guardrail', 'Allowed', label, 'dm'], evColor: '--ok' });
+const clearGuard = () => ({ then: () => { ruleRing('hub'); status('hub', '✓ Ready', 'ok'); }, pause: 150 });
 
 const SCN = {
   handover: [
@@ -443,16 +440,16 @@ const SCN = {
     { go: [['amir', 'prof', 'post', 1100]], cap: ['Professor Amir posts:', '“Jordan Lee’s phone is 555-0142, call her about the group project.”'], capColor: '--person', ev: ['Professor Amir → Professor', 'Direct post written by Professor Amir', 'author: professor · audience: all', 'sq'], evColor: '--person', then: () => status('amir', '● Sending', 'warn') },
     { go: [['prof', 'hub', 'post']], ev: ['Professor → University Hub', 'Post: message', 'author: professor', 'sq'], evColor: '--professor' },
     ...checkIn('the post'), ...judge('2.0 s', 'block', false),
-    { then: () => { nodes.guard.classList.remove('verdict-check'); nodes.guard.classList.add('verdict-block'); status('guard', '✕ Blocked', 'bad'); }, cap: ['Guardrail blocks the post:', 'personal data about someone else. Nothing is delivered.'], capColor: '--bad', ev: ['Guardrail', 'Blocked', 'category: someone else’s personal data', 'dm'], evColor: '--bad' },
+    { then: () => { ruleRing('hub', 'block'); status('hub', '✕ Guardrail: blocked', 'bad'); }, cap: ['Guardrail blocks the post:', 'personal data about someone else. Nothing is delivered.'], capColor: '--bad', ev: ['Hub guardrail', 'Blocked', 'category: someone else’s personal data', 'dm'], evColor: '--bad' },
     { go: [['hub', 'prof', 'post']], ev: ['University Hub → Professor', 'Post refused', 'reason: personal data about someone else', 'sq'], evColor: '--bad' },
     { go: [['prof', 'amir', 'post']], cap: ['Professor Amir sees it in the Professor view:', '“Not sent. It contains personal details about someone else.”'], capColor: '--person', ev: ['Professor → Professor Amir', 'Shown: not sent, with the reason', 'Professor view', 'sq'], evColor: '--person', then: () => status('amir', '✕ Not sent', 'bad') },
   ],
   ssn: [
     { go: [['student', 'hub']], cap: ['Student agent → Hub:', '“My SSN is 078-05-1120, why is my aid late?”'], ev: ['Student agent → University Hub', 'Question', 'chat, sent'] },
-    { go: [['hub', 'guard', 'check']], ev: ['University Hub → Guardrail', 'Check the student’s message', 'check started', 'dm'], then: () => nodes.guard.classList.add('verdict-check') },
-    { go: [['guard', 'rules', 'check', 600]], cap: ['Rule engine:', 'the SSN rule’s trigger matches, and “SSN” is right there, so it is sure.'], ev: ['Guardrail → Rule engine', 'Scan', 'rule us-ssn@3 triggered', 'dm'] },
-    { go: [['rules', 'guard', 'check', 500]], then: () => { status('rules', '✕ SSN · high · 3 ms', 'bad'); nodes.mGuard.classList.add('dim'); nodes.mHub.classList.add('dim'); nodes.prof.classList.add('dim'); nodes.tutor.classList.add('dim'); nodes.library.classList.add('dim'); } , ev: ['Rule engine → Guardrail', 'Finding: SSN, high', 'position only, never the number', 'dm'] },
-    { then: () => { nodes.guard.classList.remove('verdict-check'); nodes.guard.classList.add('verdict-block'); status('guard', '✕ Blocked', 'bad'); }, cap: ['Blocked right away.', 'No model and no agent ever sees the message.'], capColor: '--bad', ev: ['Guardrail', 'Blocked', 'rule: us-ssn@3 · 3 ms', 'dm'], evColor: '--bad' },
+    { then: () => { ruleRing('hub', 'check'); status('hub', '… Guardrail checking', 'guard'); }, cap: ['Hub guardrail:', 'checks the student’s message before anyone sees it.'], capColor: '--guard', ev: ['Hub guardrail', 'Check the student’s message', 'check started', 'dm'], evColor: '--guard', pause: 700 },
+    { go: [['hub', 'rules', 'check', 600]], cap: ['Rule engine:', 'the SSN rule’s trigger matches, and “SSN” is right there, so it is sure.'], ev: ['Hub guardrail → Rule engine', 'Scan', 'rule us-ssn@3 triggered', 'dm'] },
+    { go: [['rules', 'hub', 'check', 500]], then: () => { status('rules', '✕ SSN · high · 3 ms', 'bad'); nodes.mGuard.classList.add('dim'); nodes.mHub.classList.add('dim'); nodes.prof.classList.add('dim'); nodes.tutor.classList.add('dim'); nodes.library.classList.add('dim'); } , ev: ['Rule engine → Hub guardrail', 'Finding: SSN, high', 'position only, never the number', 'dm'] },
+    { then: () => { ruleRing('hub', 'block'); status('hub', '✕ Guardrail: blocked', 'bad'); }, cap: ['Blocked right away.', 'No model and no agent ever sees the message.'], capColor: '--bad', ev: ['Hub guardrail', 'Blocked', 'rule: us-ssn@3 · 3 ms', 'dm'], evColor: '--bad' },
     { go: [['hub', 'student']], cap: ['Student sees fixed words:', '“Your message wasn’t sent because it contains a Social Security number.”'], capColor: '--bad', ev: ['University Hub → Student agent', 'Blocked notice', 'nothing forwarded'], evColor: '--bad' },
   ],
   libraryRule: [

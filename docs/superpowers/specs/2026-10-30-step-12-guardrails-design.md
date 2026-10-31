@@ -239,8 +239,12 @@ Hub `/dev/guardrails/*`, origin-guarded like the other `/dev` routes.
 
 ## 8. Topology and the hop-by-hop strip
 
-- **New nodes** beside the Hub: **Guardrail** (shield) with two satellites — **Rule engine**
-  ("workerd") and **Guardrail model** (its own model box, like each agent's).
+- **The guardrail lives inside the Hub circle (owner's request, 2026-10-31):** no separate Guardrail
+  node. The Hub disc carries a shield badge above its name (slightly larger than the agents' badges),
+  and two new boxes hang off the Hub — **Rule engine** ("workerd") and **Guardrail model** (its own
+  model box, like each agent's). Discs show the name only: sub-lines such as "Marketing 101 / +
+  assistant", "Front door and router / router: live", "Tutoring", "You / student-alex" are removed
+  as redundant (owner's request), as are "a person / Professor view" on Professor Amir's box.
 - **Professor Amir as a person (owner's request, 2026-10-30):** a person node (rounded square with a
   head-and-shoulders mark, berry) beside the Professor agent, joined by a dotted "Professor view" lane.
   It animates only on what the human really does: a hand-over arriving (`needsProfessor` entry → "1
@@ -253,7 +257,9 @@ Hub `/dev/guardrails/*`, origin-guarded like the other `/dev` routes.
   refusing an action with the reason, and an agent signing in that receives its policies first. Mockup:
   `docs/superpowers/specs/2026-10-30-step-12-topology-mockup.html`.
 - **Animated hops (real events only):** Hub → Rule engine (scan), Hub → Guardrail model (judge); the
-  verdict shows on the Guardrail node — **green pass**, **red block** (the flow stops at the Hub and the
+  verdict shows on the Hub's shield, which fills and turns its dashed orbit while checking (like
+  production's busy orbit), then turns **green pass** or **red block**, with the Hub's status pill saying
+  "Guardrail checking / pass / blocked" (the flow stops at the Hub and the
   return hop to the student is labelled "blocked"), **amber** for shadow "would block", grey for timeout.
   Reply and professor-post checks animate the same way on their hops.
 - **Hop-by-hop strip:** a new step **Guardrail checked** between "Hub received" and "Agent identified",
