@@ -243,7 +243,7 @@ function lanePts(a, b, off) {
 
 // Step 13 preview: rules installed at the agent that owns the skill (placed by skill, fetched at sign-in)
 const AGENT_RULES = {
-  hub:     { ids: ['Rules (code checks, workerd sandbox)', 'Decision Model (AI judge, haiku-5-5)'], label: 'Guardrail' },
+  hub:     { ids: ['Rules (code checks, workerd sandbox)', 'Decision Model (AI judge, haiku-5-5)'], label: '· Connectivo Compliance' },
   tutor:   { ids: ['tutoring-hours@2', 'no-online-friday@1'] },
   prof:    { ids: ['enrolled-only@1'] },
   library: { ids: ['loan-renewal-limit@1', 'room-hours@1'] },
@@ -276,7 +276,7 @@ for (const [id, n] of Object.entries(N)) {
   } else {
     g.append(s('circle', { class: 'disc', r: n.r }));
     // name only: the role is clear from the name and the lanes (no sub-lines)
-    const lines = n.name.split('\n'), y0 = (id === 'hub' ? -60 : AGENT_RULES[id] ? 15 : 5) - (lines.length - 1) * 8;
+    const lines = n.name.split('\n'), y0 = (id === 'hub' ? -66 : AGENT_RULES[id] ? 15 : 5) - (lines.length - 1) * 8;
     const nm = s('text', { class: 'nname', y: y0, 'text-anchor': 'middle', style: id === 'hub' ? 'font-size:16px' : '' });
     lines.forEach((line, i) => nm.append(s('tspan', { x: 0, dy: i ? 17 : 0 }, line)));
     g.append(nm);
@@ -290,16 +290,19 @@ for (const [id, n] of Object.entries(N)) {
   // Outline while installed; filled with a turning orbit while a rule runs; red when it refuses; green when it passes.
   if (AGENT_RULES[id]) {
     const big = id === 'hub';   // the Hub's guardrail is a big circle holding its two parts
-    const R = big ? 60 : 12;
-    const b = s('g', { class: 'agbadge' + (big ? ' hubguard' : ''), transform: big ? 'translate(0 14)' : `translate(0 ${-n.r + 24})` });
+    const R = big ? 64 : 12;
+    const b = s('g', { class: 'agbadge' + (big ? ' hubguard' : ''), transform: big ? 'translate(0 16)' : `translate(0 ${-n.r + 24})` });
     b.append(s('title', {}, `${n.name.replace('\n', ' ')} ${AGENT_RULES[id].label || 'rules'}: ${AGENT_RULES[id].ids.join(', ')}`));
     b.append(s('circle', { class: 'agpulse', r: R + 4, 'stroke-opacity': 0 }));
     b.append(s('circle', { class: 'agorbit', r: R + 4 }));
     b.append(s('circle', { class: 'agbase', r: R }));
-    b.append(s('path', { class: 'agshield', d: 'M0,-6.5 L5.5,-4.4 L5.5,-0.6 C5.5,2.6 3.1,4.6 0,5.8 C-3.1,4.6 -5.5,2.6 -5.5,-0.6 L-5.5,-4.4 Z', transform: big ? 'translate(-28 -31) scale(1.3)' : '' }));
+    b.append(s('path', { class: 'agshield', d: 'M0,-6.5 L5.5,-4.4 L5.5,-0.6 C5.5,2.6 3.1,4.6 0,5.8 C-3.1,4.6 -5.5,2.6 -5.5,-0.6 L-5.5,-4.4 Z', transform: big ? 'translate(-33 -29) scale(1.65)' : '' }));
     if (big) {
-      b.append(s('text', { class: 'gtitle', x: -18, y: -27 }, 'Guardrail'));
-      for (const [part, label, y, w, tip] of [['rules', 'Rules', -4, 90, 'Rules: code checks in the workerd sandbox'], ['decision', 'Decision Model', 22, 90, 'Decision Model: the AI judge, claude-haiku-5-5']]) {
+      // product name on two lines beside the shield, so it fits the circle's width
+      const ttl = s('text', { class: 'gtitle', x: -20, y: -32 });
+      ttl.append(s('tspan', { x: -20, dy: 0 }, 'Connectivo'), s('tspan', { x: -20, dy: 13 }, 'Compliance'));
+      b.append(ttl);
+      for (const [part, label, y, w, tip] of [['rules', 'Rules', 4, 92, 'Rules: code checks in the workerd sandbox'], ['decision', 'Decision Model', 30, 92, 'Decision Model: the AI judge, claude-haiku-5-5']]) {
         const pg = s('g', { class: 'gpart', 'data-part': part, transform: `translate(0 ${y})` });
         pg.append(s('title', {}, tip), s('rect', { x: -w / 2, y: -11, width: w, height: 22, rx: 11 }), s('text', { y: 4, 'text-anchor': 'middle' }, label));
         b.append(pg);
