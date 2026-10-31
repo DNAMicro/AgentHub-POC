@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Topology Mockup · Guardrail and Professor Amir</title>
+<style>
+/* Mockup of the Topology tab after Step 12: the app's switchboard (public/styles.css tokens), plus the
+   Guardrail jack with its two satellites, and Professor Amir as a PERSON beside the Professor agent.
+   A person is drawn as a rounded square with a head-and-shoulders mark; agents stay discs, models boxes. */
+@font-face { font-family: "Atkinson Hyperlegible Next"; src: url("../../../public/fonts/atkinson-hyperlegible-next-latin.woff2") format("woff2"); font-weight: 200 800; font-display: swap; }
+@font-face { font-family: "IBM Plex Mono"; src: url("../../../public/fonts/ibm-plex-mono-400-latin.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+:root {
+  color-scheme: light;
+  --bg: #eef1f5; --surface: #ffffff; --field: #f7f9fb; --text: #18202b; --muted: #5a6676;
+  --border: #d6dce4; --border-strong: #b8c1cd;
+  --student: #2b59c3; --tutor: #8a3fa8; --library: #16765e; --professor: #a3315a; --hub: #9a6300; --model: #5b6472;
+  --guard: #0b6b84; --guard-tint: #e1f1f5; --person: #a3315a;
+  --ok: #1d7a46; --ok-bg: #e2f3e8; --warn: #8a5a00; --warn-bg: #fdf1d4; --bad: #b4261f; --bad-bg: #fbe6e4; --idle: #6b7482;
+  --radius: 10px;
+  --font: "Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root {
+  color-scheme: dark;
+  --bg: #11151b; --surface: #181d25; --field: #1f2530; --text: #e4e8ee; --muted: #98a3b1;
+  --border: #2a313c; --border-strong: #3b4452;
+  --student: #86a2ff; --tutor: #c99ae6; --library: #4cc4a0; --professor: #f08aae; --hub: #e3b04b; --model: #aab4c2;
+  --guard: #52c7df; --guard-tint: #12303a; --person: #f08aae;
+  --ok: #63cf93; --ok-bg: #15301f; --warn: #eabb5c; --warn-bg: #352a12; --bad: #ff8f86; --bad-bg: #3a1916; --idle: #8d97a5;
+} }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { font-size: 15px; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font); line-height: 1.5; min-height: 100dvh; display: flex; flex-direction: column; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--student); outline-offset: 2px; }
+.mock-banner { margin: 0; padding: 6px 20px; background: var(--guard-tint); color: var(--guard); font-size: 0.85rem; font-weight: 600; }
+.topbar { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; align-items: center; padding: 10px 20px; background: var(--surface); border-bottom: 1px solid var(--border); }
+h1 { margin: 0; font-size: 1.2rem; font-weight: 700; }
+.subtitle { margin: 0; color: var(--muted); font-size: 0.87rem; max-width: 68ch; }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.badge { font-size: 0.8rem; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+.badge.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.badge.guard { color: var(--guard); border-color: color-mix(in srgb, var(--guard) 45%, transparent); font-weight: 600; }
+.tabs { display: flex; gap: 2px; padding: 8px 20px 0; background: var(--surface); border-bottom: 1px solid var(--border); overflow-x: auto; }
+.tabs span { padding: 8px 16px 10px; font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+.tabs span.on { color: var(--text); border-bottom-color: var(--hub); }
+
+.view { flex: 1; padding: 12px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); gap: 12px; min-height: 0; }
+.stage, .side { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); min-width: 0; }
+.stage { padding: 10px 14px 12px; display: flex; flex-direction: column; gap: 8px; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; font-size: 0.86rem; }
+.toolbar .lbl { color: var(--muted); margin-right: 4px; }
+.scn { border: 1px solid var(--border-strong); background: var(--field); border-radius: 999px; padding: 4px 12px; cursor: pointer; font-weight: 600; font-size: 0.84rem; }
+.scn:hover { border-color: var(--guard); color: var(--guard); }
+.scn[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: var(--surface); }
+.clock { margin-left: auto; font-family: var(--mono); font-size: 0.76rem; color: var(--muted); }
+.caption { min-height: 2.6em; font-size: 0.95rem; padding: 6px 10px; border-radius: 8px; background: var(--field); border-left: 3px solid var(--cap, var(--border-strong)); }
+.caption b { color: var(--cap, var(--text)); }
+svg.topo { width: 100%; height: auto; display: block; max-height: 72dvh; }
+
+/* switchboard parts */
+.lane { stroke: var(--border-strong); stroke-width: 2; fill: none; transition: stroke .25s, stroke-width .25s; }
+.lane.model { stroke-dasharray: 5 5; }
+.lane.person { stroke-dasharray: 2 4; stroke-width: 2.4; }
+.lane.lit { stroke: var(--lit); stroke-width: 3.4; }
+.elabel { font: 600 11px var(--mono); fill: var(--muted); }
+.disc { fill: var(--surface); stroke: var(--node); stroke-width: 4; transition: fill .3s, stroke .3s; }
+.box { fill: var(--surface); stroke: var(--node); stroke-width: 2.5; transition: fill .3s; }
+.flash .disc, .flash .box { fill: color-mix(in srgb, var(--node) 16%, var(--surface)); }
+.dim { opacity: .35; transition: opacity .3s; }
+.nname { font: 700 15px var(--font); fill: var(--node); }
+.nname.sm { font-size: 13px; }
+.nsub { font: 12px var(--font); fill: var(--muted); }
+.nmono { font: 11px var(--mono); fill: var(--muted); }
+.pill { fill: var(--field); stroke: var(--border); }
+.ptext { font: 600 12px var(--font); fill: var(--muted); }
+.tone-ok .pill { fill: var(--ok-bg); stroke: transparent; } .tone-ok .ptext { fill: var(--ok); }
+.tone-bad .pill { fill: var(--bad-bg); stroke: transparent; } .tone-bad .ptext { fill: var(--bad); }
+.tone-warn .pill { fill: var(--warn-bg); stroke: transparent; } .tone-warn .ptext { fill: var(--warn); }
+.tone-guard .pill { fill: var(--guard-tint); stroke: transparent; } .tone-guard .ptext { fill: var(--guard); }
+.verdict-pass .disc { fill: var(--ok-bg); stroke: var(--ok); }
+.verdict-block .disc { fill: var(--bad-bg); stroke: var(--bad); }
+.verdict-check .disc { fill: var(--guard-tint); }
+.person-mark { fill: var(--node); }
+.packet { stroke: var(--surface); stroke-width: 2; }
+.ring { fill: none; stroke: var(--node); stroke-width: 2; opacity: 0; }
+.ring.go { animation: ring .9s ease-out; }
+@keyframes ring { from { opacity: .9; r: 10; } to { opacity: 0; r: 90; } }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 0.8rem; color: var(--muted); }
+.legend i { display: inline-block; vertical-align: -2px; margin-right: 6px; }
+
+/* side: events, like the real Details panel */
+.side { display: flex; flex-direction: column; min-height: 0; }
+.side header { padding: 12px 16px 10px; border-bottom: 1px solid var(--border); }
+.side h2 { margin: 0; font-size: 1.07rem; }
+.side .role { font-size: 0.82rem; color: var(--muted); }
+.events { list-style: none; margin: 0; padding: 8px 16px 14px; display: flex; flex-direction: column; gap: 0; overflow-y: auto; max-height: 78dvh; }
+.events li { display: grid; grid-template-columns: 96px 14px minmax(0, 1fr); gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.86rem; animation: in .35s ease-out; }
+@keyframes in { from { background: color-mix(in srgb, var(--c) 18%, transparent); } }
+.events time { font-family: var(--mono); font-size: 0.74rem; color: var(--muted); padding-top: 2px; }
+.events .sw { width: 11px; height: 11px; border-radius: 50%; background: var(--c); margin-top: 5px; }
+.events .sw.sq { border-radius: 2px; } .events .sw.dm { transform: rotate(45deg); border-radius: 1px; }
+.events b { display: block; } .events span { color: var(--muted); font-size: 0.8rem; }
+.events .who { font-weight: 700; color: var(--c); }
+@media (max-width: 980px) { .view { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: reduce) { .ring.go, .events li { animation: none; } }
+</style>
+</head>
+<body>
+<p class="mock-banner">Mockup for the Step 12 design. Pick a scenario to watch it play. Sample timings, nothing is connected.</p>
+<header class="topbar">
+  <div>
+    <h1>California State University Fullerton</h1>
+    <p class="subtitle">Fictional local demo. Your Student agent talks only to the university’s front door, which routes each request over A2A. Your Marketing 101 professor can also send you lessons.</p>
+  </div>
+  <div class="badges"><span class="badge ok">Live view: connected</span><span class="badge ok">Hub telemetry: connected</span><span class="badge guard">Guardrails: on</span></div>
+</header>
+<nav class="tabs"><span>Conversation</span><span>Agent activity</span><span class="on">Topology</span><span>Professor view</span><span>Guardrails</span></nav>
+
+<main class="view">
+  <section class="stage">
+    <div class="toolbar" role="group" aria-label="Scenarios">
+      <span class="lbl">Scenario</span>
+      <button class="scn" data-scn="handover" aria-pressed="false">Hand-over to Professor Amir</button>
+      <button class="scn" data-scn="assistant" aria-pressed="false">Assistant answers</button>
+      <button class="scn" data-scn="post" aria-pressed="false">Professor Amir posts</button>
+      <button class="scn" data-scn="postBlocked" aria-pressed="false">Post blocked</button>
+      <button class="scn" data-scn="ssn" aria-pressed="false">Student SSN blocked</button>
+      <span class="clock" id="clock">live · 23:30:00</span>
+    </div>
+    <div class="caption" id="caption">Pick a scenario.</div>
+    <svg class="topo" id="topo" viewBox="0 0 1200 720" role="img" aria-label="Topology: Student agent, University Hub with its Guardrail, rule engine and guardrail model, the Tutor, Library and Professor agents with their models, and Professor Amir, a person, connected to the Professor agent through the Professor view."></svg>
+    <div class="legend">
+      <span><i><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="var(--muted)"/></svg></i>Question or answer</span>
+      <span><i><svg width="12" height="12"><rect x="1" y="1" width="10" height="10" fill="var(--muted)"/></svg></i>Lesson, message or post</span>
+      <span><i><svg width="12" height="12"><rect x="2" y="2" width="8" height="8" transform="rotate(45 6 6)" fill="var(--guard)"/></svg></i>Guardrail check</span>
+      <span><i><svg width="22" height="8"><line x1="0" y1="4" x2="22" y2="4" stroke="var(--muted)" stroke-width="2" stroke-dasharray="5 5"/></svg></i>Model call (HTTPS)</span>
+      <span><i><svg width="22" height="8"><line x1="0" y1="4" x2="22" y2="4" stroke="var(--person)" stroke-width="2.4" stroke-dasharray="2 4"/></svg></i>A person, through the Professor view</span>
+    </div>
+  </section>
+
+  <aside class="side">
+    <header><h2>Events</h2><span class="role" id="ev-role">Newest first. Names, verdicts and timings only, never message text.</span></header>
+    <ol class="events" id="events"></ol>
+  </aside>
+</main>
+
+<script>
+const NS = 'http://www.w3.org/2000/svg';
+const svg = document.getElementById('topo');
+const s = (tag, attrs = {}, text) => { const n = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); if (text != null) n.textContent = text; return n; };
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+/* ---------- layout (same grid as public/topology.js, with two additions) ---------- */
+const N = {
+  student: { x: 130, y: 300, r: 58, name: 'Student agent', sub: 'You', mono: 'student-alex', c: '--student' },
+  hub:     { x: 450, y: 300, r: 72, name: 'University Hub', sub: 'Front door and router', mono: 'router: live', c: '--hub' },
+  guard:   { x: 450, y: 535, r: 50, name: 'Guardrail', sub: 'new · Step 12', c: '--guard' },
+  tutor:   { x: 770, y: 100, r: 56, name: 'Tutor Agent', sub: 'Tutoring', c: '--tutor' },
+  prof:    { x: 770, y: 330, r: 58, name: 'Professor', sub: 'Marketing 101', mono: '+ assistant', c: '--professor' },
+  library: { x: 770, y: 570, r: 56, name: 'Library Agent', sub: 'Library', c: '--library' },
+  // model boxes
+  mStudent: { x: 130, y: 90, w: 176, h: 62, box: true, name: 'Student’s model', mono: 'claude-haiku-5-5', c: '--model' },
+  mHub:     { x: 450, y: 90, w: 176, h: 62, box: true, name: 'Hub router’s model', mono: 'claude-haiku-5-5', c: '--model' },
+  mTutor:   { x: 1010, y: 100, w: 176, h: 62, box: true, name: 'Tutor’s model', mono: 'claude-haiku-5-5', c: '--model' },
+  mProf:    { x: 1010, y: 250, w: 176, h: 62, box: true, name: 'Professor’s model', mono: 'the assistant', c: '--model' },
+  mLibrary: { x: 1010, y: 570, w: 176, h: 62, box: true, name: 'Library’s model', mono: 'claude-haiku-5-5', c: '--model' },
+  // guardrail satellites
+  rules:    { x: 190, y: 500, w: 176, h: 62, box: true, name: 'Rule engine', mono: 'workerd :41245', c: '--guard' },
+  mGuard:   { x: 190, y: 612, w: 176, h: 62, box: true, name: 'Guardrail model', mono: 'judge · haiku-5-5', c: '--guard' },
+  // the person
+  amir:     { x: 1010, y: 420, w: 176, h: 86, person: true, name: 'Professor Amir', sub: 'a person', mono: 'Professor view', c: '--person' },
+};
+const E = [
+  ['student', 'hub', 'A2A'], ['hub', 'tutor', 'A2A'], ['hub', 'prof', 'A2A'], ['hub', 'library', 'A2A'],
+  ['student', 'mStudent', 'HTTPS', 'model'], ['hub', 'mHub', 'HTTPS', 'model'], ['tutor', 'mTutor', 'HTTPS', 'model'], ['prof', 'mProf', 'HTTPS', 'model'], ['library', 'mLibrary', 'HTTPS', 'model'],
+  ['hub', 'guard', 'in-Hub'], ['guard', 'rules', 'HTTP', 'model'], ['guard', 'mGuard', 'HTTPS', 'model'],
+  ['prof', 'amir', 'Professor view', 'person'],
+];
+const key = (a, b) => [a, b].sort().join('|');
+const lanes = {}, nodes = {};
+
+// edge point on the shape boundary toward another point
+function edgePoint(n, tx, ty) {
+  const dx = tx - n.x, dy = ty - n.y, d = Math.hypot(dx, dy) || 1;
+  if (n.r) return [n.x + dx / d * n.r, n.y + dy / d * n.r];
+  const hw = n.w / 2, hh = n.h / 2, k = Math.min(hw / Math.abs(dx || 1e-9), hh / Math.abs(dy || 1e-9));
+  return [n.x + dx * k, n.y + dy * k];
+}
+function lanePts(a, b, off) {
+  const A = N[a], B = N[b];
+  const dx = B.x - A.x, dy = B.y - A.y, d = Math.hypot(dx, dy), ox = -dy / d * off, oy = dx / d * off;
+  const [x1, y1] = edgePoint(A, B.x, B.y), [x2, y2] = edgePoint(B, A.x, A.y);
+  return [x1 + ox, y1 + oy, x2 + ox, y2 + oy];
+}
+
+const gEdges = s('g'), gNodes = s('g'), gPackets = s('g');
+svg.append(s('defs'), gEdges, gNodes, gPackets);
+for (const [a, b, label, kind] of E) {
+  const g = s('g', { 'data-edge': key(a, b) });
+  for (const [dir, off] of [['f', -5], ['b', 5]]) {
+    const [x1, y1, x2, y2] = lanePts(a, b, off);
+    const l = s('line', { class: 'lane' + (kind ? ' ' + kind : ''), x1, y1, x2, y2 });
+    g.append(l); lanes[`${a}>${b}`] = dir === 'f' ? l : lanes[`${a}>${b}`]; if (dir === 'b') lanes[`${b}>${a}`] = l;
+  }
+  const mx = (N[a].x + N[b].x) / 2, my = (N[a].y + N[b].y) / 2, vertical = Math.abs(N[a].x - N[b].x) < Math.abs(N[a].y - N[b].y);
+  g.append(s('text', { class: 'elabel', x: vertical ? mx + 14 : mx, y: vertical ? my : my - 14, 'text-anchor': vertical ? 'start' : 'middle' }, label));
+  gEdges.append(g);
+}
+for (const [id, n] of Object.entries(N)) {
+  const g = s('g', { 'data-node': id, transform: `translate(${n.x} ${n.y})`, style: `--node: var(${n.c})` });
+  g.append(s('circle', { class: 'ring', r: 10 }));
+  if (n.person) {
+    g.append(s('rect', { class: 'box', x: -n.w / 2, y: -n.h / 2, width: n.w, height: n.h, rx: 22 }));
+    g.append(s('circle', { class: 'person-mark', cx: -58, cy: -12, r: 9 }));
+    g.append(s('path', { class: 'person-mark', d: 'M-74,14 C-74,0 -42,0 -42,14 Z' }));
+    g.append(s('text', { class: 'nname sm', x: -30, y: -10 }, n.name));
+    g.append(s('text', { class: 'nsub', x: -30, y: 7 }, n.sub));
+    g.append(s('text', { class: 'nmono', x: -30, y: 24 }, n.mono));
+  } else if (n.box) {
+    g.append(s('rect', { class: 'box', x: -n.w / 2, y: -n.h / 2, width: n.w, height: n.h, rx: 12 }));
+    g.append(s('text', { class: 'nname sm', y: -6, 'text-anchor': 'middle' }, n.name));
+    g.append(s('text', { class: 'nmono', y: 13, 'text-anchor': 'middle' }, n.mono));
+  } else {
+    g.append(s('circle', { class: 'disc', r: n.r }));
+    if (id === 'guard') g.append(s('path', { d: 'M0,-34 L14,-28 L14,-18 C14,-10 8,-5 0,-2 C-8,-5 -14,-10 -14,-18 L-14,-28 Z', fill: 'none', stroke: `var(${n.c})`, 'stroke-width': 2, transform: 'translate(0 -8)' }));
+    g.append(s('text', { class: 'nname', y: id === 'guard' ? 12 : (n.mono ? -8 : -2), 'text-anchor': 'middle', style: id === 'hub' ? 'font-size:16px' : '' }, n.name));
+    g.append(s('text', { class: 'nsub', y: id === 'guard' ? 28 : (n.mono ? 9 : 15), 'text-anchor': 'middle' }, n.sub));
+    if (n.mono) g.append(s('text', { class: 'nmono', y: 25, 'text-anchor': 'middle' }, n.mono));
+  }
+  // status pill
+  const py = n.r ? n.r + 20 : n.h / 2 + 18;
+  const st = s('g', { class: 'st', transform: `translate(0 ${py})` });
+  st.append(s('rect', { class: 'pill', x: -66, y: -12, width: 132, height: 23, rx: 11.5 }), s('text', { class: 'ptext', y: 4, 'text-anchor': 'middle' }, ''));
+  g.append(st);
+  gNodes.append(g);
+  nodes[id] = g;
+}
+function status(id, text, tone = '') {
+  const st = nodes[id].querySelector('.st');
+  st.setAttribute('class', 'st' + (tone ? ' tone-' + tone : ''));
+  st.querySelector('text').textContent = text;
+  st.style.display = text ? '' : 'none';
+}
+function resetAll() {
+  for (const id of Object.keys(N)) { nodes[id].classList.remove('flash', 'dim', 'verdict-pass', 'verdict-block', 'verdict-check'); status(id, ''); }
+  for (const l of Object.values(lanes)) { l.classList.remove('lit'); l.style.removeProperty('--lit'); }
+  gPackets.replaceChildren();
+  status('student', '✓ Online', 'ok'); status('hub', '✓ Ready', 'ok'); status('tutor', '✓ Ready', 'ok'); status('prof', '✓ Ready', 'ok'); status('library', '✓ Ready', 'ok');
+  status('guard', '✓ On', 'guard'); status('rules', '✓ Up · 2 rules active', 'guard'); status('mGuard', '○ Ready', ''); status('amir', '● Online', 'ok');
+}
+resetAll();
+
+/* ---------- animation ---------- */
+let token = 0, clockT = 0;
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const wait = (ms, t) => new Promise((res, rej) => setTimeout(() => (t === token ? res() : rej('cancel')), reduce ? Math.min(ms, 250) : ms));
+function flash(id) { const g = nodes[id]; g.classList.add('flash'); const r = g.querySelector('.ring'); r.classList.remove('go'); void r.getBBox(); r.classList.add('go'); setTimeout(() => g.classList.remove('flash'), 700); }
+function shape(kind, color) {
+  if (kind === 'post') return s('rect', { class: 'packet', x: -7, y: -7, width: 14, height: 14, rx: 2, fill: color });
+  if (kind === 'check') return s('rect', { class: 'packet', x: -6.5, y: -6.5, width: 13, height: 13, rx: 1.5, fill: color, transform: 'rotate(45)' });
+  return s('circle', { class: 'packet', r: 7.5, fill: color });
+}
+function move(from, to, kind, colorVar, t, ms = 900) {
+  const lane = lanes[`${from}>${to}`];
+  const color = `var(${colorVar})`;
+  lane.style.setProperty('--lit', color); lane.classList.add('lit');
+  const [x1, y1, x2, y2] = [lane.x1.baseVal.value, lane.y1.baseVal.value, lane.x2.baseVal.value, lane.y2.baseVal.value];
+  const wrap = s('g'); const inner = shape(kind, color); wrap.append(inner); gPackets.append(wrap);
+  return new Promise((res, rej) => {
+    const t0 = performance.now(), dur = reduce ? 1 : ms;
+    const step = (now) => {
+      if (t !== token) { wrap.remove(); return rej('cancel'); }
+      const p = Math.min(1, (now - t0) / dur), e = p < .5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2;
+      wrap.setAttribute('transform', `translate(${x1 + (x2 - x1) * e} ${y1 + (y2 - y1) * e})`);
+      if (p < 1) requestAnimationFrame(step); else { wrap.remove(); lane.classList.remove('lit'); flash(to); res(); }
+    };
+    requestAnimationFrame(step);
+  });
+}
+const COLOR = { student: '--student', hub: '--hub', guard: '--guard', rules: '--guard', mGuard: '--guard', tutor: '--tutor', prof: '--professor', library: '--library', amir: '--person', mHub: '--model', mProf: '--model' };
+function event(who, title, detail, colorVar, shapeCls = '') {
+  clockT += 1 + Math.floor(Math.random() * 2);
+  const tt = `23:30:${String(clockT).padStart(2, '0')}`;
+  document.getElementById('clock').textContent = 'live · ' + tt;
+  const li = document.createElement('li'); li.style.setProperty('--c', `var(${colorVar})`);
+  const time = document.createElement('time'); time.textContent = tt + '.' + String(Math.floor(Math.random() * 900) + 100);
+  const sw = document.createElement('i'); sw.className = 'sw ' + shapeCls;
+  const body = document.createElement('div');
+  const w = document.createElement('span'); w.className = 'who'; w.textContent = who;
+  const b = document.createElement('b'); b.textContent = title;
+  const d = document.createElement('span'); d.textContent = detail;
+  body.append(w, b, d); li.append(time, sw, body);
+  document.getElementById('events').prepend(li);
+}
+function caption(html, colorVar) {
+  const c = document.getElementById('caption'); c.style.setProperty('--cap', `var(${colorVar})`);
+  c.replaceChildren(); const b = document.createElement('b'); b.textContent = html[0]; c.append(b, ' ' + html[1]);
+}
+
+/* A step: { go: [[from, to, kind]...] (run together), cap: [bold, rest], ev: [who, title, detail, shape], then: fn, pause } */
+async function play(steps, t) {
+  for (const st of steps) {
+    if (st.cap) caption(st.cap, st.capColor || COLOR[st.go?.[0]?.[0]] || '--text');
+    if (st.go) await Promise.all(st.go.map(([a, b, k, ms]) => move(a, b, k || 'q', COLOR[a] || '--muted', t, ms)));
+    if (st.then) st.then();
+    if (st.ev) event(st.ev[0], st.ev[1], st.ev[2], st.evColor || COLOR[st.go?.[0]?.[0]] || '--muted', st.ev[3] || '');
+    await wait(st.pause ?? 450, t);
+  }
+}
+const checkIn = (label) => [
+  { go: [['hub', 'guard', 'check']], cap: ['Hub → Guardrail:', `check ${label} before anyone sees it.`], ev: ['University Hub → Guardrail', `Check ${label}`, 'hop, check started', 'dm'] , then: () => nodes.guard.classList.add('verdict-check') },
+  { go: [['guard', 'rules', 'check', 600]], cap: ['Rule engine:', 'only rules whose quick trigger matches wake up.'], ev: ['Guardrail → Rule engine', 'Scan', 'no findings · 2 ms', 'dm'] },
+  { go: [['rules', 'guard', 'check', 500]], then: () => status('rules', '✓ No findings · 2 ms', 'ok') },
+];
+const judge = (ms, verdict = 'allow', withRouter = true) => [
+  { go: [['guard', 'mGuard', 'check'], ...(withRouter ? [['hub', 'mHub', 'q']] : [])], cap: [withRouter ? 'Judge and router together:' : 'AI judge:', withRouter ? 'the guardrail model and the router’s model work at the same time.' : 'reads the message in context.'], ev: ['Guardrail → Guardrail model', 'Judge call', 'model call, sent', 'dm'], then: () => status('mGuard', '… judging', 'guard') },
+  { go: [['mGuard', 'guard', 'check', 1300], ...(withRouter ? [['mHub', 'hub', 'q', 1700]] : [])], ev: ['Guardrail model → Guardrail', `Judge: ${verdict}`, `${ms} · categories checked: 3`, 'dm'], then: () => status('mGuard', verdict === 'allow' ? `✓ allow · ${ms}` : `✕ block · ${ms}`, verdict === 'allow' ? 'ok' : 'bad') },
+];
+const pass = (label) => ({ then: () => { nodes.guard.classList.remove('verdict-check'); nodes.guard.classList.add('verdict-pass'); status('guard', '✓ Pass', 'ok'); }, cap: ['Guardrail:', `${label} is clean. It goes on.`], capColor: '--ok', ev: ['Guardrail', 'Allowed', label, 'dm'], evColor: '--ok' });
+const clearGuard = () => ({ then: () => { nodes.guard.classList.remove('verdict-pass', 'verdict-block', 'verdict-check'); status('guard', '✓ On', 'guard'); }, pause: 150 });
+
+const SCN = {
+  handover: [
+    { go: [['student', 'hub']], cap: ['Student agent → Hub:', '“Hi Mr. Amir, can I submit my homework late?”'], ev: ['Student agent → University Hub', 'Question', 'chat, sent'] },
+    ...checkIn('the student’s message'), ...judge('1.6 s'),
+    pass('Student message'),
+    { go: [['hub', 'prof']], cap: ['Hub → Professor agent:', 'routed to Marketing 101.'], ev: ['University Hub → Professor', 'Question', 'routed: Marketing 101 · 2.7 s'] },
+    { go: [['prof', 'mProf', 'q']], cap: ['The assistant (model)', 'reads the course pack. Late homework isn’t covered there.'], ev: ['Professor → Professor’s model', 'Assistant reads the question', 'model call, sent'], evColor: '--professor' },
+    { go: [['mProf', 'prof', 'q', 1200]], ev: ['Professor’s model → Professor', 'Assistant: needs the professor', 'decision: needs_professor'], evColor: '--model' },
+    { go: [['prof', 'amir', 'post']], cap: ['Hand-over to Professor Amir:', 'a person now has the question in the Professor view.'], ev: ['Professor → Professor Amir', 'Hand-over received', 'Professor view: 1 waiting', 'sq'], evColor: '--person', then: () => status('amir', '● 1 waiting', 'warn') },
+    { go: [['prof', 'hub']], cap: ['Assistant → student (fixed words):', '“I’ve passed this on to Professor Amir, who will get back to you.”'], ev: ['Professor → University Hub', 'Reply (assistant, on behalf)', 'professor.onBehalf: true'], evColor: '--professor' },
+    clearGuard(), ...checkIn('the reply'), pass('Assistant reply'),
+    { go: [['hub', 'student']], ev: ['University Hub → Student agent', 'Reply delivered', 'result returned'], evColor: '--hub', pause: 1100 },
+    clearGuard(),
+    { go: [['amir', 'prof', 'post', 1100]], cap: ['Professor Amir replies directly:', '“Yes, by Monday 9 AM.” Written by the person, not the assistant.'], capColor: '--person', ev: ['Professor Amir → Professor', 'Reply written by Professor Amir', 'author: professor · ↩ Reply to student-alex', 'sq'], evColor: '--person', then: () => status('amir', '✓ Answered', 'ok') },
+    { go: [['prof', 'hub', 'post']], cap: ['Professor agent → Hub:', 'posted as a message from Professor Amir (no model call).'], ev: ['Professor → University Hub', 'Post: message', 'author: professor · audience: student-alex', 'sq'], evColor: '--professor' },
+    ...checkIn('the professor’s post'), ...judge('1.9 s', 'allow', false),
+    pass('Professor post'),
+    { go: [['hub', 'student', 'post']], cap: ['Delivered to Alex', 'labelled “Professor Amir”. The hand-over card in the Professor view turns “Answered”.'], ev: ['University Hub → Student agent', 'Message delivered', 'saved in the Student’s chat', 'sq'], evColor: '--hub' },
+  ],
+  assistant: [
+    { go: [['student', 'hub']], cap: ['Student agent → Hub:', '“When is the Marketing 101 midterm?”'], ev: ['Student agent → University Hub', 'Question', 'chat, sent'] },
+    ...checkIn('the student’s message'), ...judge('1.5 s'),
+    pass('Student message'),
+    { go: [['hub', 'prof']], ev: ['University Hub → Professor', 'Question', 'routed: Marketing 101 · 2.6 s'] },
+    { go: [['prof', 'mProf', 'q']], cap: ['The assistant (model) answers', 'from the course pack. Professor Amir isn’t involved.'], ev: ['Professor → Professor’s model', 'Assistant answers', 'model call, sent'], evColor: '--professor', then: () => nodes.amir.classList.add('dim') },
+    { go: [['mProf', 'prof', 'q', 1200]], ev: ['Professor’s model → Professor', 'Answer', 'decision: answer'], evColor: '--model' },
+    { go: [['prof', 'hub']], cap: ['Reply comes back,', 'labelled “Professor Amir’s course assistant”.'], ev: ['Professor → University Hub', 'Reply (assistant)', 'author: assistant'], evColor: '--professor' },
+    clearGuard(), ...checkIn('the reply'), pass('Assistant reply'),
+    { go: [['hub', 'student']], ev: ['University Hub → Student agent', 'Reply delivered', 'result returned'], evColor: '--hub' },
+  ],
+  post: [
+    { go: [['amir', 'prof', 'post', 1100]], cap: ['Professor Amir types a message to the class', '(no @assistant), so these are the professor’s own words.'], capColor: '--person', ev: ['Professor Amir → Professor', 'Direct post written by Professor Amir', 'author: professor · audience: all', 'sq'], evColor: '--person', then: () => status('amir', '● Sending', 'warn') },
+    { go: [['prof', 'hub', 'post']], cap: ['Professor agent → Hub:', 'no model call. The assistant isn’t involved.'], ev: ['Professor → University Hub', 'Post: message', 'author: professor', 'sq'], evColor: '--professor', then: () => nodes.mProf.classList.add('dim') },
+    ...checkIn('the post'), ...judge('2.1 s', 'allow', false),
+    pass('Professor post'),
+    { go: [['hub', 'student', 'post']], cap: ['Delivered to every enrolled student.', 'student-sam’s copy waits until that student’s agent connects.'], ev: ['University Hub → Student agent', 'Message delivered', 'deliveries: alex delivered · sam queued', 'sq'], evColor: '--hub', then: () => status('amir', '✓ Delivered 1 · queued 1', 'ok') },
+  ],
+  postBlocked: [
+    { go: [['amir', 'prof', 'post', 1100]], cap: ['Professor Amir posts:', '“Jordan Lee’s phone is 555-0142, call her about the group project.”'], capColor: '--person', ev: ['Professor Amir → Professor', 'Direct post written by Professor Amir', 'author: professor · audience: all', 'sq'], evColor: '--person', then: () => status('amir', '● Sending', 'warn') },
+    { go: [['prof', 'hub', 'post']], ev: ['Professor → University Hub', 'Post: message', 'author: professor', 'sq'], evColor: '--professor' },
+    ...checkIn('the post'), ...judge('2.0 s', 'block', false),
+    { then: () => { nodes.guard.classList.remove('verdict-check'); nodes.guard.classList.add('verdict-block'); status('guard', '✕ Blocked', 'bad'); }, cap: ['Guardrail blocks the post:', 'personal data about someone else. Nothing is delivered.'], capColor: '--bad', ev: ['Guardrail', 'Blocked', 'category: someone else’s personal data', 'dm'], evColor: '--bad' },
+    { go: [['hub', 'prof', 'post']], ev: ['University Hub → Professor', 'Post refused', 'reason: personal data about someone else', 'sq'], evColor: '--bad' },
+    { go: [['prof', 'amir', 'post']], cap: ['Professor Amir sees it in the Professor view:', '“Not sent. It contains personal details about someone else.”'], capColor: '--person', ev: ['Professor → Professor Amir', 'Shown: not sent, with the reason', 'Professor view', 'sq'], evColor: '--person', then: () => status('amir', '✕ Not sent', 'bad') },
+  ],
+  ssn: [
+    { go: [['student', 'hub']], cap: ['Student agent → Hub:', '“My SSN is 078-05-1120, why is my aid late?”'], ev: ['Student agent → University Hub', 'Question', 'chat, sent'] },
+    { go: [['hub', 'guard', 'check']], ev: ['University Hub → Guardrail', 'Check the student’s message', 'check started', 'dm'], then: () => nodes.guard.classList.add('verdict-check') },
+    { go: [['guard', 'rules', 'check', 600]], cap: ['Rule engine:', 'the SSN rule’s trigger matches, and “SSN” is right there, so it is sure.'], ev: ['Guardrail → Rule engine', 'Scan', 'rule us-ssn@3 triggered', 'dm'] },
+    { go: [['rules', 'guard', 'check', 500]], then: () => { status('rules', '✕ SSN · high · 3 ms', 'bad'); nodes.mGuard.classList.add('dim'); nodes.mHub.classList.add('dim'); nodes.prof.classList.add('dim'); nodes.tutor.classList.add('dim'); nodes.library.classList.add('dim'); } , ev: ['Rule engine → Guardrail', 'Finding: SSN, high', 'position only, never the number', 'dm'] },
+    { then: () => { nodes.guard.classList.remove('verdict-check'); nodes.guard.classList.add('verdict-block'); status('guard', '✕ Blocked', 'bad'); }, cap: ['Blocked right away.', 'No model and no agent ever sees the message.'], capColor: '--bad', ev: ['Guardrail', 'Blocked', 'rule: us-ssn@3 · 3 ms', 'dm'], evColor: '--bad' },
+    { go: [['hub', 'student']], cap: ['Student sees fixed words:', '“Your message wasn’t sent because it contains a Social Security number.”'], capColor: '--bad', ev: ['University Hub → Student agent', 'Blocked notice', 'nothing forwarded'], evColor: '--bad' },
+  ],
+};
+
+async function run(name) {
+  const t = ++token;
+  document.querySelectorAll('.scn').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.scn === name)));
+  resetAll(); clockT = 0; document.getElementById('events').replaceChildren();
+  try { await play(SCN[name], t); caption(['Done.', 'Pick another scenario, or press it again to replay.'], '--muted'); } catch (e) { if (e !== 'cancel') throw e; }
+}
+document.querySelectorAll('.scn').forEach(b => b.addEventListener('click', () => run(b.dataset.scn)));
+run('handover');
+</script>
+</body>
+</html>
