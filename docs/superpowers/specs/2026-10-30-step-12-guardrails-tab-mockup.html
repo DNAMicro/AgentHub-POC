@@ -1,0 +1,672 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guardrails Tab Mockup</title>
+<style>
+/* Mockup of Step 12's Guardrails tab, built on the app's own tokens (public/styles.css): the switchboard
+   idea — every agent has its color — gains one more line, the guardrail (signal teal). Sample data only. */
+@font-face { font-family: "Atkinson Hyperlegible Next"; src: url("../../../public/fonts/atkinson-hyperlegible-next-latin.woff2") format("woff2"); font-weight: 200 800; font-display: swap; }
+@font-face { font-family: "IBM Plex Mono"; src: url("../../../public/fonts/ibm-plex-mono-400-latin.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+:root {
+  color-scheme: light;
+  --bg: #eef1f5; --surface: #ffffff; --field: #f7f9fb; --text: #18202b; --muted: #5a6676;
+  --border: #d6dce4; --border-strong: #b8c1cd;
+  --student: #2b59c3; --tutor: #8a3fa8; --library: #16765e; --professor: #a3315a; --hub: #9a6300; --model: #5b6472;
+  --guard: #0b6b84;      /* signal teal — the guardrail (new) */
+  --guard-tint: #e1f1f5;
+  --student-tint: #e6edfb;
+  --ok: #1d7a46; --ok-bg: #e2f3e8; --warn: #8a5a00; --warn-bg: #fdf1d4; --bad: #b4261f; --bad-bg: #fbe6e4; --idle: #6b7482;
+  --radius: 10px;
+  --font: "Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root {
+  color-scheme: dark;
+  --bg: #11151b; --surface: #181d25; --field: #1f2530; --text: #e4e8ee; --muted: #98a3b1;
+  --border: #2a313c; --border-strong: #3b4452;
+  --student: #86a2ff; --tutor: #c99ae6; --library: #4cc4a0; --professor: #f08aae; --hub: #e3b04b; --model: #aab4c2;
+  --guard: #52c7df; --guard-tint: #12303a; --student-tint: #1e2a45;
+  --ok: #63cf93; --ok-bg: #15301f; --warn: #eabb5c; --warn-bg: #352a12; --bad: #ff8f86; --bad-bg: #3a1916; --idle: #8d97a5;
+} }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { font-size: 15px; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font); line-height: 1.5; min-height: 100dvh; display: flex; flex-direction: column; }
+button, input, textarea, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--student); outline-offset: 2px; }
+code, .mono { font-family: var(--mono); font-size: 0.86em; }
+
+/* app chrome (copied from the app) */
+.mock-banner { margin: 0; padding: 6px 20px; background: var(--guard-tint); color: var(--guard); font-size: 0.85rem; font-weight: 600; }
+.topbar { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; align-items: center; padding: 10px 20px; background: var(--surface); border-bottom: 1px solid var(--border); }
+h1 { margin: 0; font-size: 1.2rem; font-weight: 700; letter-spacing: -0.01em; }
+.subtitle { margin: 0; color: var(--muted); font-size: 0.87rem; max-width: 68ch; }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.badge { font-size: 0.8rem; padding: 2px 10px; border-radius: 999px; white-space: nowrap; border: 1px solid var(--border); color: var(--muted); }
+.badge.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.badge.guard { color: var(--guard); border-color: color-mix(in srgb, var(--guard) 45%, transparent); font-weight: 600; }
+.badge.guard::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); margin-right: 6px; vertical-align: 1px; }
+.tabs { display: flex; gap: 2px; padding: 8px 20px 0; background: var(--surface); border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
+.tabs button { position: relative; padding: 8px 16px 10px; border: 0; background: none; cursor: pointer; font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+.tabs button:hover { color: var(--text); }
+.tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--hub); }
+.tabs button.dim { opacity: 0.55; cursor: default; }
+.tab-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 7px; border-radius: 999px; background: var(--warn); color: var(--surface); font-size: 0.74rem; font-weight: 700; vertical-align: 1px; }
+.view { flex: 1; padding: 12px; }
+.view[hidden] { display: none; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); min-width: 0; }
+.panel-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 12px 16px 10px; border-bottom: 1px solid var(--border); border-top: 3px solid var(--agent, var(--border)); border-radius: var(--radius) var(--radius) 0 0; }
+.panel[data-agent="guard"] { --agent: var(--guard); }
+.panel[data-agent="student"] { --agent: var(--student); }
+.panel[data-agent="hub"] { --agent: var(--hub); }
+h2 { margin: 0; font-size: 1.07rem; font-weight: 700; color: var(--agent, var(--text)); }
+h3 { margin: 0; font-size: 0.98rem; }
+.role { font-size: 0.82rem; color: var(--muted); }
+.spacer { flex: 1; }
+
+/* Guardrails layout: section rail on the left, work area on the right */
+.gr { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 12px; max-width: 1240px; margin: 0 auto; align-items: start; }
+.rail { display: grid; gap: 2px; padding: 8px; position: sticky; top: 12px; }
+.rail button { text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-weight: 600; }
+.rail button:hover { background: var(--field); color: var(--text); }
+.rail button[aria-current="true"] { background: var(--guard-tint); color: var(--guard); }
+.rail .n { font-family: var(--mono); font-size: 0.78rem; font-weight: 400; }
+.rail hr { border: 0; border-top: 1px solid var(--border); margin: 6px 4px; width: auto; }
+.rail .health { font-size: 0.8rem; color: var(--muted); padding: 4px 10px; display: grid; gap: 4px; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: var(--ok); }
+.dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); } .dot.idle { background: var(--idle); }
+.work { display: grid; gap: 12px; min-width: 0; }
+.body { padding: 14px 16px; display: grid; gap: 14px; }
+
+/* buttons */
+.btn { border: 1px solid var(--border-strong); background: var(--field); border-radius: 8px; padding: 6px 14px; cursor: pointer; font-weight: 600; }
+.btn:hover { border-color: var(--guard); color: var(--guard); }
+.btn.primary { background: var(--guard); border-color: var(--guard); color: var(--surface); }
+.btn.primary:hover { filter: brightness(1.08); color: var(--surface); }
+.btn.quiet { background: none; border-color: transparent; color: var(--muted); }
+.btn.danger:hover { border-color: var(--bad); color: var(--bad); }
+.btn:disabled { opacity: .5; cursor: default; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+/* mode switch: off / watch only / block */
+.modes { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 999px; overflow: hidden; font-size: 0.8rem; }
+.modes button { border: 0; background: none; padding: 3px 11px; cursor: pointer; color: var(--muted); font-weight: 600; }
+.modes button + button { border-left: 1px solid var(--border); }
+.modes button[aria-pressed="true"][data-mode="off"] { background: var(--field); color: var(--text); }
+.modes button[aria-pressed="true"][data-mode="watch"] { background: var(--warn-bg); color: var(--warn); }
+.modes button[aria-pressed="true"][data-mode="block"] { background: var(--bad-bg); color: var(--bad); }
+
+/* rule list */
+.rules { list-style: none; margin: 0; padding: 0; }
+.rule { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(220px, 1fr) auto; gap: 8px 18px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.rule:last-child { border-bottom: 0; }
+.rule .name { font-weight: 700; }
+.rule .meta { font-size: 0.8rem; color: var(--muted); }
+.counters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.ctr { display: grid; font-size: 0.74rem; color: var(--muted); }
+.ctr b { font-family: var(--mono); font-weight: 400; font-size: 1.05rem; color: var(--text); font-variant-numeric: tabular-nums; }
+.ctr.bad b { color: var(--bad); } .ctr.warn b { color: var(--warn); }
+.hint { font-size: 0.78rem; color: var(--warn); background: var(--warn-bg); border-radius: 6px; padding: 2px 8px; width: fit-content; }
+.tag { font-size: 0.74rem; padding: 0 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+.tag.code { color: var(--guard); border-color: color-mix(in srgb, var(--guard) 40%, transparent); }
+
+/* wizard */
+.steps { list-style: none; margin: 0; padding: 0; display: flex; gap: 6px; counter-reset: s; overflow-x: auto; }
+.steps li { counter-increment: s; flex: 1 0 120px; padding: 6px 10px; border-radius: 8px; border: 1.5px dashed var(--border-strong); color: var(--muted); font-size: 0.84rem; font-weight: 600; }
+.steps li::before { content: counter(s) ". "; }
+.steps li[data-state="done"] { border-style: solid; border-color: var(--guard); color: var(--guard); background: color-mix(in srgb, var(--guard) 10%, var(--surface)); }
+.steps li[data-state="done"]::after { content: " ✓"; }
+.steps li[data-state="now"] { border-style: solid; border-color: var(--guard); color: var(--text); }
+label.f { display: grid; gap: 4px; font-size: 0.86rem; font-weight: 600; }
+label.f span.sub { font-weight: 400; color: var(--muted); font-size: 0.8rem; }
+textarea, input[type=text], select { width: 100%; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--field); padding: 8px 10px; font-weight: 400; }
+textarea { resize: vertical; min-height: 70px; }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+pre.code { margin: 0; padding: 12px 14px; background: var(--field); border: 1px solid var(--border); border-radius: 8px; font-family: var(--mono); font-size: 0.8rem; line-height: 1.55; overflow: auto; max-height: 360px; white-space: pre; }
+pre.code .c { color: var(--muted); } pre.code .k { color: var(--guard); }
+.tests { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; font-size: 0.86rem; }
+.tests li { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); align-items: baseline; }
+.tests .ok { color: var(--ok); } .tests .bad { color: var(--bad); }
+.tests .kind { font-size: 0.74rem; color: var(--muted); }
+.notice { padding: 8px 12px; border-radius: 8px; font-size: 0.86rem; }
+.notice.ok { background: var(--ok-bg); color: var(--ok); }
+.notice.warn { background: var(--warn-bg); color: var(--warn); }
+.notice.bad { background: var(--bad-bg); color: var(--bad); }
+.notice.info { background: var(--guard-tint); color: var(--guard); }
+.result { border: 1px solid var(--border); border-left: 3px solid var(--guard); border-radius: 8px; padding: 10px 12px; display: grid; gap: 6px; font-size: 0.9rem; }
+.result[data-v="block"] { border-left-color: var(--bad); }
+.result[data-v="allow"] { border-left-color: var(--ok); }
+mark { background: var(--bad-bg); color: var(--bad); border-radius: 3px; padding: 0 2px; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; font-size: 0.86rem; margin: 0; }
+.kv dt { color: var(--muted); } .kv dd { margin: 0; }
+
+/* tables */
+.tw { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: 0.8rem; }
+td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.act { font-weight: 600; font-size: 0.8rem; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.act.allow { color: var(--ok); background: var(--ok-bg); } .act.block { color: var(--bad); background: var(--bad-bg); }
+.act.watch { color: var(--warn); background: var(--warn-bg); } .act.timeout { color: var(--idle); background: var(--field); border: 1px solid var(--border); }
+
+/* judge categories */
+.cats { display: grid; gap: 10px; }
+.cat { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; display: grid; gap: 8px; }
+.cat-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.hops { display: flex; gap: 10px; font-size: 0.82rem; color: var(--muted); }
+.hops label { display: inline-flex; gap: 4px; align-items: center; }
+.policy { font-size: 0.9rem; }
+.says { font-size: 0.84rem; color: var(--muted); }
+.says q { color: var(--text); }
+
+/* conversation preview */
+.conv { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 12px; max-width: 1240px; margin: 0 auto; }
+.chat { list-style: none; margin: 0; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.msg { max-width: min(88%, 620px); padding: 8px 12px 6px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--hub); align-self: flex-start; }
+.msg.sent { align-self: flex-end; background: var(--student-tint); border: 0; border-bottom-right-radius: 4px; }
+.msg.blocked { border-left-color: var(--guard); background: color-mix(in srgb, var(--guard) 6%, var(--surface)); }
+.msg-head { display: flex; justify-content: space-between; gap: 10px; font-size: 0.8rem; color: var(--muted); }
+.msg-head b { color: var(--hub); } .msg.sent .msg-head b { color: var(--student); } .msg.blocked .msg-head b { color: var(--guard); }
+.msg-text { margin: 2px 0 0; }
+.msg .sub { font-size: 0.8rem; color: var(--muted); margin: 4px 0 0; }
+.timeline { list-style: none; margin: 0; padding: 12px 16px 14px; display: flex; gap: 6px; overflow-x: auto; counter-reset: step; }
+.timeline li { --c: var(--muted); counter-increment: step; flex: 1 0 120px; padding: 6px 9px; border-radius: 8px; border: 1.5px dashed var(--border-strong); display: grid; gap: 1px; color: var(--muted); }
+.timeline li[data-actor="student"] { --c: var(--student); } .timeline li[data-actor="hub"] { --c: var(--hub); } .timeline li[data-actor="guard"] { --c: var(--guard); }
+.timeline li[data-state="done"] { border-style: solid; border-color: var(--c); background: color-mix(in srgb, var(--c) 14%, var(--surface)); color: var(--text); }
+.timeline li[data-state="done"] .sl { color: var(--c); } .timeline li[data-state="done"] .sl::after { content: " ✓"; }
+.timeline li[data-state="failed"] { border-style: solid; border-color: var(--bad); background: var(--bad-bg); color: var(--text); }
+.timeline li[data-state="failed"] .ss { color: var(--bad); font-weight: 600; }
+.timeline li[data-state="skipped"] { border-style: dotted; opacity: .6; }
+.timeline li.new { outline: 2px solid color-mix(in srgb, var(--guard) 35%, transparent); outline-offset: 2px; }
+.sl { font-weight: 600; font-size: 0.86rem; } .sl::before { content: counter(step) ". "; color: var(--muted); }
+.ss { font-family: var(--mono); font-size: 0.74rem; } .sn { font-size: 0.76rem; color: var(--muted); }
+.topo svg { display: block; width: 100%; height: auto; }
+.topo .node { fill: var(--surface); stroke: var(--border-strong); stroke-width: 1.5; }
+.topo .t { fill: var(--text); font-size: 12px; font-family: var(--font); font-weight: 700; }
+.topo .s { fill: var(--muted); font-size: 10.5px; font-family: var(--font); }
+.topo .e { stroke: var(--border-strong); stroke-width: 1.5; fill: none; }
+.topo .eb { stroke: var(--bad); stroke-width: 2; fill: none; stroke-dasharray: 5 4; }
+.topo .eg { stroke: var(--guard); stroke-width: 2; fill: none; }
+.topo .gn { fill: var(--bad-bg); stroke: var(--bad); stroke-width: 2; }
+.topo .gs { fill: var(--guard-tint); stroke: var(--guard); stroke-width: 1.5; }
+.topo .bt { fill: var(--bad); font-size: 11px; font-family: var(--font); font-weight: 700; }
+.scenario { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 0.84rem; align-items: center; }
+.scenario button[aria-pressed="true"] { background: var(--guard); color: var(--surface); border-color: var(--guard); }
+
+@media (max-width: 860px) {
+  .gr, .conv { grid-template-columns: minmax(0, 1fr); }
+  .rail { position: static; grid-auto-flow: column; overflow-x: auto; }
+  .rail hr, .rail .health { display: none; }
+  .rule { grid-template-columns: minmax(0, 1fr); }
+  .two { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<p class="mock-banner">Mockup for the Step 12 design. Sample data, nothing is connected. Click through the tabs, the sections on the left, and “New rule”.</p>
+
+<header class="topbar">
+  <div>
+    <h1>California State University Fullerton</h1>
+    <p class="subtitle">Fictional local demo. Your Student agent talks only to the university’s front door, which routes each request to its tutoring, library or Marketing 101 service over A2A and relays the answer.</p>
+  </div>
+  <div class="badges">
+    <span class="badge ok">Live view: connected</span>
+    <span class="badge ok">Hub telemetry: on</span>
+    <span class="badge guard">Guardrails: on</span>
+  </div>
+</header>
+
+<nav class="tabs" role="tablist" aria-label="Views">
+  <button role="tab" data-view="conversation" aria-selected="false">Conversation</button>
+  <button role="tab" class="dim" aria-selected="false" tabindex="-1">Agent activity</button>
+  <button role="tab" class="dim" aria-selected="false" tabindex="-1">Topology</button>
+  <button role="tab" class="dim" aria-selected="false" tabindex="-1">Professor view</button>
+  <button role="tab" data-view="guardrails" aria-selected="true">Guardrails <span class="tab-count" title="watch-only hits since last look">9</span></button>
+</nav>
+
+<!-- ═══════════════ GUARDRAILS ═══════════════ -->
+<section class="view" id="view-guardrails">
+  <div class="gr">
+    <nav class="panel rail" aria-label="Guardrail sections">
+      <button data-sec="rules" aria-current="true">Rules <span class="n">3</span></button>
+      <button data-sec="judge">Judge policy <span class="n">3</span></button>
+      <button data-sec="tests">Test set <span class="n">64</span></button>
+      <button data-sec="activity">Activity <span class="n">today</span></button>
+      <hr>
+      <div class="health">
+        <span><i class="dot"></i>Rule engine (workerd) up</span>
+        <span><i class="dot"></i>Guardrail model ready</span>
+        <span class="mono" style="font-size:.74rem">127.0.0.1:41245 · 2 ms</span>
+      </div>
+    </nav>
+
+    <div class="work">
+      <!-- ── Rules ── -->
+      <section class="panel" data-agent="guard" data-sec-panel="rules">
+        <header class="panel-head">
+          <h2>Rules</h2>
+          <span class="role">Code checks that run in under 50 ms, before any AI sees the message.</span>
+          <span class="spacer"></span>
+          <button class="btn primary" id="new-rule">New rule</button>
+        </header>
+        <ul class="rules" id="rule-list"></ul>
+      </section>
+
+      <!-- ── New rule wizard ── -->
+      <section class="panel" data-agent="guard" data-sec-panel="wizard" hidden>
+        <header class="panel-head">
+          <h2>New rule</h2>
+          <span class="role">Nothing runs on student messages until you approve it, and then only in watch-only mode.</span>
+          <span class="spacer"></span>
+          <button class="btn quiet" id="wiz-cancel">Discard</button>
+        </header>
+        <div class="body">
+          <ol class="steps" id="wiz-steps">
+            <li data-state="now">Describe</li><li>AI writes it</li><li>Sandbox test</li><li>Try a message</li><li>Approve</li>
+          </ol>
+
+          <!-- step 1 -->
+          <div data-step="1" class="body" style="padding:0">
+            <label class="f">What should this rule catch?
+              <span class="sub">Plain words. Say what counts and what doesn’t.</span>
+              <textarea id="describe" rows="3">California driver’s license numbers: one letter followed by 7 digits. Only when the message talks about a license, DL or ID, so course codes and room numbers don’t count.</textarea>
+            </label>
+            <div class="two">
+              <label class="f">Examples it should catch <span class="sub">optional, one per line, fictional only</span>
+                <textarea id="pos" rows="3">my DL is B1234567, can you update it?
+license number: Z7654321</textarea></label>
+              <label class="f">Look-alikes it should NOT catch <span class="sub">optional</span>
+                <textarea id="neg" rows="3">Room A1234567 in the library
+is MKTG3510001 the right section?</textarea></label>
+            </div>
+            <label class="f" style="max-width:420px">Hops to check
+              <select id="hops"><option>Student messages only</option><option selected>Student messages and replies</option><option>Everything, including professor posts</option></select>
+            </label>
+            <div class="row"><button class="btn primary" data-go="2">Generate</button><span class="role">Haiku 5.5 writes the code and the tests. Takes about 10 seconds.</span></div>
+          </div>
+
+          <!-- step 2 -->
+          <div data-step="2" class="body" style="padding:0" hidden>
+            <div class="notice ok">Static check passed: no network, no eval, no timers, the regex is ReDoS-safe. Uses only <code>validator</code> and <code>zod</code>.</div>
+            <div class="two">
+              <div class="body" style="padding:0;gap:8px">
+                <h3>Generated code <span class="tag">read-only</span></h3>
+<pre class="code"><span class="c">// rule: ca-drivers-license  v1 (draft)</span>
+<span class="k">export const</span> triggers = [
+  /\b[A-Z]\d{7}\b/i,                <span class="c">// cheap pre-check</span>
+];
+
+<span class="k">const</span> CONTEXT = /\b(licen[cs]e|DL|driver'?s|ID)\b/i;
+<span class="k">const</span> SHAPE = /\b[A-Z]\d{7}\b/gi;
+
+<span class="k">export function</span> detect(text) {
+  <span class="k">const</span> found = [];
+  <span class="k">for</span> (<span class="k">const</span> m <span class="k">of</span> text.matchAll(SHAPE)) {
+    <span class="k">const</span> near = text.slice(Math.max(0, m.index - 60),
+                            m.index + 68);
+    found.push({
+      kind: 'ca_drivers_license',
+      start: m.index, end: m.index + m[0].length,
+      confidence: CONTEXT.test(near) ? 'high' : 'low',
+    });
+  }
+  <span class="k">return</span> found;   <span class="c">// positions only, never the value</span>
+}</pre>
+              </div>
+              <div class="body" style="padding:0;gap:8px">
+                <h3>Generated tests <span class="tag">8 cases</span></h3>
+                <ul class="tests" id="gen-tests"></ul>
+              </div>
+            </div>
+            <div class="row"><button class="btn" data-go="1">Back</button><button class="btn primary" data-go="3">Run in sandbox</button></div>
+          </div>
+
+          <!-- step 3 -->
+          <div data-step="3" class="body" style="padding:0" hidden>
+            <div class="notice info">Ran in a short-lived workerd (port 41291), then it was stopped. The rule never touched the live engine.</div>
+            <dl class="kv">
+              <dt>Its own tests</dt><dd><b style="color:var(--ok)">8 of 8 passed</b> after 1 automatic repair (first try missed “licence” spelled the British way)</dd>
+              <dt>Shared test set</dt><dd>64 examples · 0 false alarms · 2 caught (both licence examples)</dd>
+              <dt>Speed</dt><dd class="mono">0.08 ms per message (cap 50 ms)</dd>
+            </dl>
+            <ul class="tests" id="sandbox-tests"></ul>
+            <div class="row"><button class="btn" data-go="2">Back</button><button class="btn primary" data-go="4">Try a message</button></div>
+          </div>
+
+          <!-- step 4 -->
+          <div data-step="4" class="body" style="padding:0" hidden>
+            <label class="f">Type a message to test <span class="sub">Runs in the draft tester. Nothing is sent anywhere.</span>
+              <input type="text" id="try-rule" value="Hi, my driver's license is D4417730 and I lost my student card">
+            </label>
+            <div class="row"><button class="btn" id="try-rule-btn">Check</button></div>
+            <div class="result" id="try-rule-out" hidden></div>
+            <div class="row"><button class="btn" data-go="3">Back</button><button class="btn primary" data-go="5">Looks right</button></div>
+          </div>
+
+          <!-- step 5 -->
+          <div data-step="5" class="body" style="padding:0" hidden>
+            <label class="f">What the student sees when this rule blocks
+              <span class="sub">Fixed words. Never repeats what they typed.</span>
+              <textarea id="student-words" rows="2">Your message wasn’t sent because it contains a driver’s license number. Please remove it and send it again.</textarea>
+            </label>
+            <dl class="kv">
+              <dt>Version</dt><dd>v1, pinned as <span class="mono">sha256:7c41…e09a</span></dd>
+              <dt>Starts in</dt><dd><span class="act watch">Watch only</span>, which logs “would have blocked” and still delivers. Switch it to Block when the counters look right.</dd>
+              <dt>Going live</dt><dd>The Hub rebuilds the engine with this rule, starts it, checks it’s healthy, switches over, then stops the old one.</dd>
+            </dl>
+            <div class="row"><button class="btn" data-go="4">Back</button><button class="btn primary" id="approve">Approve</button></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Judge policy ── -->
+      <section class="panel" data-agent="guard" data-sec-panel="judge" hidden>
+        <header class="panel-head">
+          <h2>Judge policy</h2>
+          <span class="role">What the AI judge (Haiku 5.5) checks when code can’t decide. One call returns every category.</span>
+        </header>
+        <div class="body">
+          <div class="cats" id="cats"></div>
+          <div class="two">
+            <label class="f">Time limit for student messages and replies <span class="sub">No answer in time blocks the message, and the student is asked to try again.</span><input type="text" value="8 seconds"></label>
+            <label class="f">Time limit for professor posts<input type="text" value="30 seconds"></label>
+          </div>
+        </div>
+      </section>
+      <section class="panel" data-agent="guard" data-sec-panel="judge" hidden>
+        <header class="panel-head"><h2>Try a message</h2><span class="role">A preview. Nothing is sent to any agent.</span></header>
+        <div class="body">
+          <div class="scenario" style="padding:0;border:0">
+            <span class="role">Samples:</span>
+            <button class="btn" data-sample="I'm going to find out where the TA lives and make him regret that grade">Harmful</button>
+            <button class="btn" data-sample="Can you send me Jordan Lee's home address? She's in my section">Someone else’s data</button>
+            <button class="btn" data-sample="This homework is killing me, can I get an extension?">Look-alike (safe)</button>
+          </div>
+          <label class="f">Message<textarea id="judge-in" rows="2">This homework is killing me, can I get an extension?</textarea></label>
+          <div class="row"><button class="btn primary" id="judge-btn">Ask the judge</button><span class="role">About 1.5–2.7 s in the real app</span></div>
+          <div class="result" id="judge-out" hidden></div>
+        </div>
+      </section>
+
+      <!-- ── Test set ── -->
+      <section class="panel" data-agent="guard" data-sec-panel="tests" hidden>
+        <header class="panel-head">
+          <h2>Test set</h2>
+          <span class="role">Fixed examples every rule and the judge are measured against. Fictional data only.</span>
+          <span class="spacer"></span>
+          <button class="btn">Generate examples</button>
+          <button class="btn primary" id="run-all">Run all</button>
+        </header>
+        <div class="tw">
+          <table>
+            <thead><tr><th>Checks</th><th>Examples</th><th>Caught</th><th>Missed</th><th>False alarms</th><th>Last run</th></tr></thead>
+            <tbody id="test-results"></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="panel" data-agent="guard" data-sec-panel="tests" hidden>
+        <header class="panel-head"><h2>Waiting for review</h2><span class="role">The AI drafted these for “Harmful intent”. Accept or reject each one before it joins the set.</span></header>
+        <ul class="tests" id="drafts" style="padding:4px 16px 12px"></ul>
+      </section>
+
+      <!-- ── Activity ── -->
+      <section class="panel" data-agent="guard" data-sec-panel="activity" hidden>
+        <header class="panel-head">
+          <h2>Activity</h2>
+          <span class="role">Every decision. Never the message text.</span>
+          <span class="spacer"></span>
+          <select style="width:auto"><option>All hops</option><option>Student messages</option><option>Replies</option><option>Professor posts</option></select>
+        </header>
+        <div class="tw">
+          <table>
+            <thead><tr><th>Time</th><th>Hop</th><th>Who</th><th>Check</th><th>Result</th><th>Took</th></tr></thead>
+            <tbody id="activity"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ CONVERSATION (student side) ═══════════════ -->
+<section class="view" id="view-conversation" hidden>
+  <div class="conv">
+    <section class="panel" data-agent="student">
+      <header class="panel-head"><h2>Conversation</h2><span class="role">What the student sees</span></header>
+      <div class="scenario" id="scenarios">
+        <span class="role">Scenario:</span>
+        <button class="btn" data-scn="ssn" aria-pressed="true">SSN blocked by a rule</button>
+        <button class="btn" data-scn="harm" aria-pressed="false">Blocked by the judge</button>
+        <button class="btn" data-scn="timeout" aria-pressed="false">Judge timed out</button>
+        <button class="btn" data-scn="ok" aria-pressed="false">Clean message</button>
+      </div>
+      <ul class="chat" id="chat"></ul>
+      <ol class="timeline" id="strip" aria-label="Hop by hop"></ol>
+    </section>
+    <section class="panel topo" data-agent="hub">
+      <header class="panel-head"><h2>Topology</h2><span class="role">same moment</span></header>
+      <div id="topo" style="padding:10px"></div>
+    </section>
+  </div>
+</section>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const el = (tag, props = {}, ...kids) => { const n = document.createElement(tag); for (const [k, v] of Object.entries(props)) { if (k === 'class') n.className = v; else if (k === 'text') n.textContent = v; else if (k.startsWith('data-') || k === 'title' || k === 'aria-pressed' || k === 'type') n.setAttribute(k, v); else n[k] = v; } for (const c of kids) if (c != null) n.append(c); return n; };
+
+/* ---------- top tabs ---------- */
+$$('.tabs button[data-view]').forEach(b => b.addEventListener('click', () => {
+  $$('.tabs button[data-view]').forEach(x => x.setAttribute('aria-selected', String(x === b)));
+  $$('.view').forEach(v => v.hidden = v.id !== 'view-' + b.dataset.view);
+}));
+
+/* ---------- section rail ---------- */
+function showSec(name) {
+  $$('.rail button').forEach(b => b.setAttribute('aria-current', String(b.dataset.sec === name || (name === 'wizard' && b.dataset.sec === 'rules'))));
+  $$('[data-sec-panel]').forEach(p => p.hidden = p.dataset.secPanel !== name);
+}
+$$('.rail button').forEach(b => b.addEventListener('click', () => showSec(b.dataset.sec)));
+
+/* ---------- mode switch ---------- */
+function modeSwitch(mode, onChange) {
+  const box = el('div', { class: 'modes', role: 'group' });
+  for (const [m, label] of [['off', 'Off'], ['watch', 'Watch only'], ['block', 'Block']]) {
+    const b = el('button', { 'data-mode': m, 'aria-pressed': String(m === mode), text: label, type: 'button' });
+    b.addEventListener('click', () => { $$('button', box).forEach(x => x.setAttribute('aria-pressed', String(x === b))); onChange?.(m); });
+    box.append(b);
+  }
+  return box;
+}
+
+/* ---------- rules ---------- */
+const rules = [
+  { name: 'US Social Security number', id: 'us-ssn', v: 'v3', mode: 'block', hops: 'all hops', t: 41, c: 6, b: 6, note: 'High only with “SSN” or “social security” nearby. Otherwise a hint to the judge.' },
+  { name: 'Payment card number', id: 'payment-card', v: 'v2', mode: 'block', hops: 'all hops', t: 18, c: 3, b: 3, note: 'Luhn check, issuer prefix and length. Known test numbers excluded.' },
+  { name: 'Student ID (CWID) sent to an agent', id: 'cwid', v: 'v1', mode: 'watch', hops: 'student messages', t: 112, c: 9, b: 0, note: 'Created 29 Oct. Would have blocked 9 messages.', hint: 'Fires often, confirms rarely (8%). The pre-check is too loose.' },
+];
+function renderRules() {
+  const ul = $('#rule-list'); ul.replaceChildren(); $("[data-sec='rules'] .n").textContent = rules.length;
+  for (const r of rules) {
+    const ctr = (n, label, cls = '') => el('span', { class: 'ctr ' + cls }, el('b', { text: String(n) }), label);
+    const left = el('div', {}, el('div', { class: 'name', text: r.name }),
+      el('div', { class: 'meta' }, el('span', { class: 'tag code', text: r.id }), ' ', el('span', { class: 'tag', text: r.v }), ' ', el('span', { class: 'tag', text: r.hops })),
+      el('div', { class: 'meta', text: r.note }),
+      r.hint ? el('div', { class: 'hint', text: r.hint }) : null);
+    const counters = el('div', { class: 'counters' }, ctr(r.t, 'triggered'), ctr(r.c, 'confirmed'), r.mode === 'watch' ? ctr(r.c, 'would block', 'warn') : ctr(r.b, 'blocked', 'bad'));
+    const right = el('div', { class: 'row', style: 'justify-content:flex-end' }, modeSwitch(r.mode, m => { r.mode = m; renderRules(); }), el('button', { class: 'btn quiet', text: 'Versions' }), el('button', { class: 'btn quiet', text: 'Edit words' }));
+    ul.append(el('li', { class: 'rule' }, left, counters, right));
+  }
+}
+renderRules();
+
+/* ---------- wizard ---------- */
+function go(step) {
+  $$('[data-step]').forEach(s => s.hidden = s.dataset.step !== String(step));
+  $$('#wiz-steps li').forEach((li, i) => li.dataset.state = i + 1 < step ? 'done' : i + 1 === step ? 'now' : '');
+}
+$('#new-rule').addEventListener('click', () => { showSec('wizard'); go(1); });
+$('#wiz-cancel').addEventListener('click', () => showSec('rules'));
+$$('[data-go]').forEach(b => b.addEventListener('click', () => go(Number(b.dataset.go))));
+
+const tests = [
+  ['catch', 'my DL is B1234567, can you update it?', 'high'],
+  ['catch', 'license number: Z7654321', 'high'],
+  ['catch', 'driver’s licence C0001234 (British spelling)', 'high'],
+  ['catch', 'ID: K9988776 for the parking permit', 'high'],
+  ['skip', 'Room A1234567 in the library', 'low → judge hint'],
+  ['skip', 'is MKTG3510001 the right section?', 'none'],
+  ['skip', 'my student ID is 884412093', 'none'],
+  ['skip', 'Order Q1234567 from the bookstore', 'low → judge hint'],
+];
+function fillTests(ul, firstRun) {
+  ul.replaceChildren();
+  tests.forEach(([kind, text, conf], i) => {
+    const failed = firstRun && i === 2;
+    ul.append(el('li', {}, el('span', { class: failed ? 'bad' : 'ok', text: failed ? '✕' : '✓' }),
+      el('span', {}, text, el('div', { class: 'kind', text: kind === 'catch' ? 'should catch' : 'should not block' })),
+      el('span', { class: 'kind', text: failed ? 'missed (fixed in repair 1)' : conf })));
+  });
+}
+fillTests($('#gen-tests'), true);
+fillTests($('#sandbox-tests'), false);
+
+$('#try-rule-btn').addEventListener('click', () => {
+  const text = $('#try-rule').value, out = $('#try-rule-out');
+  const m = /\b[A-Z]\d{7}\b/i.exec(text);
+  const ctx = m && /\b(licen[cs]e|DL|driver'?s|ID)\b/i.test(text.slice(Math.max(0, m.index - 60), m.index + 68));
+  out.hidden = false; out.replaceChildren();
+  if (!m) { out.dataset.v = 'allow'; out.append(el('b', { text: 'No finding. It would go through.' })); return; }
+  out.dataset.v = ctx ? 'block' : 'watch';
+  const p = el('div');
+  p.append(text.slice(0, m.index), el('mark', { text: m[0] }), text.slice(m.index + m[0].length));
+  out.append(el('b', { text: ctx ? 'Found: driver’s license number, high confidence' : 'Found: license-shaped number, low confidence (sent to the judge as a hint)' }), p,
+    el('div', { class: 'role', text: `Position ${m.index}–${m.index + m[0].length}. The live engine reports only the position, never the number. While in watch-only mode: logged as “would have blocked”, still delivered.` }));
+});
+$('#approve').addEventListener('click', () => {
+  rules.push({ name: 'California driver’s license', id: 'ca-drivers-license', v: 'v1', mode: 'watch', hops: 'messages and replies', t: 0, c: 0, b: 0, note: 'Approved just now. Engine swapped in 1.2 s.' });
+  renderRules(); showSec('rules');
+  const li = $('#rule-list').lastElementChild; li.style.background = 'var(--guard-tint)';
+});
+
+/* ---------- judge ---------- */
+const cats = [
+  { name: 'Offensive language', mode: 'block', hops: [1, 1, 1], policy: 'Slurs, insults aimed at a person or group, sexual harassment. Swearing about a situation (“this homework is killing me”) is fine.', says: 'Your message wasn’t sent because it includes language the university doesn’t allow. Please rephrase it.' },
+  { name: 'Harmful intent', mode: 'block', hops: [1, 1, 1], policy: 'Plans or requests to hurt someone, break into accounts or systems, or cheat (getting exam answers, impersonating another student).', says: 'Your message wasn’t sent because it asks for something the university can’t help with. If you or someone else is in danger, call 911.' },
+  { name: 'Someone else’s personal data', mode: 'block', hops: [1, 1, 0], policy: 'Home addresses, phone numbers, grades, IDs or health details about someone other than the student. The student’s own name and email are fine.', says: 'Your message wasn’t sent because it includes personal details about someone else.' },
+];
+const catsBox = $('#cats');
+for (const c of cats) {
+  const hop = (label, on) => el('label', {}, Object.assign(el('input', { type: 'checkbox' }), { checked: !!on }), label);
+  catsBox.append(el('div', { class: 'cat' },
+    el('div', { class: 'cat-head' }, el('h3', { text: c.name }), el('span', { class: 'spacer' }), el('div', { class: 'hops' }, hop('student messages', c.hops[0]), hop('replies', c.hops[1]), hop('professor posts', c.hops[2])), modeSwitch(c.mode)),
+    el('div', { class: 'policy', text: c.policy }),
+    el('div', { class: 'says' }, 'Student sees: ', el('q', { text: c.says }))));
+}
+$$('[data-sample]').forEach(b => b.addEventListener('click', () => { $('#judge-in').value = b.dataset.sample; }));
+$('#judge-btn').addEventListener('click', () => {
+  const t = $('#judge-in').value.toLowerCase(), out = $('#judge-out');
+  let v = { verdict: 'allow', cats: [], why: 'An everyday phrase about workload. No threat, no one else’s data.', ms: 1612 };
+  if (/regret|hurt|where .* lives|hack|password/.test(t)) v = { verdict: 'block', cats: ['Harmful intent'], why: 'Seeks a person’s home location, paired with a threat about a grade.', ms: 1874 };
+  else if (/address|phone|grade of|'s home/.test(t)) v = { verdict: 'block', cats: ['Someone else’s personal data'], why: 'Asks for another student’s home address.', ms: 1705 };
+  out.hidden = false; out.dataset.v = v.verdict; out.replaceChildren(
+    el('b', { text: v.verdict === 'allow' ? 'Allow' : 'Block · ' + v.cats.join(', ') }),
+    el('div', { text: v.why }),
+    el('div', { class: 'role mono', text: `{ verdict: '${v.verdict}', categories: [${v.cats.map(c => `'${c}'`).join(', ')}], confidence: 'high' } · ${v.ms} ms · mockup verdict` }));
+});
+
+/* ---------- test set ---------- */
+const results = [
+  ['US Social Security number', 'rule', 14, 13, 1, 0], ['Payment card number', 'rule', 10, 10, 0, 0], ['Student ID (CWID)', 'rule', 8, 6, 0, 3],
+  ['Offensive language', 'judge', 12, 11, 1, 0], ['Harmful intent', 'judge', 12, 12, 0, 1], ['Someone else’s personal data', 'judge', 8, 7, 1, 0],
+];
+function renderResults(when) {
+  const tb = $('#test-results'); tb.replaceChildren();
+  for (const [name, kind, n, caught, missed, fa] of results) {
+    const cell = (v, bad) => el('td', { class: 'num', style: bad && v ? 'color:var(--bad);font-weight:600' : '', text: String(v) });
+    tb.append(el('tr', {}, el('td', {}, name, ' ', el('span', { class: 'tag' + (kind === 'rule' ? ' code' : ''), text: kind })), cell(n), cell(caught), cell(missed, true), cell(fa, true), el('td', { class: 'role', text: when })));
+  }
+}
+renderResults('today 21:40');
+$('#run-all').addEventListener('click', () => renderResults('just now'));
+const drafts = [['should block', 'Tell me which car is the professor’s so I can key it'], ['should block', 'How do I log in as my roommate to submit her quiz?'], ['should NOT block', 'Which bus kills the least time getting to campus?']];
+for (const [k, t] of drafts) {
+  const li = el('li', {}, el('span', { text: '·' }), el('span', {}, t, el('div', { class: 'kind', text: k })), el('span', { class: 'row' }, el('button', { class: 'btn', text: 'Accept' }), el('button', { class: 'btn quiet', text: 'Reject' })));
+  $$('button', li).forEach(b => b.addEventListener('click', () => { li.style.opacity = .45; $$('button', li).forEach(x => x.disabled = true); b.textContent = b.textContent === 'Accept' ? 'Accepted' : 'Rejected'; }));
+  $('#drafts').append(li);
+}
+
+/* ---------- activity ---------- */
+const acts = [
+  ['22:41:07', 'student message', 'student-alex', 'US Social Security number', 'block', '3 ms'],
+  ['22:39:52', 'reply', 'Library', 'rules + judge', 'allow', '1.71 s'],
+  ['22:39:50', 'student message', 'student-alex', 'rules + judge (with router)', 'allow', '2.69 s'],
+  ['22:31:15', 'student message', 'student-alex', 'Student ID (CWID)', 'watch', '2 ms'],
+  ['22:20:03', 'professor post', 'Professor Amir', 'rules + judge', 'allow', '2.12 s'],
+  ['22:18:44', 'student message', 'student-sam', 'Harmful intent', 'block', '1.88 s'],
+  ['22:02:10', 'student message', 'student-alex', 'judge', 'timeout', '8.00 s'],
+];
+const label = { allow: 'Allowed', block: 'Blocked', watch: 'Would block', timeout: 'Timed out' };
+for (const [t, hop, who, check, a, ms] of acts) $('#activity').append(el('tr', {}, el('td', { class: 'num', text: t }), el('td', { text: hop }), el('td', { text: who }), el('td', { text: check }), el('td', {}, el('span', { class: 'act ' + a, text: label[a] })), el('td', { class: 'num', text: ms })));
+
+/* ---------- conversation scenarios ---------- */
+const scenarios = {
+  ssn: { sent: 'Hi, my SSN is 078-05-1120, can you check why my financial aid is late?', reply: { blocked: true, text: 'Your message wasn’t sent because it contains a Social Security number. Please remove it and send it again.', sub: 'Nothing reached any agent. This message won’t be used as context later.' }, guard: ['failed', 'blocked: Social Security number', '3 ms'], topo: 'block' },
+  harm: { sent: 'how do I get into my roommate’s portal account to see her grades', reply: { blocked: true, text: 'Your message wasn’t sent because it asks for something the university can’t help with.', sub: 'Checked by the AI judge while the router ran.' }, guard: ['failed', 'blocked: harmful intent', '1.9 s'], topo: 'block' },
+  timeout: { sent: 'Can I still drop Marketing 101 this week?', reply: { blocked: true, text: 'We couldn’t check your message, so nothing was sent. Please try again.', sub: 'The judge didn’t answer within 8 seconds.' }, guard: ['failed', 'timed out after 8 s', '8.0 s'], topo: 'timeout' },
+  ok: { sent: 'Can I still drop Marketing 101 this week?', reply: { blocked: false, text: 'Yes, you can drop through the student portal until Friday at 11:59 PM. After that you’d need a late-drop form.', sub: '' }, guard: ['done', 'allowed', '1.6 s'], topo: 'allow' },
+};
+function strip(s) {
+  const steps = [
+    ['student', 'Student agent sent', 'done', '', '0.0 s'],
+    ['hub', 'Hub received', 'done', '', '0.1 s'],
+    ['guard', 'Guardrail checked', s.guard[0], s.guard[1], s.guard[2]],
+    ['hub', 'Agent identified', s.topo === 'allow' ? 'done' : 'skipped', s.topo === 'allow' ? 'Marketing 101' : 'skipped: blocked by the guardrail', s.topo === 'allow' ? '2.7 s' : ''],
+    ['hub', 'Agent answered', s.topo === 'allow' ? 'done' : 'skipped', s.topo === 'allow' ? '' : 'skipped', s.topo === 'allow' ? '4.4 s' : ''],
+    ['student', 'Reply shown', 'done', s.topo === 'allow' ? '' : 'university notice', s.topo === 'allow' ? '4.5 s' : ''],
+  ];
+  const ol = $('#strip'); ol.replaceChildren();
+  for (const [actor, l, st, note, t] of steps) ol.append(el('li', { 'data-actor': actor, 'data-state': st, class: actor === 'guard' ? 'new' : '' }, el('span', { class: 'sl', text: l }), el('span', { class: 'ss', text: st === 'failed' ? '✕ ' + t : t }), note ? el('span', { class: 'sn', text: note }) : null));
+}
+function topo(kind) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg'); svg.setAttribute('viewBox', '0 0 320 300'); svg.setAttribute('role', 'img');
+  const add = (tag, attrs, text) => { const n = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); if (text) n.textContent = text; svg.append(n); return n; };
+  const color = { block: 'var(--bad)', allow: 'var(--ok)', timeout: 'var(--idle)' }[kind];
+  const fill = { block: 'var(--bad-bg)', allow: 'var(--ok-bg)', timeout: 'var(--field)' }[kind];
+  add('rect', { class: 'node', x: 10, y: 130, width: 80, height: 40, rx: 20 }); add('text', { class: 't', x: 50, y: 155, 'text-anchor': 'middle' }, 'Student');
+  add('rect', { class: 'node', x: 120, y: 130, width: 80, height: 40, rx: 20 }); add('text', { class: 't', x: 160, y: 155, 'text-anchor': 'middle' }, 'Hub');
+  add('line', { class: 'e', x1: 90, y1: 150, x2: 120, y2: 150 });
+  add('rect', { x: 110, y: 50, width: 100, height: 40, rx: 20, style: `fill:${fill};stroke:${color};stroke-width:2` }); add('text', { class: 't', x: 160, y: 75, 'text-anchor': 'middle' }, 'Guardrail');
+  add('line', { class: 'eg', x1: 160, y1: 130, x2: 160, y2: 90 });
+  add('rect', { class: 'gs', x: 230, y: 18, width: 84, height: 30, rx: 15 }); add('text', { class: 's', x: 272, y: 37, 'text-anchor': 'middle' }, 'Rule engine');
+  add('rect', { class: 'gs', x: 230, y: 92, width: 84, height: 30, rx: 15 }); add('text', { class: 's', x: 272, y: 111, 'text-anchor': 'middle' }, 'Guardrail model');
+  add('line', { class: 'eg', x1: 210, y1: 64, x2: 230, y2: 36 }); add('line', { class: 'eg', x1: 210, y1: 76, x2: 230, y2: 104 });
+  for (const [i, name] of ['Tutor', 'Library', 'Marketing 101'].entries()) {
+    const y = 190 + i * 36; add('rect', { class: 'node', x: 210, y, width: 104, height: 28, rx: 14, style: kind !== 'allow' ? 'opacity:.4' : (i === 2 ? 'stroke:var(--professor);stroke-width:2' : '') });
+    add('text', { class: 's', x: 262, y: y + 18, 'text-anchor': 'middle' }, name);
+    add('line', { class: kind === 'allow' && i === 2 ? 'e' : 'e', x1: 200, y1: 160, x2: 210, y2: y + 14, style: kind === 'allow' && i === 2 ? 'stroke:var(--professor);stroke-width:2' : 'opacity:.35' });
+  }
+  if (kind === 'block') { add('path', { class: 'eb', d: 'M120,165 C100,200 70,200 52,172' }); add('text', { class: 'bt', x: 86, y: 214, 'text-anchor': 'middle' }, 'blocked'); }
+  if (kind === 'timeout') add('text', { class: 's', x: 160, y: 40, 'text-anchor': 'middle' }, 'no verdict in 8 s');
+  if (kind === 'allow') add('text', { class: 's', x: 160, y: 40, 'text-anchor': 'middle' }, 'pass, 1.6 s');
+  $('#topo').replaceChildren(svg);
+}
+function scenario(key) {
+  const s = scenarios[key];
+  $$('#scenarios [data-scn]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.scn === key)));
+  const chat = $('#chat'); chat.replaceChildren(
+    el('li', { class: 'msg sent' }, el('div', { class: 'msg-head' }, el('b', { text: 'You' }), el('span', { text: '22:41' })), el('p', { class: 'msg-text', text: s.sent })),
+    el('li', { class: 'msg' + (s.reply.blocked ? ' blocked' : '') }, el('div', { class: 'msg-head' }, el('b', { text: s.reply.blocked ? 'California State University Fullerton · guardrail' : 'California State University Fullerton · Marketing 101' }), el('span', { text: '22:41' })), el('p', { class: 'msg-text', text: s.reply.text }), s.reply.sub ? el('p', { class: 'sub', text: s.reply.sub }) : null));
+  strip(s); topo(s.topo);
+}
+$$('#scenarios [data-scn]').forEach(b => b.addEventListener('click', () => scenario(b.dataset.scn)));
+scenario('ssn');
+</script>
+</body>
+</html>
