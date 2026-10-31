@@ -240,9 +240,11 @@ Hub `/dev/guardrails/*`, origin-guarded like the other `/dev` routes.
 ## 8. Topology and the hop-by-hop strip
 
 - **The guardrail lives inside the Hub circle (owner's request, 2026-10-31):** no separate Guardrail
-  node. The Hub disc carries a shield badge above its name (slightly larger than the agents' badges),
-  and two new boxes hang off the Hub — **Rule engine** ("workerd") and **Guardrail model** (its own
-  model box, like each agent's). Discs show the name only: sub-lines such as "Marketing 101 / +
+  node. The Hub disc is larger and holds a **guardrail circle** (shield + "Guardrail") with its two
+  parts inside it as labels: **Rules** (the code rules in the workerd rule engine) and **Decision
+  Model** (the AI judge's model). No outside boxes for them (owner's request, 2026-10-31). Each part
+  fills while it works, then turns green (clean) or red (finding / block); a skipped part dims (e.g. a
+  sure rule hit skips the Decision Model). Discs show the name only: sub-lines such as "Marketing 101 / +
   assistant", "Front door and router / router: live", "Tutoring", "You / student-alex" are removed
   as redundant (owner's request), as are "a person / Professor view" on Professor Amir's box.
 - **The course agent is shown as "Marketing 101 Class" (owner's request, 2026-10-31):** the professor is
@@ -260,7 +262,8 @@ Hub `/dev/guardrails/*`, origin-guarded like the other `/dev` routes.
   a blink = refused; green = passed/loaded; dashed amber = no rules yet), a Library and a Tutor rule
   refusing an action with the reason, and an agent signing in that receives its policies first. Mockup:
   `docs/superpowers/specs/2026-10-30-step-12-topology-mockup.html`.
-- **Animated hops (real events only):** Hub → Rule engine (scan), Hub → Guardrail model (judge); the
+- **Animation (real events only):** Rules lights up (scan), then Decision Model (judge, while the router's
+  hop to its model runs at the same time); the
   verdict shows on the Hub's shield, which fills and turns its dashed orbit while checking (like
   production's busy orbit), then turns **green pass** or **red block**, with the Hub's status pill saying
   "Guardrail checking / pass / blocked" (the flow stops at the Hub and the
