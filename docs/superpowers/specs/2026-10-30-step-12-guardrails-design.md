@@ -247,8 +247,9 @@ Hub `/dev/guardrails/*`, origin-guarded like the other `/dev` routes.
   waiting"), the professor's own reply or direct post leaving (author `professor`), and a refused post
   coming back ("Not sent"). Assistant answers animate Professor ↔ Professor's model instead, and the person
   node dims. Labels distinguish "written by Professor Amir" from "assistant". The same mockup previews
-  Step 13: a rules ring around each agent disc (faint dotted = installed, lit and moving = a rule is
-  running, red = refused, green = passed/loaded), a Library and a Tutor rule
+  Step 13: a small shield badge inside each agent disc, above its name (outline = rules installed;
+  filled with a dashed orbit that turns, like production's busy orbit, = a rule is running; red with
+  a blink = refused; green = passed/loaded; dashed amber = no rules yet), a Library and a Tutor rule
   refusing an action with the reason, and an agent signing in that receives its policies first. Mockup:
   `docs/superpowers/specs/2026-10-30-step-12-topology-mockup.html`.
 - **Animated hops (real events only):** Hub → Rule engine (scan), Hub → Guardrail model (judge); the

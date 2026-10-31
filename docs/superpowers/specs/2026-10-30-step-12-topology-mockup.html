@@ -80,17 +80,25 @@ svg.topo { width: 100%; height: auto; display: block; max-height: 72dvh; }
 .tone-bad .pill { fill: var(--bad-bg); stroke: transparent; } .tone-bad .ptext { fill: var(--bad); }
 .tone-warn .pill { fill: var(--warn-bg); stroke: transparent; } .tone-warn .ptext { fill: var(--warn); }
 .tone-guard .pill { fill: var(--guard-tint); stroke: transparent; } .tone-guard .ptext { fill: var(--guard); }
-/* agent rules ring (Step 13 preview) */
-.agring { fill: none; stroke: var(--guard); stroke-width: 2; stroke-dasharray: 2 6; stroke-linecap: round; opacity: .55; transform-origin: 0 0; transition: stroke .3s, opacity .3s, stroke-width .3s; }
-/* running: three bright arcs spin around the agent, and waves ripple outward */
-.agring.check { opacity: 1; stroke-width: 6; stroke-dasharray: 46 26; filter: drop-shadow(0 0 7px color-mix(in srgb, var(--guard) 75%, transparent)); }
-.agpulse { fill: none; stroke: var(--guard); stroke-width: 3; pointer-events: none; }
-.agpulse.bad { stroke: var(--bad); }
-.agpulse.good { stroke: var(--ok); }
-/* refused: red ring blinks three times, then stays red */
-.agring.block { opacity: 1; stroke: var(--bad); stroke-width: 6; stroke-dasharray: none; filter: drop-shadow(0 0 8px color-mix(in srgb, var(--bad) 65%, transparent)); }
-.agring.pass { opacity: 1; stroke: var(--ok); stroke-width: 4; stroke-dasharray: none; }
-.agring.none { opacity: .9; stroke: var(--warn); stroke-dasharray: 1 7; }
+/* agent rules badge (Step 13 preview): a small shield circle inside the agent's own disc.
+   Its dashed orbit turns while a rule runs, the same way an agent's orbit turns on production when it is busy. */
+.agbase { fill: var(--surface); stroke: var(--guard); stroke-width: 1.6; transition: fill .3s, stroke .3s; }
+.agshield { fill: none; stroke: var(--guard); stroke-width: 1.6; stroke-linejoin: round; transition: stroke .3s, fill .3s; }
+.agorbit { fill: none; stroke: var(--guard); stroke-width: 2.2; stroke-dasharray: 7 5; stroke-linecap: round; opacity: 0; transition: opacity .3s, stroke .3s; }
+.agpulse { fill: none; stroke: var(--guard); stroke-width: 2.5; pointer-events: none; }
+.agbadge.check .agbase { fill: var(--guard); }
+.agbadge.check .agshield { stroke: var(--surface); fill: color-mix(in srgb, var(--surface) 30%, transparent); }
+.agbadge.check .agorbit { opacity: 1; }
+.agbadge.block .agbase { fill: var(--bad); stroke: var(--bad); }
+.agbadge.block .agshield { stroke: var(--surface); }
+.agbadge.block .agorbit { opacity: 1; stroke: var(--bad); stroke-dasharray: none; }
+.agbadge.block .agpulse { stroke: var(--bad); }
+.agbadge.pass .agbase { fill: var(--ok); stroke: var(--ok); }
+.agbadge.pass .agshield { stroke: var(--surface); }
+.agbadge.pass .agorbit { opacity: .9; stroke: var(--ok); stroke-dasharray: none; }
+.agbadge.pass .agpulse { stroke: var(--ok); }
+.agbadge.none .agbase { stroke: var(--warn); stroke-dasharray: 2 3; }
+.agbadge.none .agshield { stroke: var(--warn); opacity: .5; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes wave { from { opacity: .85; transform: scale(1); } to { opacity: 0; transform: scale(1.45); } }
 @keyframes blink { 0% { opacity: 1; } 100% { opacity: .15; } }
@@ -158,7 +166,7 @@ svg.topo { width: 100%; height: auto; display: block; max-height: 72dvh; }
       <span><i><svg width="12" height="12"><rect x="2" y="2" width="8" height="8" transform="rotate(45 6 6)" fill="var(--guard)"/></svg></i>Guardrail check</span>
       <span><i><svg width="22" height="8"><line x1="0" y1="4" x2="22" y2="4" stroke="var(--muted)" stroke-width="2" stroke-dasharray="5 5"/></svg></i>Model call (HTTPS)</span>
       <span><i><svg width="22" height="8"><line x1="0" y1="4" x2="22" y2="4" stroke="var(--person)" stroke-width="2.4" stroke-dasharray="2 4"/></svg></i>A person, through the Professor view</span>
-      <span><i><svg width="16" height="16"><circle cx="8" cy="8" r="6" fill="none" stroke="var(--guard)" stroke-width="2" stroke-dasharray="2 3"/></svg></i>Agent rules ring: dotted = installed, lit = running, red = refused</span>
+      <span><i><svg width="16" height="16"><circle cx="8" cy="8" r="6" fill="var(--guard)" stroke="var(--guard)" stroke-width="1.5"/><circle cx="8" cy="8" r="7.5" fill="none" stroke="var(--guard)" stroke-width="1" stroke-dasharray="3 2"/></svg></i>Shield inside an agent = its own rules: outline = installed, filled and turning = running, red = refused, green = passed</span>
     </div>
   </section>
 
@@ -259,17 +267,20 @@ for (const [id, n] of Object.entries(N)) {
     if (n.mono) g.append(s('text', { class: 'nmono', y: 25, 'text-anchor': 'middle' }, n.mono));
   }
   // status pill
-  const py = n.r ? n.r + (AGENT_RULES[id] ? 32 : 20) : n.h / 2 + 18;
+  const py = n.r ? n.r + 20 : n.h / 2 + 18;
   const st = s('g', { class: 'st', transform: `translate(0 ${py})` });
   st.append(s('rect', { class: 'pill', x: -66, y: -12, width: 132, height: 23, rx: 11.5 }), s('text', { class: 'ptext', y: 4, 'text-anchor': 'middle' }, ''));
   g.append(st);
-  // Step 13 preview: an agent's own rules are a ring around its disc — faint and dotted while installed,
-  // lit and moving while a rule runs, red when a rule refuses, green when the rules pass or load.
+  // Step 13 preview: an agent's own rules are a small shield badge inside its disc, above the name.
+  // Outline while installed; filled with a turning orbit while a rule runs; red when it refuses; green when it passes.
   if (AGENT_RULES[id]) {
-    const ring = s('circle', { class: 'agring', r: n.r + 11 });
-    ring.append(s('title', {}, `${n.name} rules: ${AGENT_RULES[id].ids.join(', ')}`));
-    g.insertBefore(ring, g.firstChild);
-    for (const late of [false, true]) g.insertBefore(s('circle', { class: 'agpulse', r: n.r + 11, 'stroke-opacity': 0 }), g.firstChild);
+    const b = s('g', { class: 'agbadge', transform: `translate(0 ${-n.r + 20})` });
+    b.append(s('title', {}, `${n.name} rules: ${AGENT_RULES[id].ids.join(', ')}`));
+    b.append(s('circle', { class: 'agpulse', r: 16, 'stroke-opacity': 0 }));
+    b.append(s('circle', { class: 'agorbit', r: 16 }));
+    b.append(s('circle', { class: 'agbase', r: 12 }));
+    b.append(s('path', { class: 'agshield', d: 'M0,-6.5 L5.5,-4.4 L5.5,-0.6 C5.5,2.6 3.1,4.6 0,5.8 C-3.1,4.6 -5.5,2.6 -5.5,-0.6 L-5.5,-4.4 Z' }));
+    g.append(b);
   }
   gNodes.append(g);
   nodes[id] = g;
@@ -288,25 +299,22 @@ function smil(el, tag, attrs) {
   return a;
 }
 function ruleRing(id, state = '') {
-  const ring = nodes[id].querySelector('.agring'), r = Number(ring.getAttribute('r'));
-  ring.setAttribute('class', 'agring' + (state ? ' ' + state : ''));
-  nodes[id].querySelectorAll('.agring > animate, .agring > animateTransform, .agpulse > animate').forEach((a) => a.remove());
-  const pulses = [...nodes[id].querySelectorAll('.agpulse')];
-  pulses.forEach((c) => c.setAttribute('class', 'agpulse' + (state === 'block' ? ' bad' : state === 'pass' ? ' good' : '')));
+  const b = nodes[id].querySelector('.agbadge'), orbit = b.querySelector('.agorbit'), pulse = b.querySelector('.agpulse');
+  b.setAttribute('class', 'agbadge' + (state ? ' ' + state : ''));
+  b.querySelectorAll('animate, animateTransform').forEach((a) => a.remove());
   if (reduce) return;   // the toolbar's Reduce motion: colours only
-  const wave = (c, dur, count, delay = 0) => {
-    smil(c, 'animate', { attributeName: 'r', values: `${r};${r * 1.45}`, dur: `${dur}s`, repeatCount: count, begin: 'indefinite' });
-    smil(c, 'animate', { attributeName: 'stroke-opacity', values: '0.85;0', dur: `${dur}s`, repeatCount: count });
-    if (delay) c.querySelectorAll('animate').forEach((a) => { a.endElement(); setTimeout(() => a.beginElement(), delay); });
+  const wave = (dur, count) => {
+    smil(pulse, 'animate', { attributeName: 'r', values: '16;22', dur: `${dur}s`, repeatCount: count });
+    smil(pulse, 'animate', { attributeName: 'stroke-opacity', values: '0.9;0', dur: `${dur}s`, repeatCount: count });
   };
   if (state === 'check') {
-    smil(ring, 'animateTransform', { attributeName: 'transform', type: 'rotate', from: '0', to: '360', dur: '1s', repeatCount: 'indefinite' });
-    wave(pulses[0], 1, 'indefinite'); wave(pulses[1], 1, 'indefinite', 500);
+    smil(orbit, 'animateTransform', { attributeName: 'transform', type: 'rotate', from: '0', to: '360', dur: '1.2s', repeatCount: 'indefinite' });
+    wave(1.2, 'indefinite');
   } else if (state === 'block') {
-    smil(ring, 'animate', { attributeName: 'stroke-opacity', values: '1;0.1;1', dur: '0.3s', repeatCount: '4' });
-    wave(pulses[0], 0.6, '3');
+    smil(orbit, 'animate', { attributeName: 'stroke-opacity', values: '1;0.1;1', dur: '0.3s', repeatCount: '4' });
+    wave(0.6, '3');
   } else if (state === 'pass') {
-    wave(pulses[0], 0.8, '1');
+    wave(0.8, '1');
   }
 }
 function resetAll() {
