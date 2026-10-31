@@ -80,6 +80,8 @@ svg.topo { width: 100%; height: auto; display: block; max-height: 72dvh; }
 .tone-bad .pill { fill: var(--bad-bg); stroke: transparent; } .tone-bad .ptext { fill: var(--bad); }
 .tone-warn .pill { fill: var(--warn-bg); stroke: transparent; } .tone-warn .ptext { fill: var(--warn); }
 .tone-guard .pill { fill: var(--guard-tint); stroke: transparent; } .tone-guard .ptext { fill: var(--guard); }
+.rb { color: var(--guard); } .rb.tone-ok { color: var(--ok); } .rb.tone-bad { color: var(--bad); } .rb.tone-warn { color: var(--warn); }
+.rb .pill { stroke: currentColor; stroke-opacity: .5; stroke-width: 1; }
 .verdict-pass .disc { fill: var(--ok-bg); stroke: var(--ok); }
 .verdict-block .disc { fill: var(--bad-bg); stroke: var(--bad); }
 .verdict-check .disc { fill: var(--guard-tint); }
@@ -128,6 +130,10 @@ svg.topo { width: 100%; height: auto; display: block; max-height: 72dvh; }
       <button class="scn" data-scn="post" aria-pressed="false">Professor Amir posts</button>
       <button class="scn" data-scn="postBlocked" aria-pressed="false">Post blocked</button>
       <button class="scn" data-scn="ssn" aria-pressed="false">Student SSN blocked</button>
+      <span class="lbl" style="margin-left:8px">Agent rules (Step 13)</span>
+      <button class="scn" data-scn="libraryRule" aria-pressed="false">Library rule</button>
+      <button class="scn" data-scn="tutorRule" aria-pressed="false">Tutor rule</button>
+      <button class="scn" data-scn="onboard" aria-pressed="false">Agent signs in</button>
       <span class="clock" id="clock">live · 23:30:00</span>
     </div>
     <div class="caption" id="caption">Pick a scenario.</div>
@@ -196,6 +202,12 @@ function lanePts(a, b, off) {
   return [x1 + ox, y1 + oy, x2 + ox, y2 + oy];
 }
 
+// Step 13 preview: rules installed at the agent that owns the skill (placed by skill, fetched at sign-in)
+const AGENT_RULES = {
+  tutor:   { dx: 0,  ids: ['tutoring-hours@2', 'no-online-friday@1'] },
+  prof:    { dx: 0,  ids: ['enrolled-only@1'] },
+  library: { dx: 34, ids: ['loan-renewal-limit@1', 'room-hours@1'] },
+};
 const gEdges = s('g'), gNodes = s('g'), gPackets = s('g');
 svg.append(s('defs'), gEdges, gNodes, gPackets);
 for (const [a, b, label, kind] of E) {
@@ -235,6 +247,14 @@ for (const [id, n] of Object.entries(N)) {
   const st = s('g', { class: 'st', transform: `translate(0 ${py})` });
   st.append(s('rect', { class: 'pill', x: -66, y: -12, width: 132, height: 23, rx: 11.5 }), s('text', { class: 'ptext', y: 4, 'text-anchor': 'middle' }, ''));
   g.append(st);
+  // Step 13 preview: each agent's own rules, as a shield chip above the agent
+  if (AGENT_RULES[id]) {
+    const rb = s('g', { class: 'rb', transform: `translate(${AGENT_RULES[id].dx} ${-(n.r + 18)})` });
+    rb.append(s('rect', { class: 'pill', x: -82, y: -12, width: 164, height: 23, rx: 6 }),
+      s('path', { d: 'M0,-7 L6,-4.5 L6,0 C6,3.5 3.5,5.5 0,7 C-3.5,5.5 -6,3.5 -6,0 L-6,-4.5 Z', transform: 'translate(-68 0)', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.5, class: 'rb-mark' }),
+      s('text', { class: 'ptext', x: -56, y: 4, 'text-anchor': 'start' }, ''));
+    g.append(rb);
+  }
   gNodes.append(g);
   nodes[id] = g;
 }
@@ -244,8 +264,14 @@ function status(id, text, tone = '') {
   st.querySelector('text').textContent = text;
   st.style.display = text ? '' : 'none';
 }
+function badge(id, text, tone = 'guard') {
+  const rb = nodes[id].querySelector('.rb');
+  rb.setAttribute('class', 'rb tone-' + tone);
+  rb.querySelector('text').textContent = text;
+}
 function resetAll() {
   for (const id of Object.keys(N)) { nodes[id].classList.remove('flash', 'dim', 'verdict-pass', 'verdict-block', 'verdict-check'); status(id, ''); }
+  for (const [id, r] of Object.entries(AGENT_RULES)) badge(id, `${r.ids.length} agent rule${r.ids.length > 1 ? 's' : ''}`);
   for (const l of Object.values(lanes)) { l.classList.remove('lit'); l.style.removeProperty('--lit'); }
   gPackets.replaceChildren();
   status('student', '✓ Online', 'ok'); status('hub', '✓ Ready', 'ok'); status('tutor', '✓ Ready', 'ok'); status('prof', '✓ Ready', 'ok'); status('library', '✓ Ready', 'ok');
@@ -374,6 +400,38 @@ const SCN = {
     { go: [['rules', 'guard', 'check', 500]], then: () => { status('rules', '✕ SSN · high · 3 ms', 'bad'); nodes.mGuard.classList.add('dim'); nodes.mHub.classList.add('dim'); nodes.prof.classList.add('dim'); nodes.tutor.classList.add('dim'); nodes.library.classList.add('dim'); } , ev: ['Rule engine → Guardrail', 'Finding: SSN, high', 'position only, never the number', 'dm'] },
     { then: () => { nodes.guard.classList.remove('verdict-check'); nodes.guard.classList.add('verdict-block'); status('guard', '✕ Blocked', 'bad'); }, cap: ['Blocked right away.', 'No model and no agent ever sees the message.'], capColor: '--bad', ev: ['Guardrail', 'Blocked', 'rule: us-ssn@3 · 3 ms', 'dm'], evColor: '--bad' },
     { go: [['hub', 'student']], cap: ['Student sees fixed words:', '“Your message wasn’t sent because it contains a Social Security number.”'], capColor: '--bad', ev: ['University Hub → Student agent', 'Blocked notice', 'nothing forwarded'], evColor: '--bad' },
+  ],
+  libraryRule: [
+    { go: [['student', 'hub']], cap: ['Student agent → Hub:', '“Please renew my calculus book again.”'], ev: ['Student agent → University Hub', 'Question', 'chat, sent'] },
+    ...checkIn('the student’s message'), ...judge('1.5 s'),
+    pass('Student message (it’s safe: the Hub’s guardrail only checks safety)'),
+    { go: [['hub', 'library']], cap: ['Hub → Library:', 'the Library owns the loan skill, so its rules live there.'], ev: ['University Hub → Library', 'Question', 'routed: Library · 2.5 s'] },
+    clearGuard(),
+    { then: () => { badge('library', 'checking loan-renewal-limit@1', 'guard'); flash('library'); }, cap: ['Library agent rule:', 'before renewing, the Library runs its own rule, loan-renewal-limit@1.'], capColor: '--library', ev: ['Library', 'Agent rule check', 'loan-renewal-limit@1 · renew requested', 'dm'], evColor: '--library', pause: 1100 },
+    { then: () => badge('library', '✕ renewal limit reached', 'bad'), cap: ['The rule refuses:', 'this book has already been renewed 2 times, the maximum. Nothing is renewed.'], capColor: '--bad', ev: ['Library', 'Agent rule: refused', 'loan-renewal-limit@1 · 0.1 ms', 'dm'], evColor: '--bad', pause: 900 },
+    { go: [['library', 'hub']], cap: ['Library → Hub:', '“I can’t renew it again. It’s been renewed twice, which is the maximum.”'], ev: ['Library → University Hub', 'Reply: renewal refused, with the reason', 'code: renewal_limit'], evColor: '--library' },
+    ...checkIn('the reply'), pass('Library reply'),
+    { go: [['hub', 'student']], cap: ['Student gets the reason,', 'not a block. Today this check is hand-written in the Library; in Step 13 it becomes a managed, versioned rule.'], ev: ['University Hub → Student agent', 'Reply delivered', 'result returned'], evColor: '--hub' },
+  ],
+  tutorRule: [
+    { go: [['student', 'hub']], cap: ['Student agent → Hub:', '“Can I book an online tutoring session this Friday?”'], ev: ['Student agent → University Hub', 'Question', 'chat, sent'] },
+    ...checkIn('the student’s message'), ...judge('1.6 s'),
+    pass('Student message'),
+    { go: [['hub', 'tutor']], ev: ['University Hub → Tutor Agent', 'Question', 'routed: Tutoring · 2.7 s'] },
+    clearGuard(),
+    { then: () => { badge('tutor', 'checking no-online-friday@1', 'guard'); flash('tutor'); }, cap: ['Tutor agent rule:', 'the university policy “no online class on Fridays” was placed here because the Tutor owns session booking.'], capColor: '--tutor', ev: ['Tutor Agent', 'Agent rule check', 'no-online-friday@1 · date: Friday', 'dm'], evColor: '--tutor', pause: 1100 },
+    { then: () => badge('tutor', '✕ no online on Fridays', 'bad'), cap: ['The rule refuses the booking,', 'so no form is offered for Friday.'], capColor: '--bad', ev: ['Tutor Agent', 'Agent rule: refused', 'no-online-friday@1 · 0.1 ms', 'dm'], evColor: '--bad', pause: 900 },
+    { go: [['tutor', 'hub']], cap: ['Tutor → Hub:', '“Online sessions don’t run on Fridays. Monday to Thursday works. Want one of those?”'], ev: ['Tutor Agent → University Hub', 'Reply: policy explained', 'policy: no-online-friday@1'], evColor: '--tutor' },
+    ...checkIn('the reply'), pass('Tutor reply'),
+    { go: [['hub', 'student']], ev: ['University Hub → Student agent', 'Reply delivered', 'result returned'], evColor: '--hub' },
+  ],
+  onboard: [
+    { then: () => { status('tutor', '… Signing in', 'warn'); badge('tutor', 'no rules yet', 'warn'); nodes.tutor.classList.add('dim'); }, cap: ['The Tutor agent (re)starts.', 'Until it has its rules, the Hub sends it no work.'], capColor: '--tutor', ev: ['Tutor Agent', 'Starting', 'status: signing in'], evColor: '--tutor', pause: 900 },
+    { go: [['tutor', 'hub', 'post']], then: () => nodes.tutor.classList.remove('dim'), cap: ['Tutor → Hub: register,', 'with its Agent Card (skills: tutoring questions, tutoring requests, online sessions).'], ev: ['Tutor Agent → University Hub', 'Register', 'card fetched from the configured URL', 'sq'], evColor: '--tutor' },
+    { then: () => { status('hub', '… Matching policies', 'guard'); flash('hub'); }, cap: ['Hub matches policies to the Tutor’s skills:', 'tutoring-hours@2 (tutoring requests), no-online-friday@1 (online sessions).'], capColor: '--hub', ev: ['University Hub', 'Policies matched by skill', '2 policies for 3 skills', 'dm'], evColor: '--hub', pause: 1100 },
+    { go: [['hub', 'tutor', 'check']], then: () => badge('tutor', 'loading 2 rules', 'guard'), cap: ['Hub → Tutor:', 'here are the policies for your skills, with their hashes.'], ev: ['University Hub → Tutor Agent', 'Policy bundle', 'tutoring-hours@2 · no-online-friday@1', 'dm'], evColor: '--hub' },
+    { go: [['tutor', 'hub', 'check']], cap: ['Tutor → Hub:', 'loaded, and the hashes match.'], ev: ['Tutor Agent → University Hub', 'Policies loaded', 'hashes 7c41…e09a, 19ab…3f20 ✓', 'dm'], evColor: '--tutor' },
+    { then: () => { status('hub', '✓ Ready', 'ok'); status('tutor', '✓ Ready', 'ok'); badge('tutor', '✓ 2 agent rules', 'ok'); flash('tutor'); }, cap: ['Only now is the Tutor “Ready”', 'and able to receive questions.'], capColor: '--ok', ev: ['University Hub', 'Tutor Agent ready', 'policies verified · dispatch allowed'], evColor: '--ok' },
   ],
 };
 
