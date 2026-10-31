@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hub Guardrails System Design</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column of figures; each SVG scrolls sideways on its own at phone width. */
+:root {
+  --bg: #f5f7fa; --fg: #1b2430; --muted: #566273; --line: #8f9bab;
+  --panel: #ffffff; --panel2: #eaf3f4;
+  --new: #0d7480; --block: #b8322b; --allow: #2a7a4b; --warn: #a86d12; --idle: #7d8794;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #11161d; --fg: #e5eaf0; --muted: #9ba7b6; --line: #5a6676;
+  --panel: #19202a; --panel2: #15262a;
+  --new: #42c2cc; --block: #f0736c; --allow: #5cc48a; --warn: #e3b04b; --idle: #8a95a3;
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #11161d; --fg: #e5eaf0; --muted: #9ba7b6; --line: #5a6676;
+  --panel: #19202a; --panel2: #15262a;
+  --new: #42c2cc; --block: #f0736c; --allow: #5cc48a; --warn: #e3b04b; --idle: #8a95a3;
+  color-scheme: dark; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.55; }
+main { max-width: 1240px; margin: 0 auto; padding-block: 32px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 40px; }
+header { display: grid; gap: 8px; max-width: 72ch; }
+h1 { font-size: 30px; line-height: 1.2; margin: 0; text-wrap: balance; }
+h2 { font-size: 20px; margin: 0; text-wrap: balance; }
+p { margin: 0; max-width: 72ch; }
+.lede { color: var(--muted); }
+section { display: grid; gap: 12px; }
+figure { margin: 0; display: grid; gap: 10px; }
+.scroll { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.scroll svg { display: block; min-width: 900px; width: 100%; height: auto; }
+figcaption { color: var(--muted); font-size: 14px; max-width: 80ch; }
+.key { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13px; color: var(--muted); }
+.key span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 22px; height: 12px; border-radius: 3px; display: inline-block; }
+.sw.new { border: 2px dashed var(--new); background: var(--panel2); }
+.sw.old { border: 1.5px solid var(--line); background: var(--panel); }
+.sw.allow { background: var(--allow); } .sw.block { background: var(--block); }
+.sw.warn { background: var(--warn); } .sw.idle { background: var(--idle); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+.tablewrap { overflow-x: auto; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 600; color: var(--muted); }
+code, .mono { font-family: var(--mono); font-size: 0.92em; }
+.open { color: var(--warn); font-weight: 600; }
+
+/* SVG parts */
+svg { color: var(--line); font-family: var(--sans); }
+svg .box { fill: var(--panel); stroke: var(--line); stroke-width: 1.5; }
+svg .zone { fill: var(--bg); stroke: var(--line); stroke-width: 1.5; }
+svg .nbox { fill: var(--panel2); stroke: var(--new); stroke-width: 2; stroke-dasharray: 7 4; }
+svg .nzone { fill: var(--panel2); stroke: var(--new); stroke-width: 2; stroke-dasharray: 7 4; fill-opacity: .55; }
+svg .wbox { fill: var(--panel); stroke: var(--warn); stroke-width: 2; stroke-dasharray: 4 4; }
+svg .ext { fill: var(--panel); stroke: var(--fg); stroke-width: 1.5; }
+svg .t { fill: var(--fg); font-size: 13px; }
+svg .b { fill: var(--fg); font-size: 13.5px; font-weight: 700; }
+svg .s { fill: var(--muted); font-size: 11.5px; }
+svg .m { fill: var(--muted); font-size: 11.5px; font-family: var(--mono); }
+svg .nt { fill: var(--new); font-size: 13.5px; font-weight: 700; }
+svg .lbl { fill: var(--muted); font-size: 11px; }
+svg .ln { stroke: var(--line); stroke-width: 1.6; fill: none; }
+svg .lnn { stroke: var(--new); stroke-width: 1.8; fill: none; }
+svg .lnb { stroke: var(--block); stroke-width: 1.8; fill: none; }
+svg .lna { stroke: var(--allow); stroke-width: 1.8; fill: none; }
+svg .dash { stroke-dasharray: 5 4; }
+svg .mk { fill: var(--line); } svg .mkn { fill: var(--new); } svg .mkb { fill: var(--block); } svg .mka { fill: var(--allow); }
+svg .bar-new { fill: var(--new); } svg .bar-new-lt { fill: var(--new); fill-opacity: .3; }
+svg .bar-old { fill: var(--line); }
+svg .g-allow { fill: var(--allow); } svg .g-block { fill: var(--block); } svg .g-warn { fill: var(--warn); } svg .g-idle { fill: var(--idle); }
+svg .wt { fill: var(--warn); font-size: 11.5px; font-weight: 600; }
+svg .bt { fill: var(--block); font-size: 11.5px; }
+svg .at { fill: var(--allow); font-size: 11.5px; }
+</style>
+</head>
+<body>
+
+<main>
+<header>
+  <h1>Step 12: University Hub guardrails</h1>
+  <p class="lede">How a message is checked on its way into and out of the Hub, which processes do the checking, and how a new rule goes live. Drawn from the Step 12 design document (spec dated 30 Oct 2026). Nothing here is built yet.</p>
+  <div class="key">
+    <span><i class="sw new"></i>New in Step 12</span>
+    <span><i class="sw old"></i>Already running today</span>
+    <span><i class="sw allow"></i>Allowed</span>
+    <span><i class="sw block"></i>Blocked</span>
+    <span><i class="sw warn"></i>Watch only: would have blocked</span>
+    <span><i class="sw idle"></i>Timed out</span>
+  </div>
+</header>
+
+<!-- ───────────── Figure 1: system map ───────────── -->
+<section>
+  <h2>1. Systems and connections</h2>
+  <figure>
+    <div class="scroll">
+    <svg viewBox="0 0 1200 790" role="img" aria-label="System map: the browser talks to the UI server, which sends signed A2A messages to the University Hub. The new guardrail module inside the Hub calls the workerd rule engine and the Anthropic API before anything reaches the Tutor, Library or Professor; their replies are held and checked on the way back.">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker>
+        <marker id="arn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mkn"/></marker>
+      </defs>
+
+      <!-- Browser -->
+      <rect class="box" x="380" y="16" width="440" height="64" rx="8"/>
+      <text class="b" x="600" y="42" text-anchor="middle">Browser</text>
+      <text class="s" x="600" y="63" text-anchor="middle">Tabs: Conversation, Activity, Topology, Professor, Guardrails (new)</text>
+      <line class="ln" x1="600" y1="80" x2="600" y2="127" marker-end="url(#ar)"/>
+      <text class="lbl" x="608" y="108">AG-UI stream and POSTs</text>
+
+      <!-- UI server -->
+      <rect class="zone" x="300" y="130" width="600" height="120" rx="10"/>
+      <text class="b" x="316" y="151">UI server <tspan class="m" dx="6">127.0.0.1:4444</tspan></text>
+      <rect class="box" x="316" y="162" width="180" height="74" rx="6"/>
+      <text class="b" x="406" y="184" text-anchor="middle">Student agent (Alex)</text>
+      <text class="s" x="406" y="203" text-anchor="middle">signs every request</text>
+      <text class="s" x="406" y="221" text-anchor="middle">has its own model</text>
+      <rect class="nbox" x="510" y="162" width="180" height="74" rx="6"/>
+      <text class="nt" x="600" y="184" text-anchor="middle">On a block</text>
+      <text class="s" x="600" y="203" text-anchor="middle">shows the fixed notice</text>
+      <text class="s" x="600" y="221" text-anchor="middle">drops the held message</text>
+      <rect class="nbox" x="704" y="162" width="180" height="74" rx="6"/>
+      <text class="nt" x="794" y="184" text-anchor="middle">Guardrails tab</text>
+      <text class="s" x="794" y="203" text-anchor="middle">forwards rule edits</text>
+      <text class="s" x="794" y="221" text-anchor="middle">to the Hub</text>
+
+      <!-- UI <-> Hub -->
+      <line class="ln" x1="390" y1="250" x2="390" y2="297" marker-end="url(#ar)"/>
+      <text class="lbl" x="396" y="279">signed A2A message</text>
+      <line class="ln" x1="560" y1="300" x2="560" y2="253" marker-end="url(#ar)"/>
+      <text class="lbl" x="566" y="279">reply or notice</text>
+      <line class="lnn" x1="760" y1="250" x2="760" y2="297" marker-end="url(#arn)"/>
+      <text class="lbl" x="766" y="279">/dev/guardrails/*</text>
+      <line class="ln dash" x1="892" y1="300" x2="892" y2="253" marker-end="url(#ar)"/>
+      <text class="lbl" x="898" y="279">telemetry, no text</text>
+
+      <!-- Student model to API -->
+      <polyline class="ln" points="900,182 1110,182 1110,297" marker-end="url(#ar)"/>
+      <text class="lbl" x="1004" y="174" text-anchor="middle">student model calls</text>
+
+      <!-- Hub -->
+      <rect class="zone" x="200" y="300" width="800" height="320" rx="10"/>
+      <text class="b" x="216" y="322">University Hub <tspan class="m" dx="6">127.0.0.1:41243</tspan></text>
+
+      <!-- Guardrail module -->
+      <rect class="nzone" x="216" y="334" width="440" height="272" rx="8"/>
+      <text class="nt" x="232" y="355">Guardrail module (new)</text>
+
+      <rect class="box" x="232" y="368" width="190" height="60" rx="6"/>
+      <text class="b" x="327" y="391" text-anchor="middle">1. Rule check</text>
+      <text class="s" x="327" y="411" text-anchor="middle">asks workerd, 50 ms cap</text>
+
+      <rect class="box" x="232" y="446" width="190" height="60" rx="6"/>
+      <text class="b" x="327" y="469" text-anchor="middle">Modes</text>
+      <text class="s" x="327" y="489" text-anchor="middle">off, watch only, block</text>
+
+      <rect class="box" x="232" y="524" width="190" height="66" rx="6"/>
+      <text class="b" x="327" y="548" text-anchor="middle">Verdict cache</text>
+      <text class="s" x="327" y="568" text-anchor="middle">exact same text only</text>
+
+      <rect class="box" x="446" y="368" width="194" height="60" rx="6"/>
+      <text class="b" x="543" y="391" text-anchor="middle">2. AI judge</text>
+      <text class="s" x="543" y="411" text-anchor="middle">one Haiku call, 8 s cap</text>
+      <line class="ln" x1="422" y1="398" x2="444" y2="398" marker-end="url(#ar)"/>
+
+      <rect class="box" x="446" y="446" width="194" height="144" rx="6"/>
+      <text class="b" x="543" y="469" text-anchor="middle">3. Decide</text>
+      <text class="at" x="458" y="492">allow: send on</text>
+      <text class="bt" x="458" y="511">sure rule hit: block now</text>
+      <text class="bt" x="458" y="530">judge says block: block</text>
+      <text class="bt" x="458" y="549">model refuses: block</text>
+      <text class="s"  x="458" y="568">no verdict in time: block</text>
+      <text class="wt" x="458" y="584">watch only: log, send on</text>
+      <line class="ln" x1="543" y1="428" x2="543" y2="444" marker-end="url(#ar)"/>
+
+      <!-- Hub, existing parts -->
+      <rect class="box" x="676" y="368" width="150" height="60" rx="6"/>
+      <text class="b" x="751" y="391" text-anchor="middle">Router</text>
+      <text class="s" x="751" y="411" text-anchor="middle">runs alongside step 2</text>
+      <rect class="box" x="840" y="368" width="144" height="60" rx="6"/>
+      <text class="b" x="912" y="391" text-anchor="middle">Registry</text>
+      <text class="s" x="912" y="411" text-anchor="middle">agents, forms, lessons</text>
+      <rect class="box" x="676" y="446" width="150" height="60" rx="6"/>
+      <text class="b" x="751" y="469" text-anchor="middle">Telemetry filter</text>
+      <text class="s" x="751" y="489" text-anchor="middle">ids and verdicts only</text>
+      <rect class="nbox" x="840" y="446" width="144" height="60" rx="6"/>
+      <text class="nt" x="912" y="469" text-anchor="middle">guardrails.json</text>
+      <text class="s" x="912" y="489" text-anchor="middle">rules, policy, counts</text>
+      <rect class="nbox" x="676" y="524" width="308" height="66" rx="6"/>
+      <text class="nt" x="830" y="548" text-anchor="middle">Outbound hold</text>
+      <text class="s" x="830" y="568" text-anchor="middle">replies and posts wait here until checked</text>
+
+      <polyline class="lna" points="640,470 658,470 658,398 674,398" marker-end="url(#ar)"/>
+      <text class="at" x="661" y="440" transform="rotate(-90 661 440)" text-anchor="middle" style="font-size:10.5px">allow</text>
+      <line class="lnn" x1="676" y1="557" x2="642" y2="557" marker-end="url(#arn)"/>
+
+      <!-- workerd -->
+      <rect class="nbox" x="20" y="368" width="150" height="104" rx="6"/>
+      <text class="nt" x="95" y="390" text-anchor="middle">workerd</text>
+      <text class="m" x="95" y="409" text-anchor="middle">127.0.0.1:41245</text>
+      <text class="s" x="95" y="428" text-anchor="middle">approved rules only</text>
+      <text class="s" x="95" y="446" text-anchor="middle">no network, no files</text>
+      <text class="s" x="95" y="464" text-anchor="middle">rule engine</text>
+      <line class="lnn" x1="232" y1="390" x2="172" y2="390" marker-end="url(#arn)"/>
+      <text class="lbl" x="193" y="384" text-anchor="middle">/scan</text>
+      <line class="lnn" x1="170" y1="412" x2="230" y2="412" marker-end="url(#arn)"/>
+      <text class="lbl" x="201" y="428" text-anchor="middle">findings</text>
+
+      <rect class="nbox" x="20" y="500" width="150" height="80" rx="6"/>
+      <text class="nt" x="95" y="522" text-anchor="middle">Draft tester</text>
+      <text class="s" x="95" y="541" text-anchor="middle">short-lived workerd</text>
+      <text class="s" x="95" y="559" text-anchor="middle">one draft and its tests</text>
+      <line class="lnn" x1="214" y1="540" x2="172" y2="540" marker-end="url(#arn)"/>
+      <text class="lbl" x="95" y="598" text-anchor="middle">Hub sends a draft to test</text>
+
+      <!-- Anthropic -->
+      <rect class="ext" x="1040" y="300" width="140" height="320" rx="10"/>
+      <text class="b" x="1110" y="326" text-anchor="middle">Anthropic API</text>
+      <text class="s" x="1110" y="345" text-anchor="middle">Claude Haiku 5.5</text>
+      <text class="s" x="1110" y="400" text-anchor="middle">Called by:</text>
+      <text class="t" x="1110" y="420" text-anchor="middle">student model</text>
+      <text class="t" x="1110" y="440" text-anchor="middle">Hub router</text>
+      <text class="nt" x="1110" y="460" text-anchor="middle" style="font-size:13px">Hub judge (new)</text>
+      <text class="t" x="1110" y="480" text-anchor="middle">Tutor, Library,</text>
+      <text class="t" x="1110" y="498" text-anchor="middle">Professor models</text>
+      <text class="s" x="1110" y="570" text-anchor="middle">the only traffic that</text>
+      <text class="s" x="1110" y="586" text-anchor="middle">leaves this machine</text>
+      <line class="ln" x1="1000" y1="450" x2="1038" y2="450" marker-end="url(#ar)"/>
+
+      <!-- Specialists -->
+      <rect class="box" x="200" y="680" width="240" height="92" rx="8"/>
+      <text class="b" x="320" y="704" text-anchor="middle">Tutor <tspan class="m" dx="4">:41241</tspan></text>
+      <text class="s" x="320" y="726" text-anchor="middle">answers, tutoring form</text>
+      <text class="s" x="320" y="745" text-anchor="middle">own model</text>
+      <rect class="box" x="480" y="680" width="240" height="92" rx="8"/>
+      <text class="b" x="600" y="704" text-anchor="middle">Library <tspan class="m" dx="4">:41242</tspan></text>
+      <text class="s" x="600" y="726" text-anchor="middle">answers, rooms, loans</text>
+      <text class="s" x="600" y="745" text-anchor="middle">own model, loans file</text>
+      <rect class="box" x="760" y="680" width="240" height="92" rx="8"/>
+      <text class="b" x="880" y="704" text-anchor="middle">Professor Amir <tspan class="m" dx="4">:41244</tspan></text>
+      <text class="s" x="880" y="726" text-anchor="middle">answers, lessons, messages</text>
+      <text class="s" x="880" y="745" text-anchor="middle">own model, outbox file</text>
+
+      <line class="lna" x1="280" y1="620" x2="280" y2="677" marker-end="url(#ar)"/>
+      <text class="lbl" x="286" y="654">allowed only</text>
+      <line class="ln" x1="400" y1="680" x2="400" y2="623" marker-end="url(#ar)"/>
+      <text class="lbl" x="406" y="654">reply, held</text>
+      <line class="lna" x1="560" y1="620" x2="560" y2="677" marker-end="url(#ar)"/>
+      <text class="lbl" x="566" y="654">allowed only</text>
+      <line class="ln" x1="680" y1="680" x2="680" y2="623" marker-end="url(#ar)"/>
+      <text class="lbl" x="686" y="654">reply, held</text>
+      <line class="lna" x1="840" y1="620" x2="840" y2="677" marker-end="url(#ar)"/>
+      <text class="lbl" x="846" y="654">allowed only</text>
+      <line class="ln" x1="960" y1="680" x2="960" y2="623" marker-end="url(#ar)"/>
+      <text class="lbl" x="966" y="654">reply or post, held</text>
+
+      <polyline class="ln" points="1000,726 1110,726 1110,623" marker-end="url(#ar)"/>
+      <text class="lbl" x="1056" y="718" text-anchor="middle">agent models</text>
+    </svg>
+    </div>
+    <figcaption>Everything is on 127.0.0.1. The guardrail is not a new agent. It lives inside the Hub, the one place every message already passes through. workerd is a separate process that only runs approved rule code: text in, findings out, with no network or file access. If workerd is down, the Hub blocks instead of letting messages through unchecked. <code>npm run demo</code> starts six processes instead of five.</figcaption>
+  </figure>
+</section>
+
+<!-- ───────────── Figure 2: inbound timing ───────────── -->
+<section>
+  <h2>2. A student message on the way in: what runs, and for how long</h2>
+  <figure>
+    <div class="scroll">
+    <svg viewBox="0 0 1200 340" role="img" aria-label="Timeline: rules take under 50 ms, then the AI judge and the router run at the same time, so on a normal message the judge adds little wait. When the router is skipped, the judge's full 1.5 to 2.7 seconds is the added wait.">
+      <text class="b" x="20" y="34">With the router (most messages)</text>
+      <text class="t" x="20" y="74">Rule check (workerd)</text>
+      <rect class="bar-new" x="230" y="60" width="12" height="20" rx="2"/>
+      <text class="s" x="250" y="75">under 50 ms</text>
+
+      <text class="t" x="20" y="106">AI judge (Haiku)</text>
+      <rect class="bar-new" x="242" y="92" width="345" height="20" rx="2"/>
+      <rect class="bar-new-lt" x="587" y="92" width="275" height="20" rx="2"/>
+      <text class="s" x="872" y="107">1.5–2.7 s (estimate from similar calls)</text>
+
+      <text class="t" x="20" y="138">Router (Haiku)</text>
+      <rect class="bar-old" x="242" y="124" width="618" height="20" rx="2"/>
+      <text class="s" x="872" y="139">2.7 s (measured on your app)</text>
+
+      <line class="lna dash" x1="861" y1="52" x2="861" y2="154"/>
+      <text class="at" x="861" y="170" text-anchor="middle">sent to the agent once both are back and the judge says allow</text>
+
+      <text class="b" x="20" y="214">Without the router (student agent picked the service, or a reply to a professor message)</text>
+      <text class="t" x="20" y="254">Rule check (workerd)</text>
+      <rect class="bar-new" x="230" y="240" width="12" height="20" rx="2"/>
+      <text class="t" x="20" y="286">AI judge (Haiku)</text>
+      <rect class="bar-new" x="242" y="272" width="345" height="20" rx="2"/>
+      <rect class="bar-new-lt" x="587" y="272" width="275" height="20" rx="2"/>
+      <text class="wt" x="872" y="287">all of this is added wait</text>
+
+      <line class="ln" x1="230" y1="312" x2="1150" y2="312"/>
+      <g class="lbl">
+        <line class="ln" x1="230" y1="312" x2="230" y2="318"/><text class="lbl" x="230" y="332" text-anchor="middle">0 s</text>
+        <line class="ln" x1="460" y1="312" x2="460" y2="318"/><text class="lbl" x="460" y="332" text-anchor="middle">1 s</text>
+        <line class="ln" x1="690" y1="312" x2="690" y2="318"/><text class="lbl" x="690" y="332" text-anchor="middle">2 s</text>
+        <line class="ln" x1="920" y1="312" x2="920" y2="318"/><text class="lbl" x="920" y="332" text-anchor="middle">3 s</text>
+        <line class="ln" x1="1150" y1="312" x2="1150" y2="318"/><text class="lbl" x="1150" y="332" text-anchor="middle">4 s</text>
+      </g>
+    </svg>
+    </div>
+    <figcaption>If a rule is sure (for example an SSN with the word "SSN" nearby), the message is blocked right after the rule check, and no model ever sees it. A less sure rule hit is passed to the judge as a hint. The router time was measured on your running app. The judge time is an estimate, based on other Haiku calls measured there (1.5–2.7 s). Button picks with no typed text skip the judge.</figcaption>
+  </figure>
+</section>
+
+<!-- ───────────── Figure 3: outbound ───────────── -->
+<section>
+  <h2>3. Replies and posts on the way out</h2>
+  <figure>
+    <div class="scroll">
+    <svg viewBox="0 0 1200 300" role="img" aria-label="Outbound checks: agent answers, action results and professor posts are held in the Hub and rule-checked. Professor posts also go to the AI judge. Whether agent answers go to the judge is still undecided. Action results skip the judge because they already happened.">
+      <defs>
+        <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker>
+      </defs>
+      <text class="s" x="120" y="22" text-anchor="middle">From</text>
+      <text class="s" x="380" y="22" text-anchor="middle">Hub</text>
+      <text class="s" x="580" y="22" text-anchor="middle">Rules</text>
+      <text class="s" x="780" y="22" text-anchor="middle">AI judge</text>
+      <text class="s" x="1030" y="22" text-anchor="middle">Result</text>
+
+      <!-- row 1 -->
+      <rect class="box" x="20" y="38" width="200" height="60" rx="6"/>
+      <text class="b" x="120" y="62" text-anchor="middle">Agent answer</text>
+      <text class="s" x="120" y="81" text-anchor="middle">plain text from an agent</text>
+      <rect class="nbox" x="310" y="38" width="140" height="60" rx="6"/><text class="nt" x="380" y="73" text-anchor="middle">Held</text>
+      <rect class="nbox" x="510" y="38" width="140" height="60" rx="6"/><text class="b" x="580" y="62" text-anchor="middle">Rule check</text><text class="s" x="580" y="81" text-anchor="middle">SSN, card</text>
+      <rect class="wbox" x="710" y="38" width="140" height="60" rx="6"/><text class="wt" x="780" y="62" text-anchor="middle" style="font-size:13px">Judge?</text><text class="s" x="780" y="81" text-anchor="middle">undecided</text>
+      <rect class="box" x="920" y="38" width="220" height="60" rx="6"/><text class="t" x="1030" y="62" text-anchor="middle">shown to the student, or</text><text class="s" x="1030" y="81" text-anchor="middle">"a reply was held back because…"</text>
+      <line class="ln" x1="220" y1="68" x2="308" y2="68" marker-end="url(#ar3)"/>
+      <line class="ln" x1="450" y1="68" x2="508" y2="68" marker-end="url(#ar3)"/>
+      <line class="ln dash" x1="650" y1="68" x2="708" y2="68" marker-end="url(#ar3)"/>
+      <line class="ln" x1="850" y1="68" x2="918" y2="68" marker-end="url(#ar3)"/>
+
+      <!-- row 2 -->
+      <rect class="box" x="20" y="128" width="200" height="60" rx="6"/>
+      <text class="b" x="120" y="152" text-anchor="middle">Action result</text>
+      <text class="s" x="120" y="171" text-anchor="middle">room booked, book renewed</text>
+      <rect class="nbox" x="310" y="128" width="140" height="60" rx="6"/><text class="nt" x="380" y="163" text-anchor="middle">Held</text>
+      <rect class="nbox" x="510" y="128" width="140" height="60" rx="6"/><text class="b" x="580" y="152" text-anchor="middle">Rule check</text><text class="s" x="580" y="171" text-anchor="middle">SSN, card</text>
+      <text class="s" x="780" y="150" text-anchor="middle">skipped:</text><text class="s" x="780" y="166" text-anchor="middle">it already happened</text>
+      <rect class="box" x="920" y="128" width="220" height="60" rx="6"/><text class="t" x="1030" y="152" text-anchor="middle">always told it happened</text><text class="s" x="1030" y="171" text-anchor="middle">flagged part left out</text>
+      <line class="ln" x1="220" y1="158" x2="308" y2="158" marker-end="url(#ar3)"/>
+      <line class="ln" x1="450" y1="158" x2="508" y2="158" marker-end="url(#ar3)"/>
+      <polyline class="ln" points="650,158 700,158 700,182 860,182 860,158 918,158" marker-end="url(#ar3)"/>
+
+      <!-- row 3 -->
+      <rect class="box" x="20" y="218" width="200" height="60" rx="6"/>
+      <text class="b" x="120" y="242" text-anchor="middle">Professor post</text>
+      <text class="s" x="120" y="261" text-anchor="middle">lesson or message</text>
+      <rect class="nbox" x="310" y="218" width="140" height="60" rx="6"/><text class="nt" x="380" y="253" text-anchor="middle">Held</text>
+      <rect class="nbox" x="510" y="218" width="140" height="60" rx="6"/><text class="b" x="580" y="242" text-anchor="middle">Rule check</text><text class="s" x="580" y="261" text-anchor="middle">SSN, card</text>
+      <rect class="nbox" x="710" y="218" width="140" height="60" rx="6"/><text class="b" x="780" y="242" text-anchor="middle">AI judge</text><text class="s" x="780" y="261" text-anchor="middle">30 s cap</text>
+      <rect class="box" x="920" y="218" width="220" height="60" rx="6"/><text class="t" x="1030" y="242" text-anchor="middle">delivered to students, or</text><text class="s" x="1030" y="261" text-anchor="middle">refused to the professor with why</text>
+      <line class="ln" x1="220" y1="248" x2="308" y2="248" marker-end="url(#ar3)"/>
+      <line class="ln" x1="450" y1="248" x2="508" y2="248" marker-end="url(#ar3)"/>
+      <line class="ln" x1="650" y1="248" x2="708" y2="248" marker-end="url(#ar3)"/>
+      <line class="ln" x1="850" y1="248" x2="918" y2="248" marker-end="url(#ar3)"/>
+    </svg>
+    </div>
+    <figcaption>SSNs and card numbers are blocked in every direction, whoever they belong to. The student's own name and email are allowed on the way back, for example in a form confirmation or their own loan list. <span class="open">The amber box is the one open decision:</span> should the judge also read agent answers? That is safer, but adds about 1.5–2.7 s after the agent answers.</figcaption>
+  </figure>
+</section>
+
+<!-- ───────────── Figure 4: rule lifecycle ───────────── -->
+<section>
+  <h2>4. How a new rule goes live (Guardrails tab)</h2>
+  <figure>
+    <div class="scroll">
+    <svg viewBox="0 0 1200 270" role="img" aria-label="Rule lifecycle: a person describes a rule, the AI writes code and tests, a static check and a sandbox test run follow with up to two automatic repairs, a person approves it, it is pinned by hash, starts in watch-only mode and can then be switched to block or off. Activation rebuilds and swaps the workerd engine.">
+      <defs>
+        <marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker>
+        <marker id="ar4n" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mkn"/></marker>
+      </defs>
+      <!-- nodes: x = 20 + i*168, w 140 -->
+      <rect class="box" x="20" y="90" width="140" height="70" rx="8"/>
+      <text class="b" x="90" y="118" text-anchor="middle">Describe</text>
+      <text class="s" x="90" y="138" text-anchor="middle">words + examples</text>
+
+      <rect class="box" x="188" y="90" width="140" height="70" rx="8"/>
+      <text class="b" x="258" y="118" text-anchor="middle">AI writes</text>
+      <text class="s" x="258" y="138" text-anchor="middle">code and tests</text>
+
+      <rect class="box" x="356" y="90" width="140" height="70" rx="8"/>
+      <text class="b" x="426" y="118" text-anchor="middle">Static check</text>
+      <text class="s" x="426" y="138" text-anchor="middle">no fetch, eval, timers</text>
+
+      <rect class="nbox" x="524" y="90" width="140" height="70" rx="8"/>
+      <text class="b" x="594" y="118" text-anchor="middle">Sandbox test</text>
+      <text class="s" x="594" y="138" text-anchor="middle">draft tester + test set</text>
+
+      <rect class="box" x="692" y="90" width="140" height="70" rx="8"/>
+      <text class="b" x="762" y="118" text-anchor="middle">Person approves</text>
+      <text class="s" x="762" y="138" text-anchor="middle">pinned by hash</text>
+
+      <rect class="box" x="860" y="90" width="140" height="70" rx="8" style="stroke:var(--warn)"/>
+      <text class="b" x="930" y="118" text-anchor="middle">Watch only</text>
+      <text class="s" x="930" y="138" text-anchor="middle">logs, never blocks</text>
+
+      <rect class="box" x="1040" y="40" width="140" height="56" rx="8" style="stroke:var(--block)"/>
+      <text class="b" x="1110" y="64" text-anchor="middle">Block</text>
+      <text class="s" x="1110" y="82" text-anchor="middle">enforced</text>
+      <rect class="box" x="1040" y="160" width="140" height="56" rx="8" style="stroke:var(--idle)"/>
+      <text class="b" x="1110" y="184" text-anchor="middle">Off</text>
+      <text class="s" x="1110" y="202" text-anchor="middle">kept, not run</text>
+
+      <line class="ln" x1="160" y1="125" x2="186" y2="125" marker-end="url(#ar4)"/>
+      <line class="ln" x1="328" y1="125" x2="354" y2="125" marker-end="url(#ar4)"/>
+      <line class="ln" x1="496" y1="125" x2="522" y2="125" marker-end="url(#ar4)"/>
+      <line class="ln" x1="664" y1="125" x2="690" y2="125" marker-end="url(#ar4)"/>
+      <line class="ln" x1="832" y1="125" x2="858" y2="125" marker-end="url(#ar4)"/>
+      <polyline class="ln" points="1000,110 1020,110 1020,68 1038,68" marker-end="url(#ar4)"/>
+      <polyline class="ln" points="1000,140 1020,140 1020,188 1038,188" marker-end="url(#ar4)"/>
+
+      <!-- repair loop -->
+      <path class="lnb dash" d="M594,90 C594,40 258,40 258,88" marker-end="url(#ar4)"/>
+      <text class="bt" x="426" y="36" text-anchor="middle">tests fail: AI repairs, at most 2 rounds, then a person sees why</text>
+      <path class="lnb dash" d="M426,160 C426,190 258,190 258,162" marker-end="url(#ar4)"/>
+      <text class="bt" x="342" y="204" text-anchor="middle">unsafe code: rejected</text>
+
+      <!-- engine swap -->
+      <polyline class="lnn" points="762,160 762,236 752,236"/>
+      <text class="nt" x="744" y="240" text-anchor="end" style="font-size:12.5px">workerd swap: build config, start new, health check, switch, stop old</text>
+    </svg>
+    </div>
+    <figcaption>No code is written while a student waits. Rules are written ahead of time, tested in a separate short-lived workerd, and read by a person before approval. Editing a rule makes a new version, and the old one stays available to roll back to. The two starting rules (SSN, card) and the judge categories ship in block mode. Rules you create start in watch-only mode.</figcaption>
+  </figure>
+</section>
+
+<!-- ───────────── Figure 5: topology ───────────── -->
+<section>
+  <h2>5. What the Topology tab shows when guardrails are on</h2>
+  <figure>
+    <div class="scroll">
+    <svg viewBox="0 0 1200 230" role="img" aria-label="Topology: Student to Hub, with a Guardrail node beside the Hub and two satellites, the rule engine and the guardrail model, then the Tutor, Library and Professor. The guardrail node turns green, red, amber or grey.">
+      <defs>
+        <marker id="ar5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker>
+        <marker id="ar5n" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mkn"/></marker>
+      </defs>
+      <rect class="box" x="20" y="86" width="140" height="56" rx="28"/><text class="b" x="90" y="119" text-anchor="middle">Student</text>
+      <rect class="box" x="300" y="86" width="160" height="56" rx="28"/><text class="b" x="380" y="119" text-anchor="middle">Hub</text>
+      <line class="ln" x1="160" y1="114" x2="298" y2="114" marker-end="url(#ar5)"/>
+
+      <rect class="nbox" x="300" y="10" width="160" height="48" rx="24"/><text class="nt" x="380" y="39" text-anchor="middle">Guardrail</text>
+      <line class="lnn" x1="380" y1="86" x2="380" y2="60" marker-end="url(#ar5n)"/>
+      <rect class="nbox" x="520" y="4" width="150" height="36" rx="18"/><text class="t" x="595" y="27" text-anchor="middle">Rule engine</text>
+      <rect class="nbox" x="520" y="50" width="150" height="36" rx="18"/><text class="t" x="595" y="73" text-anchor="middle">Guardrail model</text>
+      <line class="lnn" x1="460" y1="28" x2="518" y2="22" marker-end="url(#ar5n)"/>
+      <line class="lnn" x1="460" y1="40" x2="518" y2="66" marker-end="url(#ar5n)"/>
+
+      <rect class="box" x="760" y="100" width="140" height="40" rx="20"/><text class="t" x="830" y="125" text-anchor="middle">Tutor</text>
+      <rect class="box" x="760" y="150" width="140" height="40" rx="20"/><text class="t" x="830" y="175" text-anchor="middle">Library</text>
+      <line class="ln" x1="460" y1="114" x2="758" y2="120" marker-end="url(#ar5)"/>
+      <line class="ln" x1="460" y1="124" x2="758" y2="170" marker-end="url(#ar5)"/>
+      <rect class="box" x="920" y="125" width="170" height="40" rx="20"/><text class="t" x="1005" y="150" text-anchor="middle">Professor</text>
+      <polyline class="ln" points="460,134 520,200 1005,200 1005,167" marker-end="url(#ar5)"/>
+
+      <g>
+        <circle class="g-allow" cx="960" cy="22" r="7"/><text class="t" x="974" y="27">pass</text>
+        <circle class="g-block" cx="1040" cy="22" r="7"/><text class="t" x="1054" y="27">blocked</text>
+        <circle class="g-warn" cx="960" cy="52" r="7"/><text class="t" x="974" y="57">would block</text>
+        <circle class="g-idle" cx="1080" cy="52" r="7"/><text class="t" x="1094" y="57">timed out</text>
+      </g>
+    </svg>
+    </div>
+    <figcaption>Only real events animate. A block stops the flow at the Hub, and the hop back to the student is labelled "blocked". The hop-by-hop strip gets a new step, <strong>Guardrail checked</strong>, between "Hub received" and "Agent identified". Its notes say things like "blocked: Social Security number" or "allowed in 1.6 s". Telemetry carries rule names, verdicts and timings, never message text or matched values.</figcaption>
+  </figure>
+</section>
+
+<!-- ───────────── Table ───────────── -->
+<section>
+  <h2>6. What each person sees</h2>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Situation</th><th>Student sees</th><th>Agent sees</th><th>Logged</th></tr></thead>
+    <tbody>
+      <tr><td>Message has an SSN (rule is sure)</td><td>Their bubble, then fixed words: "Your message wasn't sent because it contains a Social Security number. Please remove it and send it again."</td><td>Nothing</td><td>rule id, block, time</td></tr>
+      <tr><td>Offensive or harmful (judge blocks, or the model refuses)</td><td>Fixed words for that category, written in the Guardrails tab</td><td>Nothing</td><td>category, block, time</td></tr>
+      <tr><td>Judge doesn't answer within 8 s, or workerd is down</td><td>"We couldn't check your message, nothing was sent. Please try again."</td><td>Nothing</td><td>timeout or engine offline</td></tr>
+      <tr><td>Watch-only rule matches</td><td>Normal reply</td><td>The message</td><td>"would have blocked"</td></tr>
+      <tr><td>Clean message</td><td>Normal reply</td><td>The message</td><td>allow, time</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="lede">A blocked message is not kept in the Hub's history and never comes back as context later. Known limit: the student's own model, on the student's side, sees the text before the Hub does. The guardrail protects the university side.</p>
+</section>
+</main>
+</body>
+</html>
