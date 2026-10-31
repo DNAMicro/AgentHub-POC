@@ -83,20 +83,18 @@ svg.topo { width: 100%; height: auto; display: block; max-height: 72dvh; }
 /* agent rules ring (Step 13 preview) */
 .agring { fill: none; stroke: var(--guard); stroke-width: 2; stroke-dasharray: 2 6; stroke-linecap: round; opacity: .55; transform-origin: 0 0; transition: stroke .3s, opacity .3s, stroke-width .3s; }
 /* running: three bright arcs spin around the agent, and waves ripple outward */
-.agring.check { opacity: 1; stroke-width: 6; stroke-dasharray: 46 26; animation: spin 1s linear infinite; filter: drop-shadow(0 0 7px color-mix(in srgb, var(--guard) 75%, transparent)); }
-.agpulse { fill: none; stroke: var(--guard); stroke-width: 3; opacity: 0; transform-origin: 0 0; pointer-events: none; }
-.agpulse.on { animation: wave 1s ease-out infinite; }
-.agpulse.on.late { animation-delay: .5s; }
-.agpulse.bad { stroke: var(--bad); animation: wave .6s ease-out 3; }
-.agpulse.good { stroke: var(--ok); animation: wave .8s ease-out 1; }
+.agring.check { opacity: 1; stroke-width: 6; stroke-dasharray: 46 26; filter: drop-shadow(0 0 7px color-mix(in srgb, var(--guard) 75%, transparent)); }
+.agpulse { fill: none; stroke: var(--guard); stroke-width: 3; pointer-events: none; }
+.agpulse.bad { stroke: var(--bad); }
+.agpulse.good { stroke: var(--ok); }
 /* refused: red ring blinks three times, then stays red */
-.agring.block { opacity: 1; stroke: var(--bad); stroke-width: 6; stroke-dasharray: none; animation: blink .3s steps(2, jump-none) 4; filter: drop-shadow(0 0 8px color-mix(in srgb, var(--bad) 65%, transparent)); }
+.agring.block { opacity: 1; stroke: var(--bad); stroke-width: 6; stroke-dasharray: none; filter: drop-shadow(0 0 8px color-mix(in srgb, var(--bad) 65%, transparent)); }
 .agring.pass { opacity: 1; stroke: var(--ok); stroke-width: 4; stroke-dasharray: none; }
 .agring.none { opacity: .9; stroke: var(--warn); stroke-dasharray: 1 7; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes wave { from { opacity: .85; transform: scale(1); } to { opacity: 0; transform: scale(1.45); } }
 @keyframes blink { 0% { opacity: 1; } 100% { opacity: .15; } }
-body.calm .agring.check { animation: none; } body.calm .agpulse { animation: none !important; }
+
 .verdict-pass .disc { fill: var(--ok-bg); stroke: var(--ok); }
 .verdict-block .disc { fill: var(--bad-bg); stroke: var(--bad); }
 .verdict-check .disc { fill: var(--guard-tint); }
@@ -172,6 +170,7 @@ body.calm .agring.check { animation: none; } body.calm .agpulse { animation: non
 
 <script>
 const NS = 'http://www.w3.org/2000/svg';
+let reduce = false;   // the toolbar's Reduce motion switch (set below)
 const svg = document.getElementById('topo');
 const s = (tag, attrs = {}, text) => { const n = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); if (text != null) n.textContent = text; return n; };
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
@@ -270,7 +269,7 @@ for (const [id, n] of Object.entries(N)) {
     const ring = s('circle', { class: 'agring', r: n.r + 11 });
     ring.append(s('title', {}, `${n.name} rules: ${AGENT_RULES[id].ids.join(', ')}`));
     g.insertBefore(ring, g.firstChild);
-    for (const late of [false, true]) g.insertBefore(s('circle', { class: 'agpulse' + (late ? ' late' : ''), r: n.r + 11 }), g.firstChild);
+    for (const late of [false, true]) g.insertBefore(s('circle', { class: 'agpulse', r: n.r + 11, 'stroke-opacity': 0 }), g.firstChild);
   }
   gNodes.append(g);
   nodes[id] = g;
@@ -282,13 +281,33 @@ function status(id, text, tone = '') {
   st.style.display = text ? '' : 'none';
 }
 // state: '' (installed, idle) | 'check' | 'block' | 'pass' | 'none' (no rules loaded yet)
+// SMIL (<animateTransform>/<animate>) rather than CSS: it animates SVG the same way in every browser.
+function smil(el, tag, attrs) {
+  const a = s(tag, { begin: 'indefinite', fill: 'remove', ...attrs });
+  el.append(a); a.beginElement();
+  return a;
+}
 function ruleRing(id, state = '') {
-  nodes[id].querySelector('.agring').setAttribute('class', 'agring' + (state ? ' ' + state : ''));
-  const wave = { check: 'on', block: 'bad', pass: 'good' }[state];
-  nodes[id].querySelectorAll('.agpulse').forEach((c, i) => {
-    c.setAttribute('class', 'agpulse' + (i === 1 ? ' late' : '')); void c.getBBox();   // restart the animation
-    if (wave && (wave === 'on' || i === 0)) c.classList.add(wave);
-  });
+  const ring = nodes[id].querySelector('.agring'), r = Number(ring.getAttribute('r'));
+  ring.setAttribute('class', 'agring' + (state ? ' ' + state : ''));
+  nodes[id].querySelectorAll('.agring > animate, .agring > animateTransform, .agpulse > animate').forEach((a) => a.remove());
+  const pulses = [...nodes[id].querySelectorAll('.agpulse')];
+  pulses.forEach((c) => c.setAttribute('class', 'agpulse' + (state === 'block' ? ' bad' : state === 'pass' ? ' good' : '')));
+  if (reduce) return;   // the toolbar's Reduce motion: colours only
+  const wave = (c, dur, count, delay = 0) => {
+    smil(c, 'animate', { attributeName: 'r', values: `${r};${r * 1.45}`, dur: `${dur}s`, repeatCount: count, begin: 'indefinite' });
+    smil(c, 'animate', { attributeName: 'stroke-opacity', values: '0.85;0', dur: `${dur}s`, repeatCount: count });
+    if (delay) c.querySelectorAll('animate').forEach((a) => { a.endElement(); setTimeout(() => a.beginElement(), delay); });
+  };
+  if (state === 'check') {
+    smil(ring, 'animateTransform', { attributeName: 'transform', type: 'rotate', from: '0', to: '360', dur: '1s', repeatCount: 'indefinite' });
+    wave(pulses[0], 1, 'indefinite'); wave(pulses[1], 1, 'indefinite', 500);
+  } else if (state === 'block') {
+    smil(ring, 'animate', { attributeName: 'stroke-opacity', values: '1;0.1;1', dur: '0.3s', repeatCount: '4' });
+    wave(pulses[0], 0.6, '3');
+  } else if (state === 'pass') {
+    wave(pulses[0], 0.8, '1');
+  }
 }
 function resetAll() {
   for (const id of Object.keys(N)) { nodes[id].classList.remove('flash', 'dim', 'verdict-pass', 'verdict-block', 'verdict-check'); status(id, ''); }
@@ -303,7 +322,7 @@ resetAll();
 /* ---------- animation ---------- */
 let token = 0, clockT = 0;
 const calm = document.getElementById('calm');
-let reduce = calm.checked;
+reduce = calm.checked;
 calm.addEventListener('change', () => { reduce = calm.checked; document.body.classList.toggle('calm', reduce); });
 const wait = (ms, t) => new Promise((res, rej) => setTimeout(() => (t === token ? res() : rej('cancel')), reduce ? Math.min(ms, 250) : ms));
 function flash(id) { const g = nodes[id]; g.classList.add('flash'); const r = g.querySelector('.ring'); r.classList.remove('go'); void r.getBBox(); r.classList.add('go'); setTimeout(() => g.classList.remove('flash'), 700); }
@@ -385,6 +404,8 @@ const SCN = {
     { go: [['hub', 'student']], ev: ['University Hub → Student agent', 'Reply delivered', 'result returned'], evColor: '--hub', pause: 1100 },
     clearGuard(),
     { go: [['amir', 'prof', 'post', 1100]], cap: ['Professor Amir replies directly:', '“Yes, by Monday 9 AM.” Written by the person, not the assistant.'], capColor: '--person', ev: ['Professor Amir → Professor', 'Reply written by Professor Amir', 'author: professor · ↩ Reply to student-alex', 'sq'], evColor: '--person', then: () => status('amir', '✓ Answered', 'ok') },
+    { then: () => { ruleRing('prof', 'check'); flash('prof'); }, cap: ['Professor agent rule:', 'enrolled-only@1 checks that every recipient is enrolled in Marketing 101.'], capColor: '--professor', ev: ['Professor', 'Agent rule check', 'enrolled-only@1', 'dm'], evColor: '--professor', pause: 2000 },
+    { then: () => ruleRing('prof', 'pass'), cap: ['Rule passes:', 'the recipients are enrolled. The post can go to the Hub.'], capColor: '--ok', ev: ['Professor', 'Agent rule: passed', 'enrolled-only@1 · 0.1 ms', 'dm'], evColor: '--ok', pause: 900 },
     { go: [['prof', 'hub', 'post']], cap: ['Professor agent → Hub:', 'posted as a message from Professor Amir (no model call).'], ev: ['Professor → University Hub', 'Post: message', 'author: professor · audience: student-alex', 'sq'], evColor: '--professor' },
     ...checkIn('the professor’s post'), ...judge('1.9 s', 'allow', false),
     pass('Professor post'),
@@ -403,6 +424,8 @@ const SCN = {
   ],
   post: [
     { go: [['amir', 'prof', 'post', 1100]], cap: ['Professor Amir types a message to the class', '(no @assistant), so these are the professor’s own words.'], capColor: '--person', ev: ['Professor Amir → Professor', 'Direct post written by Professor Amir', 'author: professor · audience: all', 'sq'], evColor: '--person', then: () => status('amir', '● Sending', 'warn') },
+    { then: () => { ruleRing('prof', 'check'); flash('prof'); }, cap: ['Professor agent rule:', 'enrolled-only@1 checks that every recipient is enrolled in Marketing 101.'], capColor: '--professor', ev: ['Professor', 'Agent rule check', 'enrolled-only@1', 'dm'], evColor: '--professor', pause: 2000 },
+    { then: () => ruleRing('prof', 'pass'), cap: ['Rule passes:', 'the recipients are enrolled. The post can go to the Hub.'], capColor: '--ok', ev: ['Professor', 'Agent rule: passed', 'enrolled-only@1 · 0.1 ms', 'dm'], evColor: '--ok', pause: 900 },
     { go: [['prof', 'hub', 'post']], cap: ['Professor agent → Hub:', 'no model call. The assistant isn’t involved.'], ev: ['Professor → University Hub', 'Post: message', 'author: professor', 'sq'], evColor: '--professor', then: () => nodes.mProf.classList.add('dim') },
     ...checkIn('the post'), ...judge('2.1 s', 'allow', false),
     pass('Professor post'),
