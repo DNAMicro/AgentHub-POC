@@ -247,6 +247,10 @@ Hub `/dev/guardrails/*`, origin-guarded like the other `/dev` routes.
   sure rule hit skips the Decision Model). Discs show the name only: sub-lines such as "Marketing 101 / +
   assistant", "Front door and router / router: live", "Tutoring", "You / student-alex" are removed
   as redundant (owner's request), as are "a person / Professor view" on Professor Amir's box.
+- **The Hub is shown as "Titan Smart Hub" (owner's request, 2026-10-31):** on screen only: the Topology
+  node, the Hub title (`public/index.html` `#hub-title`), event labels (`src/topology.js` `NODE_NAMES`,
+  `public/app.js` `AGENT_NAMES`, `public/topology.js`) and the page title. Its public name to students
+  stays "California State University Fullerton"; code comments, logs and test regexes keep "Hub".
 - **The course agent is shown as "Marketing 101 Class" (owner's request, 2026-10-31):** the professor is
   part of the class, so the Topology node, its events and captions say "Marketing 101 Class" and its model
   box "Class model (the assistant)". This is a display label only: the agent card, logs and test regexes
