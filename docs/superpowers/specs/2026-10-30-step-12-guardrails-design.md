@@ -247,6 +247,16 @@ Hub `/dev/guardrails/*`, origin-guarded like the other `/dev` routes.
   sure rule hit skips the Decision Model). Discs show the name only: sub-lines such as "Marketing 101 / +
   assistant", "Front door and router / router: live", "Tutoring", "You / student-alex" are removed
   as redundant (owner's request), as are "a person / Professor view" on Professor Amir's box.
+- **Branding (owner's request, 2026-10-31):** agents and page chrome follow the CSU Fullerton brand
+  (brand.fullerton.edu): web palette Light Gray `#F5F5F5`, Beige `#F8F7F3`, text `#222222`, Titan Blue
+  `#00244E` leads (Hub ring, all node names, headings), Titan Orange `#FF7900` only as small decoration
+  (active tab underline) or a diagram ring; dark mode uses CSUF's dark palette (`#1A2029`, `#252A30`,
+  `#3C4148`, text `#EBEBEB`). Agent rings use CSUF secondary colours, allowed for diagrams: Student
+  Brilliant Blue `#2973B6`, Tutor California Blue `#164686`, Marketing 101 Class and Professor Amir
+  Titan Orange, Library Sun Orange `#DF6436`. Font: Atkinson Hyperlegible, CSUF's accessible alternative
+  to Museo Sans (Museo needs the campus Adobe licence). **Connectivo Compliance** follows the Connectivo
+  brand (`/Volumes/Files/Shared/ConnectivoMarketing/Branding`): blue `#0274DE`, slate `#1E293B`,
+  light `#F8FAFC`, and its hexagon logo mark as the badge shape (agents) and the container (Hub).
 - **The Hub is shown as "Titan Smart Hub" (owner's request, 2026-10-31):** on screen only: the Topology
   node, the Hub title (`public/index.html` `#hub-title`), event labels (`src/topology.js` `NODE_NAMES`,
   `public/app.js` `AGENT_NAMES`, `public/topology.js`) and the page title. Its public name to students

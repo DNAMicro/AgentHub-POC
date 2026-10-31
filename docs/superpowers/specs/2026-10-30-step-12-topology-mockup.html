@@ -12,10 +12,14 @@
 @font-face { font-family: "IBM Plex Mono"; src: url("../../../public/fonts/ibm-plex-mono-400-latin.woff2") format("woff2"); font-weight: 400; font-display: swap; }
 :root {
   color-scheme: light;
-  --bg: #eef1f5; --surface: #ffffff; --field: #f7f9fb; --text: #18202b; --muted: #5a6676;
-  --border: #d6dce4; --border-strong: #b8c1cd;
-  --student: #2b59c3; --tutor: #8a3fa8; --library: #16765e; --professor: #a3315a; --hub: #9a6300; --model: #5b6472;
-  --guard: #0b6b84; --guard-tint: #e1f1f5; --person: #a3315a;
+  /* CSU Fullerton web palette (brand.fullerton.edu/colors): Light Gray, white, Beige, text #222222 */
+  --bg: #f5f5f5; --surface: #ffffff; --field: #f8f7f3; --text: #222222; --muted: #595959;
+  --border: #dddddd; --border-strong: #bcbcbc;
+  --titan: #00244e; --titan-mid: #0f3f8c; --orange: #ff7900; --sky: #ebfbff;
+  /* agents: Titan Blue leads (Hub); secondary colours tell the other agents apart in the diagram */
+  --hub: #00244e; --student: #2973b6; --tutor: #164686; --professor: #ff7900; --library: #df6436; --person: #ff7900; --model: #5b6472;
+  /* Connectivo (logo blue #0274DE, wordmark slate #1E293B) for Connectivo Compliance */
+  --guard: #0274de; --guard-tint: #e6f1fc; --guard-ink: #1e293b;
   --ok: #1d7a46; --ok-bg: #e2f3e8; --warn: #8a5a00; --warn-bg: #fdf1d4; --bad: #b4261f; --bad-bg: #fbe6e4; --idle: #6b7482;
   --radius: 10px;
   --font: "Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -23,10 +27,12 @@
 }
 @media (prefers-color-scheme: dark) { :root {
   color-scheme: dark;
-  --bg: #11151b; --surface: #181d25; --field: #1f2530; --text: #e4e8ee; --muted: #98a3b1;
-  --border: #2a313c; --border-strong: #3b4452;
-  --student: #86a2ff; --tutor: #c99ae6; --library: #4cc4a0; --professor: #f08aae; --hub: #e3b04b; --model: #aab4c2;
-  --guard: #52c7df; --guard-tint: #12303a; --person: #f08aae;
+  /* CSU Fullerton dark-mode palette: background #1A2029, gray #252A30, beige #3C4148, text #EBEBEB */
+  --bg: #1a2029; --surface: #252a30; --field: #3c4148; --text: #ebebeb; --muted: #aeb4bb;
+  --border: #3c4148; --border-strong: #59606a;
+  --titan: #ebebeb; --titan-mid: #99b3b9; --orange: #ff7900; --sky: #1a2f48;
+  --hub: #99b3b9; --student: #8acce4; --tutor: #6f9fd8; --professor: #ff7900; --library: #eda941; --person: #ff7900; --model: #aab4c2;
+  --guard: #4aa3f0; --guard-tint: #12304d; --guard-ink: #f8fafc;
   --ok: #63cf93; --ok-bg: #15301f; --warn: #eabb5c; --warn-bg: #352a12; --bad: #ff8f86; --bad-bg: #3a1916; --idle: #8d97a5;
 } }
 * { box-sizing: border-box; }
@@ -37,7 +43,7 @@ button { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--student); outline-offset: 2px; }
 .mock-banner { margin: 0; padding: 6px 20px; background: var(--guard-tint); color: var(--guard); font-size: 0.85rem; font-weight: 600; }
 .topbar { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; align-items: center; padding: 10px 20px; background: var(--surface); border-bottom: 1px solid var(--border); }
-h1 { margin: 0; font-size: 1.2rem; font-weight: 700; }
+h1 { margin: 0; font-size: 1.2rem; font-weight: 700; color: var(--titan); }
 .subtitle { margin: 0; color: var(--muted); font-size: 0.87rem; max-width: 68ch; }
 .badges { display: flex; flex-wrap: wrap; gap: 6px; }
 .badge { font-size: 0.8rem; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
@@ -45,7 +51,7 @@ h1 { margin: 0; font-size: 1.2rem; font-weight: 700; }
 .badge.guard { color: var(--guard); border-color: color-mix(in srgb, var(--guard) 45%, transparent); font-weight: 600; }
 .tabs { display: flex; gap: 2px; padding: 8px 20px 0; background: var(--surface); border-bottom: 1px solid var(--border); overflow-x: auto; }
 .tabs span { padding: 8px 16px 10px; font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -1px; white-space: nowrap; }
-.tabs span.on { color: var(--text); border-bottom-color: var(--hub); }
+.tabs span.on { color: var(--text); border-bottom-color: var(--orange); }   /* Titan Orange: small decorative accent */
 
 .view { flex: 1; padding: 12px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); gap: 12px; min-height: 0; }
 .stage, .side { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); min-width: 0; }
@@ -70,7 +76,7 @@ svg.topo { width: 100%; height: auto; display: block; max-height: 72dvh; }
 .box { fill: var(--surface); stroke: var(--node); stroke-width: 2.5; transition: fill .3s; }
 .flash .disc, .flash .box { fill: color-mix(in srgb, var(--node) 16%, var(--surface)); }
 .dim { opacity: .35; transition: opacity .3s; }
-.nname { font: 700 15px var(--font); fill: var(--node); }
+.nname { font: 700 15px var(--font); fill: var(--titan); }   /* names in Titan Blue; the ring carries each agent's colour */
 .nname.sm { font-size: 13px; }
 .nsub { font: 12px var(--font); fill: var(--muted); }
 .nmono { font: 11px var(--mono); fill: var(--muted); }
@@ -82,7 +88,7 @@ svg.topo { width: 100%; height: auto; display: block; max-height: 72dvh; }
 .tone-guard .pill { fill: var(--guard-tint); stroke: transparent; } .tone-guard .ptext { fill: var(--guard); }
 /* agent rules badge (Step 13 preview): a small shield circle inside the agent's own disc.
    Its dashed orbit turns while a rule runs, the same way an agent's orbit turns on production when it is busy. */
-.agbase { fill: var(--guard-tint); stroke: var(--guard); stroke-width: 2; transition: fill .3s, stroke .3s; }
+.agbase { fill: var(--guard-tint); stroke: var(--guard); stroke-width: 2; stroke-linejoin: round; transition: fill .3s, stroke .3s; }
 /* a solid shield with a check mark: protected. It flips to white on a coloured disc while a rule runs. */
 .agshield { fill: var(--guard); stroke: var(--guard); stroke-width: 1; stroke-linejoin: round; transition: stroke .3s, fill .3s; }
 .agtick, .agx { fill: none; stroke: var(--surface); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: stroke .3s; }
@@ -120,7 +126,8 @@ svg.topo { width: 100%; height: auto; display: block; max-height: 72dvh; }
 .agbadge.hubguard.block .agbase { fill: var(--bad-bg); stroke: var(--bad); }
 .agbadge.hubguard.block .agshield { stroke: var(--bad); fill: var(--bad); }
 .agbadge.hubguard.block .agx { stroke: var(--surface); }
-.gtitle { font: 700 11px var(--font); fill: var(--guard); }
+.gtitle { font: 700 11px var(--font); fill: var(--guard-ink); }
+.gtitle .brand { fill: var(--guard); }
 .hubguard.pass .gtitle { fill: var(--ok); } .hubguard.block .gtitle { fill: var(--bad); }
 .agbadge.hubguard.pass .agorbit { opacity: 0; }
 .agbadge.hubguard.block .agorbit { stroke-dasharray: none; }
@@ -217,7 +224,7 @@ const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v
 /* ---------- layout (same grid as public/topology.js, with two additions) ---------- */
 const N = {
   student: { x: 130, y: 335, r: 62, name: 'Student agent', sub: 'You', mono: 'student-alex', c: '--student' },
-  hub:     { x: 450, y: 335, r: 100, name: 'Titan Smart Hub', sub: 'Front door and router', mono: 'router: live', c: '--hub' },
+  hub:     { x: 450, y: 335, r: 108, name: 'Titan Smart Hub', sub: 'Front door and router', mono: 'router: live', c: '--hub' },
   tutor:   { x: 770, y: 100, r: 62, name: 'Tutor Agent', sub: 'Tutoring', c: '--tutor' },
   prof:    { x: 770, y: 335, r: 62, name: 'Marketing 101\nClass', c: '--professor' },
   library: { x: 770, y: 570, r: 62, name: 'Library Agent', sub: 'Library', c: '--library' },
@@ -287,7 +294,7 @@ for (const [id, n] of Object.entries(N)) {
   } else {
     g.append(s('circle', { class: 'disc', r: n.r }));
     // name only: the role is clear from the name and the lanes (no sub-lines)
-    const lines = n.name.split('\n'), y0 = (id === 'hub' ? -66 : AGENT_RULES[id] ? 15 : 5) - (lines.length - 1) * 8;
+    const lines = n.name.split('\n'), y0 = (id === 'hub' ? -72 : AGENT_RULES[id] ? 15 : 5) - (lines.length - 1) * 8;
     const nm = s('text', { class: 'nname', y: y0, 'text-anchor': 'middle', style: id === 'hub' ? 'font-size:16px' : '' });
     lines.forEach((line, i) => nm.append(s('tspan', { x: 0, dy: i ? 17 : 0 }, line)));
     g.append(nm);
@@ -301,12 +308,12 @@ for (const [id, n] of Object.entries(N)) {
   // Outline while installed; filled with a turning orbit while a rule runs; red when it refuses; green when it passes.
   if (AGENT_RULES[id]) {
     const big = id === 'hub';   // the Hub's guardrail is a big circle holding its two parts
-    const R = big ? 64 : 17;
-    const b = s('g', { class: 'agbadge' + (big ? ' hubguard' : ''), transform: big ? 'translate(0 16)' : `translate(0 ${-n.r + 28})` });
+    const R = big ? 72 : 18;
+    const b = s('g', { class: 'agbadge' + (big ? ' hubguard' : ''), transform: big ? 'translate(0 22)' : `translate(0 ${-n.r + 28})` });
     b.append(s('title', {}, `${n.name.replace('\n', ' ')} ${AGENT_RULES[id].label || 'rules'}: ${AGENT_RULES[id].ids.join(', ')}`));
     b.append(s('circle', { class: 'agpulse', r: R + 4, 'stroke-opacity': 0 }));
     b.append(s('circle', { class: 'agorbit', r: R + 4 }));
-    b.append(s('circle', { class: 'agbase', r: R }));
+    b.append(s('path', { class: 'agbase', d: hexPath(R) }));   // Connectivo's logo mark is a hexagon
     const icon = s('g', { transform: big ? 'translate(-33 -29) scale(1.65)' : 'scale(1.55)' });
     icon.append(s('path', { class: 'agshield', d: 'M0,-6.5 L5.5,-4.4 L5.5,-0.6 C5.5,2.6 3.1,4.6 0,5.8 C-3.1,4.6 -5.5,2.6 -5.5,-0.6 L-5.5,-4.4 Z' }),
       s('path', { class: 'agtick', d: 'M-2.6,-0.5 L-0.7,1.5 L2.8,-2.3' }), s('path', { class: 'agx', d: 'M-2.1,-2.4 L2.1,1.6 M2.1,-2.4 L-2.1,1.6' }));
@@ -314,7 +321,7 @@ for (const [id, n] of Object.entries(N)) {
     if (big) {
       // product name on two lines beside the shield, so it fits the circle's width
       const ttl = s('text', { class: 'gtitle', x: -20, y: -32 });
-      ttl.append(s('tspan', { x: -20, dy: 0 }, 'Connectivo'), s('tspan', { x: -20, dy: 13 }, 'Compliance'));
+      ttl.append(s('tspan', { class: 'brand', x: -20, dy: 0 }, 'Connectivo'), s('tspan', { x: -20, dy: 13 }, 'Compliance'));
       b.append(ttl);
       for (const [part, label, y, w, tip] of [['rules', 'Rules', 4, 92, 'Rules: code checks in the workerd sandbox'], ['decision', 'Decision Model', 30, 92, 'Decision Model: the AI judge, claude-haiku-5-5']]) {
         const pg = s('g', { class: 'gpart', 'data-part': part, transform: `translate(0 ${y})` });
@@ -339,6 +346,11 @@ function smil(el, tag, attrs) {
   const a = s(tag, { begin: 'indefinite', fill: 'remove', ...attrs });
   el.append(a); a.beginElement();
   return a;
+}
+// pointy-top hexagon, vertical sides, like the Connectivo logo mark
+function hexPath(R) {
+  const pts = [-90, -30, 30, 90, 150, 210].map((a) => [R * Math.cos(a * Math.PI / 180), R * Math.sin(a * Math.PI / 180)]);
+  return 'M' + pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' L') + ' Z';
 }
 // one part of the Hub's guardrail: '' | check | ok | bad | dim
 function part(name, state = '') {

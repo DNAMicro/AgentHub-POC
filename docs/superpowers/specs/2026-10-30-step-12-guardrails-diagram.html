@@ -8,29 +8,31 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
 /* Layout: one reading column of figures; each SVG scrolls sideways on its own at phone width. */
+@font-face { font-family: "Atkinson Hyperlegible Next"; src: url("../../../public/fonts/atkinson-hyperlegible-next-latin.woff2") format("woff2"); font-weight: 200 800; font-display: swap; }
 :root {
-  --bg: #f5f7fa; --fg: #1b2430; --muted: #566273; --line: #8f9bab;
-  --panel: #ffffff; --panel2: #eaf3f4;
-  --new: #0d7480; --block: #b8322b; --allow: #2a7a4b; --warn: #a86d12; --idle: #7d8794;
-  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --bg: #f5f5f5; --fg: #222222; --muted: #595959; --line: #8f9bab;   /* CSU Fullerton web palette */
+  --panel: #ffffff; --panel2: #e6f1fc;
+  --new: #0274de;   /* Connectivo blue: Connectivo Compliance */
+  --titan: #00244e; --orange: #ff7900; --block: #b8322b; --allow: #2a7a4b; --warn: #a86d12; --idle: #7d8794;
+  --sans: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
-  --bg: #11161d; --fg: #e5eaf0; --muted: #9ba7b6; --line: #5a6676;
-  --panel: #19202a; --panel2: #15262a;
-  --new: #42c2cc; --block: #f0736c; --allow: #5cc48a; --warn: #e3b04b; --idle: #8a95a3;
+  --bg: #1a2029; --fg: #ebebeb; --muted: #aeb4bb; --line: #59606a;
+  --panel: #252a30; --panel2: #12304d;
+  --new: #4aa3f0; --titan: #ebebeb; --orange: #ff7900; --block: #f0736c; --allow: #5cc48a; --warn: #e3b04b; --idle: #8a95a3;
   color-scheme: dark; } }
 :root[data-theme="dark"] {
-  --bg: #11161d; --fg: #e5eaf0; --muted: #9ba7b6; --line: #5a6676;
-  --panel: #19202a; --panel2: #15262a;
-  --new: #42c2cc; --block: #f0736c; --allow: #5cc48a; --warn: #e3b04b; --idle: #8a95a3;
+  --bg: #1a2029; --fg: #ebebeb; --muted: #aeb4bb; --line: #59606a;
+  --panel: #252a30; --panel2: #12304d;
+  --new: #4aa3f0; --titan: #ebebeb; --orange: #ff7900; --block: #f0736c; --allow: #5cc48a; --warn: #e3b04b; --idle: #8a95a3;
   color-scheme: dark; }
 body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.55; }
 main { max-width: 1240px; margin: 0 auto; padding-block: 32px 64px;
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
   display: grid; gap: 40px; }
 header { display: grid; gap: 8px; max-width: 72ch; }
-h1 { font-size: 30px; line-height: 1.2; margin: 0; text-wrap: balance; }
+h1 { font-size: 30px; line-height: 1.2; margin: 0; text-wrap: balance; color: var(--titan); }
 h2 { font-size: 20px; margin: 0; text-wrap: balance; }
 p { margin: 0; max-width: 72ch; }
 .lede { color: var(--muted); }

@@ -11,12 +11,15 @@
 @font-face { font-family: "IBM Plex Mono"; src: url("../../../public/fonts/ibm-plex-mono-400-latin.woff2") format("woff2"); font-weight: 400; font-display: swap; }
 :root {
   color-scheme: light;
-  --bg: #eef1f5; --surface: #ffffff; --field: #f7f9fb; --text: #18202b; --muted: #5a6676;
-  --border: #d6dce4; --border-strong: #b8c1cd;
-  --student: #2b59c3; --tutor: #8a3fa8; --library: #16765e; --professor: #a3315a; --hub: #9a6300; --model: #5b6472;
-  --guard: #0b6b84;      /* signal teal — the guardrail (new) */
-  --guard-tint: #e1f1f5;
-  --student-tint: #e6edfb;
+  /* CSU Fullerton web palette (brand.fullerton.edu/colors): Light Gray, white, Beige, text #222222 */
+  --bg: #f5f5f5; --surface: #ffffff; --field: #f8f7f3; --text: #222222; --muted: #595959;
+  --border: #dddddd; --border-strong: #bcbcbc;
+  --titan: #00244e; --titan-mid: #0f3f8c; --orange: #ff7900; --sky: #ebfbff;
+  /* agents: Titan Blue leads (Hub); secondary colours tell the other agents apart in the diagram */
+  --hub: #00244e; --student: #2973b6; --tutor: #164686; --professor: #ff7900; --library: #df6436; --person: #ff7900; --model: #5b6472;
+  /* Connectivo (logo blue #0274DE, wordmark slate #1E293B) for Connectivo Compliance */
+  --student-tint: #e8f1fa;
+  --guard: #0274de; --guard-tint: #e6f1fc; --guard-ink: #1e293b;
   --ok: #1d7a46; --ok-bg: #e2f3e8; --warn: #8a5a00; --warn-bg: #fdf1d4; --bad: #b4261f; --bad-bg: #fbe6e4; --idle: #6b7482;
   --radius: 10px;
   --font: "Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -24,10 +27,13 @@
 }
 @media (prefers-color-scheme: dark) { :root {
   color-scheme: dark;
-  --bg: #11151b; --surface: #181d25; --field: #1f2530; --text: #e4e8ee; --muted: #98a3b1;
-  --border: #2a313c; --border-strong: #3b4452;
-  --student: #86a2ff; --tutor: #c99ae6; --library: #4cc4a0; --professor: #f08aae; --hub: #e3b04b; --model: #aab4c2;
-  --guard: #52c7df; --guard-tint: #12303a; --student-tint: #1e2a45;
+  /* CSU Fullerton dark-mode palette: background #1A2029, gray #252A30, beige #3C4148, text #EBEBEB */
+  --bg: #1a2029; --surface: #252a30; --field: #3c4148; --text: #ebebeb; --muted: #aeb4bb;
+  --border: #3c4148; --border-strong: #59606a;
+  --titan: #ebebeb; --titan-mid: #99b3b9; --orange: #ff7900; --sky: #1a2f48;
+  --hub: #99b3b9; --student: #8acce4; --tutor: #6f9fd8; --professor: #ff7900; --library: #eda941; --person: #ff7900; --model: #aab4c2;
+  --student-tint: #1a2f48;
+  --guard: #4aa3f0; --guard-tint: #12304d; --guard-ink: #f8fafc;
   --ok: #63cf93; --ok-bg: #15301f; --warn: #eabb5c; --warn-bg: #352a12; --bad: #ff8f86; --bad-bg: #3a1916; --idle: #8d97a5;
 } }
 * { box-sizing: border-box; }
@@ -51,7 +57,7 @@ h1 { margin: 0; font-size: 1.2rem; font-weight: 700; letter-spacing: -0.01em; }
 .tabs { display: flex; gap: 2px; padding: 8px 20px 0; background: var(--surface); border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
 .tabs button { position: relative; padding: 8px 16px 10px; border: 0; background: none; cursor: pointer; font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -1px; white-space: nowrap; }
 .tabs button:hover { color: var(--text); }
-.tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--hub); }
+.tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--orange); }
 .tabs button.dim { opacity: 0.55; cursor: default; }
 .tab-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 7px; border-radius: 999px; background: var(--warn); color: var(--surface); font-size: 0.74rem; font-weight: 700; vertical-align: 1px; }
 .view { flex: 1; padding: 12px; }
