@@ -32,6 +32,10 @@ on their screen and in their chat record — is not.
 - Checking form submissions (form fields are meant to hold names/emails; form data never goes to a model).
 - A meaning-based (embedding) trigger — deferred to a later phase (§11).
 - The TypeSafe Jev judge — the judge is pluggable so Jev can be tried later (§11).
+- University **policies** (e.g. "no online class on Fridays", loan limits). They are not guardrails:
+  a student asking about a policy deserves an answer, not a block. Today each service enforces its own
+  in code (`src/loan-store.js` renewals, `src/forms.js` tutoring/room hours, Hub `recipient_not_enrolled`)
+  and explains it from its knowledge. Distributing policies to the agents that own them is **Step 13** (§11).
 
 **Anti-goals (it fails even if it "works" if…)**
 - It blocks innocent questions often ("how do I kill a Python process?").
@@ -246,6 +250,19 @@ latencyMs, model, usage}`, `guardrail_decision {hop, action, reasons}`, `guardra
   professor post; Topology and the strip show each; create a rule end to end in the Guardrails tab.
 
 ## 11. Later (not this step)
+
+- **Step 13 — distributed policies (owner's decision, 2026-10-30: "make it step 13 after guardrails").**
+  Built on Step 12's rule engine, AI authoring, sandbox testing and approval flow. Owner's requirements:
+  1. **Automatic placement:** once a policy is defined, the system works out which agent(s) it belongs to
+     (proposal: the AI proposes "applies to" by matching against the skills on the registered agents'
+     cards; a person confirms; policies attach to **skills and their workflow actions/fields**, never to
+     agent names, so they follow a skill that moves).
+  2. **Onboarding:** a new agent must first check and fetch the policies that apply to it before it gets
+     work (proposal: registration → card fetched → Hub sends the matching policies → agent loads them and
+     acknowledges their hashes → only then `ready`; the same push on a new approval or a skill change).
+  Known limit to design for: the Hub can verify an agent *loaded* a policy (hash), not that it *applies*
+  it — safety stays at the Hub; agent policies rely on the agent plus audit events. Brainstorm Step 13
+  separately once Step 12 ships.
 
 - Meaning-based trigger (local embeddings, HyDE-style generated reference examples) for harmful intent
   and for skipping the judge on low-risk outbound messages — only ever to **raise** scrutiny on inbound.
