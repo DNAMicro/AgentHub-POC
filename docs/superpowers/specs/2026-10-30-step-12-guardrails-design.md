@@ -241,6 +241,13 @@ Hub `/dev/guardrails/*`, origin-guarded like the other `/dev` routes.
 
 - **New nodes** beside the Hub: **Guardrail** (shield) with two satellites — **Rule engine**
   ("workerd") and **Guardrail model** (its own model box, like each agent's).
+- **Professor Amir as a person (owner's request, 2026-10-30):** a person node (rounded square with a
+  head-and-shoulders mark, berry) beside the Professor agent, joined by a dotted "Professor view" lane.
+  It animates only on what the human really does: a hand-over arriving (`needsProfessor` entry → "1
+  waiting"), the professor's own reply or direct post leaving (author `professor`), and a refused post
+  coming back ("Not sent"). Assistant answers animate Professor ↔ Professor's model instead, and the person
+  node dims. Labels distinguish "written by Professor Amir" from "assistant". Mockup:
+  `docs/superpowers/specs/2026-10-30-step-12-topology-mockup.html`.
 - **Animated hops (real events only):** Hub → Rule engine (scan), Hub → Guardrail model (judge); the
   verdict shows on the Guardrail node — **green pass**, **red block** (the flow stops at the Hub and the
   return hop to the student is labelled "blocked"), **amber** for shadow "would block", grey for timeout.
