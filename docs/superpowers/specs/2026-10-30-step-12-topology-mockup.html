@@ -81,13 +81,22 @@ svg.topo { width: 100%; height: auto; display: block; max-height: 72dvh; }
 .tone-warn .pill { fill: var(--warn-bg); stroke: transparent; } .tone-warn .ptext { fill: var(--warn); }
 .tone-guard .pill { fill: var(--guard-tint); stroke: transparent; } .tone-guard .ptext { fill: var(--guard); }
 /* agent rules ring (Step 13 preview) */
-.agring { fill: none; stroke: var(--guard); stroke-width: 2; stroke-dasharray: 2 6; stroke-linecap: round; opacity: .55; transition: stroke .3s, opacity .3s, stroke-width .3s; }
-.agring.check { opacity: 1; stroke-width: 4.5; stroke-dasharray: 16 9; animation: march 0.9s linear infinite; filter: drop-shadow(0 0 5px color-mix(in srgb, var(--guard) 60%, transparent)); }
-.agring.block { opacity: 1; stroke: var(--bad); stroke-width: 4.5; stroke-dasharray: none; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--bad) 55%, transparent)); }
-.agring.pass { opacity: 1; stroke: var(--ok); stroke-width: 3.5; stroke-dasharray: none; }
+.agring { fill: none; stroke: var(--guard); stroke-width: 2; stroke-dasharray: 2 6; stroke-linecap: round; opacity: .55; transform-origin: 0 0; transition: stroke .3s, opacity .3s, stroke-width .3s; }
+/* running: three bright arcs spin around the agent, and waves ripple outward */
+.agring.check { opacity: 1; stroke-width: 6; stroke-dasharray: 46 26; animation: spin 1s linear infinite; filter: drop-shadow(0 0 7px color-mix(in srgb, var(--guard) 75%, transparent)); }
+.agpulse { fill: none; stroke: var(--guard); stroke-width: 3; opacity: 0; transform-origin: 0 0; pointer-events: none; }
+.agpulse.on { animation: wave 1s ease-out infinite; }
+.agpulse.on.late { animation-delay: .5s; }
+.agpulse.bad { stroke: var(--bad); animation: wave .6s ease-out 3; }
+.agpulse.good { stroke: var(--ok); animation: wave .8s ease-out 1; }
+/* refused: red ring blinks three times, then stays red */
+.agring.block { opacity: 1; stroke: var(--bad); stroke-width: 6; stroke-dasharray: none; animation: blink .3s steps(2, jump-none) 4; filter: drop-shadow(0 0 8px color-mix(in srgb, var(--bad) 65%, transparent)); }
+.agring.pass { opacity: 1; stroke: var(--ok); stroke-width: 4; stroke-dasharray: none; }
 .agring.none { opacity: .9; stroke: var(--warn); stroke-dasharray: 1 7; }
-@keyframes march { to { stroke-dashoffset: -50; } }
-@media (prefers-reduced-motion: reduce) { .agring.check { animation: none; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes wave { from { opacity: .85; transform: scale(1); } to { opacity: 0; transform: scale(1.45); } }
+@keyframes blink { 0% { opacity: 1; } 100% { opacity: .15; } }
+body.calm .agring.check { animation: none; } body.calm .agpulse { animation: none !important; }
 .verdict-pass .disc { fill: var(--ok-bg); stroke: var(--ok); }
 .verdict-block .disc { fill: var(--bad-bg); stroke: var(--bad); }
 .verdict-check .disc { fill: var(--guard-tint); }
@@ -140,7 +149,8 @@ svg.topo { width: 100%; height: auto; display: block; max-height: 72dvh; }
       <button class="scn" data-scn="libraryRule" aria-pressed="false">Library rule</button>
       <button class="scn" data-scn="tutorRule" aria-pressed="false">Tutor rule</button>
       <button class="scn" data-scn="onboard" aria-pressed="false">Agent signs in</button>
-      <span class="clock" id="clock">live · 23:30:00</span>
+      <label style="margin-left:auto;font-size:.84rem"><input type="checkbox" id="calm"> Reduce motion</label>
+      <span class="clock" id="clock" style="margin-left:0">live · 23:30:00</span>
     </div>
     <div class="caption" id="caption">Pick a scenario.</div>
     <svg class="topo" id="topo" viewBox="0 0 1200 720" role="img" aria-label="Topology: Student agent, University Hub with its Guardrail, rule engine and guardrail model, the Tutor, Library and Professor agents with their models, and Professor Amir, a person, connected to the Professor agent through the Professor view."></svg>
@@ -260,6 +270,7 @@ for (const [id, n] of Object.entries(N)) {
     const ring = s('circle', { class: 'agring', r: n.r + 11 });
     ring.append(s('title', {}, `${n.name} rules: ${AGENT_RULES[id].ids.join(', ')}`));
     g.insertBefore(ring, g.firstChild);
+    for (const late of [false, true]) g.insertBefore(s('circle', { class: 'agpulse' + (late ? ' late' : ''), r: n.r + 11 }), g.firstChild);
   }
   gNodes.append(g);
   nodes[id] = g;
@@ -273,6 +284,11 @@ function status(id, text, tone = '') {
 // state: '' (installed, idle) | 'check' | 'block' | 'pass' | 'none' (no rules loaded yet)
 function ruleRing(id, state = '') {
   nodes[id].querySelector('.agring').setAttribute('class', 'agring' + (state ? ' ' + state : ''));
+  const wave = { check: 'on', block: 'bad', pass: 'good' }[state];
+  nodes[id].querySelectorAll('.agpulse').forEach((c, i) => {
+    c.setAttribute('class', 'agpulse' + (i === 1 ? ' late' : '')); void c.getBBox();   // restart the animation
+    if (wave && (wave === 'on' || i === 0)) c.classList.add(wave);
+  });
 }
 function resetAll() {
   for (const id of Object.keys(N)) { nodes[id].classList.remove('flash', 'dim', 'verdict-pass', 'verdict-block', 'verdict-check'); status(id, ''); }
@@ -286,7 +302,9 @@ resetAll();
 
 /* ---------- animation ---------- */
 let token = 0, clockT = 0;
-const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const calm = document.getElementById('calm');
+let reduce = calm.checked;
+calm.addEventListener('change', () => { reduce = calm.checked; document.body.classList.toggle('calm', reduce); });
 const wait = (ms, t) => new Promise((res, rej) => setTimeout(() => (t === token ? res() : rej('cancel')), reduce ? Math.min(ms, 250) : ms));
 function flash(id) { const g = nodes[id]; g.classList.add('flash'); const r = g.querySelector('.ring'); r.classList.remove('go'); void r.getBBox(); r.classList.add('go'); setTimeout(() => g.classList.remove('flash'), 700); }
 function shape(kind, color) {
@@ -412,7 +430,7 @@ const SCN = {
     pass('Student message (it’s safe: the Hub’s guardrail only checks safety)'),
     { go: [['hub', 'library']], cap: ['Hub → Library:', 'the Library owns the loan skill, so its rules live there.'], ev: ['University Hub → Library', 'Question', 'routed: Library · 2.5 s'] },
     clearGuard(),
-    { then: () => { ruleRing('library', 'check'); flash('library'); }, cap: ['Library agent rule:', 'before renewing, the Library runs its own rule, loan-renewal-limit@1.'], capColor: '--library', ev: ['Library', 'Agent rule check', 'loan-renewal-limit@1 · renew requested', 'dm'], evColor: '--library', pause: 1100 },
+    { then: () => { ruleRing('library', 'check'); flash('library'); }, cap: ['Library agent rule:', 'before renewing, the Library runs its own rule, loan-renewal-limit@1.'], capColor: '--library', ev: ['Library', 'Agent rule check', 'loan-renewal-limit@1 · renew requested', 'dm'], evColor: '--library', pause: 2200 },
     { then: () => ruleRing('library', 'block'), cap: ['The rule refuses:', 'this book has already been renewed 2 times, the maximum. Nothing is renewed.'], capColor: '--bad', ev: ['Library', 'Agent rule: refused', 'loan-renewal-limit@1 · 0.1 ms', 'dm'], evColor: '--bad', pause: 900 },
     { go: [['library', 'hub']], cap: ['Library → Hub:', '“I can’t renew it again. It’s been renewed twice, which is the maximum.”'], ev: ['Library → University Hub', 'Reply: renewal refused, with the reason', 'code: renewal_limit'], evColor: '--library' },
     ...checkIn('the reply'), pass('Library reply'),
@@ -424,7 +442,7 @@ const SCN = {
     pass('Student message'),
     { go: [['hub', 'tutor']], ev: ['University Hub → Tutor Agent', 'Question', 'routed: Tutoring · 2.7 s'] },
     clearGuard(),
-    { then: () => { ruleRing('tutor', 'check'); flash('tutor'); }, cap: ['Tutor agent rule:', 'the university policy “no online class on Fridays” was placed here because the Tutor owns session booking.'], capColor: '--tutor', ev: ['Tutor Agent', 'Agent rule check', 'no-online-friday@1 · date: Friday', 'dm'], evColor: '--tutor', pause: 1100 },
+    { then: () => { ruleRing('tutor', 'check'); flash('tutor'); }, cap: ['Tutor agent rule:', 'the university policy “no online class on Fridays” was placed here because the Tutor owns session booking.'], capColor: '--tutor', ev: ['Tutor Agent', 'Agent rule check', 'no-online-friday@1 · date: Friday', 'dm'], evColor: '--tutor', pause: 2200 },
     { then: () => ruleRing('tutor', 'block'), cap: ['The rule refuses the booking,', 'so no form is offered for Friday.'], capColor: '--bad', ev: ['Tutor Agent', 'Agent rule: refused', 'no-online-friday@1 · 0.1 ms', 'dm'], evColor: '--bad', pause: 900 },
     { go: [['tutor', 'hub']], cap: ['Tutor → Hub:', '“Online sessions don’t run on Fridays. Monday to Thursday works. Want one of those?”'], ev: ['Tutor Agent → University Hub', 'Reply: policy explained', 'policy: no-online-friday@1'], evColor: '--tutor' },
     ...checkIn('the reply'), pass('Tutor reply'),
@@ -434,7 +452,7 @@ const SCN = {
     { then: () => { status('tutor', '… Signing in', 'warn'); ruleRing('tutor', 'none'); nodes.tutor.classList.add('dim'); }, cap: ['The Tutor agent (re)starts.', 'Until it has its rules, the Hub sends it no work.'], capColor: '--tutor', ev: ['Tutor Agent', 'Starting', 'status: signing in'], evColor: '--tutor', pause: 900 },
     { go: [['tutor', 'hub', 'post']], then: () => nodes.tutor.classList.remove('dim'), cap: ['Tutor → Hub: register,', 'with its Agent Card (skills: tutoring questions, tutoring requests, online sessions).'], ev: ['Tutor Agent → University Hub', 'Register', 'card fetched from the configured URL', 'sq'], evColor: '--tutor' },
     { then: () => { status('hub', '… Matching policies', 'guard'); flash('hub'); }, cap: ['Hub matches policies to the Tutor’s skills:', 'tutoring-hours@2 (tutoring requests), no-online-friday@1 (online sessions).'], capColor: '--hub', ev: ['University Hub', 'Policies matched by skill', '2 policies for 3 skills', 'dm'], evColor: '--hub', pause: 1100 },
-    { go: [['hub', 'tutor', 'check']], then: () => ruleRing('tutor', 'check'), cap: ['Hub → Tutor:', 'here are the policies for your skills, with their hashes.'], ev: ['University Hub → Tutor Agent', 'Policy bundle', 'tutoring-hours@2 · no-online-friday@1', 'dm'], evColor: '--hub' },
+    { go: [['hub', 'tutor', 'check']], then: () => ruleRing('tutor', 'check'), cap: ['Hub → Tutor:', 'here are the policies for your skills, with their hashes.'], ev: ['University Hub → Tutor Agent', 'Policy bundle', 'tutoring-hours@2 · no-online-friday@1', 'dm'], evColor: '--hub', pause: 1800 },
     { go: [['tutor', 'hub', 'check']], cap: ['Tutor → Hub:', 'loaded, and the hashes match.'], ev: ['Tutor Agent → University Hub', 'Policies loaded', 'hashes 7c41…e09a, 19ab…3f20 ✓', 'dm'], evColor: '--tutor' },
     { then: () => { status('hub', '✓ Ready', 'ok'); status('tutor', '✓ Ready', 'ok'); ruleRing('tutor', 'pass'); flash('tutor'); }, cap: ['Only now is the Tutor “Ready”', 'and able to receive questions.'], capColor: '--ok', ev: ['University Hub', 'Tutor Agent ready', 'policies verified · dispatch allowed'], evColor: '--ok' },
   ],
