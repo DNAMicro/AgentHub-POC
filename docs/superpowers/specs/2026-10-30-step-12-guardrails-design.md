@@ -259,6 +259,9 @@ Hub `/dev/guardrails/*`, origin-guarded like the other `/dev` routes.
   light `#F8FAFC`, and its hexagon logo mark as the badge shape (agents) and the container (Hub).
 - **The student's own agent is shown as "Student’s Agent" (owner's request, 2026-10-31):** Topology node and
   event labels on screen; code ids (`student`, `student-alex`) and logs are unchanged.
+- **Model boxes are labelled "AI Model" (owner's request, 2026-10-31):** every agent's model box (Student's,
+  Hub router's, Tutor's, Class, Library's) reads just "AI Model" with no model name; the model id stays in
+  config, logs and the Agent activity details.
 - **The Hub is shown as "Titan Smart Hub" (owner's request, 2026-10-31):** on screen only: the Topology
   node, the Hub title (`public/index.html` `#hub-title`), event labels (`src/topology.js` `NODE_NAMES`,
   `public/app.js` `AGENT_NAMES`, `public/topology.js`) and the page title. Its public name to students

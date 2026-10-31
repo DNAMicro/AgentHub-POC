@@ -229,11 +229,11 @@ const N = {
   prof:    { x: 770, y: 335, r: 62, name: 'Marketing 101\nClass', c: '--professor' },
   library: { x: 770, y: 570, r: 62, name: 'Library Agent', sub: 'Library', c: '--library' },
   // model boxes
-  mStudent: { x: 130, y: 110, w: 176, h: 62, box: true, name: 'Student’s model', mono: 'claude-haiku-5-5', c: '--model' },
-  mHub:     { x: 450, y: 110, w: 176, h: 62, box: true, name: 'Hub router’s model', mono: 'claude-haiku-5-5', c: '--model' },
-  mTutor:   { x: 1010, y: 100, w: 176, h: 62, box: true, name: 'Tutor’s model', mono: 'claude-haiku-5-5', c: '--model' },
-  mProf:    { x: 1010, y: 250, w: 176, h: 62, box: true, name: 'Class model', mono: 'the assistant', c: '--model' },
-  mLibrary: { x: 1010, y: 570, w: 176, h: 62, box: true, name: 'Library’s model', mono: 'claude-haiku-5-5', c: '--model' },
+  mStudent: { x: 130, y: 110, w: 132, h: 46, box: true, name: 'AI Model', c: '--model' },
+  mHub:     { x: 450, y: 110, w: 132, h: 46, box: true, name: 'AI Model', c: '--model' },
+  mTutor:   { x: 1010, y: 100, w: 132, h: 46, box: true, name: 'AI Model', c: '--model' },
+  mProf:    { x: 1010, y: 250, w: 132, h: 46, box: true, name: 'AI Model', c: '--model' },
+  mLibrary: { x: 1010, y: 570, w: 132, h: 46, box: true, name: 'AI Model', c: '--model' },
   // the person
   amir:     { x: 1010, y: 420, w: 176, h: 62, person: true, name: 'Professor Amir', c: '--person' },
 };
@@ -289,8 +289,8 @@ for (const [id, n] of Object.entries(N)) {
     g.append(s('text', { class: 'nname sm', x: -30, y: 5 }, n.name));
   } else if (n.box) {
     g.append(s('rect', { class: 'box', x: -n.w / 2, y: -n.h / 2, width: n.w, height: n.h, rx: 12 }));
-    g.append(s('text', { class: 'nname sm', y: -6, 'text-anchor': 'middle' }, n.name));
-    g.append(s('text', { class: 'nmono', y: 13, 'text-anchor': 'middle' }, n.mono));
+    g.append(s('text', { class: 'nname sm', y: n.mono ? -6 : 5, 'text-anchor': 'middle' }, n.name));
+    if (n.mono) g.append(s('text', { class: 'nmono', y: 13, 'text-anchor': 'middle' }, n.mono));
   } else {
     g.append(s('circle', { class: 'disc', r: n.r }));
     // name only: the role is clear from the name and the lanes (no sub-lines)
@@ -452,7 +452,7 @@ const checkIn = (label) => [
   { then: () => part('rules', 'ok'), pause: 300 },
 ];
 const judge = (ms, verdict = 'allow', withRouter = true) => [
-  { then: () => part('decision', 'check'), cap: [withRouter ? 'Decision Model and router together:' : 'Decision Model:', withRouter ? 'the guardrail’s Decision Model and the router’s model work at the same time.' : 'reads the message in context and decides.'], capColor: '--guard', ev: ['Hub guardrail · Decision Model', 'Judge call', 'model call, sent', 'dm'], evColor: '--guard', pause: withRouter ? 0 : 900 },
+  { then: () => part('decision', 'check'), cap: [withRouter ? 'Decision Model and router together:' : 'Decision Model:', withRouter ? 'the guardrail’s Decision Model and the router’s AI Model work at the same time.' : 'reads the message in context and decides.'], capColor: '--guard', ev: ['Hub guardrail · Decision Model', 'Judge call', 'model call, sent', 'dm'], evColor: '--guard', pause: withRouter ? 0 : 900 },
   ...(withRouter ? [{ go: [['hub', 'mHub', 'q']], pause: 0 }, { go: [['mHub', 'hub', 'q', 1300]], pause: 0 }] : [{ pause: 1300 }]),
   { then: () => part('decision', verdict === 'allow' ? 'ok' : 'bad'), ev: ['Decision Model → Hub guardrail', `Judge: ${verdict}`, `${ms} · categories checked: 3`, 'dm'], evColor: verdict === 'allow' ? '--guard' : '--bad' },
 ];
@@ -465,8 +465,8 @@ const SCN = {
     ...checkIn('the student’s message'), ...judge('1.6 s'),
     pass('Student message'),
     { go: [['hub', 'prof']], cap: ['Hub → Marketing 101 Class:', 'routed to Marketing 101.'], ev: ['Titan Smart Hub → Marketing 101 Class', 'Question', 'routed: Marketing 101 · 2.7 s'] },
-    { go: [['prof', 'mProf', 'q']], cap: ['The assistant (model)', 'reads the course pack. Late homework isn’t covered there.'], ev: ['Marketing 101 Class → Class model', 'Assistant reads the question', 'model call, sent'], evColor: '--professor' },
-    { go: [['mProf', 'prof', 'q', 1200]], ev: ['Class model → Marketing 101 Class', 'Assistant: needs the professor', 'decision: needs_professor'], evColor: '--model' },
+    { go: [['prof', 'mProf', 'q']], cap: ['The assistant (model)', 'reads the course pack. Late homework isn’t covered there.'], ev: ['Marketing 101 Class → AI Model', 'Assistant reads the question', 'model call, sent'], evColor: '--professor' },
+    { go: [['mProf', 'prof', 'q', 1200]], ev: ['AI Model → Marketing 101 Class', 'Assistant: needs the professor', 'decision: needs_professor'], evColor: '--model' },
     { go: [['prof', 'amir', 'post']], cap: ['Hand-over to Professor Amir:', 'a person now has the question in the Professor view.'], ev: ['Marketing 101 Class → Professor Amir', 'Hand-over received', 'Professor view: 1 waiting', 'sq'], evColor: '--person', then: () => status('amir', '● 1 waiting', 'warn') },
     { go: [['prof', 'hub']], cap: ['Assistant → student (fixed words):', '“I’ve passed this on to Professor Amir, who will get back to you.”'], ev: ['Marketing 101 Class → Titan Smart Hub', 'Reply (assistant, on behalf)', 'professor.onBehalf: true'], evColor: '--professor' },
     clearGuard(), ...checkIn('the reply'), pass('Assistant reply'),
@@ -485,8 +485,8 @@ const SCN = {
     ...checkIn('the student’s message'), ...judge('1.5 s'),
     pass('Student message'),
     { go: [['hub', 'prof']], ev: ['Titan Smart Hub → Marketing 101 Class', 'Question', 'routed: Marketing 101 · 2.6 s'] },
-    { go: [['prof', 'mProf', 'q']], cap: ['The assistant (model) answers', 'from the course pack. Professor Amir isn’t involved.'], ev: ['Marketing 101 Class → Class model', 'Assistant answers', 'model call, sent'], evColor: '--professor', then: () => nodes.amir.classList.add('dim') },
-    { go: [['mProf', 'prof', 'q', 1200]], ev: ['Class model → Marketing 101 Class', 'Answer', 'decision: answer'], evColor: '--model' },
+    { go: [['prof', 'mProf', 'q']], cap: ['The assistant (model) answers', 'from the course pack. Professor Amir isn’t involved.'], ev: ['Marketing 101 Class → AI Model', 'Assistant answers', 'model call, sent'], evColor: '--professor', then: () => nodes.amir.classList.add('dim') },
+    { go: [['mProf', 'prof', 'q', 1200]], ev: ['AI Model → Marketing 101 Class', 'Answer', 'decision: answer'], evColor: '--model' },
     { go: [['prof', 'hub']], cap: ['Reply comes back,', 'labelled “Professor Amir’s course assistant”.'], ev: ['Marketing 101 Class → Titan Smart Hub', 'Reply (assistant)', 'author: assistant'], evColor: '--professor' },
     clearGuard(), ...checkIn('the reply'), pass('Assistant reply'),
     { go: [['hub', 'student']], ev: ['Titan Smart Hub → Student’s Agent', 'Reply delivered', 'result returned'], evColor: '--hub' },
