@@ -59,6 +59,24 @@ on their screen and in their chat record — is not.
   router** makes the wait max(judge, router), not the sum.
 - **HyDE, turned around:** have the AI write example violating messages and safe look-alikes **in
   advance** — used here to build the **test set** (§7.3).
+- **The "Validation layer" (deck "Interfaces built at runtime", 27 Oct 2026, slides 14–19)** is the same
+  idea already worked out for form inputs: plain-words rule → search existing validators → model writes a
+  Zod function + tests → static check and sandbox tests (≤3 retries) → publish versioned (`work-hours@1`),
+  callable by id (`POST /v1/validate/work-hours@1` → `{ valid, reason }`); every later check is plain code,
+  no model call on the hot path; one workerd isolate per validator, loaded at runtime by the Worker Loader,
+  network blocked; ~2–4 ms added by the sandbox (the deck's rough estimate, not a benchmark). What Step 12
+  takes from it, and where it deliberately differs:
+
+  | Validation layer | Step 12 guardrails |
+  |---|---|
+  | Search existing validators (pgvector) | Search existing rules first, by the authoring model over the short list (§5) — no database (project rule) |
+  | Validator = Zod schema over **fields** → `{ valid, reason }` | Guardrail rule = detector over **free text** → findings (positions, never values). Field validators are Step 13 (§11) |
+  | ≤3 automatic retries | ≤2 repair rounds, then a person sees the failures (my call; cheaper, and a person approves anyway) |
+  | A new rule can be generated **when a form needs it**, before it is shown | **Never while a student waits**; a person approves every version before it runs |
+  | One isolate per validator via Worker Loader | Same (§5) |
+  | Callable by anyone through the API | Step 12: only the Hub calls `/scan`. Step 13: agents call checks by id (§11) |
+  | gVisor around workerd as a second wall | Deferred (owner's decision); workerd only |
+  | nginx + Docker Swarm + Postgres + pg-boss | Not needed for a local demo: one workerd process, `data/guardrails.json` |
 
 ## 4. How a message flows (the pipeline)
 
@@ -126,6 +144,10 @@ exports:
 
 **Lifecycle (nothing generated while a student waits):**
 1. A person describes the rule in the interface (plus optional example messages).
+1b. **Search before writing** (from the "Interfaces built at runtime" deck, 27 Oct 2026): the existing
+   rules (descriptions + kinds) are shown as possible matches first; reuse or new version beats a
+   near-duplicate. Step 12 matches with the authoring model over the short rule list (no vector store);
+   embedding search is a later option (§11).
 2. The AI writes the module **and** test cases (positives + near-miss look-alikes).
 3. The draft is run **in the sandbox** against its tests and the frozen test set; results shown.
 4. A person reviews the code (read-only view) and approves → it becomes a **version**, pinned by content
@@ -138,11 +160,18 @@ does this for A2UI).
 
 **Where rules run — the rule engine:** a separate local process, **workerd**, on `127.0.0.1:41245`
 **(my call for the port)**, with no network and no filesystem bindings, called by the Hub over local
-HTTP (`POST /scan { hop, text } → { findings, ruleTimings }`). workerd can't load code at run time
-(Workers forbid `eval`/`new Function`), so:
-- **activation** regenerates the engine's config with all active rule versions and swaps engines
-  (start new → health check → switch → stop old);
-- **draft testing** uses a short-lived second workerd instance with just that draft.
+HTTP (`POST /scan { hop, text } → { findings, ruleTimings }`). Rule code can't be `eval`ed inside a
+Worker, so it is loaded with workerd's **Worker Loader** binding (Dynamic Worker Loading; works in local
+workerd, per Cloudflare's docs and its author — idea taken from the "Interfaces built at runtime" deck):
+- **each rule version runs in its own isolate**, loaded on demand by id `name@version` + content hash
+  (`env.LOADER.get(id, …)`), with `globalOutbound: null` (no network) and no bindings;
+- **activation** = the Hub tells the engine the new active set; no restart, no redeploy;
+- **draft testing** loads the draft as a one-off isolate (`LOADER.load`) in the same engine, under a
+  separate `/test` route, never in the active set.
+- **Builder checks first:** the exact workerd config syntax and whether it needs `--experimental`. If the
+  Worker Loader doesn't work in the pinned workerd, fall back to the earlier plan: regenerate the config
+  with the active rules and swap engines (start new → health check → switch → stop old), and test drafts in
+  a short-lived second instance.
 
 **Sandbox: workerd only (owner's decision, 2026-10-30: "lets not include the gvisor for now").**
 workerd runs directly, with no bindings, so a rule can't reach the network, files or the Hub. workerd's
@@ -260,6 +289,14 @@ latencyMs, model, usage}`, `guardrail_decision {hop, action, reasons}`, `guardra
   2. **Onboarding:** a new agent must first check and fetch the policies that apply to it before it gets
      work (proposal: registration → card fetched → Hub sends the matching policies → agent loads them and
      acknowledges their hashes → only then `ready`; the same push on a new approval or a skill change).
+  3. **From the "Interfaces built at runtime" deck:** a form field can **name its validator**
+     (`work-hours@1`) inside the A2UI message, so generated forms (Part 8) and fixed forms get the same
+     approved, versioned checks: inline in the browser while typing, and re-checked by the agent before it
+     saves (matches the project's "validation in three places" rule). Policies become callable checks by
+     id, e.g. `POST /validate/<id>@<version>`.
+     This also eases the known limit below: if an agent **calls** the shared check service by id
+     (rather than only holding a copy), every call is logged, so the Hub can see whether the agent checked
+     before it acted (onboarding then hands the agent the list of check ids that apply to its skills).
   Known limit to design for: the Hub can verify an agent *loaded* a policy (hash), not that it *applies*
   it — safety stays at the Hub; agent policies rely on the agent plus audit events. Brainstorm Step 13
   separately once Step 12 ships.
