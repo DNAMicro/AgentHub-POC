@@ -65,7 +65,7 @@ svg.topo { width: 100%; height: auto; display: block; max-height: 72dvh; }
 .lane.model { stroke-dasharray: 5 5; }
 .lane.person { stroke-dasharray: 2 4; stroke-width: 2.4; }
 .lane.lit { stroke: var(--lit); stroke-width: 3.4; }
-.elabel { font: 600 11px var(--mono); fill: var(--muted); }
+.elabel { font: 600 11px var(--mono); fill: var(--muted); paint-order: stroke; stroke: var(--surface); stroke-width: 6px; stroke-linejoin: round; }
 .disc { fill: var(--surface); stroke: var(--node); stroke-width: 4; transition: fill .3s, stroke .3s; }
 .box { fill: var(--surface); stroke: var(--node); stroke-width: 2.5; transition: fill .3s; }
 .flash .disc, .flash .box { fill: color-mix(in srgb, var(--node) 16%, var(--surface)); }
@@ -111,8 +111,10 @@ svg.topo { width: 100%; height: auto; display: block; max-height: 72dvh; }
 .agbadge.hubguard.block .agshield { stroke: var(--bad); }
 .gtitle { font: 700 11px var(--font); fill: var(--guard); }
 .hubguard.pass .gtitle { fill: var(--ok); } .hubguard.block .gtitle { fill: var(--bad); }
+.agbadge.hubguard.pass .agorbit { opacity: 0; }
+.agbadge.hubguard.block .agorbit { stroke-dasharray: none; }
 .gpart rect { fill: var(--surface); stroke: var(--guard); stroke-width: 1.4; transition: fill .3s, stroke .3s; }
-.gpart text { font: 600 11.5px var(--font); fill: var(--guard); }
+.gpart text { font: 600 11px var(--font); fill: var(--guard); }
 .gpart.check rect { fill: var(--guard); } .gpart.check text { fill: var(--surface); }
 .gpart.ok rect { fill: var(--ok-bg); stroke: var(--ok); } .gpart.ok text { fill: var(--ok); }
 .gpart.bad rect { fill: var(--bad-bg); stroke: var(--bad); } .gpart.bad text { fill: var(--bad); }
@@ -203,18 +205,17 @@ const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v
 
 /* ---------- layout (same grid as public/topology.js, with two additions) ---------- */
 const N = {
-  student: { x: 130, y: 300, r: 58, name: 'Student agent', sub: 'You', mono: 'student-alex', c: '--student' },
-  hub:     { x: 450, y: 310, r: 112, name: 'University Hub', sub: 'Front door and router', mono: 'router: live', c: '--hub' },
-  tutor:   { x: 770, y: 100, r: 56, name: 'Tutor Agent', sub: 'Tutoring', c: '--tutor' },
-  prof:    { x: 770, y: 330, r: 58, name: 'Marketing 101\nClass', c: '--professor' },
-  library: { x: 770, y: 570, r: 56, name: 'Library Agent', sub: 'Library', c: '--library' },
+  student: { x: 130, y: 335, r: 62, name: 'Student agent', sub: 'You', mono: 'student-alex', c: '--student' },
+  hub:     { x: 450, y: 335, r: 100, name: 'University Hub', sub: 'Front door and router', mono: 'router: live', c: '--hub' },
+  tutor:   { x: 770, y: 100, r: 62, name: 'Tutor Agent', sub: 'Tutoring', c: '--tutor' },
+  prof:    { x: 770, y: 335, r: 62, name: 'Marketing 101\nClass', c: '--professor' },
+  library: { x: 770, y: 570, r: 62, name: 'Library Agent', sub: 'Library', c: '--library' },
   // model boxes
-  mStudent: { x: 130, y: 90, w: 176, h: 62, box: true, name: 'Student’s model', mono: 'claude-haiku-5-5', c: '--model' },
-  mHub:     { x: 450, y: 90, w: 176, h: 62, box: true, name: 'Hub router’s model', mono: 'claude-haiku-5-5', c: '--model' },
+  mStudent: { x: 130, y: 110, w: 176, h: 62, box: true, name: 'Student’s model', mono: 'claude-haiku-5-5', c: '--model' },
+  mHub:     { x: 450, y: 110, w: 176, h: 62, box: true, name: 'Hub router’s model', mono: 'claude-haiku-5-5', c: '--model' },
   mTutor:   { x: 1010, y: 100, w: 176, h: 62, box: true, name: 'Tutor’s model', mono: 'claude-haiku-5-5', c: '--model' },
   mProf:    { x: 1010, y: 250, w: 176, h: 62, box: true, name: 'Class model', mono: 'the assistant', c: '--model' },
   mLibrary: { x: 1010, y: 570, w: 176, h: 62, box: true, name: 'Library’s model', mono: 'claude-haiku-5-5', c: '--model' },
-  // guardrail satellites
   // the person
   amir:     { x: 1010, y: 420, w: 176, h: 62, person: true, name: 'Professor Amir', c: '--person' },
 };
@@ -257,7 +258,7 @@ for (const [a, b, label, kind] of E) {
     g.append(l); lanes[`${a}>${b}`] = dir === 'f' ? l : lanes[`${a}>${b}`]; if (dir === 'b') lanes[`${b}>${a}`] = l;
   }
   const [ex1, ey1, ex2, ey2] = lanePts(a, b, 0), mx = (ex1 + ex2) / 2, my = (ey1 + ey2) / 2, vertical = Math.abs(N[a].x - N[b].x) < Math.abs(N[a].y - N[b].y);
-  g.append(s('text', { class: 'elabel', x: vertical ? mx + 14 : mx, y: vertical ? my : my - 14, 'text-anchor': vertical ? 'start' : 'middle' }, label));
+  g.append(s('text', { class: 'elabel', x: mx, y: my, 'text-anchor': 'middle', 'dominant-baseline': 'central' }, label));
   gEdges.append(g);
 }
 for (const [id, n] of Object.entries(N)) {
@@ -275,7 +276,7 @@ for (const [id, n] of Object.entries(N)) {
   } else {
     g.append(s('circle', { class: 'disc', r: n.r }));
     // name only: the role is clear from the name and the lanes (no sub-lines)
-    const lines = n.name.split('\n'), y0 = (id === 'hub' ? -70 : AGENT_RULES[id] ? 12 : 5) - (lines.length - 1) * 8;
+    const lines = n.name.split('\n'), y0 = (id === 'hub' ? -60 : AGENT_RULES[id] ? 15 : 5) - (lines.length - 1) * 8;
     const nm = s('text', { class: 'nname', y: y0, 'text-anchor': 'middle', style: id === 'hub' ? 'font-size:16px' : '' });
     lines.forEach((line, i) => nm.append(s('tspan', { x: 0, dy: i ? 17 : 0 }, line)));
     g.append(nm);
@@ -289,18 +290,18 @@ for (const [id, n] of Object.entries(N)) {
   // Outline while installed; filled with a turning orbit while a rule runs; red when it refuses; green when it passes.
   if (AGENT_RULES[id]) {
     const big = id === 'hub';   // the Hub's guardrail is a big circle holding its two parts
-    const R = big ? 66 : 12;
-    const b = s('g', { class: 'agbadge' + (big ? ' hubguard' : ''), transform: big ? 'translate(0 16)' : `translate(0 ${-n.r + 20})` });
+    const R = big ? 60 : 12;
+    const b = s('g', { class: 'agbadge' + (big ? ' hubguard' : ''), transform: big ? 'translate(0 14)' : `translate(0 ${-n.r + 24})` });
     b.append(s('title', {}, `${n.name.replace('\n', ' ')} ${AGENT_RULES[id].label || 'rules'}: ${AGENT_RULES[id].ids.join(', ')}`));
     b.append(s('circle', { class: 'agpulse', r: R + 4, 'stroke-opacity': 0 }));
     b.append(s('circle', { class: 'agorbit', r: R + 4 }));
     b.append(s('circle', { class: 'agbase', r: R }));
-    b.append(s('path', { class: 'agshield', d: 'M0,-6.5 L5.5,-4.4 L5.5,-0.6 C5.5,2.6 3.1,4.6 0,5.8 C-3.1,4.6 -5.5,2.6 -5.5,-0.6 L-5.5,-4.4 Z', transform: big ? 'translate(-27 -36) scale(1.5)' : '' }));
+    b.append(s('path', { class: 'agshield', d: 'M0,-6.5 L5.5,-4.4 L5.5,-0.6 C5.5,2.6 3.1,4.6 0,5.8 C-3.1,4.6 -5.5,2.6 -5.5,-0.6 L-5.5,-4.4 Z', transform: big ? 'translate(-28 -31) scale(1.3)' : '' }));
     if (big) {
-      b.append(s('text', { class: 'gtitle', x: -13, y: -32 }, 'Guardrail'));
-      for (const [part, label, y, w, tip] of [['rules', 'Rules', -8, 80, 'Rules: code checks in the workerd sandbox'], ['decision', 'Decision Model', 24, 112, 'Decision Model: the AI judge, claude-haiku-5-5']]) {
+      b.append(s('text', { class: 'gtitle', x: -18, y: -27 }, 'Guardrail'));
+      for (const [part, label, y, w, tip] of [['rules', 'Rules', -4, 90, 'Rules: code checks in the workerd sandbox'], ['decision', 'Decision Model', 22, 90, 'Decision Model: the AI judge, claude-haiku-5-5']]) {
         const pg = s('g', { class: 'gpart', 'data-part': part, transform: `translate(0 ${y})` });
-        pg.append(s('title', {}, tip), s('rect', { x: -w / 2, y: -12, width: w, height: 24, rx: 12 }), s('text', { y: 4, 'text-anchor': 'middle' }, label));
+        pg.append(s('title', {}, tip), s('rect', { x: -w / 2, y: -11, width: w, height: 22, rx: 11 }), s('text', { y: 4, 'text-anchor': 'middle' }, label));
         b.append(pg);
       }
     }
