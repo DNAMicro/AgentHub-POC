@@ -262,7 +262,7 @@ Hub `/dev/guardrails/*`, origin-guarded like the other `/dev` routes.
 - **Model boxes are labelled "AI Model" (owner's request, 2026-10-31):** every agent's model box (Student's,
   Hub router's, Tutor's, Class, Library's) reads just "AI Model" with no model name; the model id stays in
   config, logs and the Agent activity details.
-- **The Hub is shown as "Titan Smart Hub" (owner's request, 2026-10-31):** on screen only: the Topology
+- **The Hub is shown as "University AI Hub" (owner's request, 2026-10-31; first "University AI Hub", then renamed):** on screen only: the Topology
   node, the Hub title (`public/index.html` `#hub-title`), event labels (`src/topology.js` `NODE_NAMES`,
   `public/app.js` `AGENT_NAMES`, `public/topology.js`) and the page title. Its public name to students
   stays "California State University Fullerton"; code comments, logs and test regexes keep "Hub".
