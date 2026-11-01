@@ -252,7 +252,7 @@ Hub `/dev/guardrails/*`, origin-guarded like the other `/dev` routes.
   `#00244E` leads (Hub ring, all node names, headings), Titan Orange `#FF7900` only as small decoration
   (active tab underline) or a diagram ring; dark mode uses CSUF's dark palette (`#1A2029`, `#252A30`,
   `#3C4148`, text `#EBEBEB`). Agent rings use CSUF secondary colours, allowed for diagrams: Student
-  Brilliant Blue `#2973B6`, Tutor California Blue `#164686`, Marketing 101 Class and Professor Amir
+  Brilliant Blue `#2973B6`, Tutor California Blue `#164686`, Marketing 101 Agent and Professor Amir
   Titan Orange, Library Sun Orange `#DF6436`. Font: Atkinson Hyperlegible, CSUF's accessible alternative
   to Museo Sans (Museo needs the campus Adobe licence). **Connectivo Compliance** follows the Connectivo
   brand (`/Volumes/Files/Shared/ConnectivoMarketing/Branding`): blue `#0274DE`, slate `#1E293B`,
@@ -266,9 +266,9 @@ Hub `/dev/guardrails/*`, origin-guarded like the other `/dev` routes.
   node, the Hub title (`public/index.html` `#hub-title`), event labels (`src/topology.js` `NODE_NAMES`,
   `public/app.js` `AGENT_NAMES`, `public/topology.js`) and the page title. Its public name to students
   stays "California State University Fullerton"; code comments, logs and test regexes keep "Hub".
-- **The course agent is shown as "Marketing 101 Class" (owner's request, 2026-10-31):** the professor is
-  part of the class, so the Topology node, its events and captions say "Marketing 101 Class" and its model
-  box "Class model (the assistant)". This is a display label only: the agent card, logs and test regexes
+- **The course agent is shown as "Marketing 101 Agent" (owner's request, 2026-10-31; first "Marketing 101
+  Class", then renamed):** Professor Amir is a person working through this agent, so the Topology node, its
+  events and captions say "Marketing 101 Agent" and its model box "AI Model". This is a display label only: the agent card, logs and test regexes
   keep "Marketing 101 Professor"; Professor Amir stays the person's name.
 - **Professor Amir as a person (owner's request, 2026-10-30):** a person node (rounded square with a
   head-and-shoulders mark, berry) beside the Professor agent, joined by a dotted "Professor view" lane.
