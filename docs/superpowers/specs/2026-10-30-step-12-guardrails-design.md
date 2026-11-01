@@ -197,7 +197,10 @@ Docker container with the `runsc` runtime) is a later hardening option (§11).
 **Seed rules (shipped, fictional test data only):** US SSN (structure rules; **high** only with an SSN
 keyword nearby, otherwise **low** → judge hint) and payment card (Luhn + issuer prefix/length, known test
 numbers excluded → **high**). Both go through the same generate → test → approve flow and are committed
-as approved versions.
+as approved versions. **Who approves them (my call, builder check 2026-10-31):** the builder approves the
+two seeds during the build (recorded as `approvedBy: "seed (Step 12 build)"`) so the demo blocks on first
+run; the owner reviews them in the Guardrails tab during the browser walkthrough and can edit or switch
+them to shadow there.
 
 ## 6. Stage 2 — The judge (AI)
 
@@ -264,7 +267,8 @@ Hub `/dev/guardrails/*`, origin-guarded like the other `/dev` routes.
 ## 8. Topology and the hop-by-hop strip
 
 - **The guardrail lives inside the Hub circle (owner's request, 2026-10-31):** no separate Guardrail
-  node. The Hub disc is larger and holds a **guardrail circle** (shield + "Guardrail") with its two
+  node. The Hub disc is larger and holds the **Connectivo Compliance hexagon** (shield + "Connectivo
+  Compliance", Connectivo brand — see Branding below) with its two
   parts inside it as labels: **Rules** (the code rules in the workerd rule engine) and **Decision
   Model** (the AI judge's model). No outside boxes for them (owner's request, 2026-10-31). Each part
   fills while it works, then turns green (clean) or red (finding / block); a skipped part dims (e.g. a
@@ -392,6 +396,29 @@ latencyMs, model, usage}`, `guardrail_decision {hop, action, reasons}`, `guardra
 - CLAUDE.md scope: allow **model-generated validator code**, only for Step 12 rules, only after tests
   pass and a person approves, only run in the sandboxed rule engine.
 - Add `validator` (pinned exactly) and `workerd` (pinned to a release at least two weeks old).
+
+## 12b. Answers to the builder check (2026-10-31)
+
+- **Rule severity vs. rule confidence (my call):** a rule finding's *confidence* (`high` = sure, `low` =
+  not sure) decides what a finding does; *severity* is a judge-category setting only (§6), not a rule
+  setting. A **sure** finding blocks on every hop. A **not-sure** finding: on hops with a judge (student
+  messages, professor's own posts) it goes to the judge as a hint and never blocks alone; on hops
+  without a judge (agent replies, assistant posts) it **does not block** and logs "would block — not sure"
+  in Activity. Reason: the owner's priority is low false alarms, and an SSN with its keyword is still
+  sure. Example: a Library reply with a 9-digit SSN-shaped number and no "SSN" nearby is delivered and
+  logged.
+- **What Rules scan on the reply hop (my call):** the **text parts** of a reply (the agent's words, and
+  the text a relayed professor message carries). Form surfaces — form offers, the model-built loan UI,
+  and form results/confirmations — are **not scanned in Step 12**: they're built by code from the
+  university's records or from the student's own form input, form checking is already a non-goal, and
+  holding a form offer back would leave the agent's task open ("continue or replace?" about a form the
+  student never saw). Revisit with "checking form submissions" (§11).
+- **Step 13 visuals in Step 12 (my call):** Step 12 builds the Hub's Connectivo Compliance hexagon with
+  Rules and Decision Model, the name-only discs, the renames, the AI Model boxes, the layout and the
+  branding. The **shield badges inside agents and the Library rule / Tutor rule / Agent signs in scenes
+  are Step 13** and are not built now — showing "rules" on agents that have none would show something
+  that isn't real.
+- **Seed-rule approval:** see §5 "Seed rules".
 
 ## 13. Left to the builder
 
