@@ -437,12 +437,16 @@ Make sure the UI design is animated and shows as live reflecting the connection 
 - **Redact with an allowlist, not a denylist.** A list of “sensitive” field names let receipts (dates, times, room, group size, tutoring preferences) and model-written scope/intent reasons through, and would pass any new field too (found by a post-commit security review). The first fix exempted every event without a `runId`, which a second review caught: exempt event types by name, never by a missing field.
 - **The Hub must not log or relay content.** Its reused A2A client logs message text unless told not to.
 - **Naming a course's teacher identifies the course; never ask the same clarification twice** (user report, 2026-10-31: after a Marketing 101 reply, “ask the professor” and then “Amir” each made the Hub ask “Which course… Professor Amir?”). The Hub adds the teacher's name from its course record to the router's service view as `instructor` (public: the student already sees it); the router prompt and the mock heuristic route “ask the professor”, “Professor Amir” and “Amir” to that service (a follow-up to the service that just replied). Hub turns record `clarified: true`; if a new clarification is about the same thing as the previous one (word overlap ≥ 0.5, `noRepeatClarify` in `src/router.js`, both modes), the request goes on to the service that last answered instead of asking again.
+- **The Student agent must not hold a name from the last reply** (owner's live report, 2026-10-31: right after “…passed this on to Professor Amir…”, typing “Amir” was held with “Did you want to ask Professor Amir something?… pass it along to him”). `namesFromLastReply` in `src/student-assistant.js` (code, before any model call, live and mock): a message of at most four words whose meaningful words all appear in the last university reply, after a reply from a service, goes on as-is (`by: 'context'`) so the Hub routes it to that service; never a clarification.
+- **Models must never guess pronouns** (same report: “him”). `PEOPLE_RULE` (`src/llm.js`) is appended to every prompt that writes about people: Student, router, Professor (answers, on-behalf, @assistant), Tutor, Library answers and loans. Refer to people by name, role or “they/them”. A test checks each exported prompt contains it. No fixed wording in code used he/she.
 - **A Hub-answered reconcile carries no specialist “duplicate” marker** — assert on the Hub's `request_repeat` and a single dispatch.
 - **Form-action failures need distinct Hub statuses:** `not_delivered` vs `outcome_unknown`; a plain “rejected” hid the difference.
 
 ---
 
 ## Enhancements merged into this step
+
+- **Student follow-up by name; no guessed pronouns** (2026-10-31, owner's live report): `namesFromLastReply` and `PEOPLE_RULE`, see “Avoid these known problems”. Tests in `test/professor.test.js` (Student model scripted to clarify is never asked; prompts carry the rule).
 
 - **Teacher name in routing, no repeated clarification** (2026-10-31, owner's live report): see the matching “Avoid these known problems” entry; `instructor` on the routing view, `clarified` on Hub turns, `noRepeatClarify`.
 

@@ -715,3 +715,54 @@ test('the router never asks the same clarifying question twice in a row (it goes
   assert.equal(noRepeatClarify(again, [{ ...turns[1], clarified: false }], services).decision, 'clarify', 'no earlier clarification: unchanged');
   assert.equal(noRepeatClarify({ ...again, clarificationQuestion: 'Tutoring or library?' }, turns, services).decision, 'clarify', 'a different question is allowed');
 });
+
+// ---- Student side of the same bug: "Amir" right after the Marketing 101 reply was held by the Student agent
+// ("Did you want to ask Professor Amir something?"). Scripted model = plumbing, not judgment.
+test('"Amir" after a Marketing 101 reply is not held or clarified by the Student agent — it reaches the Professor (Student model live, scripted to clarify)', async () => {
+  const profStub = await startFakeAnthropic();
+  profStub.respondWith(() => messageReply(JSON.stringify({ kind: 'needs_professor', text: 'SWOT isn’t in my material.', topic_ids: [] })));
+  const studentStub = await startFakeAnthropic();
+  // If the Student's model were asked, it would do what the live one did: hold the message and ask.
+  studentStub.respondWith(() => messageReply(JSON.stringify({ action: 'clarify', capability: 'none', reason: '', clarification_question: 'Did you want to ask Professor Amir something? Let me know your question and I’ll pass it along to him.' })));
+  const key = `sk-ant-test-${randomUUID()}`;
+  const { s, stream } = await classroom({
+    professorEnv: { PROFESSOR_MODE: 'live', ANTHROPIC_API_KEY: key, ANTHROPIC_BASE_URL: profStub.url, TUTOR_LOAD_DOTENV: '0' },
+    uiEnv: { STUDENT_MODE: 'live', ANTHROPIC_API_KEY: key, ANTHROPIC_BASE_URL: studentStub.url, TUTOR_LOAD_DOTENV: '0' },
+  });
+  try {
+    const r1 = await chatVia(s.ui, stream, 'what is SWOT in marketing');
+    assert.match(r1.reply.text, /passed this on to Professor Amir/i);
+    for (const text of ['Amir', 'Professor Amir', 'ask the professor']) {
+      const r = await chatVia(s.ui, stream, text, r1.contextId);
+      assert.equal(find(r.events, 'student', 'clarification_asked'), undefined, `“${text}” is not held`);
+      assert.equal(r.decision?.agentId, 'professor', `“${text}” reaches the Professor`);
+      assert.match(r.reply.text, /already passed/i);
+    }
+    assert.equal(studentStub.requests.length, 0, 'the Student’s model was never asked: code recognises the follow-up');
+  } finally {
+    await profStub.close();
+    await studentStub.close();
+  }
+});
+
+test('Student mock path: naming something from the last reply continues with that service', async () => {
+  process.env.STUDENT_MODE = 'mock';
+  const { namesFromLastReply } = await import('../src/student-assistant.js');
+  const last = { question: 'what is SWOT', capability: 'marketing', answer: 'I’ve passed this on to Professor Amir, who will get back to you.' };
+  for (const q of ['Amir', 'Professor Amir', 'the professor', 'ask the professor', 'please ask Amir']) assert.ok(namesFromLastReply(q, last), q);
+  for (const q of ['Explain the derivative of x squared', 'Bob', 'ask the librarian', 'Amir please renew my library book now']) assert.ok(!namesFromLastReply(q, last), q);
+  assert.ok(!namesFromLastReply('Amir', { ...last, capability: null }), 'only after a reply from a service');
+});
+
+test('every prompt that writes about people carries the no-guessing-pronouns rule', async () => {
+  const { PEOPLE_RULE } = await import('../src/llm.js');
+  assert.match(PEOPLE_RULE, /pronouns/);
+  const { ROUTER_SYSTEM } = await import('../src/router.js');
+  const prof = await import('../src/professor-model.js');
+  const { SYSTEM_PROMPT } = await import('../src/tutor-model.js');
+  const lib = await import('../src/library-model.js');
+  const loan = await import('../src/loan-model.js');
+  const stu = await import('../src/student-assistant.js');
+  const prompts = { router: ROUTER_SYSTEM, professor: prof.SYSTEM, professorOnBehalf: `${prof.ON_BEHALF}\n${prof.SYSTEM}`, professorAssistant: prof.INTERPRET_SYSTEM, tutor: SYSTEM_PROMPT, library: lib.SYSTEM, loans: loan.SYSTEM, student: stu.SYSTEM };
+  for (const [name, text] of Object.entries(prompts)) assert.ok(text.includes(PEOPLE_RULE), `${name} prompt has the rule`);
+});

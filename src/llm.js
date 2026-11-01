@@ -153,3 +153,6 @@ export function briefReply(text, head = 200, tail = 300) {
   const s = String(text ?? '');
   return s.length <= head + tail + 3 ? s : `${s.slice(0, head)} … ${s.slice(-tail)}`;
 }
+
+// Added to every prompt whose output talks about people: models must not guess pronouns.
+export const PEOPLE_RULE = 'Never guess a person’s pronouns or gender: refer to people (the professor, a student, a librarian) by name or role, or with “they/them”, and use he/she/him/her/his/hers only if the data states them.';

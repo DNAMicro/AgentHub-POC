@@ -19,7 +19,7 @@
 // repair), the Student answers itself ("decline") and nothing goes to the Hub. Anything uncertain goes
 // to the Hub: the model unsure ("none"), or the student answering our clarifying question with
 // "I don't know" and the like (checked in code, before any model call).
-import { briefReply, callModel, keyConfigured, loadDotenvOnce, modelName, toLlmError } from './llm.js';
+import { PEOPLE_RULE, briefReply, callModel, keyConfigured, loadDotenvOnce, modelName, toLlmError } from './llm.js';
 import { askedLine, asksStudent, near, tokenize, withoutAsked } from './router.js';
 
 export { asksStudent };
@@ -63,7 +63,7 @@ const PLAN_SCHEMA = (ids, allowClarify, withRelation = false) => ({
   additionalProperties: false,
 });
 
-const SYSTEM = `You are the student's own assistant (the Student agent). Before a message goes to the university, you pick which ONE of the university's public capabilities it needs. You are only asked when keyword matching couldn't tell.
+export const SYSTEM = `You are the student's own assistant (the Student agent). Before a message goes to the university, you pick which ONE of the university's public capabilities it needs. You are only asked when keyword matching couldn't tell.
 - send + capability id: one capability fits the student's intent. Judge by intent: explaining or practising a subject is tutoring even if a book is mentioned; finding, borrowing, renewing or returning books, library hours and study rooms are library.
 - A message about a course the list names (its homework, assignments, deadlines, lessons or announcements — "my marketing homework", "for marketing class") belongs to that course's capability. Words such as return, late, due or book used about coursework ("return my homework late") are not library requests: library means library items, hours and rooms. Naming the course settles it — don't ask.
 - decline: you are CONFIDENT the request is outside every listed capability (for example home plumbing, car repair, cooking). The student gets your reason directly and nothing is sent. Only when certain.
@@ -76,7 +76,8 @@ Small talk is not a request to decline: answer a greeting or thanks ("hi", "than
 For clarify the student sees ONLY clarification_question (not reason), so put any greeting, thanks or explanation there, before the question.
 "How do I use this?" / "what can you do?": clarify, and in clarification_question explain in one sentence that they can just type what they need in their own words and you'll pass it to the right university service — then ask what they need.
 A follow-up about the last reply — "what do i do now?", "did it work?", "what does that mean?" right after the university answered or sent a form — continues that conversation: send it to the capability that replied; don't ask which service.
-When <pending_clarification> is present you asked the student a clarifying question about an earlier message. Decide "relation" first: answers_question if the latest message answers your question — including when it just picks one of the options your question offered ("my library book", "the tutoring one", "library") — (then plan for the earlier message together with this answer, and don't ask again); new_request if it is a different, self-contained request (then plan for the latest message alone).`;
+When <pending_clarification> is present you asked the student a clarifying question about an earlier message. Decide "relation" first: answers_question if the latest message answers your question — including when it just picks one of the options your question offered ("my library book", "the tutoring one", "library") — (then plan for the earlier message together with this answer, and don't ask again); new_request if it is a different, self-contained request (then plan for the latest message alone).
+${PEOPLE_RULE}`;
 
 const quote = (label, text) => `<${label}>\n${text}\n</${label}>`;
 const send = (capability, by, reason, extra = {}) => ({ action: 'send', capability, by, reason, ...extra });
@@ -121,9 +122,24 @@ export async function planRequest(args) {
   return plan.relation === 'new_request' ? { text: question, ...plan } : { text: combined, ...plan, relation: 'answers_question' };
 }
 
+// A short message that only names something from the last university reply — “Amir”, “Professor Amir”,
+// “ask the professor” right after “…passed this on to Professor Amir…” — continues that conversation: it goes on
+// as-is and the university routes it to the service that replied. Never a clarifying question.
+const FILLER = new Set('ask tell talk speak to the my please with can could you i would like want a an of'.split(' '));
+const wordsOf = (s) => String(s ?? '').toLowerCase().replace(/[’']/g, '').split(/[^a-z0-9]+/).filter(Boolean);
+export function namesFromLastReply(question, last) {
+  if (!last?.capability || !last.answer) return false;
+  const raw = wordsOf(question);
+  if (!raw.length || raw.length > 4) return false;
+  const content = raw.filter((w) => !FILLER.has(w));
+  const inReply = new Set(wordsOf(last.answer));
+  return content.length > 0 && content.every((w) => inReply.has(w));
+}
+
 async function planCore({ question, capabilities, recentTurns = [], followsQuestion = false, clarifiedAlready = false, clarificationAnswer = '', pending = null, onModelEvent = () => {} }) {
   if (STUDENT_MODE === 'off') return send(null, 'off', 'The Student’s model is off; the university routes every question.');
   if (followsQuestion && !clarifiedAlready && !pending) return send(null, 'context', 'Answers the university’s last question, so it goes on as-is (the university has that context).');
+  if (!clarifiedAlready && !pending && namesFromLastReply(question, recentTurns.at(-1))) return send(null, 'context', 'Names something from the university’s last reply, so it continues with that service and goes on as-is.');
   if (clarifiedAlready && UNSURE.test(clarificationAnswer)) return send(null, 'uncertain', 'Your answer didn’t settle it, so the university decides.');
   const matched = matchCapabilities(withoutAsked(question), capabilities);
   if (matched.length === 1 && !pending) return send(null, 'rule', `Looks clearly like ${matched[0].name} (matched “${matched[0].terms.join('”, “')}”), so the university routes it.`, { matched, likely: matched[0].id });

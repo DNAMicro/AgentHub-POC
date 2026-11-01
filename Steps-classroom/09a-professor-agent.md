@@ -169,6 +169,9 @@ This step adds no lessons, inbox or signing of Student requests. Those come in S
 
 ## Avoid these known problems
 
+- Never let a model guess pronouns ("him", "her" for the professor). Add one shared `PEOPLE_RULE` sentence to every prompt that writes about people (Student, router, Professor, Tutor, Library) and test that each prompt contains it.
+- The Student agent must not hold "Amir" / "Professor Amir" / "ask the professor" right after a reply that named the professor: in code, a message of at most four words whose meaningful words all appear in the last service reply goes on as-is, with no model call and no clarification.
+
 - A marketing question the course pack doesn't cover (for example "what is SWOT in marketing") must not be a refusal with a topic list. In the live prompt, `out_of_scope` is only for things unrelated to marketing and the course; an uncovered marketing concept is `needs_professor` (the question goes to the professor's chat and the student gets the fixed "passed this on" words). The mock does the same: no topic match plus marketing or course words gives `needs_professor`.
 - "ask the professor", "ask Professor Amir" or just "Amir" means the student's earlier question. Handle it in code, not in the model: copy the last question of that conversation into the professor's chat; if it was already handed over, say so and add nothing; with no earlier question, ask what it is. Also give the Hub router the teacher's name (`instructor` on the service view) so it routes these words to Marketing 101, and never let it ask the same clarifying question twice in a row.
 
