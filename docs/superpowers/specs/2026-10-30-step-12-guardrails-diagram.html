@@ -54,6 +54,15 @@ th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--lin
 th { font-weight: 600; color: var(--muted); }
 code, .mono { font-family: var(--mono); font-size: 0.92em; }
 .open { color: var(--warn); font-weight: 600; }
+.srckey { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px 18px; font-size: 13px; color: var(--muted); max-width: 1100px; }
+.tag { display: inline-block; font: 600 11px var(--mono); padding: 1px 6px; border-radius: 4px; border: 1px solid var(--new); color: var(--new); background: var(--panel2); margin-right: 4px; white-space: nowrap; }
+.tag.o { border-color: var(--orange); color: var(--fg); background: color-mix(in srgb, var(--orange) 14%, var(--panel)); }
+.tag.c { border-color: var(--line); color: var(--muted); background: var(--panel); }
+.tag.m { border-color: var(--allow); color: var(--allow); background: var(--panel); }
+.why { display: grid; gap: 6px; font-size: 14px; max-width: 100ch; }
+.why li { margin: 0; }
+td .tag { margin-bottom: 2px; }
+svg .src { fill: var(--new); font-size: 10.5px; font-family: var(--mono); font-weight: 600; }
 
 /* SVG parts */
 svg { color: var(--line); font-family: var(--sans); }
@@ -88,7 +97,17 @@ svg .at { fill: var(--allow); font-size: 11.5px; }
 <main>
 <header>
   <h1>Step 12: University Smart Hub guardrails</h1>
-  <p class="lede">How a message is checked on its way into and out of the Hub, which processes do the checking, and how a new rule goes live. Drawn from the Step 12 design document (spec dated 30 Oct 2026). Nothing here is built yet.</p>
+  <p class="lede">How a message is checked on its way into and out of the Hub, which processes do the checking, and how a new rule goes live. Drawn from the Step 12 design document (spec dated 30 Oct 2026, updated 31 Oct 2026 with the ComplianceNLP research and the owner's latest decisions). Nothing here is built yet. Every step is tagged with where it comes from; section 7 explains why each one is built the way it is.</p>
+  <div class="srckey" aria-label="Sources">
+    <span><span class="tag">R1</span>Gateway research: <code>reports/AI gateway guardrail mechanisms.md</code></span>
+    <span><span class="tag">R2</span>Network-IDS speed research: <code>reports/IDS speed methods for guardrails.md</code></span>
+    <span><span class="tag">R3</span>ComplianceNLP paper (arXiv 2604.23585): <code>reports/ComplianceNLP lessons for compliance engine.md</code></span>
+    <span><span class="tag">R4</span>Deck “Interfaces built at runtime” (27 Oct 2026), Validation layer, slides 14–19</span>
+    <span><span class="tag">A</span>Anthropic docs: “Mitigate jailbreaks” (harmlessness screens)</span>
+    <span><span class="tag m">M</span>Measured on this app</span>
+    <span><span class="tag o">O</span>Owner’s decision</span>
+    <span><span class="tag c">C</span>My call (marked in the design doc)</span>
+  </div>
   <div class="key">
     <span><i class="sw new"></i>New in Step 12</span>
     <span><i class="sw old"></i>Already running today</span>
@@ -104,7 +123,7 @@ svg .at { fill: var(--allow); font-size: 11.5px; }
   <h2>1. Systems and connections</h2>
   <figure>
     <div class="scroll">
-    <svg viewBox="0 0 1200 790" role="img" aria-label="System map: the browser talks to the UI server, which sends signed A2A messages to the University Smart Hub. The new guardrail module inside the Hub calls the workerd rule engine and the Anthropic API before anything reaches the Tutor, Library or Professor; their replies are held and checked on the way back.">
+    <svg viewBox="0 0 1200 790" role="img" aria-label="System map: the browser talks to the UI server, which sends signed A2A messages to the University Smart Hub. The new guardrail module inside the Hub calls the workerd rule engine and the Decision Model (Anthropic API) before anything reaches the Tutor, Library or Marketing 101 Agent; their replies are held and rule-checked on the way back.">
       <defs>
         <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker>
         <marker id="arn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mkn"/></marker>
@@ -153,32 +172,36 @@ svg .at { fill: var(--allow); font-size: 11.5px; }
 
       <!-- Guardrail module -->
       <rect class="nzone" x="216" y="334" width="440" height="272" rx="8"/>
-      <text class="nt" x="232" y="355">Guardrail module (new)</text>
+      <text class="nt" x="232" y="355">Guardrail (new)</text>
 
       <rect class="box" x="232" y="368" width="190" height="60" rx="6"/>
-      <text class="b" x="327" y="391" text-anchor="middle">1. Rule check</text>
-      <text class="s" x="327" y="411" text-anchor="middle">asks workerd, 50 ms cap</text>
+      <text class="b" x="327" y="387" text-anchor="middle">1. Rule check</text>
+      <text class="s" x="327" y="404" text-anchor="middle">asks workerd, 50 ms cap</text>
+      <text class="src" x="327" y="420" text-anchor="middle">R2 · R1 · R4</text>
 
       <rect class="box" x="232" y="446" width="190" height="60" rx="6"/>
-      <text class="b" x="327" y="469" text-anchor="middle">Modes</text>
-      <text class="s" x="327" y="489" text-anchor="middle">off, watch only, block</text>
+      <text class="b" x="327" y="465" text-anchor="middle">Modes + severity</text>
+      <text class="s" x="327" y="482" text-anchor="middle">off, watch only, block</text>
+      <text class="src" x="327" y="498" text-anchor="middle">R3 · O</text>
 
       <rect class="box" x="232" y="524" width="190" height="66" rx="6"/>
       <text class="b" x="327" y="548" text-anchor="middle">Verdict cache</text>
       <text class="s" x="327" y="568" text-anchor="middle">exact same text only</text>
+      <text class="src" x="327" y="584" text-anchor="middle">C</text>
 
       <rect class="box" x="446" y="368" width="194" height="60" rx="6"/>
-      <text class="b" x="543" y="391" text-anchor="middle">2. AI judge</text>
-      <text class="s" x="543" y="411" text-anchor="middle">one Haiku call, 8 s cap</text>
+      <text class="b" x="543" y="387" text-anchor="middle">2. Decision Model</text>
+      <text class="s" x="543" y="404" text-anchor="middle">one Haiku call, quotes the policy</text>
+      <text class="src" x="543" y="420" text-anchor="middle">R1 · A · R3 · R2</text>
       <line class="ln" x1="422" y1="398" x2="444" y2="398" marker-end="url(#ar)"/>
 
       <rect class="box" x="446" y="446" width="194" height="144" rx="6"/>
       <text class="b" x="543" y="469" text-anchor="middle">3. Decide</text>
       <text class="at" x="458" y="492">allow: send on</text>
       <text class="bt" x="458" y="511">sure rule hit: block now</text>
-      <text class="bt" x="458" y="530">judge says block: block</text>
+      <text class="bt" x="458" y="530">model blocks (quote checked)</text>
       <text class="bt" x="458" y="549">model refuses: block</text>
-      <text class="s"  x="458" y="568">no verdict in time: block</text>
+      <text class="s"  x="458" y="568">no verdict / bad quote: block</text>
       <text class="wt" x="458" y="584">watch only: log, send on</text>
       <line class="ln" x1="543" y1="428" x2="543" y2="444" marker-end="url(#ar)"/>
 
@@ -229,35 +252,35 @@ svg .at { fill: var(--allow); font-size: 11.5px; }
       <text class="s" x="1110" y="400" text-anchor="middle">Called by:</text>
       <text class="t" x="1110" y="420" text-anchor="middle">student model</text>
       <text class="t" x="1110" y="440" text-anchor="middle">Hub router</text>
-      <text class="nt" x="1110" y="460" text-anchor="middle" style="font-size:13px">Hub judge (new)</text>
+      <text class="nt" x="1110" y="460" text-anchor="middle" style="font-size:13px">Decision Model (new)</text>
       <text class="t" x="1110" y="480" text-anchor="middle">Tutor, Library,</text>
-      <text class="t" x="1110" y="498" text-anchor="middle">Professor models</text>
+      <text class="t" x="1110" y="498" text-anchor="middle">Marketing 101 models</text>
       <text class="s" x="1110" y="570" text-anchor="middle">the only traffic that</text>
       <text class="s" x="1110" y="586" text-anchor="middle">leaves this machine</text>
       <line class="ln" x1="1000" y1="450" x2="1038" y2="450" marker-end="url(#ar)"/>
 
       <!-- Specialists -->
       <rect class="box" x="200" y="680" width="240" height="92" rx="8"/>
-      <text class="b" x="320" y="704" text-anchor="middle">Tutor <tspan class="m" dx="4">:41241</tspan></text>
+      <text class="b" x="320" y="704" text-anchor="middle">Tutor Agent <tspan class="m" dx="4">:41241</tspan></text>
       <text class="s" x="320" y="726" text-anchor="middle">answers, tutoring form</text>
       <text class="s" x="320" y="745" text-anchor="middle">own model</text>
       <rect class="box" x="480" y="680" width="240" height="92" rx="8"/>
-      <text class="b" x="600" y="704" text-anchor="middle">Library <tspan class="m" dx="4">:41242</tspan></text>
+      <text class="b" x="600" y="704" text-anchor="middle">Library Agent <tspan class="m" dx="4">:41242</tspan></text>
       <text class="s" x="600" y="726" text-anchor="middle">answers, rooms, loans</text>
       <text class="s" x="600" y="745" text-anchor="middle">own model, loans file</text>
       <rect class="box" x="760" y="680" width="240" height="92" rx="8"/>
-      <text class="b" x="880" y="704" text-anchor="middle">Professor Amir <tspan class="m" dx="4">:41244</tspan></text>
-      <text class="s" x="880" y="726" text-anchor="middle">answers, lessons, messages</text>
+      <text class="b" x="880" y="704" text-anchor="middle">Marketing 101 Agent <tspan class="m" dx="4">:41244</tspan></text>
+      <text class="s" x="880" y="726" text-anchor="middle">assistant + Professor Amir’s posts</text>
       <text class="s" x="880" y="745" text-anchor="middle">own model, outbox file</text>
 
       <line class="lna" x1="280" y1="620" x2="280" y2="677" marker-end="url(#ar)"/>
       <text class="lbl" x="286" y="654">allowed only</text>
       <line class="ln" x1="400" y1="680" x2="400" y2="623" marker-end="url(#ar)"/>
-      <text class="lbl" x="406" y="654">reply, held</text>
+      <text class="lbl" x="406" y="654">reply, held (Rules)</text>
       <line class="lna" x1="560" y1="620" x2="560" y2="677" marker-end="url(#ar)"/>
       <text class="lbl" x="566" y="654">allowed only</text>
       <line class="ln" x1="680" y1="680" x2="680" y2="623" marker-end="url(#ar)"/>
-      <text class="lbl" x="686" y="654">reply, held</text>
+      <text class="lbl" x="686" y="654">reply, held (Rules)</text>
       <line class="lna" x1="840" y1="620" x2="840" y2="677" marker-end="url(#ar)"/>
       <text class="lbl" x="846" y="654">allowed only</text>
       <line class="ln" x1="960" y1="680" x2="960" y2="623" marker-end="url(#ar)"/>
@@ -268,6 +291,11 @@ svg .at { fill: var(--allow); font-size: 11.5px; }
     </svg>
     </div>
     <figcaption>Everything is on 127.0.0.1. The guardrail is not a new agent. It lives inside the Hub, the one place every message already passes through. workerd is a separate process that only runs approved rule code: text in, findings out, with no network or file access. If workerd is down, the Hub blocks instead of letting messages through unchecked. <code>npm run demo</code> starts six processes instead of five.</figcaption>
+    <ul class="why">
+      <li><span class="tag">R1</span>The check sits in the Hub because gateway products (AWS, Microsoft, Google) put content checks at the single front door and pick checks <em>per hop by configuration</em>, not per message. Every message already passes the Hub, so no new hop is added.</li>
+      <li><span class="tag">R4</span><span class="tag">R2</span>Rules run in a separate workerd with no network or files: the deck’s Validation layer runs each AI-written validator in its own isolate; the IDS research adds a hard time cap with a known outcome (Snort: 500 µs per rule).</li>
+      <li><span class="tag">R1</span><span class="tag">A</span>The Decision Model is one general model judging against a written policy: in independent studies small guard models missed most harmful prompts (Llama Guard) or over-blocked 25.7% (Granite); Anthropic has no separate guard model and recommends exactly this “harmlessness screen”.</li>
+    </ul>
   </figure>
 </section>
 
@@ -282,7 +310,7 @@ svg .at { fill: var(--allow); font-size: 11.5px; }
       <rect class="bar-new" x="230" y="60" width="12" height="20" rx="2"/>
       <text class="s" x="250" y="75">under 50 ms</text>
 
-      <text class="t" x="20" y="106">AI judge (Haiku)</text>
+      <text class="t" x="20" y="106">Decision Model (Haiku)</text>
       <rect class="bar-new" x="242" y="92" width="345" height="20" rx="2"/>
       <rect class="bar-new-lt" x="587" y="92" width="275" height="20" rx="2"/>
       <text class="s" x="872" y="107">1.5–2.7 s (estimate from similar calls)</text>
@@ -292,12 +320,12 @@ svg .at { fill: var(--allow); font-size: 11.5px; }
       <text class="s" x="872" y="139">2.7 s (measured on your app)</text>
 
       <line class="lna dash" x1="861" y1="52" x2="861" y2="154"/>
-      <text class="at" x="861" y="170" text-anchor="middle">sent to the agent once both are back and the judge says allow</text>
+      <text class="at" x="861" y="170" text-anchor="middle">sent to the agent once both are back and the Decision Model says allow</text>
 
       <text class="b" x="20" y="214">Without the router (student agent picked the service, or a reply to a professor message)</text>
       <text class="t" x="20" y="254">Rule check (workerd)</text>
       <rect class="bar-new" x="230" y="240" width="12" height="20" rx="2"/>
-      <text class="t" x="20" y="286">AI judge (Haiku)</text>
+      <text class="t" x="20" y="286">Decision Model (Haiku)</text>
       <rect class="bar-new" x="242" y="272" width="345" height="20" rx="2"/>
       <rect class="bar-new-lt" x="587" y="272" width="275" height="20" rx="2"/>
       <text class="wt" x="872" y="287">all of this is added wait</text>
@@ -312,8 +340,33 @@ svg .at { fill: var(--allow); font-size: 11.5px; }
       </g>
     </svg>
     </div>
-    <figcaption>If a rule is sure (for example an SSN with the word "SSN" nearby), the message is blocked right after the rule check, and no model ever sees it. A less sure rule hit is passed to the judge as a hint. The router time was measured on your running app. The judge time is an estimate, based on other Haiku calls measured there (1.5–2.7 s). Button picks with no typed text skip the judge.</figcaption>
+    <figcaption>If a rule is sure (for example an SSN with the word "SSN" nearby), the message is blocked right after the rule check, and no model ever sees it. A less sure rule hit is passed to the judge as a hint. The router time was measured on your running app. The judge time is an estimate, based on other Haiku calls measured there (1.5–2.7 s). Button picks with no typed text skip the Decision Model.</figcaption>
+    <ul class="why">
+      <li><span class="tag">R2</span>Cheap check on everything, costly check rarely: Snort and Suricata scan for one “fast pattern” per rule and run the full check only when it appears, because “most input traffic is innocent” (Hyperscan). Our Rules do the same with a trigger word, then proof (Luhn checksum, valid SSN ranges) and context (“SSN” nearby). <span class="tag">R1</span> Microsoft Purview, Google DLP and AWS Macie use the same proof-plus-context idea, which keeps false alarms low.</li>
+      <li><span class="tag">R2</span><span class="tag m">M</span>The model can’t be made fast, so it is hidden: it runs <em>at the same time</em> as the router, so the wait is the longer of the two, not the sum. The router took 2.7 s on this app; other Haiku calls here took 1.5–2.7 s.</li>
+      <li><span class="tag">R2</span><span class="tag o">O</span>Hold, cap, decide at the cap: inline products (Palo Alto: 200 ms “Max Latency” with an allow-or-block switch) decide in configuration what happens when time runs out. The owner’s rule — nothing reaches a person unchecked — makes ours <strong>block</strong>, with honest words.</li>
+    </ul>
   </figure>
+</section>
+
+<!-- ───────────── Verdict logic ───────────── -->
+<section>
+  <h2>2b. How a verdict is decided</h2>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>What the checks found</th><th>Student messages and Professor Amir’s own posts<br>(Rules + Decision Model)</th><th>Agent replies and assistant posts<br>(Rules only)</th><th>Where it comes from</th></tr></thead>
+    <tbody>
+      <tr><td>A rule is <strong>sure</strong> (proof + context, e.g. SSN with “SSN” nearby, Luhn-valid card)</td><td>Blocked at once; no model sees the text</td><td>Held back</td><td><span class="tag">R1</span><span class="tag">R2</span>proof + context; fast pattern first</td></tr>
+      <tr><td>A rule is <strong>not sure</strong> (e.g. 9 digits, no keyword)</td><td>Passed to the Decision Model as a hint; never blocks alone</td><td>Delivered, logged “would block — not sure”</td><td><span class="tag c">C</span>builder check; owner’s low-false-alarm priority</td></tr>
+      <tr><td>Decision Model says block, <strong>confident</strong></td><td>Blocked</td><td>—</td><td><span class="tag">R1</span><span class="tag">A</span></td></tr>
+      <tr><td>Decision Model says block, <strong>unsure</strong></td><td>Blocked if the category is <strong>high severity</strong> (someone else’s data, threats, self-harm); otherwise delivered and logged “would block”</td><td>—</td><td><span class="tag">R3</span><span class="tag o">O</span>tune for the serious misses</td></tr>
+      <tr><td>Decision Model’s <strong>quote</strong> isn’t found word for word in the policy</td><td>Treated as no verdict → blocked, “we couldn’t check”</td><td>—</td><td><span class="tag">R3</span><span class="tag o">O</span>grounding check, done in code</td></tr>
+      <tr><td>The model <strong>refuses</strong> to screen the message</td><td>Blocked as harmful intent</td><td>—</td><td><span class="tag">A</span>refusal = block</td></tr>
+      <tr><td>No verdict within the cap (8 s; 30 s for posts), or workerd down</td><td>Blocked, “we couldn’t check your message, nothing was sent”</td><td>Held back</td><td><span class="tag">R2</span><span class="tag o">O</span>fail closed</td></tr>
+      <tr><td>A rule or category in <strong>watch only</strong></td><td>Delivered, logged “would have blocked”</td><td>Delivered, logged</td><td><span class="tag">R3</span>parallel run before going live</td></tr>
+    </tbody>
+  </table>
+  </div>
 </section>
 
 <!-- ───────────── Figure 3: outbound ───────────── -->
@@ -321,56 +374,70 @@ svg .at { fill: var(--allow); font-size: 11.5px; }
   <h2>3. Replies and posts on the way out</h2>
   <figure>
     <div class="scroll">
-    <svg viewBox="0 0 1200 300" role="img" aria-label="Outbound checks: agent answers, action results and professor posts are held in the Hub and rule-checked. Professor posts also go to the AI judge. Whether agent answers go to the judge is still undecided. Action results skip the judge because they already happened.">
+    <svg viewBox="0 0 1200 390" role="img" aria-label="Outbound checks: agent answers and assistant posts are held and rule-checked only. Professor Amir's own posts get Rules and the Decision Model. Forms, loan screens and confirmations are not scanned in Step 12.">
       <defs>
         <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker>
       </defs>
       <text class="s" x="120" y="22" text-anchor="middle">From</text>
       <text class="s" x="380" y="22" text-anchor="middle">Hub</text>
       <text class="s" x="580" y="22" text-anchor="middle">Rules</text>
-      <text class="s" x="780" y="22" text-anchor="middle">AI judge</text>
+      <text class="s" x="780" y="22" text-anchor="middle">Decision Model</text>
       <text class="s" x="1030" y="22" text-anchor="middle">Result</text>
 
-      <!-- row 1 -->
+      <!-- row 1: agent answer -->
       <rect class="box" x="20" y="38" width="200" height="60" rx="6"/>
       <text class="b" x="120" y="62" text-anchor="middle">Agent answer</text>
-      <text class="s" x="120" y="81" text-anchor="middle">plain text from an agent</text>
+      <text class="s" x="120" y="81" text-anchor="middle">words written by an agent’s AI</text>
       <rect class="nbox" x="310" y="38" width="140" height="60" rx="6"/><text class="nt" x="380" y="73" text-anchor="middle">Held</text>
-      <rect class="nbox" x="510" y="38" width="140" height="60" rx="6"/><text class="b" x="580" y="62" text-anchor="middle">Rule check</text><text class="s" x="580" y="81" text-anchor="middle">SSN, card</text>
-      <rect class="wbox" x="710" y="38" width="140" height="60" rx="6"/><text class="wt" x="780" y="62" text-anchor="middle" style="font-size:13px">Judge?</text><text class="s" x="780" y="81" text-anchor="middle">undecided</text>
-      <rect class="box" x="920" y="38" width="220" height="60" rx="6"/><text class="t" x="1030" y="62" text-anchor="middle">shown to the student, or</text><text class="s" x="1030" y="81" text-anchor="middle">"a reply was held back because…"</text>
+      <rect class="nbox" x="510" y="38" width="140" height="60" rx="6"/><text class="b" x="580" y="62" text-anchor="middle">Rule check</text><text class="s" x="580" y="81" text-anchor="middle">the words only</text>
+      <text class="s" x="780" y="62" text-anchor="middle">not checked</text><text class="src" x="780" y="80" text-anchor="middle">O · 31 Oct</text>
+      <rect class="box" x="920" y="38" width="220" height="60" rx="6"/><text class="t" x="1030" y="62" text-anchor="middle">shown to the student, or</text><text class="s" x="1030" y="81" text-anchor="middle">“a reply was held back because…”</text>
       <line class="ln" x1="220" y1="68" x2="308" y2="68" marker-end="url(#ar3)"/>
       <line class="ln" x1="450" y1="68" x2="508" y2="68" marker-end="url(#ar3)"/>
-      <line class="ln dash" x1="650" y1="68" x2="708" y2="68" marker-end="url(#ar3)"/>
-      <line class="ln" x1="850" y1="68" x2="918" y2="68" marker-end="url(#ar3)"/>
+      <polyline class="ln" points="650,68 700,68 700,104 860,104 860,68 918,68" marker-end="url(#ar3)"/>
 
-      <!-- row 2 -->
+      <!-- row 2: assistant post -->
       <rect class="box" x="20" y="128" width="200" height="60" rx="6"/>
-      <text class="b" x="120" y="152" text-anchor="middle">Action result</text>
-      <text class="s" x="120" y="171" text-anchor="middle">room booked, book renewed</text>
+      <text class="b" x="120" y="152" text-anchor="middle">Assistant post</text>
+      <text class="s" x="120" y="171" text-anchor="middle">written by AI for the professor</text>
       <rect class="nbox" x="310" y="128" width="140" height="60" rx="6"/><text class="nt" x="380" y="163" text-anchor="middle">Held</text>
-      <rect class="nbox" x="510" y="128" width="140" height="60" rx="6"/><text class="b" x="580" y="152" text-anchor="middle">Rule check</text><text class="s" x="580" y="171" text-anchor="middle">SSN, card</text>
-      <text class="s" x="780" y="150" text-anchor="middle">skipped:</text><text class="s" x="780" y="166" text-anchor="middle">it already happened</text>
-      <rect class="box" x="920" y="128" width="220" height="60" rx="6"/><text class="t" x="1030" y="152" text-anchor="middle">always told it happened</text><text class="s" x="1030" y="171" text-anchor="middle">flagged part left out</text>
+      <rect class="nbox" x="510" y="128" width="140" height="60" rx="6"/><text class="b" x="580" y="152" text-anchor="middle">Rule check</text><text class="s" x="580" y="171" text-anchor="middle">the words only</text>
+      <text class="s" x="780" y="152" text-anchor="middle">not checked</text><text class="src" x="780" y="170" text-anchor="middle">O · 31 Oct</text>
+      <rect class="box" x="920" y="128" width="220" height="60" rx="6"/><text class="t" x="1030" y="152" text-anchor="middle">delivered, or</text><text class="s" x="1030" y="171" text-anchor="middle">refused to the professor with why</text>
       <line class="ln" x1="220" y1="158" x2="308" y2="158" marker-end="url(#ar3)"/>
       <line class="ln" x1="450" y1="158" x2="508" y2="158" marker-end="url(#ar3)"/>
-      <polyline class="ln" points="650,158 700,158 700,182 860,182 860,158 918,158" marker-end="url(#ar3)"/>
+      <polyline class="ln" points="650,158 700,158 700,194 860,194 860,158 918,158" marker-end="url(#ar3)"/>
 
-      <!-- row 3 -->
+      <!-- row 3: professor's own post -->
       <rect class="box" x="20" y="218" width="200" height="60" rx="6"/>
-      <text class="b" x="120" y="242" text-anchor="middle">Professor post</text>
-      <text class="s" x="120" y="261" text-anchor="middle">lesson or message</text>
+      <text class="b" x="120" y="242" text-anchor="middle">Professor Amir’s post</text>
+      <text class="s" x="120" y="261" text-anchor="middle">the professor’s own words</text>
       <rect class="nbox" x="310" y="218" width="140" height="60" rx="6"/><text class="nt" x="380" y="253" text-anchor="middle">Held</text>
       <rect class="nbox" x="510" y="218" width="140" height="60" rx="6"/><text class="b" x="580" y="242" text-anchor="middle">Rule check</text><text class="s" x="580" y="261" text-anchor="middle">SSN, card</text>
-      <rect class="nbox" x="710" y="218" width="140" height="60" rx="6"/><text class="b" x="780" y="242" text-anchor="middle">AI judge</text><text class="s" x="780" y="261" text-anchor="middle">30 s cap</text>
+      <rect class="nbox" x="710" y="218" width="140" height="60" rx="6"/><text class="b" x="780" y="242" text-anchor="middle">Decision Model</text><text class="s" x="780" y="261" text-anchor="middle">30 s cap</text>
       <rect class="box" x="920" y="218" width="220" height="60" rx="6"/><text class="t" x="1030" y="242" text-anchor="middle">delivered to students, or</text><text class="s" x="1030" y="261" text-anchor="middle">refused to the professor with why</text>
       <line class="ln" x1="220" y1="248" x2="308" y2="248" marker-end="url(#ar3)"/>
       <line class="ln" x1="450" y1="248" x2="508" y2="248" marker-end="url(#ar3)"/>
       <line class="ln" x1="650" y1="248" x2="708" y2="248" marker-end="url(#ar3)"/>
       <line class="ln" x1="850" y1="248" x2="918" y2="248" marker-end="url(#ar3)"/>
+
+      <!-- row 4: forms -->
+      <rect class="box" x="20" y="308" width="200" height="60" rx="6"/>
+      <text class="b" x="120" y="332" text-anchor="middle">Form, loan screen, result</text>
+      <text class="s" x="120" y="351" text-anchor="middle">room booked, book renewed</text>
+      <rect class="box" x="310" y="308" width="140" height="60" rx="6"/><text class="t" x="380" y="343" text-anchor="middle">passed on</text>
+      <text class="s" x="580" y="332" text-anchor="middle">not scanned</text><text class="src" x="580" y="350" text-anchor="middle">C · Step 12</text>
+      <text class="s" x="780" y="332" text-anchor="middle">not checked</text>
+      <rect class="box" x="920" y="308" width="220" height="60" rx="6"/><text class="t" x="1030" y="332" text-anchor="middle">shown as today</text><text class="s" x="1030" y="351" text-anchor="middle">built by code from records</text>
+      <line class="ln" x1="220" y1="338" x2="308" y2="338" marker-end="url(#ar3)"/>
+      <polyline class="ln" points="450,338 918,338" marker-end="url(#ar3)"/>
     </svg>
     </div>
-    <figcaption>SSNs and card numbers are blocked in every direction, whoever they belong to. The student's own name and email are allowed on the way back, for example in a form confirmation or their own loan list. <span class="open">The amber box is the one open decision:</span> should the judge also read agent answers? That is safer, but adds about 1.5–2.7 s after the agent answers.</figcaption>
+    <figcaption>SSNs and card numbers are blocked in every direction, whoever they belong to. The student’s own name and email are allowed on the way back. The Decision Model reads the words <strong>people</strong> write; AI-written replies and posts get the Rules only.</figcaption>
+    <ul class="why">
+      <li><span class="tag o">O</span>Owner’s decision (31 Oct): most problems come from what people say. AI answers already pass Claude’s own safety training, the Tutor’s scope check, the Library’s word-for-word evidence check and the signed-student data boundary; a trick hidden in a student message is caught on the way in. This is an assumption, not a measurement — <span class="tag c">C</span> a background watch-only check on AI replies is on the “later” list to test it.</li>
+      <li><span class="tag c">C</span>Forms, loan screens and confirmations aren’t scanned in Step 12: they are built by code from the university’s records or the student’s own input, and holding a form back would leave the agent waiting on a form the student never saw (builder check).</li>
+    </ul>
   </figure>
 </section>
 
@@ -386,28 +453,34 @@ svg .at { fill: var(--allow); font-size: 11.5px; }
       </defs>
       <!-- nodes: x = 20 + i*168, w 140 -->
       <rect class="box" x="20" y="90" width="140" height="70" rx="8"/>
-      <text class="b" x="90" y="118" text-anchor="middle">Describe</text>
-      <text class="s" x="90" y="138" text-anchor="middle">words + examples</text>
+      <text class="b" x="90" y="110" text-anchor="middle">Describe</text>
+      <text class="s" x="90" y="130" text-anchor="middle">words + examples</text>
+      <text class="src" x="90" y="154" text-anchor="middle">R4</text>
 
       <rect class="box" x="188" y="90" width="140" height="70" rx="8"/>
-      <text class="b" x="258" y="118" text-anchor="middle">AI writes</text>
-      <text class="s" x="258" y="138" text-anchor="middle">code and tests</text>
+      <text class="b" x="258" y="110" text-anchor="middle">AI writes</text>
+      <text class="s" x="258" y="130" text-anchor="middle">code and tests</text>
+      <text class="src" x="258" y="154" text-anchor="middle">R4 · C</text>
 
       <rect class="box" x="356" y="90" width="140" height="70" rx="8"/>
-      <text class="b" x="426" y="118" text-anchor="middle">Static check</text>
-      <text class="s" x="426" y="138" text-anchor="middle">no fetch, eval, timers</text>
+      <text class="b" x="426" y="110" text-anchor="middle">Static check</text>
+      <text class="s" x="426" y="130" text-anchor="middle">no fetch, eval, timers</text>
+      <text class="src" x="426" y="154" text-anchor="middle">R4</text>
 
       <rect class="nbox" x="524" y="90" width="140" height="70" rx="8"/>
-      <text class="b" x="594" y="118" text-anchor="middle">Sandbox test</text>
-      <text class="s" x="594" y="138" text-anchor="middle">draft tester + test set</text>
+      <text class="b" x="594" y="110" text-anchor="middle">Sandbox test</text>
+      <text class="s" x="594" y="130" text-anchor="middle">draft tester + test set</text>
+      <text class="src" x="594" y="154" text-anchor="middle">R4 · R1 · R3</text>
 
       <rect class="box" x="692" y="90" width="140" height="70" rx="8"/>
-      <text class="b" x="762" y="118" text-anchor="middle">Person approves</text>
-      <text class="s" x="762" y="138" text-anchor="middle">pinned by hash</text>
+      <text class="b" x="762" y="110" text-anchor="middle">Person approves</text>
+      <text class="s" x="762" y="130" text-anchor="middle">pinned by hash</text>
+      <text class="src" x="762" y="154" text-anchor="middle">R4 · R3</text>
 
       <rect class="box" x="860" y="90" width="140" height="70" rx="8" style="stroke:var(--warn)"/>
-      <text class="b" x="930" y="118" text-anchor="middle">Watch only</text>
-      <text class="s" x="930" y="138" text-anchor="middle">logs, never blocks</text>
+      <text class="b" x="930" y="110" text-anchor="middle">Watch only</text>
+      <text class="s" x="930" y="130" text-anchor="middle">logs, never blocks</text>
+      <text class="src" x="930" y="154" text-anchor="middle">R3</text>
 
       <rect class="box" x="1040" y="40" width="140" height="56" rx="8" style="stroke:var(--block)"/>
       <text class="b" x="1110" y="64" text-anchor="middle">Block</text>
@@ -436,6 +509,11 @@ svg .at { fill: var(--allow); font-size: 11.5px; }
     </svg>
     </div>
     <figcaption>No code is written while a student waits. Rules are written ahead of time, tested in a separate short-lived workerd, and read by a person before approval. Editing a rule makes a new version, and the old one stays available to roll back to. The two starting rules (SSN, card) and the judge categories ship in block mode. Rules you create start in watch-only mode.</figcaption>
+    <ul class="why">
+      <li><span class="tag">R4</span>The flow copies the deck’s Validation layer: plain-words rule → search existing rules first → AI writes the code and tests → static check → sandbox test with retries → publish a versioned id (<code>us-ssn@3</code>). <span class="tag c">C</span> We allow 2 automatic repairs (the deck: 3), and never generate code while a student waits.</li>
+      <li><span class="tag">R1</span>The test set is “HyDE turned around”: the AI writes examples of violating messages <em>and</em> safe look-alikes ahead of time, so over-blocking shows up before a rule goes live. <span class="tag">R3</span> Re-running it on every change, with a few planted bad messages, is the paper’s weekly accuracy digest and seeded errors — what cut blind acceptance from 34% to 12%.</li>
+      <li><span class="tag">R3</span>Watch only first is the paper’s parallel run (4 months before relying on it). Each edit makes a new version that <em>replaces</em> the old one; only one version runs at a time — half the paper’s misses came from chains of amendments.</li>
+    </ul>
   </figure>
 </section>
 
@@ -444,38 +522,39 @@ svg .at { fill: var(--allow); font-size: 11.5px; }
   <h2>5. What the Topology tab shows when guardrails are on</h2>
   <figure>
     <div class="scroll">
-    <svg viewBox="0 0 1200 230" role="img" aria-label="Topology: Student to Hub, with a Guardrail node beside the Hub and two satellites, the rule engine and the guardrail model, then the Tutor, Library and Professor. The guardrail node turns green, red, amber or grey.">
+    <svg viewBox="0 -6 1200 312" role="img" aria-label="Topology: Student's Agent to University Smart Hub. Inside the Hub, the Guardrail hexagon holds Rules and Decision Model. The Hub connects to Tutor Agent, Library Agent and Marketing 101 Agent; Professor Amir, a person, works through the Marketing 101 Agent.">
       <defs>
         <marker id="ar5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker>
-        <marker id="ar5n" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mkn"/></marker>
       </defs>
-      <rect class="box" x="20" y="86" width="140" height="56" rx="28"/><text class="b" x="90" y="119" text-anchor="middle">Student</text>
-      <rect class="box" x="300" y="86" width="160" height="56" rx="28"/><text class="b" x="380" y="119" text-anchor="middle">Hub</text>
-      <line class="ln" x1="160" y1="114" x2="298" y2="114" marker-end="url(#ar5)"/>
-
-      <rect class="nbox" x="300" y="10" width="160" height="48" rx="24"/><text class="nt" x="380" y="39" text-anchor="middle">Guardrail</text>
-      <line class="lnn" x1="380" y1="86" x2="380" y2="60" marker-end="url(#ar5n)"/>
-      <rect class="nbox" x="520" y="4" width="150" height="36" rx="18"/><text class="t" x="595" y="27" text-anchor="middle">Rule engine</text>
-      <rect class="nbox" x="520" y="50" width="150" height="36" rx="18"/><text class="t" x="595" y="73" text-anchor="middle">Guardrail model</text>
-      <line class="lnn" x1="460" y1="28" x2="518" y2="22" marker-end="url(#ar5n)"/>
-      <line class="lnn" x1="460" y1="40" x2="518" y2="66" marker-end="url(#ar5n)"/>
-
-      <rect class="box" x="760" y="100" width="140" height="40" rx="20"/><text class="t" x="830" y="125" text-anchor="middle">Tutor</text>
-      <rect class="box" x="760" y="150" width="140" height="40" rx="20"/><text class="t" x="830" y="175" text-anchor="middle">Library</text>
-      <line class="ln" x1="460" y1="114" x2="758" y2="120" marker-end="url(#ar5)"/>
-      <line class="ln" x1="460" y1="124" x2="758" y2="170" marker-end="url(#ar5)"/>
-      <rect class="box" x="920" y="125" width="170" height="40" rx="20"/><text class="t" x="1005" y="150" text-anchor="middle">Professor</text>
-      <polyline class="ln" points="460,134 520,200 1005,200 1005,167" marker-end="url(#ar5)"/>
-
+      <circle class="box" cx="110" cy="150" r="56"/><text class="b" x="110" y="146" text-anchor="middle">Student’s</text><text class="b" x="110" y="164" text-anchor="middle">Agent</text>
+      <line class="ln" x1="166" y1="150" x2="318" y2="150" marker-end="url(#ar5)"/><text class="lbl" x="242" y="142" text-anchor="middle">A2A</text>
+      <circle class="box" cx="420" cy="150" r="102" style="stroke:var(--titan);stroke-width:3"/>
+      <text class="b" x="420" y="84" text-anchor="middle">University Smart Hub</text>
+      <path class="nbox" d="M420,92 L470,121 L470,179 L420,208 L370,179 L370,121 Z" style="stroke-dasharray:none"/>
+      <text class="nt" x="420" y="128" text-anchor="middle" style="font-size:12.5px">Guardrail</text>
+      <rect class="box" x="384" y="138" width="72" height="20" rx="10" style="stroke:var(--new)"/><text class="s" x="420" y="152" text-anchor="middle" style="fill:var(--new)">Rules</text>
+      <rect class="box" x="374" y="164" width="92" height="20" rx="10" style="stroke:var(--new)"/><text class="s" x="420" y="178" text-anchor="middle" style="fill:var(--new)">Decision Model</text>
+      <circle class="box" cx="800" cy="50" r="48"/><text class="t" x="800" y="47" text-anchor="middle">Tutor</text><text class="t" x="800" y="63" text-anchor="middle">Agent</text>
+      <circle class="box" cx="800" cy="150" r="48"/><text class="t" x="800" y="146" text-anchor="middle">Marketing</text><text class="t" x="800" y="162" text-anchor="middle">101 Agent</text>
+      <circle class="box" cx="800" cy="250" r="48"/><text class="t" x="800" y="247" text-anchor="middle">Library</text><text class="t" x="800" y="263" text-anchor="middle">Agent</text>
+      <line class="ln" x1="512" y1="106" x2="752" y2="60" marker-end="url(#ar5)"/>
+      <line class="ln" x1="522" y1="150" x2="750" y2="150" marker-end="url(#ar5)"/>
+      <line class="ln" x1="512" y1="194" x2="752" y2="240" marker-end="url(#ar5)"/>
+      <rect class="box" x="900" y="190" width="160" height="44" rx="12"/><text class="t" x="980" y="217" text-anchor="middle">Professor Amir (person)</text>
+      <line class="ln dash" x1="842" y1="172" x2="900" y2="205"/>
       <g>
-        <circle class="g-allow" cx="960" cy="22" r="7"/><text class="t" x="974" y="27">pass</text>
-        <circle class="g-block" cx="1040" cy="22" r="7"/><text class="t" x="1054" y="27">blocked</text>
-        <circle class="g-warn" cx="960" cy="52" r="7"/><text class="t" x="974" y="57">would block</text>
-        <circle class="g-idle" cx="1080" cy="52" r="7"/><text class="t" x="1094" y="57">timed out</text>
+        <circle class="g-allow" cx="930" cy="40" r="7"/><text class="t" x="944" y="45">pass</text>
+        <circle class="g-block" cx="1010" cy="40" r="7"/><text class="t" x="1024" y="45">blocked</text>
+        <circle class="g-warn" cx="930" cy="72" r="7"/><text class="t" x="944" y="77">would block</text>
+        <circle class="g-idle" cx="1050" cy="72" r="7"/><text class="t" x="1064" y="77">timed out</text>
       </g>
     </svg>
     </div>
-    <figcaption>Only real events animate. A block stops the flow at the Hub, and the hop back to the student is labelled "blocked". The hop-by-hop strip gets a new step, <strong>Guardrail checked</strong>, between "Hub received" and "Agent identified". Its notes say things like "blocked: Social Security number" or "allowed in 1.6 s". Telemetry carries rule names, verdicts and timings, never message text or matched values.</figcaption>
+    <figcaption>Only real events animate. The Guardrail hexagon inside the Hub fills while it checks; <strong>Rules</strong> lights up first, then <strong>Decision Model</strong> (alongside the router’s call); a skipped part dims (a sure rule hit, or an agent reply). It ends green or red, and the Hub’s pill says “Guardrail checking / pass / blocked”. A block stops the flow at the Hub and the hop back is labelled “blocked”. The hop-by-hop strip gets a <strong>Guardrail checked</strong> step. Each agent’s model is a small “AI Model” box. Full interactive mockup: <code>2026-10-30-step-12-topology-mockup.html</code>.</figcaption>
+    <ul class="why">
+      <li><span class="tag o">O</span>The guardrail is drawn <em>inside</em> the Hub because it runs inside the Hub process — not as a separate service. Names, the hexagon, “AI Model” boxes and colours are the owner’s choices (CSU Fullerton brand for agents; Connectivo colours and hexagon for the Guardrail).</li>
+      <li>Telemetry carries rule ids, verdicts and timings, never message text or matched values (existing Part 7 rule).</li>
+    </ul>
   </figure>
 </section>
 
@@ -487,14 +566,42 @@ svg .at { fill: var(--allow); font-size: 11.5px; }
     <thead><tr><th>Situation</th><th>Student sees</th><th>Agent sees</th><th>Logged</th></tr></thead>
     <tbody>
       <tr><td>Message has an SSN (rule is sure)</td><td>Their bubble, then fixed words: "Your message wasn't sent because it contains a Social Security number. Please remove it and send it again."</td><td>Nothing</td><td>rule id, block, time</td></tr>
-      <tr><td>Offensive or harmful (judge blocks, or the model refuses)</td><td>Fixed words for that category, written in the Guardrails tab</td><td>Nothing</td><td>category, block, time</td></tr>
-      <tr><td>Judge doesn't answer within 8 s, or workerd is down</td><td>"We couldn't check your message, nothing was sent. Please try again."</td><td>Nothing</td><td>timeout or engine offline</td></tr>
+      <tr><td>Offensive or harmful (the Decision Model blocks, or the model refuses)</td><td>Fixed words for that category, written in the Guardrails tab</td><td>Nothing</td><td>category, block, time</td></tr>
+      <tr><td>The Decision Model doesn't answer within 8 s, quotes words that aren't in the policy, or workerd is down</td><td>"We couldn't check your message, nothing was sent. Please try again."</td><td>Nothing</td><td>timeout or engine offline</td></tr>
       <tr><td>Watch-only rule matches</td><td>Normal reply</td><td>The message</td><td>"would have blocked"</td></tr>
       <tr><td>Clean message</td><td>Normal reply</td><td>The message</td><td>allow, time</td></tr>
     </tbody>
   </table>
   </div>
   <p class="lede">A blocked message is not kept in the Hub's history and never comes back as context later. Known limit: the student's own model, on the student's side, sees the text before the Hub does. The guardrail protects the university side.</p>
+</section>
+
+<!-- ───────────── Why ───────────── -->
+<section>
+  <h2>7. Why it’s built this way: the research behind each step</h2>
+  <p class="lede">Each row is one decision in the design, what we copied, and what we deliberately did not copy. Proven facts come from the cited source; the “why” column is our reasoning for this app.</p>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Step</th><th>What we do</th><th>Where it comes from</th><th>Why this way (and what we didn’t copy)</th></tr></thead>
+    <tbody>
+      <tr><td>Where the check lives</td><td>Inside the Hub, on three hops: student in, replies out, professor posts</td><td><span class="tag">R1</span>AWS, Microsoft, Google gateways</td><td>Every message already passes the Hub; checks are chosen per hop by configuration, not by a router per message.</td></tr>
+      <tr><td>Rules first, gated by a trigger</td><td>A trigger word wakes a rule; it needs proof (Luhn, SSN ranges) and context (“SSN” nearby) to be sure</td><td><span class="tag">R2</span>Snort/Suricata fast pattern, Hyperscan <span class="tag">R1</span>Purview, Google DLP, Macie</td><td>Cheap work on everything, costly work rarely; proof + context is what keeps false alarms low (the owner’s Presidio experience). We don’t need IDS raw speed — students type a few messages a minute; the point is a bounded worst case.</td></tr>
+      <tr><td>Rules in a sandbox</td><td>Approved rule code runs in workerd, one isolate per rule version, no network or files, 50 ms cap</td><td><span class="tag">R4</span>Validation layer <span class="tag">R2</span>Snort latency caps</td><td>Rule code is written by an AI, so it must not reach anything. gVisor and Postgres from the deck are not used (deferred / project has no database).</td></tr>
+      <tr><td>New rules</td><td>Describe → AI writes code + tests → static check → sandbox test (≤2 repairs) → person approves → watch only</td><td><span class="tag">R4</span>Validation layer <span class="tag">R3</span>parallel run <span class="tag c">C</span>2 repairs</td><td>No code is generated while a student waits; a person reads every version; watch only proves a rule before it blocks.</td></tr>
+      <tr><td>The Decision Model</td><td>One Haiku call judges the message against a plain-words policy, all categories at once</td><td><span class="tag">R1</span>guard-model studies <span class="tag">A</span>harmlessness screens</td><td>A general model with a written policy beat small guard models (Llama Guard missed most harmful prompts; Granite over-blocked 25.7%). Anthropic has no separate guard model. A refusal counts as a block.</td></tr>
+      <tr><td>Hiding the wait</td><td>The Decision Model runs at the same time as the router</td><td><span class="tag">R2</span>inline AI products <span class="tag m">M</span>router 2.7 s, Haiku 1.5–2.7 s</td><td>The model can’t be made fast, only hidden or made rare. We didn’t copy “watch from the side” (Darktrace, Vectra): the message would already be at the agent.</td></tr>
+      <tr><td>When time runs out</td><td>Block with honest words (8 s cap; 30 s for posts)</td><td><span class="tag">R2</span>Palo Alto Max Latency, Suricata exception policies <span class="tag o">O</span></td><td>Products make the timeout outcome a setting; the owner’s rule (nothing reaches a person unchecked) sets ours to block. Matches the project’s no-hidden-fallback rule.</td></tr>
+      <tr><td>Proof behind every block</td><td>The Decision Model quotes the policy words it used; the Hub checks them word for word</td><td><span class="tag">R3</span>grounding check (86.7% → 94.2%) <span class="tag o">O</span>approved</td><td>Every block gets a real “because”, at no extra model cost (a string match, like the Library’s evidence check). A bad quote counts as no verdict, so it fails closed. We didn’t copy their second checker model.</td></tr>
+      <tr><td>Severity</td><td>High-severity categories block even when the model is unsure; others only when it’s sure</td><td><span class="tag">R3</span>tuned for serious misses (recall 79.8 → 91.2) <span class="tag o">O</span>approved</td><td>One serious miss “eroded confidence significantly”; mild cases can wait for a confident verdict, keeping false alarms low.</td></tr>
+      <tr><td>What the Decision Model reads</td><td>Words people write (student messages, Professor Amir’s posts); AI replies get Rules only</td><td><span class="tag o">O</span>31 Oct</td><td>AI answers already pass several filters; most risk is human text. Background watch-only on AI replies is the planned test of that assumption.</td></tr>
+      <tr><td>A not-sure rule finding with no Decision Model</td><td>Delivered and logged “would block — not sure”</td><td><span class="tag c">C</span>builder check</td><td>Blocking on a guess would bring back false alarms; a sure finding still blocks everywhere.</td></tr>
+      <tr><td>Verdict cache</td><td>Reuse a verdict only for the exact same text, policy version and recent turns</td><td><span class="tag c">C</span></td><td>Never reuse a “safe” verdict for a merely similar message.</td></tr>
+      <tr><td>Test set</td><td>AI-written violating messages and safe look-alikes; re-run on every change, with planted bad messages</td><td><span class="tag">R1</span>HyDE turned around <span class="tag">R3</span>accuracy digest, seeded errors</td><td>Shows over-blocking before going live and keeps people from trusting the machine blindly (34% → 12% in the paper).</td></tr>
+      <tr><td>Telemetry</td><td>Rule ids, verdicts, timings — never text or matched values</td><td>Project rule (Part 7)</td><td>Topology and logs can show what happened without spreading the data the guardrail exists to protect.</td></tr>
+      <tr><td>Later: Step 13 agent policies</td><td>Typed records ⟨who, action, required/allowed/forbidden, condition, quoted source⟩ placed by skill</td><td><span class="tag">R3</span>obligation tuples, “applies to” links</td><td>Makes “which agent gets this policy” a lookup, not a guess. Kept flat: accuracy fell from 97.1% to 84.6% when rules referenced other rules.</td></tr>
+    </tbody>
+  </table>
+  </div>
 </section>
 </main>
 </body>
