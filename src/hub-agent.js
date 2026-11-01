@@ -139,7 +139,9 @@ export function startHubServer({ port } = {}) {
     }
     return c;
   };
-  const services = () => registry.routingView().map((s) => ({ ...s, destination: workerOf[s.agentId] ?? null, publicName: cfg.destinations[workerOf[s.agentId]]?.name ?? '', description: cfg.destinations[workerOf[s.agentId]]?.description ?? '' }))
+  const services = () => registry.routingView().map((s) => ({ ...s, destination: workerOf[s.agentId] ?? null, publicName: cfg.destinations[workerOf[s.agentId]]?.name ?? '', description: cfg.destinations[workerOf[s.agentId]]?.description ?? '',
+    // The teacher of the course this service serves (public: the student already sees the name): naming them identifies the course.
+    ...(Object.values(cfg.courses ?? {}).find((c) => c.professor === s.agentId)?.professorName ? { instructor: Object.values(cfg.courses).find((c) => c.professor === s.agentId).professorName } : {}) }))
     .filter((s) => s.destination); // a specialist is reachable only through its own destination
 
   // ---- A2A executor ---------------------------------------------------------------------------
@@ -277,7 +279,7 @@ export function startHubServer({ port } = {}) {
       const text = decision.decision === 'clarify' ? decision.clarificationQuestion || 'Could you say a bit more about what you need?'
         : decision.decision === 'unavailable' ? `${decision.reason} Please try again in a little while.`
           : `The university assistant can’t help with that here. ${decision.reason ?? ''}`.trim();
-      conv.turns = [...conv.turns, { question, agentId: null, skillId: null, answer: briefReply(text) }].slice(-ROUTING_TURNS);
+      conv.turns = [...conv.turns, { question, agentId: null, skillId: null, answer: briefReply(text), ...(decision.decision === 'clarify' ? { clarified: true } : {}) }].slice(-ROUTING_TURNS);
       return plain(text, { hub: hubMeta }, decision.decision);
     }
 

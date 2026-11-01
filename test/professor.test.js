@@ -635,3 +635,83 @@ test('meeting times come only from the professor’s words', () => {
   assert.deepEqual(labels('come and see me at 2pm'), [], 'no day given: no guess');
   assert.deepEqual(labels('10/29 3:15 pm; Thu 14:00'), ['Thu, Oct 29, 2:00 PM', 'Thu, Oct 29, 3:15 PM']);
 });
+
+// ---- Bug (seen live): "what is SWOT in marketing" was refused with a topic list; "ask the professor" and
+// "Amir" made the Hub ask which course, twice. Scripted model output = plumbing, not judgment.
+test('conversation: a marketing question the course doesn’t cover goes to the professor, "ask the professor" and "Amir" follow the same service, and nobody is asked the same question twice', async () => {
+  const stub = await startFakeAnthropic();
+  stub.respondWith(() => messageReply(JSON.stringify({ kind: 'needs_professor', text: 'SWOT isn’t in my material.', topic_ids: [] })));
+  const { s, stream } = await classroom({ professorEnv: { PROFESSOR_MODE: 'live', ANTHROPIC_API_KEY: `sk-ant-test-${randomUUID()}`, ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0' } });
+  try {
+    const q1 = 'what is SWOT in marketing';
+    const r1 = await chatVia(s.ui, stream, q1);
+    assert.equal(r1.decision.agentId, 'professor');
+    assert.match(r1.reply.text, /passed this on to Professor Amir/i, 'the student is told in the fixed words');
+    assert.equal(r1.reply.professor.outcome, 'needs_professor');
+    assert.match(stub.requests.at(-1).body.system?.[0]?.text ?? JSON.stringify(stub.requests.at(-1).body.system), /SWOT analysis/, 'the prompt names a marketing concept the pack lacks as needs_professor');
+    const chat1 = (await professorState(s)).chat;
+    assert.equal(chat1.filter((m) => m.role === 'student' && m.text === q1).length, 1, 'the question is in the professor’s chat once');
+
+    const asked = [];
+    for (const text of ['ask the professor', 'Amir']) {
+      const r = await chatVia(s.ui, stream, text, r1.contextId);
+      assert.equal(r.decision.decision, 'route', `“${text}” is routed, not clarified`);
+      assert.equal(r.decision.agentId, 'professor');
+      assert.notEqual(r.decision.destination, null);
+      asked.push(r.reply.text);
+      assert.doesNotMatch(r.reply.text, /which course/i);
+    }
+    assert.match(asked[1], /already passed/i, 'the second ask is not sent to the professor again');
+    assert.equal((await professorState(s)).chat.filter((m) => m.role === 'student' && m.text === q1).length, 1, 'already passed on: not put in the professor’s chat again');
+  } finally {
+    await stub.close();
+  }
+});
+
+test('"ask the professor" after an answered Marketing 101 question hands that earlier question to the professor (mock)', async () => {
+  const { s, stream } = await classroom();
+  const q = 'What is market segmentation?';
+  const r1 = await chatVia(s.ui, stream, q);
+  assert.equal(r1.reply.professor.outcome, 'answer');
+  const r2 = await chatVia(s.ui, stream, 'ask the professor', r1.contextId);
+  assert.equal(r2.decision.decision, 'route');
+  assert.equal(r2.decision.agentId, 'professor');
+  assert.deepEqual(r2.destinations, ['professor']);
+  assert.match(r2.reply.text, /passed this on to Professor Amir/i);
+  const chat = (await professorState(s)).chat;
+  assert.ok(chat.some((m) => m.role === 'student' && m.studentId === 'student-alex' && m.text === q), 'the EARLIER question is in the professor’s chat');
+  assert.ok(chat.some((m) => m.action === 'answer_student' && m.needsProfessor), 'flagged as waiting for the professor');
+  assert.ok(!chat.some((m) => m.text === 'ask the professor'), 'not the words "ask the professor"');
+  // Nothing earlier to hand over: asks what the question is (no entry in the chat).
+  const fresh = await chatVia(s.ui, stream, 'Amir');
+  assert.equal(fresh.decision.agentId, 'professor', 'naming the professor identifies Marketing 101');
+  assert.match(fresh.reply.text, /What would you like to ask Professor Amir/);
+});
+
+test('a mock Professor hands a course question no topic covers to the professor', async () => {
+  const { s, stream } = await classroom();
+  const res = await post(`${s.ui.url}/api/runs`, { text: 'explain the BCG matrix to my lecture group', capability: 'marketing' });
+  const { runId } = await res.json();
+  await waitFor(() => find(forRun(stream.events, runId), 'student', 'reply_received'), { timeout: 15000, what: 'reply' });
+  const r = { reply: find(forRun(stream.events, runId), 'student', 'reply_received').data };
+  assert.equal(r.reply.professor.outcome, 'needs_professor');
+});
+
+test('the router never asks the same clarifying question twice in a row (it goes on to the service that last answered)', async () => {
+  const { noRepeatClarify, sameQuestion } = await import('../src/router.js');
+  const services = [{ agentId: 'professor', name: 'Marketing 101 Professor', publicName: 'Marketing 101', skills: [{ id: 'pricing' }] }];
+  const q2 = 'Which course would you like to ask Professor Amir about: Marketing 101, or is it about something else? Please tell me your question too.';
+  const q3 = 'Is your question for Professor Amir about Marketing 101, or about something else? Please also tell me what you want to ask.';
+  assert.ok(sameQuestion(q2, q3));
+  assert.ok(!sameQuestion(q2, 'Do you want tutoring or the library?'));
+  const turns = [
+    { question: 'what is SWOT', agentId: 'professor', skillId: 'pricing', answer: 'x' },
+    { question: 'ask the professor', agentId: null, skillId: null, answer: q2, clarified: true },
+  ];
+  const again = { decision: 'clarify', agentId: null, skillId: null, clarificationQuestion: q3 };
+  const out = noRepeatClarify(again, turns, services);
+  assert.equal(out.decision, 'route');
+  assert.equal(out.agentId, 'professor');
+  assert.equal(noRepeatClarify(again, [{ ...turns[1], clarified: false }], services).decision, 'clarify', 'no earlier clarification: unchanged');
+  assert.equal(noRepeatClarify({ ...again, clarificationQuestion: 'Tutoring or library?' }, turns, services).decision, 'clarify', 'a different question is allowed');
+});

@@ -436,12 +436,15 @@ Make sure the UI design is animated and shows as live reflecting the connection 
 - **Takeover protection delays a restart:** a specialist restarted after a crash is refused (`identity_in_use`) until its old heartbeat expires.
 - **Redact with an allowlist, not a denylist.** A list of “sensitive” field names let receipts (dates, times, room, group size, tutoring preferences) and model-written scope/intent reasons through, and would pass any new field too (found by a post-commit security review). The first fix exempted every event without a `runId`, which a second review caught: exempt event types by name, never by a missing field.
 - **The Hub must not log or relay content.** Its reused A2A client logs message text unless told not to.
+- **Naming a course's teacher identifies the course; never ask the same clarification twice** (user report, 2026-10-31: after a Marketing 101 reply, “ask the professor” and then “Amir” each made the Hub ask “Which course… Professor Amir?”). The Hub adds the teacher's name from its course record to the router's service view as `instructor` (public: the student already sees it); the router prompt and the mock heuristic route “ask the professor”, “Professor Amir” and “Amir” to that service (a follow-up to the service that just replied). Hub turns record `clarified: true`; if a new clarification is about the same thing as the previous one (word overlap ≥ 0.5, `noRepeatClarify` in `src/router.js`, both modes), the request goes on to the service that last answered instead of asking again.
 - **A Hub-answered reconcile carries no specialist “duplicate” marker** — assert on the Hub's `request_repeat` and a single dispatch.
 - **Form-action failures need distinct Hub statuses:** `not_delivered` vs `outcome_unknown`; a plain “rejected” hid the difference.
 
 ---
 
 ## Enhancements merged into this step
+
+- **Teacher name in routing, no repeated clarification** (2026-10-31, owner's live report): see the matching “Avoid these known problems” entry; `instructor` on the routing view, `clarified` on Hub turns, `noRepeatClarify`.
 
 - **Chat fills the window height** (2026-10-30, your request). Measured on your app at 1050×1680, 1050×1100, 1440×900, 1800×1200, 1050×600 and 390×844: the chat always reaches the hop-by-hop strip, the page is one window tall (short windows and phones scroll), no sideways scroll; with 60 extra rows the chat scrolls inside itself; the chat-scroll check passed 12/12.
 - **Outage label, “I don't know”, Student agent wording** (2026-10-30, found by your full e2e run with tricky inputs and a non-tech-savvy student): see the three items above. Checked live in a real browser on your app: Library stopped → “service unavailable” (2/2); “I don't know” / “not sure” → a different, example-based question; “hi”, “how do i use this thing”, “thanks!!” → friendly replies.

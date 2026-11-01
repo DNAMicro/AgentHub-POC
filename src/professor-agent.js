@@ -58,6 +58,9 @@ const postedTo = (student) => (student ? Object.values(outbox.get().lessons)
   .filter((l, i, all) => all.findIndex((x) => x.lessonId === l.lessonId) === i)
   .slice(0, 5) : []);
 const NEEDS_PROFESSOR_TEXT = `I’ve passed this on to ${COURSE.professorName}, who will get back to you.`;
+// Asking for the professor with nothing else: “ask the professor”, “please ask Professor Amir”, “Amir”.
+const PROF = `(?:the\\s+|my\\s+)?(?:professor|prof\\.?|${COURSE.professorName.split(/\s+/).at(-1)})(?:\\s+${COURSE.professorName.split(/\s+/).at(-1)})?`;
+const ASK_PROFESSOR = new RegExp(`^\\s*(?:(?:please|can you|could you|i(?:['’]d| would) like to|i want to|let['’]s)\\s+)*(?:(?:ask|tell|check with|talk to|speak to|(?:pass|send|forward) (?:it|this|that|the question) (?:on )?to)\\s+)?${PROF}\\s*[.!?]*\\s*$`, 'i');
 const NOT_PASSED_TEXT = `I couldn’t pass this on to ${COURSE.professorName} because the university couldn’t verify your request.`;
 async function handleChat(ctx, bus, runId) {
   const incoming = ctx.userMessage;
@@ -90,6 +93,21 @@ async function handleChat(ctx, bus, runId) {
     metadata.professor = { name: COURSE.professorName, outcome: 'relayed', mode: PROFESSOR_MODE, model: null, usage: null, lessonId: lesson.lessonId, topics: [] };
     return publishReply(ctx, bus, runId, incoming, text, metadata);
   }
+  // “ask the professor” / “ask Professor Amir” / just “Amir”: the student means the question they asked
+  // before. Done in code (no model): that earlier question goes to the professor's chat.
+  if (ASK_PROFESSOR.test(question)) {
+    const earlier = (recent.get(ctx.contextId) ?? []).at(-1);
+    if (!earlier) return publishReply(ctx, bus, runId, incoming, `What would you like to ask ${COURSE.professorName}? Tell me your question and I’ll pass it on.`, { ...metadata, professor: { name: COURSE.professorName, outcome: 'clarify', mode: PROFESSOR_MODE, model: null, usage: null, lessonId: null, topics: [] } }, question);
+    const handOver = Boolean(student);
+    const already = handOver && earlier.handedOver;
+    const text = !handOver ? NOT_PASSED_TEXT : already ? `I’ve already passed “${earlier.question.slice(0, 120)}” on to ${COURSE.professorName}, who will get back to you.` : NEEDS_PROFESSOR_TEXT;
+    metadata.professor = { name: COURSE.professorName, outcome: handOver ? 'needs_professor' : 'out_of_scope', mode: PROFESSOR_MODE, model: null, usage: null, lessonId: lesson?.lessonId ?? null, topics: [], ...(handOver ? { onBehalf: true } : {}) };
+    if (handOver && !already) {
+      recordReply(incoming.messageId, { studentId: student, text: earlier.question, about, relayed: true }, { text, model: null, needsProfessor: true, onBehalf: false });
+      emitViz('student_reply', runId, { lessonId: lesson?.lessonId ?? null, relayed: false, needsProfessor: true });
+    }
+    return publishReply(ctx, bus, runId, incoming, text, metadata, question, { handedOver: handOver });
+  }
   const onBehalf = Boolean(lesson && lesson.kind === 'message' && author === 'assistant');
   let text;
   try {
@@ -112,7 +130,7 @@ async function handleChat(ctx, bus, runId) {
     // The professor still sees what the student wrote — and that nobody answered it.
     if (lesson) recordReply(incoming.messageId, { studentId: student, text: question, about, relayed: false }, { text: `Not answered: ${failure.message}`, model: null, needsProfessor: true, onBehalf, failed: true });
   }
-  return publishReply(ctx, bus, runId, incoming, text, metadata, question);
+  return publishReply(ctx, bus, runId, incoming, text, metadata, question, { handedOver: metadata.professor?.outcome === 'needs_professor' && metadata.professor?.onBehalf === true });
 }
 // A student's reply in the professor's chat (and the assistant's answer to it, when it gave one). Keyed by
 // the incoming message id, so a repeated delivery of the same request is recorded once.
@@ -161,12 +179,12 @@ function bookSlot(meetingId, slotId, student) {
   if (r.status === 'booked') r.text = `Booked: ${r.slot.label} (Pacific Time) with the professor. Demo booking — no calendar invite is sent.`;
   return { needsProfessor: false, ...r };
 }
-function publishReply(ctx, bus, runId, incoming, text, metadata, question = null) {
+function publishReply(ctx, bus, runId, incoming, text, metadata, question = null, extra = {}) {
   const message = { messageId: randomUUID(), contextId: ctx.contextId, taskId: '', role: Role.ROLE_AGENT, parts: [textPart(text)], metadata, extensions: [], referenceTaskIds: [] };
   bus.publish(AgentEvent.message(message));
   bus.finished();
   emitViz('reply_published', runId, { messageId: message.messageId, contextId: ctx.contextId, inReplyTo: incoming.messageId, text, professor: metadata.professor });
-  if (question !== null) recent.set(ctx.contextId, [...(recent.get(ctx.contextId) ?? []), { question, answer: text }].slice(-4));
+  if (question !== null) recent.set(ctx.contextId, [...(recent.get(ctx.contextId) ?? []), { question, answer: text, ...extra }].slice(-4));
 }
 
 const executor = {

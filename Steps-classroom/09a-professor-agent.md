@@ -169,6 +169,9 @@ This step adds no lessons, inbox or signing of Student requests. Those come in S
 
 ## Avoid these known problems
 
+- A marketing question the course pack doesn't cover (for example "what is SWOT in marketing") must not be a refusal with a topic list. In the live prompt, `out_of_scope` is only for things unrelated to marketing and the course; an uncovered marketing concept is `needs_professor` (the question goes to the professor's chat and the student gets the fixed "passed this on" words). The mock does the same: no topic match plus marketing or course words gives `needs_professor`.
+- "ask the professor", "ask Professor Amir" or just "Amir" means the student's earlier question. Handle it in code, not in the model: copy the last question of that conversation into the professor's chat; if it was already handed over, say so and add nothing; with no earlier question, ask what it is. Also give the Hub router the teacher's name (`instructor` on the service view) so it routes these words to Marketing 101, and never let it ask the same clarifying question twice in a row.
+
 - Keep the end of earlier replies in the Professor's `recent_conversation`: `briefReply(t.answer)` (Step 7b), not a 300-character head cut.
 - Don't let a course question fall through: "Can I return my homework late for marketing class" must reach Marketing 101, not the Library. Give the Professor the `course-questions` skill and add the named-course rule to both the router and the Student's prompt.
 - Don't let agent names reach the student's chat. The router once asked "Calculus (Tutor Agent) or Marketing 101 (Marketing 101 Professor)?". Pass `publicName` and run `publicWords` in code.
