@@ -1,7 +1,8 @@
 # Step 12 — University Hub guardrails (design)
 
-*Friday, Oct 30, 2026. Design for approval. Built from the brainstorm with the owner and two research
-reports: `reports/AI gateway guardrail mechanisms.md` and `reports/IDS speed methods for guardrails.md`.
+*Friday, Oct 30, 2026. Design for approval. Built from the brainstorm with the owner and three research
+reports: `reports/AI gateway guardrail mechanisms.md`, `reports/IDS speed methods for guardrails.md` and
+`reports/ComplianceNLP lessons for compliance engine.md` (added 2026-10-31, owner's request: arXiv 2604.23585).
 Calls I made that the owner did not explicitly decide are marked **(my call)**.*
 
 ## 1. Intent
@@ -57,6 +58,12 @@ on their screen and in their chat record — is not.
   inline AI products hold, cap the wait, and decide at the cap. Measured on this app today, live Haiku 5.5
   calls take ~1.5–2.7 s; the Hub's router call takes ~2.7 s. Running the judge **at the same time as the
   router** makes the wait max(judge, router), not the sum.
+- **Verdicts must cite their source, checked in code (ComplianceNLP, arXiv 2604.23585):** a separate
+  grounding check on every verdict raised grounding accuracy from 86.7% to 94.2%; its main failure was
+  mixing up related rules. Production tuned for **recall on serious violations** (full-gap recall 79.8 → 91.2
+  at the cost of 1.3 → 3.7 false alerts a day) because one missed case "eroded confidence significantly",
+  and sent high-severity or tangled cases to a person. Rules were written as typed tuples ⟨entity, action,
+  modality, condition, source⟩ linked by AppliesTo / Supersedes edges — the shape Step 13 needs (§11).
 - **HyDE, turned around:** have the AI write example violating messages and safe look-alikes **in
   advance** — used here to build the **test set** (§7.3).
 - **The "Validation layer" (deck "Interfaces built at runtime", 27 Oct 2026, slides 14–19)** is the same
@@ -188,7 +195,16 @@ as approved versions.
 
 - **One structured Haiku 5.5 call** per checked message (the Hub's existing `callModel` path, no retries,
   sanitized errors) returning **all categories at once**:
-  `{ verdict: 'allow' | 'block', categories: [ids], confidence: 'high' | 'low' }`.
+  `{ verdict: 'allow' | 'block', categories: [ids], confidence: 'high' | 'low', quote: string }`.
+- **Every block cites the policy (my call, from ComplianceNLP):** `quote` is the exact words of the policy
+  line the judge relied on. The Hub checks in code that `quote` appears verbatim in the current policy
+  entry for one of the returned categories (the same check the Library uses for evidence lines). A failed
+  check is treated as **no verdict** (fail closed, recorded as `by: 'ungrounded'`). The Activity view shows
+  the quote as the "because". No second model call.
+- **Severity per category and per rule (my call, from ComplianceNLP):** `high` (someone else's personal
+  data, threats, self-harm, SSN/card numbers) blocks on a `low`-confidence block verdict; `normal` (e.g.
+  offensive language) blocks only on `high` confidence, otherwise logs "would block". Set in the interface
+  next to each category and rule.
 - Input: the message, the **recent conversation** (briefReply, like other prompts), the hop, the rule
   hints, and the **policy** — one entry per category, written in plain words in the interface.
 - Starting categories: **offensive language**, **harmful intent** (hurting someone, breaking into
@@ -340,6 +356,14 @@ latencyMs, model, usage}`, `guardrail_decision {hop, action, reasons}`, `guardra
      This also eases the known limit below: if an agent **calls** the shared check service by id
      (rather than only holding a copy), every call is logged, so the Hub can see whether the agent checked
      before it acted (onboarding then hands the agent the list of check ids that apply to its skills).
+  4. **Policy format (my proposal, from ComplianceNLP, arXiv 2604.23585):** each policy is a typed record
+     `{ id@version, entity, action, modality (obligation | permission | prohibition | recommendation),
+     condition, source (quoted policy words), severity, supersedes }`. Placement is a lookup from `action`
+     to the skills/workflow actions that perform it (the paper's AppliesTo edge), confirmed by a person;
+     modality maps to the outcome (prohibition refuses, obligation requires a field, recommendation warns).
+     Keep each policy flat (one condition, no references to other policies): the paper's accuracy fell from
+     97.1% to 84.6% with 3+ cross-references, and half its misses sat in amendment chains. Only one version
+     of a policy loads at a time (`supersedes`).
   Known limit to design for: the Hub can verify an agent *loaded* a policy (hash), not that it *applies*
   it — safety stays at the Hub; agent policies rely on the agent plus audit events. Brainstorm Step 13
   separately once Step 12 ships.
