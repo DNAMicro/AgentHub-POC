@@ -11,7 +11,8 @@ The University Hub is the single front door every message passes through. Step 1
 **checkpoint for what is being said**, not only who is asking and where it may go. A message with
 personal data (an SSN, a card number), offensive language or harmful intent is **stopped at the Hub
 before it reaches any agent**, and the student is **told plainly what the issue was** so they can fix
-it. The same checkpoint screens what flows **back**: agent replies and professor posts.
+it. The same checkpoint screens what flows **back**: agent replies (Rules) and professor posts (Rules and
+Decision Model).
 
 Why it matters (owner's words, paraphrased): get ahead of a problem before it reaches anyone behind the
 Hub. Sending a message to the guardrail's AI is acceptable; letting it reach a person at the school —
@@ -92,8 +93,15 @@ Three checkpoints, all in the Hub (`src/guardrail.js`, called from `src/hub-agen
 | Hop | Where in the Hub | Stage 1: Rules (deterministic) | Stage 2: Judge (AI) | On block |
 |---|---|---|---|---|
 | **Inbound** student chat | after signature/session checks, **before routing** | always first | **in parallel with the router**; forward only after "allow" | not forwarded; the student is told why |
-| **Reply** from Tutor/Library/Professor | when the specialist's answer returns, **before relaying** | always | after rules (the reply is held) | reply withheld; the student is told a reply was held back and why |
+| **Reply** from Tutor/Library/Professor | when the specialist's answer returns, **before relaying** | always | **not checked** (owner's decision 2026-10-31: AI-written and code-written replies get Rules only) | reply withheld (on a Rules finding); the student is told a reply was held back and why |
 | **Professor post** | before a post becomes deliveries | always | after rules (held) | post refused to the professor with the reason; nothing delivered |
+
+**What the Decision Model checks — words people write (owner's decision, 2026-10-31):** student messages
+and Professor Amir's own posts. Agent replies, the assistant's posts written for the professor, and form
+results/confirmations get **Rules only**: AI answers already pass Claude's own safety training, the
+Tutor's scope check, the Library's verbatim evidence check and the signed-student data boundary, and a
+prompt-injection attempt arrives inside a student message, which the Decision Model does check. This is
+an assumption, not a measurement — the planned way to test it is in §11 (background watch-only check).
 
 **Inbound order:**
 1. **Rules** run first and alone (microseconds). A **high-confidence** finding blocks immediately — the
@@ -107,7 +115,7 @@ Three checkpoints, all in the Hub (`src/guardrail.js`, called from `src/hub-agen
 categories ship in `enforce`**, so the demo blocks on first run **(my call)**.
 
 **Time caps and failures (explicit, always logged):** rules cap 50 ms; judge cap = a configurable value
-(start 8 s inbound/reply, 30 s professor posts) **(my call)**. On a cap or error the hop **fails closed**:
+(start 8 s inbound, 30 s professor posts) **(my call)**. On a cap or error the hop **fails closed**:
 nothing forwarded, the student (or professor) is told honestly "we couldn't check your message, nothing
 was sent — please try again" **(my call, matches the project's no-hidden-fallback rule)**. If the rule
 engine is down, the Hub fails closed and Topology shows the engine offline.
@@ -329,12 +337,12 @@ latencyMs, model, usage}`, `guardrail_decision {hop, action, reasons}`, `guardra
 - **`npm test`:** rules engine (triggers, findings, no values leaked), each seed rule against the frozen
   set, static gate rejects bad drafts, inbound block never reaches a specialist (assert via the
   specialist's own `message_received` absence), judge-and-router run in parallel (timing), fail-closed on
-  engine down and on judge timeout, shadow mode delivers but logs, reply withheld, professor post
-  refused, telemetry carries no text, verdict cache.
+  engine down and on judge timeout, shadow mode delivers but logs, reply withheld on a Rules finding and **never sent to
+  the judge**, assistant-written post gets Rules only, professor post refused, telemetry carries no text, verdict cache.
 - **Live judgment** (paid, budget-gated like `eval:live`): `npm run eval:guardrail` runs the test set
   through the live judge — caught / missed / false alarms per category, and latency (median, p95).
 - **Browser e2e on the owner's app:** an SSN message blocked instantly with the right words; an offensive
-  message blocked by the judge; "how do I kill a Python process" allowed; a held reply; a refused
+  message blocked by the judge; "how do I kill a Python process" allowed; a reply held by a Rules finding; a refused
   professor post; Topology and the strip show each; create a rule end to end in the Guardrails tab.
 
 ## 11. Later (not this step)
@@ -368,6 +376,10 @@ latencyMs, model, usage}`, `guardrail_decision {hop, action, reasons}`, `guardra
   it — safety stays at the Hub; agent policies rely on the agent plus audit events. Brainstorm Step 13
   separately once Step 12 ships.
 
+- **Decision Model on AI replies, watch-only in the background (owner: "keep it like this for now and
+  then we can expand", 2026-10-31):** the reply goes to the student at once; the judge checks it
+  afterwards and only logs "would have blocked" in Activity. After real use, turn blocking on for AI
+  replies if it ever fires, or drop it if it never does.
 - Meaning-based trigger (local embeddings, HyDE-style generated reference examples) for harmful intent
   and for skipping the judge on low-risk outbound messages — only ever to **raise** scrutiny on inbound.
 - Jev as a faster judge, tried side by side with Haiku on the test set.

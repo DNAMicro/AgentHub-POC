@@ -451,6 +451,10 @@ const checkIn = (label) => [
   { then: () => part('rules', 'check'), cap: ['Rules:', 'only rules whose quick trigger matches wake up.'], capColor: '--guard', ev: ['Hub guardrail · Rules', 'Scan', 'no findings · 2 ms', 'dm'], evColor: '--guard', pause: 1000 },
   { then: () => part('rules', 'ok'), pause: 300 },
 ];
+const replyCheck = (label) => [
+  ...checkIn(label),
+  { then: () => part('decision', 'dim'), cap: ['AI-written reply:', 'Rules only. The Decision Model checks the words people write.'], capColor: '--guard', ev: ['Hub guardrail', 'Decision Model skipped', 'agent reply: Rules only', 'dm'], evColor: '--guard', pause: 900 },
+];
 const judge = (ms, verdict = 'allow', withRouter = true) => [
   { then: () => part('decision', 'check'), cap: [withRouter ? 'Decision Model and router together:' : 'Decision Model:', withRouter ? 'the guardrail’s Decision Model and the router’s AI Model work at the same time.' : 'reads the message in context and decides.'], capColor: '--guard', ev: ['Hub guardrail · Decision Model', 'Judge call', 'model call, sent', 'dm'], evColor: '--guard', pause: withRouter ? 0 : 900 },
   ...(withRouter ? [{ go: [['hub', 'mHub', 'q']], pause: 0 }, { go: [['mHub', 'hub', 'q', 1300]], pause: 0 }] : [{ pause: 1300 }]),
@@ -469,7 +473,7 @@ const SCN = {
     { go: [['mProf', 'prof', 'q', 1200]], ev: ['AI Model → Marketing 101 Agent', 'Assistant: needs the professor', 'decision: needs_professor'], evColor: '--model' },
     { go: [['prof', 'amir', 'post']], cap: ['Hand-over to Professor Amir:', 'a person now has the question in the Professor view.'], ev: ['Marketing 101 Agent → Professor Amir', 'Hand-over received', 'Professor view: 1 waiting', 'sq'], evColor: '--person', then: () => status('amir', '● 1 waiting', 'warn') },
     { go: [['prof', 'hub']], cap: ['Assistant → student (fixed words):', '“I’ve passed this on to Professor Amir, who will get back to you.”'], ev: ['Marketing 101 Agent → University Smart Hub', 'Reply (assistant, on behalf)', 'professor.onBehalf: true'], evColor: '--professor' },
-    clearGuard(), ...checkIn('the reply'), pass('Assistant reply'),
+    clearGuard(), ...replyCheck('the reply'), pass('Assistant reply'),
     { go: [['hub', 'student']], ev: ['University Smart Hub → Student’s Agent', 'Reply delivered', 'result returned'], evColor: '--hub', pause: 1100 },
     clearGuard(),
     { go: [['amir', 'prof', 'post', 1100]], cap: ['Professor Amir replies directly:', '“Yes, by Monday 9 AM.” Written by the person, not the assistant.'], capColor: '--person', ev: ['Professor Amir → Marketing 101 Agent', 'Reply written by Professor Amir', 'author: professor · ↩ Reply to student-alex', 'sq'], evColor: '--person', then: () => status('amir', '✓ Answered', 'ok') },
@@ -488,7 +492,7 @@ const SCN = {
     { go: [['prof', 'mProf', 'q']], cap: ['The assistant (model) answers', 'from the course pack. Professor Amir isn’t involved.'], ev: ['Marketing 101 Agent → AI Model', 'Assistant answers', 'model call, sent'], evColor: '--professor', then: () => nodes.amir.classList.add('dim') },
     { go: [['mProf', 'prof', 'q', 1200]], ev: ['AI Model → Marketing 101 Agent', 'Answer', 'decision: answer'], evColor: '--model' },
     { go: [['prof', 'hub']], cap: ['Reply comes back,', 'labelled “Professor Amir’s course assistant”.'], ev: ['Marketing 101 Agent → University Smart Hub', 'Reply (assistant)', 'author: assistant'], evColor: '--professor' },
-    clearGuard(), ...checkIn('the reply'), pass('Assistant reply'),
+    clearGuard(), ...replyCheck('the reply'), pass('Assistant reply'),
     { go: [['hub', 'student']], ev: ['University Smart Hub → Student’s Agent', 'Reply delivered', 'result returned'], evColor: '--hub' },
   ],
   post: [
@@ -525,7 +529,7 @@ const SCN = {
     { then: () => { ruleRing('library', 'check'); flash('library'); }, cap: ['Library agent rule:', 'before renewing, the Library runs its own rule, loan-renewal-limit@1.'], capColor: '--library', ev: ['Library', 'Agent rule check', 'loan-renewal-limit@1 · renew requested', 'dm'], evColor: '--library', pause: 2200 },
     { then: () => ruleRing('library', 'block'), cap: ['The rule refuses:', 'this book has already been renewed 2 times, the maximum. Nothing is renewed.'], capColor: '--bad', ev: ['Library', 'Agent rule: refused', 'loan-renewal-limit@1 · 0.1 ms', 'dm'], evColor: '--bad', pause: 900 },
     { go: [['library', 'hub']], cap: ['Library → Hub:', '“I can’t renew it again. It’s been renewed twice, which is the maximum.”'], ev: ['Library → University Smart Hub', 'Reply: renewal refused, with the reason', 'code: renewal_limit'], evColor: '--library' },
-    ...checkIn('the reply'), pass('Library reply'),
+    ...replyCheck('the reply'), pass('Library reply'),
     { go: [['hub', 'student']], cap: ['Student gets the reason,', 'not a block. Today this check is hand-written in the Library; in Step 13 it becomes a managed, versioned rule.'], ev: ['University Smart Hub → Student’s Agent', 'Reply delivered', 'result returned'], evColor: '--hub' },
   ],
   tutorRule: [
@@ -537,7 +541,7 @@ const SCN = {
     { then: () => { ruleRing('tutor', 'check'); flash('tutor'); }, cap: ['Tutor agent rule:', 'the university policy “no online class on Fridays” was placed here because the Tutor owns session booking.'], capColor: '--tutor', ev: ['Tutor Agent', 'Agent rule check', 'no-online-friday@1 · date: Friday', 'dm'], evColor: '--tutor', pause: 2200 },
     { then: () => ruleRing('tutor', 'block'), cap: ['The rule refuses the booking,', 'so no form is offered for Friday.'], capColor: '--bad', ev: ['Tutor Agent', 'Agent rule: refused', 'no-online-friday@1 · 0.1 ms', 'dm'], evColor: '--bad', pause: 900 },
     { go: [['tutor', 'hub']], cap: ['Tutor → Hub:', '“Online sessions don’t run on Fridays. Monday to Thursday works. Want one of those?”'], ev: ['Tutor Agent → University Smart Hub', 'Reply: policy explained', 'policy: no-online-friday@1'], evColor: '--tutor' },
-    ...checkIn('the reply'), pass('Tutor reply'),
+    ...replyCheck('the reply'), pass('Tutor reply'),
     { go: [['hub', 'student']], ev: ['University Smart Hub → Student’s Agent', 'Reply delivered', 'result returned'], evColor: '--hub' },
   ],
   onboard: [
