@@ -18,7 +18,7 @@
   --titan: #00244e; --titan-mid: #0f3f8c; --orange: #ff7900; --sky: #ebfbff;
   /* agents: Titan Blue leads (Hub); secondary colours tell the other agents apart in the diagram */
   --hub: #00244e; --student: #2973b6; --tutor: #164686; --professor: #ff7900; --library: #df6436; --person: #ff7900; --model: #5b6472;
-  /* Connectivo (logo blue #0274DE, wordmark slate #1E293B) for Connectivo Compliance */
+  /* Connectivo brand (logo blue #0274DE, wordmark slate #1E293B) for the Guardrail */
   --guard: #0274de; --guard-tint: #e6f1fc; --guard-ink: #1e293b;
   --ok: #1d7a46; --ok-bg: #e2f3e8; --warn: #8a5a00; --warn-bg: #fdf1d4; --bad: #b4261f; --bad-bg: #fbe6e4; --idle: #6b7482;
   --radius: 10px;
@@ -126,8 +126,8 @@ svg.topo { width: 100%; height: auto; display: block; max-height: 72dvh; }
 .agbadge.hubguard.block .agbase { fill: var(--bad-bg); stroke: var(--bad); }
 .agbadge.hubguard.block .agshield { stroke: var(--bad); fill: var(--bad); }
 .agbadge.hubguard.block .agx { stroke: var(--surface); }
-.gtitle { font: 700 11px var(--font); fill: var(--guard-ink); }
-.gtitle .brand { fill: var(--guard); }
+.gtitle { font: 700 12.5px var(--font); fill: var(--guard-ink); }
+.gtitle.brand { fill: var(--guard); }
 .hubguard.pass .gtitle { fill: var(--ok); } .hubguard.block .gtitle { fill: var(--bad); }
 .agbadge.hubguard.pass .agorbit { opacity: 0; }
 .agbadge.hubguard.block .agorbit { stroke-dasharray: none; }
@@ -261,7 +261,7 @@ function lanePts(a, b, off) {
 
 // Step 13 preview: rules installed at the agent that owns the skill (placed by skill, fetched at sign-in)
 const AGENT_RULES = {
-  hub:     { ids: ['Rules (code checks, workerd sandbox)', 'Decision Model (AI judge, haiku-5-5)'], label: '· Connectivo Compliance' },
+  hub:     { ids: ['Rules (code checks, workerd sandbox)', 'Decision Model (AI judge, haiku-5-5)'], label: 'Guardrail' },
   tutor:   { ids: ['tutoring-hours@2', 'no-online-friday@1'] },
   prof:    { ids: ['enrolled-only@1'] },
   library: { ids: ['loan-renewal-limit@1', 'room-hours@1'] },
@@ -314,15 +314,12 @@ for (const [id, n] of Object.entries(N)) {
     b.append(s('circle', { class: 'agpulse', r: R + 4, 'stroke-opacity': 0 }));
     b.append(s('circle', { class: 'agorbit', r: R + 4 }));
     b.append(s('path', { class: 'agbase', d: hexPath(R) }));   // Connectivo's logo mark is a hexagon
-    const icon = s('g', { transform: big ? 'translate(-33 -29) scale(1.65)' : 'scale(1.55)' });
+    const icon = s('g', { transform: big ? 'translate(-29 -25) scale(1.55)' : 'scale(1.55)' });
     icon.append(s('path', { class: 'agshield', d: 'M0,-6.5 L5.5,-4.4 L5.5,-0.6 C5.5,2.6 3.1,4.6 0,5.8 C-3.1,4.6 -5.5,2.6 -5.5,-0.6 L-5.5,-4.4 Z' }),
       s('path', { class: 'agtick', d: 'M-2.6,-0.5 L-0.7,1.5 L2.8,-2.3' }), s('path', { class: 'agx', d: 'M-2.1,-2.4 L2.1,1.6 M2.1,-2.4 L-2.1,1.6' }));
     b.append(icon);
     if (big) {
-      // product name on two lines beside the shield, so it fits the circle's width
-      const ttl = s('text', { class: 'gtitle', x: -20, y: -32 });
-      ttl.append(s('tspan', { class: 'brand', x: -20, dy: 0 }, 'Connectivo'), s('tspan', { x: -20, dy: 13 }, 'Compliance'));
-      b.append(ttl);
+      b.append(s('text', { class: 'gtitle brand', x: -16, y: -21 }, 'Guardrail'));
       for (const [part, label, y, w, tip] of [['rules', 'Rules', 4, 92, 'Rules: code checks in the workerd sandbox'], ['decision', 'Decision Model', 30, 92, 'Decision Model: the AI judge, claude-haiku-5-5']]) {
         const pg = s('g', { class: 'gpart', 'data-part': part, transform: `translate(0 ${y})` });
         pg.append(s('title', {}, tip), s('rect', { x: -w / 2, y: -11, width: w, height: 22, rx: 11 }), s('text', { y: 4, 'text-anchor': 'middle' }, label));

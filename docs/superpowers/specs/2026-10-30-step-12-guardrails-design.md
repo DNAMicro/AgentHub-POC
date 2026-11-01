@@ -267,14 +267,18 @@ Hub `/dev/guardrails/*`, origin-guarded like the other `/dev` routes.
 ## 8. Topology and the hop-by-hop strip
 
 - **The guardrail lives inside the Hub circle (owner's request, 2026-10-31):** no separate Guardrail
-  node. The Hub disc is larger and holds the **Connectivo Compliance hexagon** (shield + "Connectivo
-  Compliance", Connectivo brand — see Branding below) with its two
+  node. The Hub disc is larger and holds the **Guardrail hexagon** (shield + "Guardrail"; Connectivo brand
+  colours and hexagon shape — see Branding below) with its two
   parts inside it as labels: **Rules** (the code rules in the workerd rule engine) and **Decision
   Model** (the AI judge's model). No outside boxes for them (owner's request, 2026-10-31). Each part
   fills while it works, then turns green (clean) or red (finding / block); a skipped part dims (e.g. a
   sure rule hit skips the Decision Model). Discs show the name only: sub-lines such as "Marketing 101 / +
   assistant", "Front door and router / router: live", "Tutoring", "You / student-alex" are removed
   as redundant (owner's request), as are "a person / Professor view" on Professor Amir's box.
+- **On-screen name is "Guardrail" everywhere (owner's decision, 2026-10-31):** the hexagon title, the Hub
+  pill ("Guardrail checking / pass / blocked"), events ("Hub guardrail"), the strip step and the
+  Guardrails tab. It was briefly titled "Connectivo Compliance"; the Connectivo brand colours and hexagon
+  shape stay.
 - **Branding (owner's request, 2026-10-31):** agents and page chrome follow the CSU Fullerton brand
   (brand.fullerton.edu): web palette Light Gray `#F5F5F5`, Beige `#F8F7F3`, text `#222222`, Titan Blue
   `#00244E` leads (Hub ring, all node names, headings), Titan Orange `#FF7900` only as small decoration
@@ -282,7 +286,7 @@ Hub `/dev/guardrails/*`, origin-guarded like the other `/dev` routes.
   `#3C4148`, text `#EBEBEB`). Agent rings use CSUF secondary colours, allowed for diagrams: Student
   Brilliant Blue `#2973B6`, Tutor California Blue `#164686`, Marketing 101 Agent and Professor Amir
   Titan Orange, Library Sun Orange `#DF6436`. Font: Atkinson Hyperlegible, CSUF's accessible alternative
-  to Museo Sans (Museo needs the campus Adobe licence). **Connectivo Compliance** follows the Connectivo
+  to Museo Sans (Museo needs the campus Adobe licence). the **Guardrail** follows the Connectivo
   brand (`/Volumes/Files/Shared/ConnectivoMarketing/Branding`): blue `#0274DE`, slate `#1E293B`,
   light `#F8FAFC`, and its hexagon logo mark as the badge shape (agents) and the container (Hub).
 - **The student's own agent is shown as "Student’s Agent" (owner's request, 2026-10-31):** Topology node and
@@ -413,7 +417,7 @@ latencyMs, model, usage}`, `guardrail_decision {hop, action, reasons}`, `guardra
   university's records or from the student's own form input, form checking is already a non-goal, and
   holding a form offer back would leave the agent's task open ("continue or replace?" about a form the
   student never saw). Revisit with "checking form submissions" (§11).
-- **Step 13 visuals in Step 12 (my call):** Step 12 builds the Hub's Connectivo Compliance hexagon with
+- **Step 13 visuals in Step 12 (my call):** Step 12 builds the Hub's Guardrail hexagon with
   Rules and Decision Model, the name-only discs, the renames, the AI Model boxes, the layout and the
   branding. The **shield badges inside agents and the Library rule / Tutor rule / Agent signs in scenes
   are Step 13** and are not built now — showing "rules" on agents that have none would show something
