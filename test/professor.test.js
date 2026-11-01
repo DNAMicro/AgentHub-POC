@@ -766,3 +766,36 @@ test('every prompt that writes about people carries the no-guessing-pronouns rul
   const prompts = { router: ROUTER_SYSTEM, professor: prof.SYSTEM, professorOnBehalf: `${prof.ON_BEHALF}\n${prof.SYSTEM}`, professorAssistant: prof.INTERPRET_SYSTEM, tutor: SYSTEM_PROMPT, library: lib.SYSTEM, loans: loan.SYSTEM, student: stu.SYSTEM };
   for (const [name, text] of Object.entries(prompts)) assert.ok(text.includes(PEOPLE_RULE), `${name} prompt has the rule`);
 });
+
+test('“ask the professor” then “Amir”: both quote the real question, and the professor’s chat holds it once', async () => {
+  // Live report: the third message said “I've already passed “ask the professor” on…”.
+  const stub = await startFakeAnthropic();
+  stub.respondWith(() => messageReply(JSON.stringify({ kind: 'needs_professor', text: 'Not in my material.', topic_ids: [] })));
+  const { s, stream } = await classroom({ professorEnv: { PROFESSOR_MODE: 'live', ANTHROPIC_API_KEY: `sk-ant-test-${randomUUID()}`, ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0' } });
+  try {
+    const q = 'what is SWOT in marketing';
+    const r1 = await chatVia(s.ui, stream, q);
+    const r2 = await chatVia(s.ui, stream, 'ask the professor', r1.contextId);
+    const r3 = await chatVia(s.ui, stream, 'Amir', r1.contextId);
+    for (const r of [r2, r3]) {
+      assert.match(r.reply.text, /already passed “what is SWOT in marketing”/);
+      assert.doesNotMatch(r.reply.text, /“ask the professor”|“Amir”/);
+    }
+    const chat = (await professorState(s)).chat;
+    assert.equal(chat.filter((m) => m.role === 'student').length, 1);
+    assert.equal(chat.find((m) => m.role === 'student').text, q);
+  } finally {
+    await stub.close();
+  }
+});
+
+test('mock: after an answered question, “ask the professor” passes it on once; “Amir” then says it was already passed (quoting the real question)', async () => {
+  const { s, stream } = await classroom();
+  const q = 'What is market segmentation?';
+  const r1 = await chatVia(s.ui, stream, q);
+  const r2 = await chatVia(s.ui, stream, 'ask the professor', r1.contextId);
+  assert.match(r2.reply.text, /passed this on to Professor Amir/);
+  const r3 = await chatVia(s.ui, stream, 'Amir', r1.contextId);
+  assert.match(r3.reply.text, /already passed “What is market segmentation\?”/);
+  assert.equal((await professorState(s)).chat.filter((m) => m.role === 'student').length, 1);
+});

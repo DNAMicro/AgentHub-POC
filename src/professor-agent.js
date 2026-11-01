@@ -96,17 +96,19 @@ async function handleChat(ctx, bus, runId) {
   // “ask the professor” / “ask Professor Amir” / just “Amir”: the student means the question they asked
   // before. Done in code (no model): that earlier question goes to the professor's chat.
   if (ASK_PROFESSOR.test(question)) {
-    const earlier = (recent.get(ctx.contextId) ?? []).at(-1);
-    if (!earlier) return publishReply(ctx, bus, runId, incoming, `What would you like to ask ${COURSE.professorName}? Tell me your question and I’ll pass it on.`, { ...metadata, professor: { name: COURSE.professorName, outcome: 'clarify', mode: PROFESSOR_MODE, model: null, usage: null, lessonId: null, topics: [] } }, question);
+    // Earlier hand-over requests (“ask the professor”, “Amir”) are never the question to pass on: skip them.
+    const earlier = (recent.get(ctx.contextId) ?? []).findLast((t) => !t.handoverRequest);
+    if (!earlier) return publishReply(ctx, bus, runId, incoming, `What would you like to ask ${COURSE.professorName}? Tell me your question and I’ll pass it on.`, { ...metadata, professor: { name: COURSE.professorName, outcome: 'clarify', mode: PROFESSOR_MODE, model: null, usage: null, lessonId: null, topics: [] } }, question, { handoverRequest: true });
     const handOver = Boolean(student);
     const already = handOver && earlier.handedOver;
     const text = !handOver ? NOT_PASSED_TEXT : already ? `I’ve already passed “${earlier.question.slice(0, 120)}” on to ${COURSE.professorName}, who will get back to you.` : NEEDS_PROFESSOR_TEXT;
     metadata.professor = { name: COURSE.professorName, outcome: handOver ? 'needs_professor' : 'out_of_scope', mode: PROFESSOR_MODE, model: null, usage: null, lessonId: lesson?.lessonId ?? null, topics: [], ...(handOver ? { onBehalf: true } : {}) };
     if (handOver && !already) {
+      earlier.handedOver = true; // the real question, so a later “Amir” finds it already passed on
       recordReply(incoming.messageId, { studentId: student, text: earlier.question, about, relayed: true }, { text, model: null, needsProfessor: true, onBehalf: false });
       emitViz('student_reply', runId, { lessonId: lesson?.lessonId ?? null, relayed: false, needsProfessor: true });
     }
-    return publishReply(ctx, bus, runId, incoming, text, metadata, question, { handedOver: handOver });
+    return publishReply(ctx, bus, runId, incoming, text, metadata, question, { handoverRequest: true });
   }
   const onBehalf = Boolean(lesson && lesson.kind === 'message' && author === 'assistant');
   let text;
