@@ -196,12 +196,12 @@ as approved versions.
 - **One structured Haiku 5.5 call** per checked message (the Hub's existing `callModel` path, no retries,
   sanitized errors) returning **all categories at once**:
   `{ verdict: 'allow' | 'block', categories: [ids], confidence: 'high' | 'low', quote: string }`.
-- **Every block cites the policy (my call, from ComplianceNLP):** `quote` is the exact words of the policy
+- **Every block cites the policy (owner approved 2026-10-31, from ComplianceNLP):** `quote` is the exact words of the policy
   line the judge relied on. The Hub checks in code that `quote` appears verbatim in the current policy
   entry for one of the returned categories (the same check the Library uses for evidence lines). A failed
   check is treated as **no verdict** (fail closed, recorded as `by: 'ungrounded'`). The Activity view shows
   the quote as the "because". No second model call.
-- **Severity per category and per rule (my call, from ComplianceNLP):** `high` (someone else's personal
+- **Severity per category and per rule (owner approved 2026-10-31, from ComplianceNLP):** `high` (someone else's personal
   data, threats, self-harm, SSN/card numbers) blocks on a `low`-confidence block verdict; `normal` (e.g.
   offensive language) blocks only on `high` confidence, otherwise logs "would block". Set in the interface
   next to each category and rule.
