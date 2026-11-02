@@ -114,7 +114,6 @@ Then open **http://127.0.0.1:4444**. Start order doesn't matter: specialists kee
 | `SPECIALIST_ENABLED=0` | Register a specialist as disabled (no requests are routed to it) |
 | `HUB_TELEMETRY_SHOW_CONTENT=1` | Stop redacting message text and form values in the Hub's telemetry (off by default) |
 | `ROUTER_MODE` | The Hub's router: `direct`, `mock` or `live` |
-| `LOAN_STORE_FILE` | Part 8: where the Library's synthetic loan records and renewal outcomes are saved (default `data/library-loans.json`, git-ignored; delete it to reset the demo loans) |
 | `STUDENT_MODE` | The Student's own model: `off` (default), `mock` or `live`. It clarifies unclear questions and picks the capability for non-obvious ones (`demo` uses mock, `demo:live` live) |
 | `STUDENT_MODEL`, `HUB_MODEL`, `TUTOR_MODEL`, `LIBRARY_MODEL`, `PROFESSOR_MODEL` | Each agent's own model (overrides `model.name` in its config file). Supported: `claude-haiku-5-5` (default), `claude-sonnet-5-5`, `claude-opus-5-5`; anything else stops that agent at startup. Example: `TUTOR_MODEL=claude-sonnet-5-5 npm run demo:live` |
 
@@ -142,7 +141,7 @@ While it runs, **→** or **PageDown** (a presentation clicker works) skips to t
 | `auto=0` | Never advance on a timer: wait for the presenter at every pause |
 | `from=5`, `to=7` | Present only those parts |
 | `fresh=0` | Keep the current conversation. By default the demo presses **New conversation**, which also resets the classroom (every student's lessons and messages) |
-| `renew=1` | Part 8 actually renews the loan. This changes `data/library-loans.json`, and renewals run out |
+| `renew=1` | Part 8 actually renews the loan. Renewals run out until the Library restarts (loans are kept in memory only) |
 | `tutor=…` | The Tutor's address for Part 1's Agent Card, when presenting another stack |
 | `size=1600x960`, `shots=/dir` | Set the page size; save a screenshot at every pause (rehearsals) |
 
@@ -160,10 +159,9 @@ It **never moves on by itself**: after each moment (one meaningful result, such 
 | **N** | Skip the rest of this step |
 | **H** | Hold: ignore keys until you press H again (the label shows ⏸) |
 
-Before the talk, with the demo stopped:
+Before the talk (a fresh start also gives Step 8 a loan to renew — loans live in the Library's memory):
 
 ```bash
-npm run demo:reset-loans                      # gives Step 8 a loan to renew (renewals run out)
 env -u ANTHROPIC_BASE_URL npm run demo:live   # keeps running: the next commands go in a second terminal
 npm run demo:build                            # joins scripts/demo/walkthrough/*.js into live-walkthrough.js
 playwright-cli -s=demo2 open --headed "http://127.0.0.1:4444/conversation"
@@ -201,7 +199,7 @@ Everything is live, so the model may answer in words where the script hoped for 
 | `src/skills.js` | Part 5: the single skill configuration, its validation, and everything derived from it. That's the Agent Card skills, the documented scope extension and the runtime policy. |
 | `src/agent-settings.js` | Part 5: one agent's skill settings. Holds the live configuration (swapped atomically on save), the local settings API (read, preview, save) and the `agent_card_changed` A2A notification (Part 7: sent to the Hub). |
 | `src/library-agent.js`, `src/library-model.js`, `src/library-fixture.js` | Part 5: the **Library Agent**. Answers only from the saved **answer content** of its enabled skills (defaults are fictional sample data in the fixture). `LIBRARY_MODE=mock` (default) extracts the matching lines; `live` asks Haiku 5.5 and releases the answer only if its quoted evidence is found in that content. It performs no transactions. |
-| `src/loan-store.js` | Part 8: the synthetic loan service — authoritative loans, eligibility, the permitted return-date range, and idempotent renewals saved to disk. |
+| `src/loan-store.js` | Part 8: the synthetic loan service — authoritative loans, eligibility, the permitted return-date range, and idempotent renewals, kept in memory only (a restart starts from the sample loans). |
 | `src/a2ui-catalog.js` | Part 8: the model-visible catalog (built from the installed renderer's official schemas) and the validation every generated surface must pass. |
 | `src/loan-model.js` | Part 8: the Library's model call for loan questions — answer, clarify or compose UI — with bounded repair and a truthful fallback; labelled mock mode. |
 | `src/professor-agent.js`, `src/professor-model.js`, `src/course-pack.js` | Part 9: the **Marketing 101 Professor** — answers from its original course pack (eight topics with WSU chapter references, a skill for questions about the course itself, three seeded lessons) and the lesson being asked about (mock: labelled extraction; live: the configured model, no invented dates), and its authoring API and persisted outbox for posting lessons. |
@@ -806,11 +804,11 @@ The official v0.9 JSON Schema first, then the app's rules: components or functio
 
 ### Demo loan policy
 
-Up to **2 renewals** per loan. A renewal moves the due date to a date **you choose**, from the day after the current due date to **21 days after it**. Not renewable: another borrower has a hold, the renewal limit is reached, the item is overdue, or it's a course-reserve copy. The fixture (student-alex) has six loans: two renewable, one with a hold, one at its renewal limit, one renewable marketing title (so “the marketing book” is ambiguous) and a course-reserve copy; another borrower has one loan you can never see. Due dates are set relative to the day the store is first created.
+Up to **2 renewals** per loan. A renewal moves the due date to a date **you choose**, from the day after the current due date to **21 days after it**. Not renewable: another borrower has a hold, the renewal limit is reached, the item is overdue, or it's a course-reserve copy. The fixture (student-alex) has six loans: two renewable, one with a hold, one at its renewal limit, one renewable marketing title (so “the marketing book” is ambiguous) and a course-reserve copy; another borrower has one loan you can never see. Due dates are set relative to the day the Library starts. Loans and renewals are **kept in memory only**: nothing is saved, so every Library start (and every test) begins from the same sample loans.
 
 ### Safety and reliability
 
-- Renewals are **idempotent by operation ID**, and outcomes are **saved to disk** (`LOAN_STORE_FILE`, default `data/library-loans.json`, git-ignored). A double-click, retry, reload or reconnect can't renew twice, even across a Library restart.
+- Renewals are **idempotent by operation ID** while the Library runs. A double-click, retry, reload or reconnect can't renew twice. A Library restart forgets every renewal (by design: nothing is saved, so tests and demos start clean).
 - A record that changed after the form was made (for example someone placed a hold) is refused as **stale**; nothing is renewed.
 - A new interface in the same conversation replaces the open one (never two active), with a new **revision**. Actions on a replaced surface are refused.
 - Hidden fields and model instructions are not security: every rule above is enforced in code at submission.

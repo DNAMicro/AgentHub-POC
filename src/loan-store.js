@@ -13,11 +13,9 @@
 //     (online renewal closes on the due date), or the item is a course-reserve copy.
 //   - A renewal is complete only when renewLoan() returns ok; it bumps the record version.
 //
-// Persistence: loans and renewal outcomes are written to a JSON file (LOAN_STORE_FILE, default
-// data/library-loans.json, git-ignored) so an outcome survives a restart and a retried operation ID can
-// never renew twice. The first start seeds the fixture with due dates relative to today.
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+// In memory only — nothing is written to disk. Every new store (every Library start) seeds the fixture
+// with due dates relative to today, so tests and demos always begin from the same loans. A retried
+// operation ID can't renew twice while the process runs; a restart forgets loans and renewals alike.
 import { addDays, todayIn } from './forms.js';
 
 export const LOAN_POLICY = { maxRenewals: 2, renewalDays: 21 };
@@ -51,17 +49,8 @@ function eligibilityOf(loan, today) {
   return { eligible: true, code: 'eligible', reason: 'Eligible for renewal.' };
 }
 
-export function createLoanStore({ file = process.env.LOAN_STORE_FILE ?? 'data/library-loans.json', now = () => new Date() } = {}) {
-  let state;
-  if (existsSync(file)) state = JSON.parse(readFileSync(file, 'utf8'));
-  else state = { seededOn: todayIn(now()), loans: seed(todayIn(now())), operations: {} };
-  const save = () => {
-    mkdirSync(dirname(file), { recursive: true });
-    const tmp = `${file}.tmp`;
-    writeFileSync(tmp, JSON.stringify(state, null, 1));
-    renameSync(tmp, file); // atomic replace: a crash never leaves a half-written file
-  };
-  if (!existsSync(file)) save();
+export function createLoanStore({ now = () => new Date() } = {}) {
+  const state = { seededOn: todayIn(now()), loans: seed(todayIn(now())), operations: {} };
 
   const today = () => todayIn(now());
   const own = (borrowerId, loanId) => state.loans.find((l) => l.loanId === loanId && l.borrowerId === borrowerId) ?? null;
@@ -94,7 +83,7 @@ export function createLoanStore({ file = process.env.LOAN_STORE_FILE ?? 'data/li
       return { ok: true, loanId, eligible: v.eligible, code: v.eligibilityCode, reason: v.eligibilityReason, currentDueDate: v.dueDate, permittedReturnDates: v.permittedReturnDates, renewalsLeft: v.renewalsLeft, version: v.version };
     },
     // Synchronous check-and-write: no await between the checks and the update, so two submissions can't
-    // both pass. Idempotent by operationId (persisted): the same request returns the stored outcome;
+    // both pass. Idempotent by operationId (for this process): the same request returns the stored outcome;
     // the same ID with different values is refused.
     renewLoan({ borrowerId, loanId, returnDate, expectedVersion, operationId }) {
       const request = JSON.stringify({ borrowerId, loanId, returnDate, expectedVersion });
@@ -120,22 +109,20 @@ export function createLoanStore({ file = process.env.LOAN_STORE_FILE ?? 'data/li
         }
       }
       state.operations[operationId] = { request, result, at: now().toISOString() };
-      save();
       return result;
     },
     // Demo reset (the Student's New conversation, through the Hub): back to the starting sample, due
-    // dates counted from today, renewal outcomes forgotten. Synthetic records only.
+    // dates counted from today, renewal outcomes forgotten. Memory only, like everything here.
     reset() {
-      state = { seededOn: today(), loans: seed(today()), operations: {} };
-      save();
+      Object.assign(state, { seededOn: today(), loans: seed(today()), operations: {} });
     },
-    // Test hook only (LIBRARY_TEST_HOOKS=1): change a loan behind a form's back.
+    // Test hooks only (LIBRARY_TEST_HOOKS=1): read the raw records, change a loan behind a form's back.
+    _records: () => structuredClone(state.loans),
     _setHold(loanId, hold) {
       const loan = state.loans.find((l) => l.loanId === loanId);
       if (!loan) return false;
       loan.hold = hold;
       loan.version += 1;
-      save();
       return true;
     },
   };

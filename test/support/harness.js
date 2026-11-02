@@ -113,10 +113,9 @@ export async function startProfessor(env = {}) {
   return professor;
 }
 
-// Each test Library gets its own fresh loan store (Part 8), never the demo's data/library-loans.json.
-export const freshLoanStore = () => join(mkdtempSync(join(tmpdir(), 'a2a-loans-')), 'loans.json');
+// Loans (Part 8) live in the Library's memory: every test Library starts from the same fresh sample loans.
 export async function startLibrary(env = {}) {
-  const library = startProcess('src/library-agent.js', { PORT: '0', LOAN_STORE_FILE: freshLoanStore(), ...env }, LIBRARY_READY);
+  const library = startProcess('src/library-agent.js', { PORT: '0', ...env }, LIBRARY_READY);
   library.url = await library.ready;
   return library;
 }

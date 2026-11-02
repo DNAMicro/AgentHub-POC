@@ -6,7 +6,7 @@
 // Prints "rehearsal ready http://127.0.0.1:<ui>" once the UI is listening and the Student session is registered.
 // SIGTERM / SIGINT stops all five. Never prints key values.
 import { spawn } from 'node:child_process';
-import { copyFileSync, mkdtempSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,13 +29,12 @@ for (const p of Object.values(ports)) {
 
 const dir = mkdtempSync(join(tmpdir(), 'rehearsal-'));
 const files = {
-  LOAN_STORE_FILE: join(dir, 'loans.json'),
   HUB_LESSON_FILE: join(dir, 'hub-lessons.json'),
   STUDENT_INBOX_FILE: join(dir, 'inbox.json'),
   PROFESSOR_OUTBOX_FILE: join(dir, 'outbox.json'),
 };
-copyFileSync(join(root, 'data/library-loans.before-e2e.json'), files.LOAN_STORE_FILE);
-// Empty starts; the stores create their own defaults when the file is missing, so only the loans are copied.
+// Empty starts; the stores create their own defaults when the file is missing. Loans are in the Library's
+// memory and always start from the sample loans.
 
 const url = (p) => `http://127.0.0.1:${p}`;
 const mode = mock ? 'mock' : 'live';

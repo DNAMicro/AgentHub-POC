@@ -410,8 +410,10 @@ export function startLibraryServer({ port = 41242 } = {}) {
         log('loans reset to the starting sample');
         res.json({ status: 'reset' });
       });
-      // Test hook only: change a loan behind an open form's back (e.g. another borrower places a hold).
+      // Test hooks only: read the in-memory loan records; change a loan behind an open form's back (e.g.
+      // another borrower places a hold).
       if (process.env.LIBRARY_TEST_HOOKS === '1') {
+        app.get('/test/loans', (req, res) => res.json({ loans: loans._records() }));
         app.post('/test/loans/:loanId/hold', express.json(), (req, res) => res.json({ ok: loans._setHold(req.params.loanId, req.body?.hold !== false) }));
       }
       skillService.started(actualPort, `${baseUrl}/${AGENT_CARD_PATH}`);

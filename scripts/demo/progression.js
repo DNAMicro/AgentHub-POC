@@ -10,7 +10,7 @@
 // Options go in the query string of the address you open (read once at the start):
 //   pace=1.5    stretch every pause (0.5 = twice as fast)      auto=0   wait for the presenter at every pause
 //   from=5      start at Part 5   to=7   stop after Part 7     fresh=0  keep the current conversation
-//   renew=1     actually renew the loan in Part 8 (changes data/library-loans.json; renewals run out)
+//   renew=1     actually renew the loan in Part 8 (in the Library's memory; renewals run out until it restarts)
 //   tutor=http://127.0.0.1:41241   the Tutor's address for Part 1's Agent Card (another stack's port)
 //   size=1600x960  set the page size        shots=/some/dir  save a screenshot at every highlight (rehearsal)
 //

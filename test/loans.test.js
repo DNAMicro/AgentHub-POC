@@ -7,8 +7,8 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
-import { startStack, waitFor, openStream, find, findAll, formVia, chatVia, formAction, waitLifecycle, lastLifecycle, freshLoanStore, post } from './support/harness.js';
+import { readFileSync, readdirSync } from 'node:fs';
+import { startStack, waitFor, openStream, find, findAll, formVia, chatVia, formAction, waitLifecycle, lastLifecycle, post } from './support/harness.js';
 import { startFakeAnthropic, messageReply } from './support/fake-anthropic.js';
 import { createLoanStore, LOAN_POLICY } from '../src/loan-store.js';
 import { CATALOG_INFO, allowedDatesFrom, catalogForModel, validateGeneratedUi, validateServerToClientList, wrapSurface } from '../src/a2ui-catalog.js';
@@ -17,9 +17,8 @@ import { askTutor } from '../src/student-agent.js';
 
 // ---- the loan service (unit) ---------------------------------------------------------------------
 
-test('loan service: authoritative eligibility, a backend-computed range, idempotent renewals that persist', () => {
-  const file = freshLoanStore();
-  const store = createLoanStore({ file });
+test('loan service: authoritative eligibility, a backend-computed range, idempotent renewals, nothing saved', () => {
+  const store = createLoanStore();
   const mine = store.listLoans('student-alex');
   assert.ok(mine.length >= 5 && mine.every((l) => l.synthetic));
   assert.ok(!mine.some((l) => l.loanId === 'L-2001'), 'another borrower’s loan is never listed');
@@ -37,23 +36,25 @@ test('loan service: authoritative eligibility, a backend-computed range, idempot
   const ok = store.renewLoan({ borrowerId: 'student-alex', loanId: 'L-1001', returnDate: range.latest, expectedVersion: 1, operationId: op });
   assert.equal(ok.ok, true);
   assert.equal(ok.receipt.newDueDate, range.latest);
-  // The same operation again — even after a "restart" (a new store on the same file) — renews nothing.
-  const restarted = createLoanStore({ file });
-  const again = restarted.renewLoan({ borrowerId: 'student-alex', loanId: 'L-1001', returnDate: range.latest, expectedVersion: 1, operationId: op });
+  // The same operation again renews nothing.
+  const again = store.renewLoan({ borrowerId: 'student-alex', loanId: 'L-1001', returnDate: range.latest, expectedVersion: 1, operationId: op });
   assert.equal(again.duplicate, true);
-  assert.equal(restarted.getLoan('student-alex', 'L-1001').renewalsUsed, 1, 'renewed exactly once');
-  assert.equal(restarted.renewLoan({ borrowerId: 'student-alex', loanId: 'L-1001', returnDate: range.earliest, expectedVersion: 1, operationId: op }).code, 'operation_reused');
-  assert.equal(restarted.renewLoan({ borrowerId: 'student-alex', loanId: 'L-1001', returnDate: addDays(range.latest, 2), expectedVersion: 1, operationId: randomUUID() }).code, 'stale', 'an old record version is refused');
-  // Seeded today; read 40 days later, the same record is overdue.
-  const seededFile = freshLoanStore();
-  createLoanStore({ file: seededFile });
-  const later = createLoanStore({ file: seededFile, now: () => new Date(Date.now() + 40 * 864e5) });
-  assert.equal(later.getLoan('student-alex', 'L-1002').eligibilityCode, 'overdue');
+  assert.equal(store.getLoan('student-alex', 'L-1001').renewalsUsed, 1, 'renewed exactly once');
+  assert.equal(store.renewLoan({ borrowerId: 'student-alex', loanId: 'L-1001', returnDate: range.earliest, expectedVersion: 1, operationId: op }).code, 'operation_reused');
+  assert.equal(store.renewLoan({ borrowerId: 'student-alex', loanId: 'L-1001', returnDate: addDays(range.latest, 2), expectedVersion: 1, operationId: randomUUID() }).code, 'stale', 'an old record version is refused');
+  // Nothing is saved: a new store (a Library restart) starts from the sample loans again.
+  const restarted = createLoanStore();
+  assert.equal(restarted.getLoan('student-alex', 'L-1001').renewalsUsed, 0);
+  assert.equal(restarted.getLoan('student-alex', 'L-1001').version, 1);
+  // A store created 40 days later seeds due dates relative to that day; the policy still reads the clock.
+  let clock = Date.now();
+  const timed = createLoanStore({ now: () => new Date(clock) });
+  clock += 40 * 864e5;
+  assert.equal(timed.getLoan('student-alex', 'L-1002').eligibilityCode, 'overdue');
 });
 
 test('loan service reset: back to the starting sample — renewal counts, due dates from today, no stored operations', () => {
-  const file = freshLoanStore();
-  const store = createLoanStore({ file });
+  const store = createLoanStore();
   const range = store.getLoan('student-alex', 'L-1001').permittedReturnDates;
   const op = randomUUID();
   assert.equal(store.renewLoan({ borrowerId: 'student-alex', loanId: 'L-1001', returnDate: range.latest, expectedVersion: 1, operationId: op }).ok, true);
@@ -63,7 +64,6 @@ test('loan service reset: back to the starting sample — renewal counts, due da
   assert.deepEqual([fresh.renewalsUsed, fresh.version, fresh.eligible], [0, 1, true]);
   assert.equal(fresh.dueDate, addDays(todayIn(new Date()), 4), 'due dates restart from today');
   assert.equal(store.getLoan('student-alex', 'L-1004').renewalsUsed, 2, 'the sample keeps its deliberate cases (L-1004 at the limit)');
-  assert.equal(createLoanStore({ file }).getLoan('student-alex', 'L-1001').renewalsUsed, 0, 'the reset is saved');
   assert.equal(store.renewLoan({ borrowerId: 'student-alex', loanId: 'L-1001', returnDate: fresh.permittedReturnDates.latest, expectedVersion: 1, operationId: op }).duplicate, undefined, 'stored operations were cleared with the loans');
 });
 
@@ -84,7 +84,7 @@ test('the model-visible catalog is the installed renderer’s catalog (minus URL
   assert.ok(forModel.components.find((c) => c.component === 'ChoicePicker').properties.some((p) => p.name === 'filterable'), 'the searchable selector is offered because the renderer implements it');
 });
 
-const LOANS = createLoanStore({ file: freshLoanStore() }).listLoans('student-alex');
+const LOANS = createLoanStore().listLoans('student-alex');
 const L = Object.fromEntries(LOANS.map((l) => [l.loanId, l]));
 const ALLOWED = allowedDatesFrom({ loans: LOANS, today: LOANS[0].checkedOut, studentText: [] });
 // A composition like the model would write (scripted here) — a renewal for one loan.
@@ -159,7 +159,7 @@ test('Student-side checks: generated surfaces get the wider catalog set; only th
 // The Hub runs its MOCK router here, so requests use wording that heuristic places clearly with the
 // Library; the natural phrasings ("the calculus book") are exercised live against the real router.
 
-let stub, stack, storeFile, stream;
+let stub, stack, stream;
 const classify = { verdict: 'my_loans', skill_id: '', answer: '', evidence: [], clarification_question: '' };
 const reply = (r) => messageReply(JSON.stringify({ loan_ids: [], components_json: '[]', data_model_json: '{}', ...r }));
 // Each Library call: the first model call classifies the request, the next ones compose the reply.
@@ -168,17 +168,23 @@ function script(...loanReplies) {
   stub.respondWith((body) => (body.output_config?.format?.schema?.properties?.verdict ? messageReply(JSON.stringify(classify)) : reply(loanReplies[Math.min(n++, loanReplies.length - 1)])));
 }
 const loanCalls = () => stub.requests.filter((r) => r.body.output_config?.format?.schema?.properties?.kind);
-const loansNow = () => Object.fromEntries(JSON.parse(readFileSync(storeFile, 'utf8')).loans.map((l) => [l.loanId, l]));
+// The Library's live records, read through its test hook (loans are in its memory, never on disk).
+const loansNow = async () => Object.fromEntries((await (await fetch(`${stack.library.url}/test/loans`)).json()).loans.map((l) => [l.loanId, l]));
+// The backend's view of a loan the tests haven't changed yet: a fresh store's view, checked against the live record.
+async function untouchedView(loanId) {
+  const view = createLoanStore().getLoan('student-alex', loanId);
+  const live = (await loansNow())[loanId];
+  assert.deepEqual([live.dueDate, live.renewals, live.version], [view.dueDate, view.renewalsUsed, view.version], `${loanId} is still in its starting state`);
+  return view;
+}
 const ui = (loan, extra = {}) => ({ kind: 'ui', text: `You can keep ${loan.title} longer. Pick a date.`, loan_ids: [loan.loanId], components_json: JSON.stringify(renewalSurface(loan)), data_model_json: JSON.stringify({ form: { returnDate: '' } }), ...extra });
 
 before(async () => {
   stub = await startFakeAnthropic();
-  storeFile = freshLoanStore();
   stack = await startStack({
     hubEnv: { ROUTER_MODE: 'mock' },
-    libraryEnv: { LIBRARY_MODE: 'live', ANTHROPIC_API_KEY: `sk-ant-test-${randomUUID()}`, ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0', LOAN_STORE_FILE: storeFile, LIBRARY_TEST_HOOKS: '1' },
+    libraryEnv: { LIBRARY_MODE: 'live', ANTHROPIC_API_KEY: `sk-ant-test-${randomUUID()}`, ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0', LIBRARY_TEST_HOOKS: '1' },
   });
-  await waitFor(() => existsSync(storeFile), { what: 'loan store' });
   stream = await openStream(stack.ui.url);
 });
 after(async () => {
@@ -188,7 +194,7 @@ after(async () => {
 });
 
 test('a due-date question gets a direct answer from the records — no form', async () => {
-  const loan = loansNow()['L-1001'];
+  const loan = (await loansNow())['L-1001'];
   script({ kind: 'answer', text: `${loan.title} is due on ${loan.dueDate}.`, loan_ids: ['L-1001'] });
   const r = await chatVia(stack.ui, stream, 'When is my calculus book due?');
   assert.equal(r.reply.servedBy, 'library');
@@ -204,7 +210,7 @@ test('a due-date question gets a direct answer from the records — no form', as
 });
 
 test('an invented date is caught and repaired from the validation errors', async () => {
-  const loan = loansNow()['L-1002'];
+  const loan = (await loansNow())['L-1002'];
   stub.reset();
   script({ kind: 'answer', text: `${loan.title} is due on December 25.` }, { kind: 'answer', text: `${loan.title} is due on ${loan.dueDate}.` });
   const r = await chatVia(stack.ui, stream, 'When is the marketing book I borrowed due?');
@@ -221,8 +227,8 @@ test('a clarifying question is passed on as a question, not a form', async () =>
 });
 
 test('eligible renewal: generated surface through the Hub → verified receipt; retries and double submits renew once', async () => {
-  const loan = { ...loansNow()['L-1001'], ...LOANS.find((l) => l.loanId === 'L-1001') };
-  const current = createLoanStore({ file: storeFile }).getLoan('student-alex', 'L-1001');
+  const current = await untouchedView('L-1001');
+  const loan = current;
   script(ui(current));
   const { form, events } = await formVia(stack.ui, stream, 'Can I renew my borrowed library book until after my exam?');
   assert.ok(form, `a generated surface arrived (got: ${JSON.stringify(events.filter((e) => ['reply_received', 'request_failed', 'ui_generated'].includes(e.type)).map((e) => [e.type, e.data.text ?? e.data.error, e.data.inspector?.validation]))})`);
@@ -240,14 +246,14 @@ test('eligible renewal: generated surface through the Hub → verified receipt; 
   const receipt = lastLifecycle(stream.events, form.formId).receipt;
   assert.match(receipt.renewalId, /^RN-/);
   assert.equal(receipt.newDueDate, current.permittedReturnDates.latest);
-  assert.equal(loansNow()['L-1001'].renewals, loan.renewalsUsed + 1, 'renewed in the backend');
+  assert.equal((await loansNow())['L-1001'].renewals, loan.renewalsUsed + 1, 'renewed in the backend');
   // Accepted: the form is closed — a second submit is refused; nothing renews twice.
   assert.equal((await formAction(stack.ui, form.formId, 'renewLoan', 'renew_button', ctx, randomUUID())).status, 409);
-  assert.equal(loansNow()['L-1001'].renewals, loan.renewalsUsed + 1);
+  assert.equal((await loansNow())['L-1001'].renewals, loan.renewalsUsed + 1);
 });
 
 test('an action from a button that isn’t in the generated surface is refused before anything is sent', async () => {
-  const current = createLoanStore({ file: storeFile }).getLoan('student-alex', 'L-1005');
+  const current = await untouchedView('L-1005');
   script(ui(current));
   const { form } = await formVia(stack.ui, stream, 'I want to keep my borrowed library book longer');
   const res = await formAction(stack.ui, form.formId, 'renewLoan', 'invented_button', { loanId: 'L-1005', returnDate: current.permittedReturnDates.earliest });
@@ -258,11 +264,11 @@ test('an action from a button that isn’t in the generated surface is refused b
   await formAction(stack.ui, form.formId, 'renewLoan', 'renew_button', { loanId: 'L-1005', returnDate: current.permittedReturnDates.earliest });
   await waitLifecycle(stream, form.formId, ['rejected']);
   assert.match(JSON.stringify(lastLifecycle(stream.events, form.formId).errors), /changed since the form was made/);
-  assert.equal(loansNow()['L-1005'].renewals, 0, 'nothing renewed');
+  assert.equal((await loansNow())['L-1005'].renewals, 0, 'nothing renewed');
 });
 
 test('ineligible: a renew button for it is rejected and repaired into an explanation', async () => {
-  const blocked = createLoanStore({ file: storeFile }).getLoan('student-alex', 'L-1003');
+  const blocked = await untouchedView('L-1003');
   stub.reset();
   script(ui({ ...blocked, permittedReturnDates: { earliest: '2026-01-01', latest: '2026-01-02' } }), { kind: 'answer', text: `${blocked.title} can’t be renewed: ${blocked.eligibilityReason}`, loan_ids: ['L-1003'] });
   const r = await chatVia(stack.ui, stream, 'Why can’t I renew the chemistry lab manual?');

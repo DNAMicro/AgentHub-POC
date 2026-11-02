@@ -68,16 +68,16 @@ Run `npm test` after Phase 1. Every existing test must still pass.
 
 | Task | Model | Files it owns | Builds | Done when |
 |---|---|---|---|---|
-| A | haiku | `src/loan-store.js` | Demo loan service with policy, eligibility, persisted idempotent renewals | The `node -e` check in Task A prints `ok` |
+| A | haiku | `src/loan-store.js` | Demo loan service with policy, eligibility, idempotent renewals (in memory only) | The `node -e` check in Task A prints `ok` |
 | B | sonnet | `src/a2ui-catalog.js`, `test/loans.test.js` (unit part) | Model-visible catalog from installed schemas, `wrapSurface`, `validateGeneratedUi`, `datesIn` | `node --test test/loans.test.js` passes |
 | C | haiku | `public/index.html`, `public/app.js`, `public/styles.css`, `public/forms-ui.js`, `src/topology.js`, `src/ui-server.js` | Inspector panel, receipt, Read-only badge, loan summary, topology labels, Student-side checks | `node --check` passes on `public/app.js`, `public/forms-ui.js`, `src/topology.js` and `src/ui-server.js`, and `node --test test/a2ui-render.test.js` passes. (`test/ui.test.js` and `test/form.test.js` spawn the Hub that Task D is editing; they run in Phase 3. Seeing the panel in a browser is optional.) |
 | D | haiku | `src/hub-link.js`, `src/hub-registry.js`, `src/hub-agent.js`, `src/router.js` | Per-process `callKey`, `signFor`, `verifiedStudent`, signed metadata, inspector redaction, router rule | `node --check` passes on each owned `.js` file. (`test/hub.test.js` spawns the UI server that Task C is editing; it runs in Phase 3.) |
 
 ### Task A — Loan store
 
-1. Export `LOAN_POLICY = { maxRenewals: 2, renewalDays: 21 }` and `createLoanStore({ file = process.env.LOAN_STORE_FILE ?? 'data/library-loans.json', now = () => new Date() })`.
-2. A missing file is seeded with due dates **relative to today** (`todayIn`, `addDays` from `forms.js`). Deleting it resets the demo.
-3. Save atomically: write `<file>.tmp`, then `renameSync`. Create the folder if needed.
+1. Export `LOAN_POLICY = { maxRenewals: 2, renewalDays: 21 }` and `createLoanStore({ now = () => new Date() })`.
+2. Every new store is seeded with due dates **relative to today** (`todayIn`, `addDays` from `forms.js`).
+3. Keep loans and renewal outcomes **in memory only**. Never write them to a file or anywhere else: saved renewals carry over between runs and break testing. A Library restart is the reset.
 4. Fixture (id, borrower, title, author, call number, days until due, renewals used, flags):
    - `L-1001` student-alex "Calculus: Early Transcendentals (sample edition)", A. Sample, QA303 .S25, +4, 0
    - `L-1002` student-alex "Principles of Marketing (sample edition)", B. Example, HF5415 .E93, +11, 1
@@ -95,9 +95,9 @@ Run `npm test` after Phase 1. Every existing test must still pass.
 11. It is idempotent by `operationId`, stored in the file with the request. Same request → stored result + `duplicate: true`. Same id, different values → `operation_reused`.
 12. Refusal codes: `not_found`, `stale` (version differs from `expectedVersion`), the eligibility codes, `invalid_date`, `out_of_range`.
 13. Success: due date = `returnDate`, renewals + 1, version + 1. Receipt: `{ renewalId: 'RN-' + first 8 chars of operationId (upper case), loanId, title, previousDueDate, newDueDate, renewalsUsed, renewedOn, synthetic: true }`.
-14. `_setHold(loanId, hold)` is for tests only. It bumps the version and saves.
+14. `_setHold(loanId, hold)` and `_records()` (a copy of the raw loan records) are for tests only. `_setHold` bumps the version.
 15. Done when this prints `ok`:
-    `node --input-type=module -e "import os from 'node:os'; import {createLoanStore as c} from './src/loan-store.js'; const s=c({file:os.tmpdir()+'/ls'+Date.now()+'.json'}); const a='student-alex', l=s.getLoan(a,'L-1001'), q={borrowerId:a,loanId:'L-1001',returnDate:l.permittedReturnDates.latest,expectedVersion:1,operationId:'op-abcdefgh'}; const r=s.renewLoan(q), d=s.renewLoan(q); console.log(r.ok&&d.duplicate&&!s.getLoan(a,'L-2001')&&s.getLoan(a,'L-1003').eligibilityCode==='on_hold'?'ok':'FAIL')"`
+    `node --input-type=module -e "import {createLoanStore as c} from './src/loan-store.js'; const s=c(); const a='student-alex', l=s.getLoan(a,'L-1001'), q={borrowerId:a,loanId:'L-1001',returnDate:l.permittedReturnDates.latest,expectedVersion:1,operationId:'op-abcdefgh'}; const r=s.renewLoan(q), d=s.renewLoan(q); console.log(r.ok&&d.duplicate&&!s.getLoan(a,'L-2001')&&s.getLoan(a,'L-1003').eligibilityCode==='on_hold'?'ok':'FAIL')"`
 
 ### Task B — Catalog and validator
 
@@ -200,13 +200,13 @@ Run `npm test` after Phase 1. Every existing test must still pass.
    3. The loan must be in `form.data.renewable`. Use that version as `expectedVersion`.
    4. Call `loans.renewLoan(...)` with the action's `operationId`. Emit `loan_operation`.
    5. Map `out_of_range` / `invalid_date` to the `returnDate` field and other refusals to `_form`. Add `note: 'Demo renewal — synthetic library records.'` to the receipt.
-8. **Test hook**: when `LIBRARY_TEST_HOOKS=1`, mount `POST /test/loans/:loanId/hold` → `_setHold`.
-9. **Harness**: export `freshLoanStore()` (a temp `loans.json`). Every Library started by the harness gets `LOAN_STORE_FILE: freshLoanStore()`.
+8. **Test hooks**: when `LIBRARY_TEST_HOOKS=1`, mount `GET /test/loans` → `{ loans: _records() }` and `POST /test/loans/:loanId/hold` → `_setHold`.
+9. **Harness**: nothing loan-specific. Every Library starts from the same fresh sample loans in memory.
 10. **Integration tests** in `test/loans.test.js`, through the real Hub (`ROUTER_MODE: 'mock'`), with the Library in `LIBRARY_MODE: 'live'` against `test/support/fake-anthropic.js`. Script the output: the classification call returns `my_loans`, and each loan reply is scripted per test. Label it in a comment as plumbing, not judgment. Cover:
     - a due-date answer with no form, where the model saw only the borrower's loans;
     - an invented date repaired (2 calls);
     - a clarifying question passed on as text;
-    - an eligible renewal → receipt, where a retry and a second submit renew once (check the store file);
+    - an eligible renewal → receipt, where a retry and a second submit renew once (check the records through `GET /test/loans`);
     - a forged button refused (400) before anything is sent;
     - a hold placed through the test hook makes the next submit `stale`;
     - a renew button for an ineligible loan repaired into an explanation (validation `ok` = `[false, true]`);
@@ -251,13 +251,14 @@ Run `npm test` after Phase 1. Every existing test must still pass.
 - Don't reject dates the backend's range implies. "Push back two weeks" (due + 14) is inside the range and must pass.
 - A surface without buttons isn't waiting for anything. Label it Read-only.
 - A misspelled request is still a request. Live, "need to revnew my calculus book" got general guidance 3 times out of 3, quoting the old "can't see accounts" line. Tell the classifier to read past misspelled verbs, and update that content line.
+- Don't save loans or renewals anywhere. A first version saved them to `data/library-loans.json`; renewals then carried over between runs and broke testing.
 
 ## Done when
 
 - `node --test test/loans.test.js` passes.
 - `node --test test/hub.test.js test/booking.test.js test/form.test.js` pass (existing workflows unchanged).
 - `npm test` → all tests pass, 0 failed. No API key needed.
-- Tests never touch the demo's loan file. `data/` is git-ignored, so `git status` can't show this. Instead, if `data/library-loans.json` exists, record `shasum data/library-loans.json` before `npm test` and again after, and check the two lines are equal.
+- No loan file exists: `grep -nE "writeFile|readFile|LOAN_STORE_FILE" src/loan-store.js` prints nothing.
 - `grep -rn callKey src/ | grep -i "log\|emit"` shows no line that logs or emits the key.
 - Browser (optional — needs a browser; if none is available, say so) (`npm run demo`, mock): "When is my borrowed library book due?" → a labelled mock text overview, no form; the Library console shows the `my_loans` intent; the inspector has an entry.
 - Then append the "CLAUDE.md notes" below to `CLAUDE.md` and commit `Step 8: Model-generated UI for library loans`.
@@ -267,12 +268,12 @@ Run `npm test` after Phase 1. Every existing test must still pass.
 ```markdown
 ## Step 8 (model-generated UI for loans)
 - Borrower = hubLink.verifiedStudent(metadata, contextId) only: HMAC of studentId|downstream contextId|hubOperationId with the specialist's per-process callKey (registry.signFor). Never log, emit or snapshot callKey.
-- Loan facts live in src/loan-store.js (LOAN_STORE_FILE). renewLoan is synchronous check-and-write and idempotent by operationId — keep it that way.
+- Loan facts live in src/loan-store.js, in memory only (never saved — removed because it broke testing). renewLoan is synchronous check-and-write and idempotent by operationId — keep it that way.
 - Generated workflows have no fixed buttons: always pass buttons: surfaceButtons(messages) to checkAction (form host and UI server).
 - The wider GENERATED_COMPONENTS/GENERATED_FUNCTIONS apply only to generated workflows (checkFormPayloadPolicy/UpdatePolicy with { workflowId }).
 - Validator rules are deterministic. Never add a template the model selects by id. Mock mode never generates UI.
 - ui_generated.inspector is relayed structure only; full text only with HUB_TELEMETRY_SHOW_CONTENT=1.
-- Every test Library gets LOAN_STORE_FILE=freshLoanStore(). The mock Hub router needs unambiguous library wording.
+- Tests read the Library's records through GET /test/loans (LIBRARY_TEST_HOOKS=1). The mock Hub router needs unambiguous library wording.
 - Several built-in form skills per agent: rules.form = { ids: [...] }, read with formIdsOf.
 ```
 

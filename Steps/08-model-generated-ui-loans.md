@@ -37,7 +37,7 @@ If a necessary Part 7 dependency is missing, explain it and make the smallest re
 
 ## 2. Add a small, isolated demo loan service
 
-Use clearly labeled synthetic records, not real student data or production systems. Persist several example loans, including:
+Use clearly labeled synthetic records, not real student data or production systems. Keep several example loans **in memory only — never save loans or renewals to a file or anywhere else** (saved renewals carry over between runs and break testing), including:
 - A loan eligible for renewal.
 - Multiple loans belonging to the same demo borrower.
 - A loan currently ineligible for renewal.
@@ -50,8 +50,8 @@ Choose and document a simple demo policy. Prefer allowing a requested return dat
 
 The model cannot invent due dates, change eligibility, override policy, or create new operations. A requested extension is not a completed renewal until the backend confirms it.
 
-**Concrete specification** — `src/loan-store.js`, `createLoanStore({ file, now })`
-- Persisted to a JSON file: `LOAN_STORE_FILE` (default `data/library-loans.json`; add `data/` to `.gitignore`). Written atomically (temp file + rename). Seeded on first start with due dates **relative to that day**; delete the file to reset.
+**Concrete specification** — `src/loan-store.js`, `createLoanStore({ now })`
+- In memory only: no file, no `LOAN_STORE_FILE`, no reset command. Every new store (every Library start, every test) seeds the fixture with due dates **relative to that day**, so a restart is the reset. Step 9 adds `reset()` (reseed in memory, clear stored operations) for New conversation; it saves nothing either. Test hooks (only with `LIBRARY_TEST_HOOKS=1`): `_records()` behind `GET /test/loans` (read the raw records) and `_setHold()` behind `POST /test/loans/:loanId/hold`.
 - Fixture `[loanId, borrower, title, author, call number, days until due, renewals, hold, course reserve]`:
   - L-1001 student-alex “Calculus: Early Transcendentals (sample edition)”, A. Sample, QA303 .S25, +4, 0 — eligible
   - L-1002 student-alex “Principles of Marketing (sample edition)”, B. Example, HF5415 .E93, +11, 1 — eligible
@@ -186,7 +186,7 @@ After valid submission, immediately remove the editable form and show pending st
 
 For a known failure, restore appropriate editable values with a useful explanation. For an uncertain outcome, reconcile the operation before allowing another attempt.
 
-Use persisted operation outcomes and idempotency keys so double-clicks, retries, reconnects, reloads, or replayed events cannot renew a loan twice. Message acceptance alone is not operation success.
+Use stored operation outcomes (in the Library's memory) and idempotency keys so double-clicks, retries, reconnects, reloads, or replayed events cannot renew a loan twice while the Library runs. Message acceptance alone is not operation success.
 
 **Concrete specification**
 - `formHost.issue(ctx, bus, { workflowId: 'loan-renewal', payload: (formId) => wrapSurface(…), version: revision, data: { borrowerId, renewable }, extra: { generated: true, revision }, supersedes })`. The surface id is `loan-renewal-<8 hex>`; revision = generated surfaces issued in this conversation (a repeat of the same chat request keeps it). The form host stores the payload (`form.a2ui`) for button checks and passes handlers `operationId` and `trusted` (incoming metadata).
@@ -234,11 +234,11 @@ Try several previously unused phrasings and combinations of requests. Do not opt
 
 Clearly distinguish mocked tests from live model tests. Mock output is not proof of intelligent runtime composition.
 
-**Concrete specification** — `test/loans.test.js` (14 tests; full suite 129, all passing)
-- Unit: the loan service (eligibility codes, computed range, ownership, out of range, idempotency across a restart, `operation_reused`, `stale`, overdue when read 40 days after seeding); the catalog matching the installed renderer (each generated component in `catalog.json` **and** registered in the Lit `index.js`; DateTimeInput properties equal the schema's; `filterable` offered); the validator accepting a renewal surface and a read-only List/filterable-ChoicePicker overview, and rejecting an Image, an unregistered operation, an ineligible renew button, a wrong range, a Slider for the date, an editable due date, an invented date, a local function action, a missing reference, no root, Markdown, deep nesting; the Student checks (wider set for generated only; forged and mismatched buttons refused).
+**Concrete specification** — `test/loans.test.js` (14 tests)
+- Unit: the loan service (eligibility codes, computed range, ownership, out of range, idempotency, `operation_reused`, `stale`, a new store starting from the sample loans again (nothing saved), overdue when read 40 days after seeding); the catalog matching the installed renderer (each generated component in `catalog.json` **and** registered in the Lit `index.js`; DateTimeInput properties equal the schema's; `filterable` offered); the validator accepting a renewal surface and a read-only List/filterable-ChoicePicker overview, and rejecting an Image, an unregistered operation, an ineligible renew button, a wrong range, a Slider for the date, an editable due date, an invented date, a local function action, a missing reference, no root, Markdown, deep nesting; the Student checks (wider set for generated only; forged and mismatched buttons refused).
 - Integration through the real Hub, Library in live mode against `test/support/fake-anthropic.js` with **scripted** model output (classification answered `my_loans`; the loan reply scripted per test): due-date answer with no form, and the model saw only the borrower's loans; invented-date repair (2 calls); clarification; eligible renewal → receipt, retry and second submit renew once; a forged button refused (400) and a hold placed behind the form's back refused as stale; ineligible renew button repaired into an explanation (inspector shows `[false, true]`); an unrepairable Image surface degrades to text after 3 calls; no `studentId`, a bare claimed `studentId`, or a forged signature → no loan data and no model call; mock mode answers in labelled text with no form.
 - The Hub runs its MOCK router in these tests, so use wording it places clearly with the Library (“my borrowed library book”); natural phrasings are checked live.
-- Every test Library gets its own store (`freshLoanStore()` in `startLibrary`), never `data/library-loans.json`.
+- Tests read the Library's live records through `GET /test/loans` (`LIBRARY_TEST_HOOKS=1`), never from a file. A view of a loan no test has changed yet comes from a fresh store and is first checked against the live record.
 - Live (Haiku 5.5, in a browser, `env -u ANTHROPIC_BASE_URL npm run demo:live`), checking behaviour rather than wording or exact layout:
   - a due-date answer;
   - an overview of all loans as read-only cards;
@@ -263,13 +263,13 @@ Do not modify the course agenda or presentation, production systems, or real res
 
 Success means the model intelligently composes useful interfaces from a real supported catalog, chooses suitable controls, and asks when information is missing, while business operations remain deterministic and safe.
 
-**Concrete specification** — README “Part 8” section (flow, catalog, validation rules, demo policy, safety, inspector, tests and what they prove, limits), the `LOAN_STORE_FILE` env row and three files-table rows; CLAUDE.md “Part 8 notes” and the scope line (“model-generated code/HTML” stays out; model-generated UI only here, only from the validated catalog).
+**Concrete specification** — README “Part 8” section (flow, catalog, validation rules, demo policy — loans kept in memory only, safety, inspector, tests and what they prove, limits), three files-table rows; CLAUDE.md “Part 8 notes” and the scope line (“model-generated code/HTML” stays out; model-generated UI only here, only from the validated catalog).
 
 **Known limits (state them in the README):**
 - Live judgment is probabilistic: the checks block unsafe or misleading output, but the model can still choose a less helpful layout or wording.
 - Values typed into a surface that a newer one replaces aren't carried over (the Library never sees unsent input).
 - Mock mode (`LIBRARY_MODE=mock`) answers loan questions in labelled text and never generates UI.
-- The loan store is a JSON file for one process; it isn't a database and has no locking across processes.
+- Loans and renewals live in the Library's memory: a restart forgets every renewal and starts from the sample loans.
 
 **Open decisions (raised by an automated security review) — settled at the start of Part 9:** (1) → **authenticate**: per-process keys for the Student and the Professor, a challenge at the configured Student endpoint, signed requests and deliveries; (2) → **structure only by default**, full text with `HUB_TELEMETRY_SHOW_CONTENT=1`. See Step 9.
 1. **Student → Hub identity is not authenticated.** Any local process can send the Hub a request as `student-alex` (it's on the allowlist), and the Hub will sign that identity for the Library. Options: (a) keep it and say so plainly (current docs do); (b) authenticate the Student to the Hub, e.g. a shared secret checked by the Hub — which is new credential setup, so it needs the user's explicit go-ahead.
@@ -288,7 +288,7 @@ Success means the model intelligently composes useful interfaces from a real sup
 - **Redaction must not break structure.** The Part 7 allowlist masked every array, so `prefilled` became a string and the browser crashed on `.join` (it also affected room-booking forms). Let lists of field names through; guard the browser.
 - **The room-booking `HOW_TO` check matches “when/what/is”**, which would hide “When is my book due?” from the loan heuristic. Use a narrow “how do/can I …” check for loans.
 - **Seed relative to the real day, then read later.** A store created with a future `now` seeds future due dates, so nothing is overdue; seed first, then read with the later clock.
-- **Tests must never touch the demo's loan file.** Give every test Library its own `LOAN_STORE_FILE`, or a test renewal changes the records you demo with.
+- **Don't save loans or renewals anywhere.** A first version persisted them to `data/library-loans.json`; renewals then carried over between runs (renewals ran out, counts differed from the sample data), which needed a reset command and a test-only file per Library and still broke testing. Keep them in memory; read them in tests through the `LIBRARY_TEST_HOOKS` route.
 - **One built-in form skill per agent was a hard rule**; generalise it (`ids`) instead of overloading the room-booking skill.
 - **Don't trust the borrower from anywhere but the Hub's verified context**, and check it again at submission against the surface's borrower.
 - **Don't reject dates the backend's own range implies.** The validator first allowed only exact authoritative dates, so “push back two weeks” (due + 14 days, inside the range) was rejected and repaired down to the earliest date (found in the full e2e run).
@@ -306,8 +306,7 @@ Success means the model intelligently composes useful interfaces from a real sup
   - Generated surfaces are a workflow with operation contracts instead of fixed buttons, and buttons are checked against the surface that was actually sent.
   - The wider component set applies to generated workflows only, so fixed forms keep the small set.
   - The catalog is generated from the installed schemas.
-  - Loan records and renewal outcomes are persisted to a JSON file, because your prompt asked for persistence where earlier parts were in-memory.
-  - There are two-layer duplicate checks: the form host in memory and the loan store on disk.
+  - Two-layer duplicate checks: the form host and the loan store (both in memory).
   - The inspector exemption is per event type and field.
 - **Signed student identity** (automated security review after implementation): per-process HMAC key from registration; the Hub signs, the Library verifies; spoofing refused in a test and in a live direct call; the key appears in no log, snapshot or event stream.
 - **Full e2e run with playwright-cli, live** (your request): Parts 1–8 plus new phrasings — routing (Tutor, Student decline, Student clarify, “I don't know”, Library, mixed request), tutoring form submitted (TR receipt), room booking (availability → review → BK receipt), Library outage (“Not registered” → unavailable, specialist steps skipped) and recovery, all loan scenarios, a double-click renew (one renewal in the store), changing the request (old surface superseded), “until Christmas” (honest no), “renew everything” (one bounded picker and button per eligible loan), prompt injection, a claimed return, a course reserve, a reload, phone width + dark mode. Fixes from it: the date-range validator rule, the Read-only badge, and (Part 7) the clarify relation and redacted review flags.
@@ -318,3 +317,4 @@ Success means the model intelligently composes useful interfaces from a real sup
 - **Live verification (Haiku 5.5, all four agents live):** see section 9. About 11 Library loan replies at roughly 9.6k input / 1.4k output tokens each for UI replies (less for text), plus classification, Hub and Student calls — about **3 cents** in total.
 - **Misspelled renewal requests** (your report, 2026-10-30): “need to revnew my calculus book” got general guidance and “I can’t see your account”. The classification prompt now reads past misspelled verbs, never tells a student it can't see their loans, and the outdated renewals content line was replaced. Checked live in a real browser: the misspelled request gave a renewal form 3/3, “november 20” filled it from the chat, Renew renewed to Nov 20, “how do I renew a book?” stayed a general answer.
 - **Final state:** 129 tests passing (`npm test`); the live stack is handed over (`env -u ANTHROPIC_BASE_URL npm run demo:live`); committed as “Add Part 8” (`48b2fa6`), then `7347f41` (e2e fixes) and `5508964` (chat scrolling). The live e2e run cost about 5 cents. The two open decisions above were settled in Step 9.
+- **Loan persistence removed (2026-10-29, your request: “I don't want it to be saved anywhere because it messes up testing”).** The first version saved loans and renewal outcomes to `data/library-loans.json` (`LOAN_STORE_FILE`), with a `demo:reset-loans` command and a rehearsal copy of a snapshot. Now `createLoanStore({ now })` keeps everything in memory and seeds the sample loans on every start; the reset command, its test, `LOAN_STORE_FILE` and `freshLoanStore()` are gone; tests read records through `GET /test/loans`. Duplicate renewals are still blocked while the Library runs, but no longer across a restart.
