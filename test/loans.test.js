@@ -319,11 +319,11 @@ test('mock mode answers in labelled text and never generates UI', async () => {
 test('New conversation restores the sample loans (renewal counts back), through the Hub', async () => {
   // Change the Library's loans in memory (test hook: a hold bumps the version), as a used renewal would.
   await post(`${stack.library.url}/test/loans/L-1001/hold`, { hold: true });
-  await waitFor(() => loansNow()['L-1001'].hold === true, { what: 'changed loan saved' });
+  assert.equal((await loansNow())['L-1001'].hold, true, 'the Library holds the changed loan');
   const res = await post(`${stack.ui.url}/api/conversation/new`, {});
   assert.equal(res.status, 202);
   assert.equal((await res.json()).loans, 'reset', 'reported on its own (this stack has no Professor, so the classroom part says so)');
-  const after = loansNow();
+  const after = await loansNow();
   assert.deepEqual(['L-1001', 'L-1002', 'L-1004', 'L-1005'].map((id) => after[id].renewals), [0, 1, 2, 0], 'the starting sample');
   assert.deepEqual([after['L-1001'].version, after['L-1001'].hold], [1, false]);
 });
