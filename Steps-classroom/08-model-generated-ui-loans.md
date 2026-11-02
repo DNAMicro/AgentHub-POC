@@ -251,14 +251,14 @@ Run `npm test` after Phase 1. Every existing test must still pass.
 - Don't reject dates the backend's range implies. "Push back two weeks" (due + 14) is inside the range and must pass.
 - A surface without buttons isn't waiting for anything. Label it Read-only.
 - A misspelled request is still a request. Live, "need to revnew my calculus book" got general guidance 3 times out of 3, quoting the old "can't see accounts" line. Tell the classifier to read past misspelled verbs, and update that content line.
-- Don't save loans or renewals anywhere. A first version saved them to `data/library-loans.json`; renewals then carried over between runs and broke testing.
+- Don't save loans or renewals anywhere. A first version saved them to `data/library-loans.json`; renewals then carried over between runs and broke testing. If an older build left that file behind, delete it: nothing reads it, and it misleads people.
 
 ## Done when
 
 - `node --test test/loans.test.js` passes.
 - `node --test test/hub.test.js test/booking.test.js test/form.test.js` pass (existing workflows unchanged).
 - `npm test` → all tests pass, 0 failed. No API key needed.
-- No loan file exists: `grep -nE "writeFile|readFile|LOAN_STORE_FILE" src/loan-store.js` prints nothing.
+- No loan file exists: `grep -nE "writeFile|readFile|LOAN_STORE_FILE" src/loan-store.js` prints nothing, and `ls data/library-loans*.json` finds no file (even after renewing in the running app).
 - `grep -rn callKey src/ | grep -i "log\|emit"` shows no line that logs or emits the key.
 - Browser (optional — needs a browser; if none is available, say so) (`npm run demo`, mock): "When is my borrowed library book due?" → a labelled mock text overview, no form; the Library console shows the `my_loans` intent; the inspector has an entry.
 - Then append the "CLAUDE.md notes" below to `CLAUDE.md` and commit `Step 8: Model-generated UI for library loans`.

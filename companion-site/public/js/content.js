@@ -62,40 +62,40 @@ export const ARCH = {
     },
   },
   8: {
-    nodes: { anthropic: {}, browser: { sub: 'tabs + UI inspector' }, student: { sub: 'talks only to the Hub' }, hub: { sub: 'router · signs the student' }, tutor: { sub: 'registers with the Hub' }, library: { sub: 'composes loan UI' }, storage: { title: 'data/library-loans.json', sub: 'loan facts and renewals (Library)' } },
+    nodes: { anthropic: {}, browser: { sub: 'tabs + UI inspector' }, student: { sub: 'talks only to the Hub' }, hub: { sub: 'router · signs the student' }, tutor: { sub: 'registers with the Hub' }, library: { sub: 'composes loan UI' }, storage: { title: 'Library memory', sub: 'loan facts and renewals — never saved to disk' } },
     edges: {
       browser_student: { label: 'runs + form actions' }, student_browser_sse: { label: 'SSE + topology events' }, student_hub: { label: 'A2A' }, hub_student_sse: { label: 'SSE (redacted)' },
       hub_tutor: { label: 'A2A forward' }, hub_library: { label: 'signed A2A' },
-      tutor_model: { label: 'intent · review' }, student_model: { label: 'clarify / pick' }, library_model: { label: 'compose A2UI' }, hub_model: { label: 'routing' }, library_storage: { label: 'loans' },
+      tutor_model: { label: 'intent · review' }, student_model: { label: 'clarify / pick' }, library_model: { label: 'compose A2UI' }, hub_model: { label: 'routing' }, library_storage: { label: 'loans (memory)' },
     },
   },
   9: {
-    nodes: { anthropic: {}, browser: { sub: 'chat, activity, topology, professor' }, student: { sub: 'inbound endpoint + inbox' }, hub: { sub: 'router · lessons · sessions' }, tutor: { sub: 'registers with the Hub' }, library: { sub: 'composes loan UI' }, professor: { sub: 'answers · posts' }, storage: { title: 'data/*.json', sub: 'loans · lessons · inbox · outbox' } },
+    nodes: { anthropic: {}, browser: { sub: 'chat, activity, topology, professor' }, student: { sub: 'inbound endpoint + inbox' }, hub: { sub: 'router · lessons · sessions' }, tutor: { sub: 'registers with the Hub' }, library: { sub: 'composes loan UI' }, professor: { sub: 'answers · posts' }, storage: { title: 'data/*.json', sub: 'lessons · inbox · outbox (loans stay in memory)' } },
     edges: {
       browser_student: { label: 'runs + form actions' }, student_browser_sse: { label: 'SSE + topology events' }, student_hub: { label: 'A2A both ways (signed)' }, hub_student_sse: { label: 'SSE (redacted)' },
       hub_tutor: { label: 'A2A forward' }, hub_library: { label: 'signed A2A' }, hub_professor: { label: 'A2A both ways' },
       tutor_model: { label: 'intent · review' }, student_model: { label: 'clarify / pick' }, library_model: { label: 'compose A2UI' }, hub_model: { label: 'routing' }, professor_model: { label: 'answers + assistant' },
-      library_storage: { label: 'loans' }, hub_storage: { label: 'lessons' }, student_storage: { label: 'inbox' }, professor_storage: { label: 'outbox' },
+      hub_storage: { label: 'lessons' }, student_storage: { label: 'inbox' }, professor_storage: { label: 'outbox' },
     },
     modified: ['student', 'hub', 'browser'],
   },
   10: {
-    nodes: { anthropic: {}, browser: { sub: 'AG-UI client · one connection' }, student: { sub: 'inbox · AG-UI bridge' }, hub: { sub: 'router · lessons · sessions' }, tutor: { sub: 'registers with the Hub' }, library: { sub: 'composes loan UI' }, professor: { sub: 'answers · posts' }, storage: { title: 'data/*.json', sub: 'loans · lessons · inbox · outbox' } },
+    nodes: { anthropic: {}, browser: { sub: 'AG-UI client · one connection' }, student: { sub: 'inbox · AG-UI bridge' }, hub: { sub: 'router · lessons · sessions' }, tutor: { sub: 'registers with the Hub' }, library: { sub: 'composes loan UI' }, professor: { sub: 'answers · posts' }, storage: { title: 'data/*.json', sub: 'lessons · inbox · outbox (loans stay in memory)' } },
     edges: {
       browser_student: { label: 'AG-UI run input' }, student_browser_sse: { label: 'one stream: AG-UI + monitor' }, student_hub: { label: 'A2A both ways (signed)' }, hub_student_sse: { label: 'SSE (redacted)' },
       hub_tutor: { label: 'A2A forward' }, hub_library: { label: 'signed A2A' }, hub_professor: { label: 'A2A both ways' },
       tutor_model: { label: 'intent · review' }, student_model: { label: 'clarify / pick' }, library_model: { label: 'compose A2UI' }, hub_model: { label: 'routing' }, professor_model: { label: 'answers + assistant' },
-      library_storage: { label: 'loans' }, hub_storage: { label: 'lessons' }, student_storage: { label: 'inbox' }, professor_storage: { label: 'outbox' },
+      hub_storage: { label: 'lessons' }, student_storage: { label: 'inbox' }, professor_storage: { label: 'outbox' },
     },
     modified: ['browser', 'student'],
   },
   11: {
-    nodes: { anthropic: {}, browser: { sub: 'AG-UI client · one connection' }, student: { sub: 'fills open forms' }, hub: { sub: 'router · lessons · sessions' }, tutor: { sub: 'registers with the Hub' }, library: { sub: 'composes loan UI' }, professor: { sub: 'answers · posts' }, storage: { title: 'data/*.json', sub: 'loans · lessons · inbox · outbox' } },
+    nodes: { anthropic: {}, browser: { sub: 'AG-UI client · one connection' }, student: { sub: 'fills open forms' }, hub: { sub: 'router · lessons · sessions' }, tutor: { sub: 'registers with the Hub' }, library: { sub: 'composes loan UI' }, professor: { sub: 'answers · posts' }, storage: { title: 'data/*.json', sub: 'lessons · inbox · outbox (loans stay in memory)' } },
     edges: {
       browser_student: { label: 'AG-UI run + form values' }, student_browser_sse: { label: 'one stream: AG-UI + monitor' }, student_hub: { label: 'A2A both ways (signed)' }, hub_student_sse: { label: 'SSE (redacted)' },
       hub_tutor: { label: 'A2A forward' }, hub_library: { label: 'signed A2A' }, hub_professor: { label: 'A2A both ways' },
       tutor_model: { label: 'intent · review' }, student_model: { label: 'clarify · pick · fill?' }, library_model: { label: 'compose A2UI' }, hub_model: { label: 'routing' }, professor_model: { label: 'answers + assistant' },
-      library_storage: { label: 'loans' }, hub_storage: { label: 'lessons' }, student_storage: { label: 'inbox' }, professor_storage: { label: 'outbox' },
+      hub_storage: { label: 'lessons' }, student_storage: { label: 'inbox' }, professor_storage: { label: 'outbox' },
     },
   },
 };
@@ -435,10 +435,10 @@ export const PAGES = [
     tech: [
       { name: 'Ajv 8.20.0 at runtime', kind: 'library', role: 'moved from a dev tool to a runtime dependency: validate generated UI against the official A2UI JSON schemas' },
       { name: 'HMAC signatures (node:crypto)', kind: 'runtime', role: 'the Hub signs `studentId|contextId|hubOperationId` with a key each specialist gave it at registration' },
-      { name: 'JSON file store', kind: 'format', role: '`data/library-loans.json` — the first thing that survives a restart' },
+      { name: 'In-memory loan store', kind: 'runtime', role: 'loans and renewals live only in the Library’s memory; every start (and New conversation) brings back the sample loans — saving them to a file broke testing' },
     ],
     shot: S('s8-generated-ui.png', 'A renewal interface composed by the model: a heading, the current due date, a date picker and a Renew button', 'A screen nobody designed: the model picked these components from the catalog; code checked them, including the date picker’s permitted range. Test stack, synthetic loans.'),
-    sources: ['`Steps/08-model-generated-ui-loans.md`', '`src/loan-model.js`, `src/a2ui-catalog.js`, `src/loan-store.js`', '`test/loans.test.js` — 14 tests', 'Commits 48b2fa6, 7347f41'],
+    sources: ['`Steps/08-model-generated-ui-loans.md`', '`src/loan-model.js`, `src/a2ui-catalog.js`, `src/loan-store.js`', '`test/loans.test.js` — 16 tests', 'Commits 48b2fa6, 7347f41'],
   },
   {
     id: '8b', step: 8, type: 'B', title: 'Model proposes, code disposes',
@@ -454,11 +454,11 @@ export const PAGES = [
         { at: 'node:library', title: 'Validate', caption: '`validateGeneratedUi`: schema, allowed components, real loan id, date picker min/max = permitted range — else up to two repairs.' },
         { at: 'edge:student_hub', reverse: true, title: 'Relayed unchanged', caption: 'The Hub relays the generated surface as a Task; the inspector shows model output, checks and facts apart.' },
         { at: 'edge:hub_library', title: 'Renew', caption: 'The generated button’s action comes back with its `formRef`; the Library re-verifies the borrower, version and range.' },
-        { at: 'edge:library_storage', title: 'Persisted once', caption: 'An idempotent renewal; a double click returns the stored result.' },
+        { at: 'edge:library_storage', title: 'Renewed once', caption: 'An idempotent renewal; a double click returns the stored result (kept in memory, never saved).' },
       ],
     },
     build: [
-      '`src/loan-store.js`: authoritative facts, policy (2 renewals, 21 days), idempotent persisted renewals.',
+      '`src/loan-store.js`: authoritative facts, policy (2 renewals, 21 days), idempotent renewals, in memory only (never saved to a file).',
       '`src/a2ui-catalog.js`: the model-visible catalog generated from the installed schemas; `validateGeneratedUi`.',
       '`src/loan-model.js`: one structured call → answer / clarify / ui; ≤2 repairs; a truthful fallback.',
       'Hub: `callKey` at registration, `registry.signFor`; Library: `hubLink.verifiedStudent` — never trust a bare metadata field.',
@@ -583,7 +583,7 @@ export const PAGES = [
         { at: 'edge:browser_student', title: 'Your click', caption: 'Alex presses Renew. Only now does anything leave: the form action with its `formRef`.' },
         { at: 'edge:student_hub', title: 'Renew over A2A', caption: 'The same signed path as Step 8.' },
         { at: 'edge:hub_library', title: 'The Library re-checks', caption: 'Borrower, version and range are verified again before anything changes.' },
-        { at: 'edge:library_storage', title: 'Renewed once', caption: 'An idempotent renewal to November 20, persisted.' },
+        { at: 'node:library', title: 'Renewed once', caption: 'An idempotent renewal to November 20, kept in the Library’s memory (New conversation resets it).' },
       ],
     },
     build: [
