@@ -1,0 +1,51 @@
+ADM|Administrative Leave Paid|MPA|MPP Paid Admin Leave - 42729a
+ADM|Administrative Leave Paid|MPB|MPP Paid Admin Leave - 42729b
+BNM|Bone Marrow|BNM|Bonemarrow
+BRV|Bereavement|AGC|Grandchild
+BRV|Bereavement|ASD|Child
+BRV|Bereavement|AUN|Aunt/Uncle
+BRV|Bereavement|CIL|Son-in-law/Daughter-in-law
+BRV|Bereavement|GGP|Grandparent/Great Grandparent
+BRV|Bereavement|OTH|Other
+BRV|Bereavement|PIL|Parent-/Step-Parent-in-law
+BRV|Bereavement|PSP|Parent/Step Parent
+BRV|Bereavement|SBS|Sibling/Sibling-In-Law
+BRV|Bereavement|SDP|Spouse/Domestic Partner
+CAT|Catastrophic Leave|10|Catastrophic Leave
+CFR|California Family Rights Act|NON|None
+CIT|Citizens Necessity|CIT|Citizens Necessity
+CPD|Pregnancy Disability|NON|None
+DCK|Dock|DCK|Dock
+DCK|Dock|WTS|Witness for Non CSU
+ECL|Ed Code Maternity Leave|NON|None
+EMR|Emergency Leave|10|Emergency Leave
+FML|Family Medical Leave|NON|None
+HCD|Holiday Credit Leave|10|Holiday Credit Leave
+HTO|Holiday Time off Leave|10|Holiday Time off Leave
+JRY|Jury Duty|JRY|Jury Duty
+MAT|Maternity Leave|10|Maternity Leave
+MIL|Family Medical Leave Military|NON|None
+MLA|Military leave - Employee|MLA|Military leave - Employee
+MLD|Military Spouse/Dom Leave|MLD|Military Spouse/Dom Leave
+MPA|Maternity/Paternity/Adoption|MPA|Maternity/Paternity/Adoption
+ODL|Organ Donor Leave|ODL|Organ Donor Leave
+OTH|Other|10|Other
+OTH|Other|20|Compassionate Leave
+OTH|Other|30|Relative Passed Away
+OTH|Other|40|Bereavement
+PDL|Professional Development|PDL|Professional Development
+PHL|Personal Holiday|PHL|Personal Holiday
+PTO|Personal Time off days|10|Personal Time off days
+RPP|Reproductive Loss Leave|10|Reproductive Loss Leave
+SCK|Sick Leave|BRV|Bereavement
+SCK|Sick Leave|FAM|Family Care
+SCK|Sick Leave|SCK|Sick Personal
+SVR|Service Member Care|NON|None
+TMP|Temp Suspension Leave|10|Temp Suspension Leave
+UBR|Union Business Release Time|UBR|Union Business Release Time
+UNL|Union Leave|UNL|Union Leave
+VAC|Vacation|VAC|Vacation
+VAC|Vacation|WTS|Witness for Non CSU
+VCT|Victim Leave|10|Victim Leave
+VOT|Voting|VOT|Voting
+WTS|Witness|WTS|Witness for CSU

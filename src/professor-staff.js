@@ -12,9 +12,10 @@
 // new HR conversation.
 import { randomUUID } from 'node:crypto';
 import { CARD_CLOSED, STAFF_ACTION_MEDIA_TYPE, STAFF_REQUEST_MEDIA_TYPE, staffActionFields, staffRequestFields } from './staff.js';
-import { shortDate } from './hr-store.js';
+import { shortDate, titleOf } from './absence-types.js';
 import { COURSE } from './course-pack.js';
 import { classifyStaff } from './professor-model.js';
+import { asksBalance, asksRequests } from './hr-intent.js';
 
 export const UNSURE_QUESTION = 'Should I file this as time off with HR, tell the class, or both?';
 export const HOLDING = "I'm still holding your earlier message — please answer HR, the class, or both. If your reply also had something new, send it again after.";
@@ -109,7 +110,13 @@ export function neutralNote({ beginDate, endDate }) {
   if (!beginDate || !endDate) return null;
   return beginDate === endDate ? `${COURSE.professorName} is out on ${shortDate(beginDate)}.` : `${COURSE.professorName} is out ${shortDate(beginDate)} – ${shortDate(endDate)}.`;
 }
-export const receiptText = (r) => `Sent to your manager for a decision. Request ${r.requestId}: ${r.absenceName}, ${r.beginDate === r.endDate ? shortDate(r.beginDate) : `${shortDate(r.beginDate)} – ${shortDate(r.endDate)}`}, ${r.hours} h.`;
+// “Sent to your manager for a decision. Request TO-1A2B: Bereavement (Grandparent/Great Grandparent), Thu, Nov 5 – Fri, Nov 6,
+// 16 hours.” The reason is in parentheses only when it says more than the name (titleOf's subtitle).
+export function receiptText(r) {
+  const { subtitle } = titleOf(r.absenceType, r.absenceReason);
+  const dates = r.beginDate === r.endDate ? shortDate(r.beginDate) : `${shortDate(r.beginDate)} to ${shortDate(r.endDate)}`;
+  return `Sent to your manager for a decision. Request ${r.requestId}: ${r.absenceName}${subtitle ? ` (${subtitle})` : ''}, ${dates}, ${r.hours} ${r.hours === 1 ? 'hour' : 'hours'}.`;
+}
 
 // The open card as /author/state shows it (the Professor view renders it); null when none is open.
 export const staffView = () => (cardOpen() ? { formRef: openCard.formRef, a2ui: openCard.a2ui, card: openCard.hrCard } : null);
@@ -142,6 +149,10 @@ export async function staffTurn({ operationId, text, entryId, hubLink, bypass = 
     pendingNote = null;
     return null;
   }
+  // A question about balances or filed requests is always HR's (code decides, mock and live, no classifier call).
+  // It files nothing and posts nothing to students; an open card is not touched (no card values are sent), and a
+  // held question or note offer stays held.
+  if (asksBalance(text) || asksRequests(text)) return sendToHr({ operationId, text, hubLink, emit, decidedBy: 'info_question' });
   // While a card is open, every message without @assistant goes to HR as a follow-up (it fills the card),
   // even one that reads like a class message — the professor finishes or cancels the card first.
   if (cardOpen()) {

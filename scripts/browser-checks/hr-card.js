@@ -1,17 +1,20 @@
-// Browser check: HR's time-off card in the Professor view, and the staff hop on Topology (HR Agent, staff
-// only). Run it on a SEPARATE stack, never the user's demo (it presses New conversation, which resets the
-// classroom):
+// Browser check: HR's time-off card in the Professor view (approved redesign
+// docs/superpowers/specs/2026-11-03-hr-card-redesign.html: 3-second summary slip, dropdowns, ⓘ notes) and the
+// staff hop on Topology (HR Agent, staff only). Run it on a SEPARATE stack, never the user's demo (it presses
+// New conversation, which resets the classroom):
 //   node scripts/demo/rehearsal-stack.js --ui 5544 --base 52340 --mock
 //   playwright-cli -s=hr open http://127.0.0.1:5544/professor
 //   playwright-cli -s=hr run-code "$(cat scripts/browser-checks/hr-card.js)"
 // Screenshots go to SHOTS (relative to where playwright-cli runs). Mock HR = a labelled heuristic: this
-// checks the card on screen and the plumbing, not live judgment. Look at every screenshot.
+// checks the card on screen and the plumbing, not live judgment. Dates like “this Thursday” depend on
+// today, so day names are matched by shape. Look at every screenshot.
 async (page) => {
-  const SHOTS = '.superpowers/sdd/2026-11-02-hr-agent-time-off/shots';
+  const SHOTS = '.superpowers/sdd/2026-11-03-hr-card-redesign/shots';
   page.setDefaultTimeout(30000);
   const results = [];
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e).slice(0, 200)));
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(`console: ${m.text().slice(0, 200)}`); });
   const check = (name, ok, detail) => results.push({ name, ok: Boolean(ok), ...(detail === undefined ? {} : { detail }) });
   const origin = await page.evaluate(() => location.origin);
   await page.setViewportSize({ width: 1280, height: 1000 });
@@ -25,6 +28,9 @@ async (page) => {
   await page.waitForTimeout(1200);
 
   const card = page.locator('#prof-log .hr-card');
+  const namePicker = card.locator('a2ui-choicepicker').nth(0);
+  const reasonPicker = card.locator('a2ui-choicepicker').nth(1);
+  const submit = card.getByRole('button', { name: 'Submit request', exact: true });
   async function say(text) {
     const before = await page.locator('#prof-log > li').count();
     await page.locator('#prof-message').fill(text);
@@ -32,48 +38,117 @@ async (page) => {
     await page.waitForFunction((n) => document.querySelectorAll('#prof-log > li').length > n && !document.querySelector('#prof-log .chat-pending'), before, { timeout: 30000 });
     await page.waitForTimeout(700);
   }
-  const text = (sel) => card.locator(sel).first().textContent().then((t) => t?.trim() ?? null).catch(() => null);
+  const text = (sel) => card.locator(sel).first().textContent().then((t) => t?.replace(/\s+/g, ' ').trim() ?? null).catch(() => null);
+  const shown = (loc) => loc.first().isVisible().catch(() => false);
   const shot = async (name) => { await card.scrollIntoViewIfNeeded(); await card.screenshot({ path: `${SHOTS}/${name}` }); };
-  // The star of a required label is drawn red: the label's gradient ends in the --req colour.
-  const starRed = () => card.locator('a2ui-choicepicker > label').evaluate((l) => getComputedStyle(l).backgroundImage.includes('linear-gradient') && getComputedStyle(l).color === 'rgba(0, 0, 0, 0)');
-  const visibleHeading = () => card.locator('h3', { hasText: 'Time off request' }).isVisible().catch(() => false);
+  const visibleChips = (picker) => picker.locator('.a2ui-chip').evaluateAll((bs) => bs.filter((b) => b.offsetParent !== null).map((b) => b.textContent.trim()));
+  const allChips = (picker) => picker.locator('.a2ui-chip').evaluateAll((bs) => bs.map((b) => b.textContent.trim()));
+  const isOpen = (picker) => picker.evaluate((p) => p.classList.contains('open'));
+  const tipShown = (info) => info.locator('[role="tooltip"]').evaluate((t) => getComputedStyle(t).visibility === 'visible' && getComputedStyle(t).opacity === '1');
+  async function openPicker(picker) {
+    await picker.locator('.a2ui-chip-selected, .dd-empty:not([hidden])').first().click();
+    await page.waitForTimeout(150);
+  }
+  async function pick(picker, label) {
+    if (!(await isOpen(picker))) await openPicker(picker);
+    await picker.locator('.a2ui-chip').filter({ hasText: new RegExp(`^\\s*${label.replace(/[/()]/g, '\\$&')}\\s*$`) }).click();
+    await page.waitForTimeout(300);
+  }
   async function press(label) {
     await card.getByRole('button', { name: label, exact: true }).click();
     await page.waitForFunction(() => !document.querySelector('#prof-log .hr-card'), null, { timeout: 30000 });
     await page.waitForTimeout(700);
   }
+  const DAY = '(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), [A-Z][a-z]{2} \\d{1,2}';
 
-  // 1. Bereavement: title, one when line, one why line, rows, the “doesn't use” note; then Submit → receipt.
+  // 1. Bereavement: the 3-second slip (what, reason, when, “doesn't use”), “Picked from what you wrote”, closed dropdowns.
   await say('I want to file for time off. My grandmother passed away, and I need this Thursday and Friday for the funeral.');
   check('bereavement: card shown', await card.count() === 1);
-  check('bereavement: lead', /^I'm sorry for your loss\. Here's your request\. Check it and submit\./.test(await text('.hr-lead')), await text('.hr-lead'));
-  check('bereavement: title', (await text('.hr-title')) === 'Bereavement/Funeral', await text('.hr-title'));
-  check('bereavement: when', /· 2 full days$/.test(await text('.hr-when')), await text('.hr-when'));
-  check('bereavement: why', /^Chosen because you said “.+”\.$/.test(await text('.hr-why')), await text('.hr-why'));
-  check('bereavement: relationship row filled', (await card.locator('input[type="text"]').inputValue()) === 'grandmother');
-  check('bereavement: no-credits note', (await text('.hr-note')) === 'This doesn\'t use your vacation or sick hours.', await text('.hr-note'));
-  check('bereavement: red star', await starRed());
-  check('bereavement: surface heading not repeated', !(await visibleHeading()));
-  check('bereavement: buttons', (await card.getByRole('button', { name: 'Submit request', exact: true }).isVisible()) && (await card.getByRole('button', { name: 'Cancel', exact: true }).isVisible()));
+  check('bereavement: lead', (await text('.hr-lead')) === "I'm sorry for your loss. Check it and submit.", await text('.hr-lead'));
+  check('bereavement: .hr-what', (await text('.hr-slip .hr-what')) === 'Bereavement', await text('.hr-slip .hr-what'));
+  check('bereavement: .hr-why', (await text('.hr-slip .hr-why')) === 'Grandparent/Great Grandparent', await text('.hr-slip .hr-why'));
+  check('bereavement: .hr-when', new RegExp(`^${DAY} to ${DAY}, 2 days$`).test(await text('.hr-slip .hr-when')), await text('.hr-slip .hr-when'));
+  check('bereavement: .hr-free', (await text('.hr-slip .hr-free')) === "Bereavement doesn't use your vacation or sick leave.", await text('.hr-slip .hr-free'));
+  check('bereavement: .hr-because under the slip', /^Picked from what you wrote: “.+”\.$/.test(await text('.hr-because')) && await card.evaluate((c) => c.querySelector('.hr-slip').nextElementSibling?.classList.contains('hr-because')), await text('.hr-because'));
+  check('bereavement: surface heading not repeated', !(await shown(card.locator('h3', { hasText: 'Time off request' }))));
+  check('bereavement: name dropdown closed shows only the pick', JSON.stringify(await visibleChips(namePicker)) === '["Bereavement"]' && !(await shown(namePicker.locator('.a2ui-filter-input'))), await visibleChips(namePicker));
+  check('bereavement: reason dropdown closed shows only the pick', JSON.stringify(await visibleChips(reasonPicker)) === '["Grandparent/Great Grandparent"]', await visibleChips(reasonPicker));
+  check('bereavement: Submit enabled', await submit.isEnabled());
   await shot('hr-1-bereavement.png');
+
+  // 2. The note's ⓘ: hover shows the privacy text; the button names the tooltip.
+  const noteInfo = card.locator('a2ui-basic-textfield .hr-info');
+  check('note ⓘ present after the note label', await noteInfo.count() === 1);
+  const describedBy = await noteInfo.locator('button').getAttribute('aria-describedby');
+  check('note ⓘ: aria-describedby → role=tooltip', Boolean(describedBy) && await card.locator(`[id="${describedBy}"][role="tooltip"]`).count() === 1, describedBy);
+  check('note ⓘ hidden before hover', !(await tipShown(noteInfo)));
+  await noteInfo.locator('button').hover();
+  await page.waitForTimeout(200);
+  check('note ⓘ: hover shows the privacy text', await tipShown(noteInfo) && (await noteInfo.locator('[role="tooltip"]').textContent()).startsWith('Your manager, your timekeeper and Payroll Services can read this note.'));
+  await shot('hr-2-note-info-hover.png');
+  await page.mouse.move(0, 0);
+
+  // 3. Name dropdown: open, type “sick”, pick Sick Leave → reasons are Sick Leave's; the slip shows the balance.
+  await openPicker(namePicker);
+  check('name dropdown opens with the filter focused', await isOpen(namePicker) && await namePicker.locator('.a2ui-filter-input').evaluate((i) => document.activeElement === i));
+  check('name dropdown lists every name', (await visibleChips(namePicker)).length > 20, (await visibleChips(namePicker)).length);
+  await shot('hr-3-name-dropdown-open.png');
+  await namePicker.locator('.a2ui-filter-input').fill('sick');
+  await page.waitForTimeout(200);
+  check('typing “sick” filters the list', JSON.stringify(await visibleChips(namePicker)) === '["Sick Leave"]', await visibleChips(namePicker));
+  await shot('hr-4-name-filter-sick.png');
+  await pick(namePicker, 'Sick Leave');
+  check('picking closes the dropdown', !(await isOpen(namePicker)));
+  check('sick: .hr-what', (await text('.hr-slip .hr-what')) === 'Sick Leave', await text('.hr-slip .hr-what'));
+  check('sick: reason list is Sick Leave\'s', JSON.stringify(await allChips(reasonPicker)) === '["Bereavement","Family Care","Sick Personal"]', await allChips(reasonPicker));
+  check('sick: no default reason → amber placeholder', await shown(reasonPicker.locator('.dd-empty:not([hidden])')) && await reasonPicker.evaluate((p) => p.classList.contains('dd-missing')));
+  check('sick: .hr-left', (await text('.hr-slip .hr-left')) === '13 days of sick leave left after this', await text('.hr-slip .hr-left'));
+  check('sick: .hr-left-n is the big number', (await text('.hr-left-n')) === '13');
+  check('sick: bar keep + use', await card.locator('.hr-bar .hr-keep').count() === 1 && await card.locator('.hr-bar .hr-use').count() === 1);
+  const barLabels = await card.locator('.hr-bar-labels span').allTextContents();
+  check('sick: bar labels', JSON.stringify(barLabels) === '["You have 15 days now","this request: 2 days"]', barLabels);
+  check('sick: “Picked from what you wrote” hidden after a name change', !(await shown(card.locator('.hr-because'))));
+  // Carried check (Task 3): the Submit button's `required` check treats [] as empty.
+  check('sick: Submit disabled while the reason is []', !(await submit.isEnabled()));
+  await shot('hr-5-sick-picked.png');
+  // Esc closes; a click outside closes.
+  await openPicker(reasonPicker);
+  check('reason dropdown opens', await isOpen(reasonPicker));
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(150);
+  check('Esc closes the dropdown', !(await isOpen(reasonPicker)));
+  await openPicker(namePicker);
+  await card.locator('.hr-slip').click({ position: { x: 5, y: 5 } });
+  await page.waitForTimeout(150);
+  check('a click outside closes the dropdown', !(await isOpen(namePicker)));
+  await pick(reasonPicker, 'Family Care');
+  check('reason picked: .hr-why', (await text('.hr-slip .hr-why')) === 'Family Care', await text('.hr-slip .hr-why'));
+  check('reason picked: Submit enabled', await submit.isEnabled());
   await press('Submit request');
   const receipt = page.locator('#prof-log .msg.hr-receipt').last();
   const receiptText = (await receipt.locator('.msg-text').textContent())?.trim();
-  check('submit: receipt bubble', /^Sent to your manager for a decision\. Request TO-\w+: Bereavement\/Funeral, Thu, Nov 5 – Fri, Nov 6, 16 h\.$/.test(receiptText), receiptText);
+  check('submit: receipt names what was picked on the card', new RegExp(`^Sent to your manager for a decision\\. Request TO-\\w+: Sick Leave \\(Family Care\\), ${DAY} to ${DAY}, 16 hours\\.$`).test(receiptText), receiptText);
   await receipt.scrollIntoViewIfNeeded();
-  await page.locator('#prof-log').screenshot({ path: `${SHOTS}/hr-4-submit-receipt.png` });
+  await page.locator('#prof-log').screenshot({ path: `${SHOTS}/hr-6-submit-receipt.png` });
 
-  // 2. Going home sick at noon: a partial day with the balance bar (now / after, striped = this request).
-  await say("I want to file for time off. I'm not feeling well and I'm leaving at noon today.");
-  check('sick: title', (await text('.hr-title')) === 'Sick – Self', await text('.hr-title'));
-  check('sick: when names the start and hours', /from 12:00 \(\d+(\.\d+)? hours?\)$/.test(await text('.hr-when')), await text('.hr-when'));
-  check('sick: balance bar', /^Sick hours/.test(await text('.hr-bal-row')) && await card.locator('.hr-meter .use').count() === 1, await text('.hr-bal-row'));
-  check('sick: lead', /^Feel better soon\./.test(await text('.hr-lead')), await text('.hr-lead'));
-  await shot('hr-2-sick-noon.png');
+  // 4. Leaving at noon Thursday, out Friday: part day + full day, the time from the words, the balance bar.
+  await say("I want to file for time off. I'm not feeling well, I'm leaving at noon on Thursday and I'll be out Friday");
+  check('noon: .hr-what', (await text('.hr-slip .hr-what')) === 'Sick Leave', await text('.hr-slip .hr-what'));
+  check('noon: .hr-when names the start, then the full day', new RegExp(`^${DAY} from 12:00 \\(\\d+(\\.\\d+)? hours?\\), then ${DAY} in full$`).test(await text('.hr-slip .hr-when')), await text('.hr-slip .hr-when'));
+  check('noon: lead', /^Feel better soon\./.test(await text('.hr-lead')), await text('.hr-lead'));
+  // 13 hours is not a whole or quarter day: the slip says hours, not “13.38 days” (3-second rule).
+  check('noon: big number in hours', (await text('.hr-left-n')) === '107' && (await text('.hr-left-t')) === 'hours of sick leave left after this', await text('.hr-slip .hr-left'));
+  const noonLabels = await card.locator('.hr-bar-labels span').allTextContents();
+  check('noon: bar labels', JSON.stringify(noonLabels) === '["You have 15 days now","this request: 13 hours"]', noonLabels);
+  await shot('hr-7-sick-noon.png');
+  // Hours edited on the card: the time from the words no longer fits (mockup rule).
+  await card.locator('input[type="number"]').fill('12');
+  await page.waitForTimeout(300);
+  check('noon: edited hours drop the time from the words', !/12:00/.test(await text('.hr-slip .hr-when')) && /12 hours/.test(await text('.hr-slip .hr-when')), await text('.hr-slip .hr-when'));
   await press('Cancel');
   check('cancel: HR says nothing was sent', /Cancelled\. Nothing was sent to your manager\./.test(await page.locator('#prof-log .msg[data-speaker="hr"]').last().textContent()));
 
-  // 3. “I need Friday off” — no reason: the absence name is empty and highlighted, and HR asks in the chat.
+  // 5. “I need Friday off” — no reason: amber “Choose the kind of leave”, empty name dropdown highlighted.
   //    Meanwhile a second tab watches Topology for the Hub → HR hop of this staff request.
   const topo = await page.context().newPage();
   await topo.setViewportSize({ width: 1280, height: 1000 });
@@ -85,7 +160,7 @@ async (page) => {
       await topo.waitForTimeout(250);
       const lit = await topo.locator('[data-edge="hub-hr"] .lane.lit').count();
       if (lit && topoShots.length < 2) {
-        const path = `${SHOTS}/hr-5-topology-hub-hr${topoShots.length ? '-b' : ''}.png`;
+        const path = `${SHOTS}/hr-12-topology-hub-hr${topoShots.length ? '-b' : ''}.png`;
         await topo.locator('#topo').screenshot({ path });
         topoShots.push(path);
       }
@@ -93,36 +168,61 @@ async (page) => {
   })();
   await say('I need Friday off');
   await watching;
-  check('missing: title is the placeholder', (await text('.hr-title')) === 'Time off request', await text('.hr-title'));
-  check('missing: absence name row highlighted', (await card.getAttribute('data-missing'))?.split(' ').includes('absenceName')
-    && await card.locator('a2ui-basic-row:has(a2ui-choicepicker)').evaluate((r) => getComputedStyle(r).boxShadow.includes('inset')));
+  check('missing: lead asks for the kind', /^What kind of time off is this\?/.test(await text('.hr-lead')), await text('.hr-lead'));
+  check('missing: .hr-what placeholder in amber', (await text('.hr-slip .hr-what')) === 'Choose the kind of leave' && await card.locator('.hr-what.empty').count() === 1);
+  check('missing: .hr-free', (await text('.hr-slip .hr-free')) === 'Your balance shows here once you choose the kind of leave.', await text('.hr-slip .hr-free'));
+  check('missing: name placeholder button, amber', (await text('a2ui-choicepicker .dd-empty:not([hidden])')) === 'Choose…' && await namePicker.evaluate((p) => p.classList.contains('dd-missing')));
+  check('missing: reason disabled until a name', await reasonPicker.evaluate((p) => p.classList.contains('disabled')) && (await reasonPicker.locator('.dd-empty').textContent()).trim() === 'Reason (pick a name first)');
   check('missing: no chip selected', await card.locator('.a2ui-chip-selected').count() === 0);
-  check('missing: HR asks in the chat', /What kind of time off is this/.test(await text('.hr-lead')), await text('.hr-lead'));
-  await shot('hr-3-missing-name.png');
-  // The relationship row is always there (final fix 1); its star follows the name picked on the card.
-  const relLabel = card.locator('a2ui-basic-textfield:has(input[type="text"]) > label');
-  const isRed = (loc) => loc.evaluate((l) => getComputedStyle(l).color === 'rgba(0, 0, 0, 0)');
-  check('relationship row on a no-reason card', await relLabel.count() === 1);
-  check('relationship label says when it is needed', (await relLabel.textContent())?.trim() === 'Relationship (bereavement or family care)', await relLabel.textContent());
-  check('relationship: no star while not needed', !(await isRed(relLabel)));
-  check('hours keeps its red star', await isRed(card.locator('a2ui-basic-textfield:has(input[type="number"]) > label')));
-  await card.getByRole('button', { name: 'Bereavement/Funeral', exact: true }).click();
+  check('missing: Submit disabled', !(await submit.isEnabled()));
+  // No name: HR's choices as pills between the question and “If none of these fit …” (user rule 2026-11-03).
+  const pills = card.locator('.hr-choices:not([hidden]) .hr-pill');
+  check('choices: lead is the bare question', (await text('.hr-lead')) === 'What kind of time off is this?', await text('.hr-lead'));
+  check('choices: three pills (his leave balances)', JSON.stringify((await pills.allTextContents()).map((t) => t.trim())) === '["Vacation","Sick Leave","Personal Holiday"]', await pills.allTextContents());
+  check('choices: hint after the pills', (await text('.hr-hint')) === 'If none of these fit, pick from the dropdown below.', await text('.hr-hint'));
+  await shot('hr-8-missing-name.png');
+  await pills.filter({ hasText: 'Vacation' }).click();
   await page.waitForTimeout(300);
-  check('relationship: label gets the star after picking Bereavement/Funeral', (await relLabel.textContent())?.trim() === 'Relationship *', await relLabel.textContent());
-  check('relationship: star drawn red', await isRed(relLabel));
-  // Card edits survive a chat follow-up (final fix 2): move the dates on the card, then answer in the chat.
+  check('choices: a tap fills Absence name and its reason', JSON.stringify(await card.locator('.a2ui-chip-selected').allTextContents().then((a) => a.map((t) => t.trim()))) === '["Vacation","Vacation"]', await card.locator('.a2ui-chip-selected').allTextContents());
+  check('choices: pills and hint hide once a name is picked', await card.locator('.hr-choices').isHidden() && await card.locator('.hr-hint').isHidden() && (await text('.hr-lead')) === 'Check it and submit.', await text('.hr-lead'));
+  check('choices: the summary follows the tap', (await text('.hr-slip .hr-what')) === 'Vacation', await text('.hr-slip .hr-what'));
+  await shot('hr-8b-choice-tapped.png');
+  // Jury Duty needs proof: an ⓘ after the title (tap shows it).
+  await pick(namePicker, 'Jury Duty');
+  check('jury: lead follows the name picked on the card', (await text('.hr-lead')) === 'Check it and submit.', await text('.hr-lead'));
+  const proofInfo = card.locator('.hr-what-row .hr-info');
+  check('jury: proof ⓘ after the title', await proofInfo.count() === 1);
+  await proofInfo.locator('button').click();
+  await page.waitForTimeout(150);
+  check('jury: tap shows the proof note', await tipShown(proofInfo) && (await proofInfo.locator('button').getAttribute('aria-expanded')) === 'true' && /jury summons/.test(await proofInfo.locator('[role="tooltip"]').textContent()));
+  check('jury: default reason picked (only one)', JSON.stringify(await visibleChips(reasonPicker)) === '["Jury Duty"]', await visibleChips(reasonPicker));
+  check('jury: .hr-free', (await text('.hr-slip .hr-free')) === "Jury Duty doesn't use your vacation or sick leave.", await text('.hr-slip .hr-free'));
+  await shot('hr-9-jury-proof-tap.png');
+  // Keyboard focus also shows it.
+  await proofInfo.locator('button').click(); // tap again: closed
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
+  await page.waitForTimeout(150);
+  check('jury: keyboard focus shows the proof note', await proofInfo.locator('button').evaluate((b) => document.activeElement === b) && await tipShown(proofInfo));
+  // Card edits survive a chat follow-up: pick Bereavement, move the dates on the card, then answer in the chat.
+  await pick(namePicker, 'Bereavement');
+  check('bereavement picked: lead says sorry', (await text('.hr-lead')) === "I'm sorry for your loss. Check it and submit.", await text('.hr-lead'));
+  check('bereavement picked: reason asked (amber)', await reasonPicker.evaluate((p) => p.classList.contains('dd-missing')) && (await allChips(reasonPicker)).length === 10, await allChips(reasonPicker));
   const dates = card.locator('input[type="date"]');
   await dates.nth(0).fill('2026-11-12');
   await dates.nth(1).fill('2026-11-13');
-  await shot('hr-7-picked-on-card.png');
+  await card.locator('input[type="number"]').fill('16');
+  await page.waitForTimeout(300);
+  check('card edits: slip follows the dates', (await text('.hr-slip .hr-when')) === 'Thu, Nov 12 to Fri, Nov 13, 2 days', await text('.hr-slip .hr-when'));
+  await shot('hr-10-picked-on-card.png');
   await say('It was my uncle');
-  check('follow-up: name picked on the card kept', (await text('.hr-title')) === 'Bereavement/Funeral', await text('.hr-title'));
-  check('follow-up: dates edited on the card kept', /^Thu, Nov 12 – Fri, Nov 13/.test(await text('.hr-when')), await text('.hr-when'));
-  check('follow-up: relationship read from the chat', (await card.locator('input[type="text"]').inputValue()) === 'uncle');
-  await shot('hr-8-followup-kept-edits.png');
+  check('follow-up: name picked on the card kept', (await text('.hr-slip .hr-what')) === 'Bereavement', await text('.hr-slip .hr-what'));
+  check('follow-up: reason read from the chat', (await text('.hr-slip .hr-why')) === 'Aunt/Uncle', await text('.hr-slip .hr-why'));
+  check('follow-up: dates edited on the card kept', /^Thu, Nov 12 to Fri, Nov 13/.test(await text('.hr-slip .hr-when')), await text('.hr-slip .hr-when'));
+  await shot('hr-11-followup-kept-edits.png');
   await press('Submit request');
   const receipt2 = (await page.locator('#prof-log .msg.hr-receipt').last().locator('.msg-text').textContent())?.trim();
-  check('follow-up: submit files the edited dates', /Bereavement\/Funeral, Thu, Nov 12 – Fri, Nov 13, 16 h\.$/.test(receipt2), receipt2);
+  check('follow-up: submit files the edited dates', /Bereavement \(Aunt\/Uncle\), Thu, Nov 12 to Fri, Nov 13, 16 hours\.$/.test(receipt2), receipt2);
   // Topology: the staff run in the event list and as a trace (Professor → Hub → HR and back).
   check('topology: hub→hr pulse seen live', topoShots.length > 0, topoShots);
   const forwarded = await topo.locator('#topo-events li', { hasText: 'Forwarded to HR Agent' }).count();
@@ -131,9 +231,9 @@ async (page) => {
   if (staffTrace) await topo.locator('#topo-trace').selectOption(staffTrace);
   await topo.waitForTimeout(400);
   check('topology: staff trace uses hub-hr and hub-professor', await topo.locator('[data-edge="hub-hr"].in-trace').count() === 1 && await topo.locator('[data-edge="hub-professor"].in-trace').count() === 1);
-  await topo.screenshot({ path: `${SHOTS}/hr-6-topology-staff-trace.png` });
+  await topo.screenshot({ path: `${SHOTS}/hr-13-topology-staff-trace.png` });
   await topo.close();
 
-  check('no page errors', errors.length === 0, errors);
+  check('no page or console errors', errors.length === 0, errors);
   return { passed: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok), total: results.length };
 }

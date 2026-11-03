@@ -32,6 +32,9 @@
   --model: #5b6472;       /* slate — the model provider (outside the university) */
   --hr: #1f6f8b;          /* petrol — the HR Agent (staff only) */
   --hr-tint: #e3f0f5;
+  --amber: #b7791f;       /* the HR card: missing, and what this request uses */
+  --amber-tint: #fdf3e1;
+  --amber-ink: #7a4f0e;
   --req: #b4261f;         /* the required-field star */
   --student-tint: #e6edfb;
   --on-student: #ffffff;
@@ -65,6 +68,9 @@
     --model: #aab4c2;
     --hr: #6cc0dd;
     --hr-tint: #16303a;
+    --amber: #e0a23a;
+    --amber-tint: #3a2c12;
+    --amber-ink: #f3c879;
     --req: #ff8f86;
     --student-tint: #1e2a45;
     --on-student: #0d1526;
@@ -715,88 +721,122 @@ body:has(#view-conversation:not([hidden]), #view-professor:not([hidden])) { heig
 .handover-status .told { color: var(--muted); }
 .handover-status .told q { quotes: "“" "”"; }
 
-/* ---- HR (staff only): the time-off card in the Professor view (approved design hr-card-v4) ----
-   A headline (absence name), one “when” line, one “why” line, the fields of HR's A2UI surface as rows
-   editable in place (the official renderer draws them), the balance bar, then Submit request / Cancel. */
-.hr-card { max-width: min(100%, 560px); width: 100%; border: 1px solid var(--border); border-left: 4px solid var(--hr); border-radius: 4px 12px 12px 12px; background: var(--surface); padding: 12px 14px 14px; display: flex; flex-direction: column; }
+/* ---- HR (staff only): the time-off card in the Professor view ----
+   Approved design: docs/superpowers/specs/2026-11-03-hr-card-redesign.html — readable in 3 seconds.
+   Lead line, the summary slip (what, when, what is left), “Picked from what you wrote”, then HR's A2UI
+   surface (official renderer, light DOM): two dropdowns, dates and hours, the note with its ⓘ, buttons. */
+.hr-card { max-width: min(100%, 560px); width: 100%; border: 1px solid var(--border); border-left: 4px solid var(--hr); border-radius: 4px 14px 14px 14px; background: var(--surface); padding: 12px 18px 18px; }
+.chat-log .msg.hr-card { padding: 12px 18px 18px; border-left-width: 4px; border-radius: 4px 14px 14px 14px; }
 .hr-card .msg-head .msg-dir { color: var(--hr); font-weight: 700; }
 .hr-card .msg-head time { font-family: var(--mono); font-size: 0.72rem; }
-.hr-lead { margin: 2px 0 12px; color: var(--muted); font-size: 0.92rem; }
-.hr-title { font-size: 1.3rem; font-weight: 800; line-height: 1.2; margin: 0; }
-.hr-when { font-size: 1rem; margin: 4px 0 0; }
-.hr-when[data-missing="true"] { color: var(--req); font-weight: 600; }
-.hr-why { margin: 6px 0 0; font-size: 0.84rem; color: var(--hr); }
-.hr-problem { margin: 8px 0 0; padding: 6px 10px; border-radius: 8px; font-size: 0.88rem; color: var(--warn); background: var(--warn-bg); }
-.hr-missing { margin: 8px 0 0; font-size: 0.86rem; color: var(--req); }
+.hr-lead { margin: 4px 0 14px; color: var(--muted); font-size: 0.92rem; }
+.hr-choices { display: flex; flex-wrap: wrap; gap: 8px; margin: -6px 0 10px; }
+.hr-choices[hidden], .hr-hint[hidden] { display: none; }
+.hr-pill { font: inherit; font-size: 0.92rem; font-weight: 600; color: var(--hr); background: var(--surface); border: 1.5px solid var(--hr); border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+.hr-pill:hover { background: var(--hr-tint); }
+.hr-pill:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--hr-tint); background: var(--hr-tint); }
+.hr-hint { margin: 0 0 14px; color: var(--muted); font-size: 0.88rem; }
+.hr-problem { margin: 0 0 12px; padding: 6px 10px; border-radius: 8px; font-size: 0.88rem; color: var(--warn); background: var(--warn-bg); }
+/* The 3-second zone. */
+.hr-slip { border-radius: 12px; background: var(--hr-tint); padding: 16px 18px; display: grid; gap: 12px; }
+.hr-slip p { margin: 0; }
+.hr-what-row { display: flex; align-items: center; }
+.hr-what { font-size: 1.5rem; font-weight: 800; line-height: 1.15; letter-spacing: -0.01em; }
+.hr-what.empty { color: var(--amber); }
+.hr-slip .hr-why { font-size: 0.95rem; margin-top: 3px; }
+.hr-when { font-size: 1.08rem; }
+.hr-when b { font-weight: 700; }
+.hr-when[data-missing="true"] { color: var(--amber-ink); }
+.hr-impact { border-top: 1px solid color-mix(in srgb, var(--hr) 22%, transparent); padding-top: 12px; }
+.hr-left { display: flex; align-items: baseline; gap: 8px; }
+.hr-left-n { font-size: 2rem; font-weight: 800; line-height: 1; color: var(--hr); font-variant-numeric: tabular-nums; }
+.hr-left-t { font-size: 1rem; }
+.hr-bar { display: flex; height: 8px; border-radius: 999px; overflow: hidden; background: var(--surface); margin: 10px 0 5px; }
+.hr-keep { background: var(--hr); }
+.hr-use { background: var(--amber); }
+.hr-bar-labels { display: flex; font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.hr-bar-labels span:last-child { margin-left: auto; color: var(--amber-ink); font-weight: 700; }
+.hr-free { font-size: 0.98rem; }
+.hr-free.hr-short { color: var(--amber-ink); font-weight: 600; }
+.hr-because { font-size: 0.8rem; color: var(--muted); margin: 10px 2px 0; }
+/* ⓘ notes: hover, keyboard focus or tap. */
+.hr-info { position: relative; display: inline-flex; vertical-align: middle; margin-left: 5px; }
+.hr-info > button { font: inherit; font-size: 0.72rem; font-weight: 700; width: 17px; height: 17px; border-radius: 50%; border: 1px solid var(--border-strong); background: var(--surface); color: var(--muted); line-height: 1; padding: 0; cursor: help; }
+.hr-info > button:hover, .hr-info > button:focus-visible, .hr-info > button[aria-expanded="true"] { border-color: var(--hr); color: var(--hr); outline: none; }
+.hr-info [role="tooltip"] { position: absolute; z-index: 6; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); width: max-content; max-width: 260px; background: var(--text); color: var(--surface); font-size: 0.8rem; font-weight: 400; line-height: 1.4; border-radius: 8px; padding: 7px 10px; opacity: 0; visibility: hidden; pointer-events: none; }
+.hr-info [role="tooltip"]::after { content: ""; position: absolute; top: 100%; left: 50%; margin-left: -5px; border: 5px solid transparent; border-top-color: var(--text); }
+.hr-info:hover [role="tooltip"], .hr-info > button:focus-visible + [role="tooltip"], .hr-info > button[aria-expanded="true"] + [role="tooltip"] { opacity: 1; visibility: visible; }
+.hr-info.tip-hidden > button + [role="tooltip"] { opacity: 0; visibility: hidden; } /* Esc dismissed it while focused (outranks the :focus-visible rule above) */
+/* The form: one grid — the two pickers side by side, then begin / end / hours, the note, the buttons. */
 .hr-surface {
-  margin-top: 14px;
+  margin-top: 16px;
   --a2ui-color-primary: var(--hr);
   --a2ui-color-primary-hover: color-mix(in srgb, var(--hr) 85%, #000);
-  --a2ui-color-on-primary: #fff;
+  --a2ui-color-on-primary: var(--surface); /* white on petrol; dark ink on the light petrol of dark mode */
   --a2ui-textfield-color-border-focus: var(--hr);
-  --a2ui-textfield-border: 1px solid transparent;
-  --a2ui-datetimeinput-border: 1px solid transparent;
-  --a2ui-textfield-padding: 5px 8px;
-  --a2ui-datetimeinput-padding: 5px 8px;
-  --a2ui-textfield-border-radius: 6px;
-  --a2ui-datetimeinput-border-radius: 6px;
-  --a2ui-datetimeinput-background: transparent;
-  --a2ui-color-input: transparent;
-  --a2ui-label-font-weight: 400;
-  --a2ui-textfield-label-font-weight: 400;
-  --a2ui-datetimeinput-label-font-weight: 400;
-  --a2ui-choicepicker-label-font-weight: 400;
-  --a2ui-choicepicker-label-color: var(--muted);
-  --a2ui-choicepicker-chip-padding: 3px 10px;
-  --a2ui-choicepicker-chip-font-size: 0.82rem;
-  --a2ui-choicepicker-chip-font-weight: 400;
-  --a2ui-column-gap: 0;
-  --a2ui-row-gap: 0;
+  --a2ui-color-input: var(--surface);
+  --a2ui-datetimeinput-background: var(--surface);
 }
-/* The renderer draws in the light DOM. Its surface and root column are flattened into the card (display:
-   contents) so the balance bar can sit between the fields and the buttons, as in the design. */
-.hr-card .hr-surface, .hr-card .hr-surface > a2ui-basic-column { display: contents; }
-.hr-card > .hr-balance { order: 1; }
-.hr-card > .notice { order: 2; }
-.hr-card a2ui-basic-row:has(a2ui-basic-button) { order: 3; display: flex; gap: 10px; align-items: center; margin-top: 14px; }
-/* The card's headline already names the request: the surface's own “Time off request” heading is not repeated. */
-.hr-card .hr-surface a2ui-basic-text:has(> .a2ui-text-h3) { display: none; }
-/* One row per field: label left, the value right, editable where it is. */
-.hr-card a2ui-basic-row:not(:has(a2ui-basic-button)) { display: block; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 0.92rem; }
-.hr-card a2ui-basic-row:has(a2ui-choicepicker) { margin-top: 14px; border-top: 1px solid var(--border); }
-.hr-card :is(a2ui-choicepicker, .a2ui-date-time-container, a2ui-basic-textfield) { display: grid; grid-template-columns: 9.5em minmax(0, 1fr); gap: 2px 10px; align-items: center; }
-.hr-card :is(a2ui-choicepicker, .a2ui-date-time-container, a2ui-basic-textfield) > :nth-child(n+3) { grid-column: 2; }
-.hr-card :is(a2ui-choicepicker, .a2ui-date-time-container, a2ui-basic-textfield) > label { justify-self: start; color: var(--muted); font-weight: 400; font-size: 0.92rem; margin: 0; }
-/* Required fields: HR's labels end in “ *”; the star is drawn red (the label keeps its text for screen readers). */
-/* The relationship row (the card's only one-line text field) gets the star only while the chosen name needs it. */
-.hr-card :is(a2ui-choicepicker, .a2ui-date-time-container, a2ui-basic-textfield:not(:has(textarea, input[type="text"]))) > label,
-.hr-card[data-relationship-needed="true"] a2ui-basic-textfield:has(input[type="text"]) > label {
-  color: transparent; -webkit-background-clip: text; background-clip: text;
+.hr-card .hr-surface a2ui-basic-column { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 6.5rem; gap: 14px 8px; align-items: start; }
+.hr-card .hr-surface a2ui-basic-column > * { min-width: 0; }
+.hr-card .hr-surface a2ui-basic-column > a2ui-basic-text:has(> .a2ui-text-h3) { display: none; } /* the slip already names the request */
+.hr-card .hr-surface a2ui-basic-row { display: block; }
+.hr-card .hr-surface a2ui-basic-row:has(a2ui-choicepicker) + a2ui-basic-row:has(a2ui-choicepicker) { grid-column: span 2; }
+.hr-card .hr-surface a2ui-basic-row:has(textarea), .hr-card .hr-surface a2ui-basic-row:has(a2ui-basic-button) { grid-column: 1 / -1; }
+.hr-card .hr-surface a2ui-basic-row:has(a2ui-basic-button) { display: flex; gap: 10px; align-items: center; margin-top: 4px; }
+/* Labels on top, small and muted; required ones end in a red star. */
+.hr-card :is(a2ui-choicepicker > label, .a2ui-date-time-label, a2ui-basic-textfield > label) { display: block; font-size: 0.82rem; font-weight: 600; color: var(--muted); margin: 0 0 5px; }
+.hr-card a2ui-choicepicker > label::after { content: "*"; color: var(--req); margin-left: 2px; }
+.hr-card :is(.a2ui-date-time-label, a2ui-basic-textfield:has(input[type="number"]) > label) {
+  width: fit-content; color: transparent; -webkit-background-clip: text; background-clip: text;
   background-image: linear-gradient(to left, var(--req) 0.5em, var(--muted) 0.5em);
 }
-.hr-card .a2ui-chips-group { display: flex; flex-wrap: wrap; gap: 5px; }
-.hr-card :is(.a2ui-textfield, .a2ui-date-time-input) { font: inherit; font-size: 0.92rem; color: var(--text); width: 100%; background: transparent; border: 1px solid transparent; border-bottom-color: var(--border); border-radius: 6px; padding: 5px 8px; box-sizing: border-box; }
-.hr-card :is(.a2ui-textfield, .a2ui-date-time-input):hover { border-color: var(--border-strong); background: var(--field); }
-.hr-card :is(.a2ui-textfield, .a2ui-date-time-input):focus { outline: none; border-color: var(--hr); background: var(--surface); box-shadow: 0 0 0 3px var(--hr-tint); }
-.hr-card textarea.a2ui-textfield { min-height: 2.2em; height: 2.4em; resize: vertical; }
+.hr-card .a2ui-date-time-container { display: block; }
 .hr-card .a2ui-date-time-inputs { display: flex; }
-/* Missing fields: empty and highlighted (HR also asks in the chat). */
-.hr-card[data-missing~="absenceName"] a2ui-basic-row:has(a2ui-choicepicker),
-.hr-card[data-missing~="dates"] a2ui-basic-row:has(a2ui-datetimeinput),
-.hr-card[data-missing~="relationship"] a2ui-basic-row:has(input[type="text"]) {
-  background: color-mix(in srgb, var(--req) 7%, var(--surface)); box-shadow: inset 3px 0 0 var(--req); padding-left: 10px;
+.hr-card :is(.a2ui-textfield, .a2ui-date-time-input) { font: inherit; font-size: 0.95rem; width: 100%; color: var(--text); background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px; padding: 7px 10px; box-sizing: border-box; }
+.hr-card :is(.a2ui-textfield, .a2ui-date-time-input):focus { outline: none; border-color: var(--hr); box-shadow: 0 0 0 3px var(--hr-tint); }
+.hr-card :is(input.a2ui-textfield, .a2ui-date-time-input) { height: 2.4rem; }
+.hr-card input[type="number"].a2ui-textfield { text-align: right; font-variant-numeric: tabular-nums; }
+.hr-card textarea.a2ui-textfield { resize: vertical; min-height: 2.4rem; height: 2.4rem; }
+/* The note: its label, then the privacy ⓘ (prepended by the page), then the text box. */
+.hr-card a2ui-basic-textfield:has(textarea) { display: flex; flex-flow: row wrap; align-items: center; justify-content: flex-start; }
+.hr-card a2ui-basic-textfield:has(textarea) > label { order: 1; display: inline-block; width: auto; margin: 0 0 5px; }
+.hr-card a2ui-basic-textfield:has(textarea) > .hr-info { order: 2; margin-bottom: 5px; }
+.hr-card a2ui-basic-textfield:has(textarea) > :not(label, .hr-info) { order: 3; flex: 0 0 100%; }
+/* Dropdowns = the renderer's filterable chips ChoicePicker, styled (classroom.js opens and closes them). */
+.hr-card a2ui-choicepicker { display: flex; flex-direction: column; gap: 0; position: relative; }
+.hr-card a2ui-choicepicker > label { order: -1; }
+.hr-card a2ui-choicepicker :is(.a2ui-filter-input, .a2ui-chip), .hr-card a2ui-choicepicker > .dd-empty { display: none; }
+.hr-card a2ui-choicepicker:not(.open) :is(.a2ui-chip-selected, .dd-empty:not([hidden])) {
+  display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 8px; text-align: left; font: inherit; font-size: 0.95rem; font-weight: 400; color: var(--text);
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px; padding: 7px 10px; cursor: pointer; min-height: 2.4rem; margin: 0; box-shadow: none; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
-/* Balance: now / after; the striped part is this request. */
-.hr-balance { margin-top: 14px; }
-.hr-bal-row { display: flex; justify-content: space-between; font-size: 0.88rem; margin-bottom: 5px; }
-.hr-meter { height: 10px; border-radius: 999px; background: var(--field); border: 1px solid var(--border); overflow: hidden; display: flex; }
-.hr-meter .keep { background: var(--hr); }
-.hr-meter .use { background: repeating-linear-gradient(135deg, #e0a23a 0 4px, #f3cf8c 4px 8px); }
-.hr-note { font-size: 0.84rem; color: var(--muted); margin: 5px 0 0; }
-/* Buttons: Submit request (filled), Cancel (outline). */
-.hr-card .a2ui-button.a2ui-button { font: inherit; font-weight: 700; font-size: 0.95rem; border-radius: 8px; padding: 8px 16px; margin: 0; }
-.hr-card .a2ui-button.a2ui-button-borderless { background: none; --_a2ui-text-color: var(--hr); color: var(--hr); border: 1px solid color-mix(in srgb, var(--hr) 45%, var(--border)); }
+.hr-card a2ui-choicepicker:not(.open) :is(.a2ui-chip-selected, .dd-empty)::after { content: ""; width: 7px; height: 7px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg) translateY(-2px); flex: none; }
+.hr-card a2ui-choicepicker:not(.open) .dd-empty { color: var(--muted); }
+.hr-card a2ui-choicepicker.dd-missing:not(.open) .dd-empty { background: var(--amber-tint); border-color: var(--amber); color: var(--amber-ink); }
+.hr-card a2ui-choicepicker.disabled .dd-empty { cursor: not-allowed; opacity: 0.55; }
+.hr-card a2ui-choicepicker:not(.open) :is(.a2ui-chip-selected, .dd-empty):hover { border-color: var(--hr); }
+.hr-card a2ui-choicepicker:not(.open) :is(.a2ui-chip-selected, .dd-empty):focus-visible { outline: none; border-color: var(--hr); box-shadow: 0 0 0 3px var(--hr-tint); }
+.hr-card a2ui-choicepicker .sel-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hr-card a2ui-choicepicker .a2ui-chips-group { display: block; }
+.hr-card a2ui-choicepicker.open .a2ui-filter-input { display: block; width: 100%; box-sizing: border-box; font: inherit; font-size: 0.95rem; color: var(--text); background: var(--surface); border: 1px solid var(--hr); border-radius: 8px 8px 0 0; padding: 7px 10px; margin: 0; outline: none; box-shadow: 0 0 0 3px var(--hr-tint); }
+.hr-card a2ui-choicepicker.open .a2ui-chips-group { position: absolute; z-index: 5; top: 100%; left: 0; right: 0; max-height: 240px; overflow: auto; background: var(--surface); border: 1px solid var(--hr); border-top: 0; border-radius: 0 0 8px 8px; box-shadow: 0 12px 28px rgb(24 32 43 / 0.16); padding: 4px 0; }
+.hr-card a2ui-choicepicker.open .a2ui-chip { display: block; width: 100%; text-align: left; font: inherit; font-size: 0.93rem; font-weight: 400; color: var(--text); background: none; border: 0; border-radius: 0; padding: 7px 12px; margin: 0; cursor: pointer; box-shadow: none; }
+.hr-card a2ui-choicepicker.open .a2ui-chip:hover, .hr-card a2ui-choicepicker.open .a2ui-chip:focus-visible { background: var(--hr-tint); outline: none; }
+.hr-card a2ui-choicepicker.open .a2ui-chip-selected { font-weight: 700; color: var(--hr); }
+.hr-card a2ui-choicepicker.open.no-match .a2ui-chips-group::before { content: "No matches."; display: block; padding: 7px 12px; color: var(--muted); font-size: 0.9rem; }
+/* Missing fields: highlighted (HR also asks in its lead line). */
+.hr-card[data-missing~="dates"] .a2ui-date-time-input:placeholder-shown, .hr-card[data-missing~="dates"] .a2ui-date-time-input:invalid { border-color: var(--amber); background: var(--amber-tint); }
+/* Buttons: Submit request (filled), Cancel (quiet). */
+.hr-card .a2ui-button.a2ui-button { font: inherit; font-weight: 700; font-size: 0.98rem; border-radius: 9px; padding: 9px 18px; margin: 0; border: 1px solid var(--hr); }
+.hr-card .a2ui-button.a2ui-button:disabled { background: var(--border); border-color: var(--border); --_a2ui-text-color: var(--muted); color: var(--muted); cursor: not-allowed; }
+.hr-card .a2ui-button.a2ui-button-borderless { background: none; --_a2ui-text-color: var(--hr); color: var(--hr); border-color: transparent; }
 .hr-card .notice:not(:empty) { margin-top: 10px; }
+@media (max-width: 520px) {
+  .hr-card .hr-surface a2ui-basic-column { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .hr-card .hr-surface a2ui-basic-row:has(a2ui-choicepicker) { grid-column: 1 / -1; }
+  .hr-card .hr-surface a2ui-basic-row:has(input[type="number"]) { grid-column: 1 / -1; }
+}
 /* HR's other replies in the Professor chat (questions, receipts, refusals). */
 .prof-log .msg[data-speaker="hr"]:not(.hr-card) { border-left: 4px solid var(--hr); }
 .prof-log .msg[data-speaker="hr"] .msg-dir { color: var(--hr); font-weight: 700; }

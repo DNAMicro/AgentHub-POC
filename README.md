@@ -230,7 +230,7 @@ Everything is live, so the model may answer in words where the script hoped for 
 | `src/topology.js` | Part 7: labels each telemetry event with its connection, direction, category and phase for the topology view. |
 | `public/topology.js` | Part 7: the live topology graph (SVG), traces, details, event list. |
 | `scripts/start-all.js` | Part 7: starts all the processes — six since Part 14 (`npm run demo` / `demo:live`). |
-| `src/hr-agent.js`, `src/hr-store.js`, `src/hr-intent.js`, `src/hr-model.js` | Part 14: the staff-only **HR Agent** — chat and card logic, the in-memory staff/balance/request store with the Forecast, the code that reads dates and partial days, and the absence-name choice (model proposes, code verifies). |
+| `src/hr-agent.js`, `src/hr-store.js`, `src/hr-intent.js`, `src/hr-model.js`, `src/absence-types.js` | Part 14: the staff-only **HR Agent** — chat and card logic, the in-memory staff/balance/request store with the Forecast, the code that reads dates and partial days, and the shared absence list (also served to the browser at `/shared/absence-types.js`), and the absence-type choice (model proposes, code verifies; the reason comes from code). |
 | `src/staff.js`, `src/professor-staff.js` | Part 14: the Hub's signed staff path (media types, signed fields, reply shape) and the Professor's staff desk (spots a request for himself, asks when unsure, holds the open card, offers the class note). |
 | `scripts/demo/progression.js` | The audience demo: presents Steps 1–11 on the running app with slides, captions, highlights and pauses (run with playwright-cli). |
 | `scripts/live-eval.js` | Part 5's opt-in live spot check of routing and scope decisions. Paid; off unless `LIVE_EVAL_MAX_USD` is set. |
@@ -932,8 +932,8 @@ CSUF staff file absences in a system with many fields and steps. This part shows
 ### The walkthrough
 
 1. Type “My grandmother passed away, I need this Thursday and Friday.” The Professor agent works out that this is a request for himself (not a message for the class) and sends it, signed, to the Hub. The Hub routes it to HR.
-2. HR picks the right **Absence name** from a fixed list (Bereavement/Funeral), reads the dates and works out the hours. It also runs the **Forecast** (is there enough leave?). It answers with one card: every field is editable in place, required fields have a red star, and a bar shows the balance (or says the request uses none of his vacation or sick hours).
-3. Anything HR couldn't work out is left **empty and highlighted**, and HR asks one short question in the chat. For “I need Friday off” it doesn't guess the reason. Answer in the chat (“it's a vacation day”) or in the card. Both work, and together: a chat answer sent while the card is open carries what you already changed on the card, so HR keeps those edits and adds what your words say. The Relationship row is always on the card; its star appears when the absence you pick needs one (bereavement or family care).
+2. HR picks the **absence name** from the university's real list (34 names, 51 name + reason pairs; a name repeats because it has several reasons). For a death it picks the reason from the relative in his words (“my grandmother” gives Grandparent/Great Grandparent), by code. It reads the dates, works out the hours and runs the **Forecast** (is there enough leave?). The card opens with a shaded summary he can read in 3 seconds: the name and reason, the dates and length in words, and what is left (“13 days of sick leave left after this”, or “This doesn't use your vacation or sick leave.”). Below it: **Absence name** and **Reason** (two autocomplete dropdowns; the reason list shows only that name's reasons), dates and hours, an optional note, and Submit. Every field is editable in place, required fields have a red star, and privacy or proof notices are small ⓘ icons.
+3. Anything HR couldn't work out is left **empty and highlighted**, and HR asks one short question in the chat. For “I need Friday off” it doesn't guess the reason. Answer in the chat (“it's a vacation day”) or in the card. Both work, and together: a chat answer sent while the card is open carries what you already changed on the card, so HR keeps those edits and adds what your words say. There is no field for a part day: type the hours. For three days, 20 hours means “first day partial, rest full” and 6 means “6 hours each day”; if both fit and your words don't say, HR asks in the chat. Ask “what's my sick balance?” or “show my time off requests” and the answer comes in the chat.
 4. **Submit request**. HR says “Sent to your manager for a decision.” and gives a request number. There is no manager agent, and nothing is deducted.
 5. If the app can't tell whether a message is for HR or the class, it asks: “Should I file this as time off with HR, tell the class, or both?” Nothing is posted or filed until you answer. “Both” files it, and then offers a neutral note for the class with no reason, such as “Professor Amir is out on Fri, Nov 6.” It is posted only after you say yes.
 
@@ -958,14 +958,14 @@ CSUF staff file absences in a system with many fields and steps. This part shows
 
 ### Limits, honestly
 
-- The absence names are a sample list from CSU CHRS. The staff, balances and holidays are fictional. This is not a real HR system.
-- The absence name is a row of chips, not a dropdown, because the A2UI v0.9 catalog has no dropdown.
-- The “when” line and the balance bar on the card come from HR when the card was made. If you change dates in the card they update when HR answers again, and Submit re-checks everything.
+- The absence list is the owner's file (CHRS “Absence Type and Reasons”). The staff, balances and holidays are fictional: Professor Amir is a 12-month department chair who earns vacation. This is not a real HR system.
+- The two dropdowns are standard A2UI ChoicePickers (filterable) drawn as dropdowns by our CSS and a small script, because the A2UI v0.9 catalog has no select.
+- The summary on the card comes from HR when the card was made and is recalculated in the browser while you edit. Submit re-checks everything on the server.
 - Mock mode proves the plumbing, not judgment. Live judgment is probabilistic. The mock staff check asks whenever a leave word appears without “I” or “my” (“Out sick tomorrow”) rather than posting it.
 
 ### Tests
 
-`test/hr-form.test.js`, `hr-store.test.js`, `hr-intent.test.js`, `hr.test.js`, `hub-staff.test.js`, `professor-staff.test.js`, `hr-ui.test.js` (all with mock models or the fake Anthropic server). `scripts/browser-checks/hr-card.js` is a playwright-cli check of the card on a separate stack. See [Steps/14](Steps/14-hr-agent-time-off.md).
+`test/absence-types.test.js`, `test/hr-form.test.js`, `hr-store.test.js`, `hr-intent.test.js`, `hr.test.js`, `hub-staff.test.js`, `professor-staff.test.js`, `hr-ui.test.js` (all with mock models or the fake Anthropic server). `scripts/browser-checks/hr-card.js` is a playwright-cli check of the card on a separate stack. See [Steps/14](Steps/14-hr-agent-time-off.md).
 
 ## Deliberately not included
 

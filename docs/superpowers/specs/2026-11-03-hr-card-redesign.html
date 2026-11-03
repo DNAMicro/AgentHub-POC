@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Time-off card redesign</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#eef1f5; --surface:#fff; --text:#18202b; --muted:#5a6676; --border:#d6dce4; --border-strong:#b8c1cd;
+    --hr:#1f6f8b; --hr-tint:#e3f0f5; --amber:#b7791f; --amber-tint:#fdf3e1; --req:#b4261f; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:28px 16px 56px; background:var(--bg); color:var(--text); font-family:"Atkinson Hyperlegible Next", system-ui, sans-serif; }
+  .page-intro { max-width:76ch; margin:0 auto 22px; color:var(--muted); line-height:1.5; }
+  .page-intro h1 { color:var(--text); font-size:1.35rem; margin:0 0 6px; }
+  .wall { display:flex; flex-wrap:wrap; gap:26px; justify-content:center; align-items:flex-start; }
+  .case { width:min(100%, 560px); }
+  .case > h2 { font-size:.9rem; font-weight:600; color:var(--muted); margin:0 0 8px 4px; }
+  .me { margin:0 0 10px auto; width:fit-content; max-width:88%; background:#f7e9ef; border:1px solid #e7c6d4; border-radius:12px 12px 4px 12px; padding:8px 12px; line-height:1.45; }
+
+  /* ---- the card ---- */
+  .card { background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--hr); border-radius:4px 14px 14px 14px; padding:14px 18px 18px; }
+  .head { display:flex; justify-content:space-between; font-size:.78rem; color:var(--hr); font-weight:700; }
+  .head time { color:var(--muted); font-weight:400; }
+  .lead { margin:4px 0 14px; color:var(--muted); font-size:.92rem; }
+
+  /* 3-second zone: what, when, impact */
+  .slip { border-radius:12px; background:var(--hr-tint); padding:16px 18px; display:grid; gap:12px; }
+  .what { font-size:1.5rem; font-weight:800; line-height:1.15; margin:0; letter-spacing:-.01em; }
+  .what.empty { color:var(--amber); }
+  .why { font-size:.95rem; color:var(--text); margin:3px 0 0; }
+  .when { font-size:1.08rem; margin:0; }
+  .when b { font-weight:700; }
+  .impact { border-top:1px solid color-mix(in srgb, var(--hr) 22%, transparent); padding-top:12px; }
+  .left { display:flex; align-items:baseline; gap:8px; margin:0; }
+  .left .n { font-size:2rem; font-weight:800; line-height:1; color:var(--hr); font-variant-numeric:tabular-nums; }
+  .left .t { font-size:1rem; }
+  .bar { position:relative; display:flex; height:8px; border-radius:999px; overflow:hidden; background:var(--surface); margin:10px 0 5px; }
+  .bar .keep { background:var(--hr); }
+  .bar .use { background:var(--amber); }
+  .bar-labels { display:flex; font-size:.8rem; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .bar-labels span:last-child { margin-left:auto; color:var(--amber); font-weight:700; }
+  .free { margin:0; font-size:.98rem; }
+  .because { font-size:.8rem; color:var(--muted); margin:10px 2px 0; }
+
+  .info { position:relative; display:inline-flex; vertical-align:middle; margin-left:5px; }
+  .info button { font:inherit; font-size:.72rem; font-weight:700; width:17px; height:17px; border-radius:50%; border:1px solid var(--border-strong); background:var(--surface); color:var(--muted); line-height:1; padding:0; cursor:help; }
+  .info button:hover, .info button:focus-visible, .info button[aria-expanded="true"] { border-color:var(--hr); color:var(--hr); outline:none; }
+  .info [role="tooltip"] { position:absolute; z-index:6; left:50%; bottom:calc(100% + 8px); transform:translateX(-50%); width:max-content; max-width:260px; background:var(--text); color:#fff; font-size:.8rem; font-weight:400; line-height:1.4; border-radius:8px; padding:7px 10px; opacity:0; visibility:hidden; pointer-events:none; }
+  .info [role="tooltip"]::after { content:""; position:absolute; top:100%; left:50%; margin-left:-5px; border:5px solid transparent; border-top-color:var(--text); }
+  .info:hover [role="tooltip"], .info button:focus-visible + [role="tooltip"], .info button[aria-expanded="true"] + [role="tooltip"] { opacity:1; visibility:visible; }
+  .what-row { display:flex; align-items:center; }
+  /* editing area: single column, labels on top */
+  .form { margin-top:16px; display:grid; gap:14px; }
+  .field > label, .field > .lbl { display:block; font-size:.82rem; font-weight:600; color:var(--muted); margin:0 0 5px; }
+  .req { color:var(--req); margin-left:2px; }
+  .pair { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .dates { display:grid; grid-template-columns:1fr auto 1fr 6.5rem; gap:8px; align-items:center; }
+  .dates .to { color:var(--muted); font-size:.9rem; }
+  @media (max-width:520px) { .pair { grid-template-columns:1fr; } .dates { grid-template-columns:1fr auto 1fr; } .dates .hrs { grid-column:1 / -1; } }
+  .in { font:inherit; font-size:.95rem; width:100%; color:var(--text); background:var(--surface); border:1px solid var(--border-strong); border-radius:8px; padding:7px 10px; }
+  .in:focus { outline:none; border-color:var(--hr); box-shadow:0 0 0 3px var(--hr-tint); }
+  .hrs { display:flex; align-items:center; gap:6px; }
+  .hrs .in { width:4.2rem; text-align:right; font-variant-numeric:tabular-nums; }
+  .hrs span { color:var(--muted); font-size:.85rem; }
+  textarea.in { resize:vertical; min-height:2.4rem; }
+  .actions { display:flex; gap:10px; align-items:center; margin-top:4px; }
+  .btn { font:inherit; font-weight:700; font-size:.98rem; border-radius:9px; padding:9px 18px; border:1px solid var(--hr); background:var(--hr); color:#fff; cursor:pointer; }
+  .btn:disabled { background:var(--border); border-color:var(--border); color:var(--muted); cursor:not-allowed; }
+  .btn.ghost { background:none; color:var(--hr); border-color:transparent; }
+  .btn:focus-visible { outline:3px solid var(--hr-tint); outline-offset:2px; }
+
+  /* dropdown = A2UI 0.9 filterable ChoicePicker, styled (same markup the renderer draws) */
+  a2ui-choicepicker { display:block; position:relative; }
+  a2ui-choicepicker .a2ui-filter-input, a2ui-choicepicker .a2ui-chip, .dd-empty, .dd-none { display:none; }
+  a2ui-choicepicker:not(.open) .a2ui-chip-selected, a2ui-choicepicker:not(.open) .dd-empty:not([hidden]) {
+    display:flex; width:100%; justify-content:space-between; align-items:center; gap:8px; text-align:left; font:inherit; font-size:.95rem; color:var(--text);
+    background:var(--surface); border:1px solid var(--border-strong); border-radius:8px; padding:7px 10px; cursor:pointer; min-height:2.4rem; }
+  a2ui-choicepicker:not(.open) .a2ui-chip-selected::after, a2ui-choicepicker:not(.open) .dd-empty::after {
+    content:""; width:7px; height:7px; border-right:2px solid var(--muted); border-bottom:2px solid var(--muted); transform:rotate(45deg) translateY(-2px); flex:none; }
+  a2ui-choicepicker:not(.open) .a2ui-chip-selected { overflow:hidden; }
+  a2ui-choicepicker:not(.open) .dd-empty { color:var(--muted); }
+  a2ui-choicepicker.dd-missing:not(.open) .dd-empty { background:var(--amber-tint); border-color:var(--amber); color:#7a4f0e; }
+  a2ui-choicepicker.disabled .dd-empty { cursor:not-allowed; opacity:.55; }
+  a2ui-choicepicker:not(.open) :is(.a2ui-chip-selected, .dd-empty):hover { border-color:var(--hr); }
+  a2ui-choicepicker:not(.open) :is(.a2ui-chip-selected, .dd-empty):focus-visible { outline:none; border-color:var(--hr); box-shadow:0 0 0 3px var(--hr-tint); }
+  a2ui-choicepicker.open .a2ui-filter-input { display:block; width:100%; font:inherit; font-size:.95rem; border:1px solid var(--hr); border-radius:8px 8px 0 0; padding:7px 10px; outline:none; box-shadow:0 0 0 3px var(--hr-tint); }
+  a2ui-choicepicker.open .a2ui-chips-group { position:absolute; z-index:5; left:0; right:0; max-height:240px; overflow:auto; background:var(--surface); border:1px solid var(--hr); border-top:0; border-radius:0 0 8px 8px; box-shadow:0 12px 28px rgb(24 32 43 / .16); padding:4px 0; }
+  a2ui-choicepicker.open .a2ui-chip { display:block; width:100%; text-align:left; font:inherit; font-size:.93rem; color:var(--text); background:none; border:0; padding:7px 12px; cursor:pointer; }
+  a2ui-choicepicker.open .a2ui-chip:hover, a2ui-choicepicker.open .a2ui-chip:focus-visible { background:var(--hr-tint); outline:none; }
+  a2ui-choicepicker.open .a2ui-chip-selected { font-weight:700; color:var(--hr); }
+  a2ui-choicepicker.open .dd-none { display:block; padding:7px 12px; color:var(--muted); font-size:.9rem; }
+  .sel-text { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  @media (prefers-reduced-motion:no-preference) { .slip { transition:background-color .2s; } }
+</style>
+</head>
+<body>
+  <div class="page-intro">
+    <h1>Time-off card, redesigned</h1>
+    <p>Read the shaded part in three seconds: <b>what</b>, <b>when</b>, and <b>what you'll have left</b>. Everything below it is the form, already filled by HR; change anything in place. Part days are worked out from the hours (and your words); notes live behind the ⓘ icons. The two pickers are dropdowns (type to search). Sample person: Professor Amir, department chair on a 12-month appointment. Real list from “Absence Type and Reasons.xlsx”; balances made up.</p>
+  </div>
+  <div class="wall" id="wall"></div>
+
+<script>
+const ROWS = `ADM|Administrative Leave Paid|MPA|MPP Paid Admin Leave - 42729a
+ADM|Administrative Leave Paid|MPB|MPP Paid Admin Leave - 42729b
+BNM|Bone Marrow|BNM|Bonemarrow
+BRV|Bereavement|AGC|Grandchild
+BRV|Bereavement|ASD|Child
+BRV|Bereavement|AUN|Aunt/Uncle
+BRV|Bereavement|CIL|Son-in-law/Daughter-in-law
+BRV|Bereavement|GGP|Grandparent/Great Grandparent
+BRV|Bereavement|OTH|Other
+BRV|Bereavement|PIL|Parent-/Step-Parent-in-law
+BRV|Bereavement|PSP|Parent/Step Parent
+BRV|Bereavement|SBS|Sibling/Sibling-In-Law
+BRV|Bereavement|SDP|Spouse/Domestic Partner
+CAT|Catastrophic Leave|10|Catastrophic Leave
+CFR|California Family Rights Act|NON|None
+CIT|Citizens Necessity|CIT|Citizens Necessity
+CPD|Pregnancy Disability|NON|None
+DCK|Dock|DCK|Dock
+DCK|Dock|WTS|Witness for Non CSU
+ECL|Ed Code Maternity Leave|NON|None
+EMR|Emergency Leave|10|Emergency Leave
+FML|Family Medical Leave|NON|None
+HCD|Holiday Credit Leave|10|Holiday Credit Leave
+HTO|Holiday Time off Leave|10|Holiday Time off Leave
+JRY|Jury Duty|JRY|Jury Duty
+MAT|Maternity Leave|10|Maternity Leave
+MIL|Family Medical Leave Military|NON|None
+MLA|Military leave - Employee|MLA|Military leave - Employee
+MLD|Military Spouse/Dom Leave|MLD|Military Spouse/Dom Leave
+MPA|Maternity/Paternity/Adoption|MPA|Maternity/Paternity/Adoption
+ODL|Organ Donor Leave|ODL|Organ Donor Leave
+OTH|Other|10|Other
+OTH|Other|20|Compassionate Leave
+OTH|Other|30|Relative Passed Away
+OTH|Other|40|Bereavement
+PDL|Professional Development|PDL|Professional Development
+PHL|Personal Holiday|PHL|Personal Holiday
+PTO|Personal Time off days|10|Personal Time off days
+RPP|Reproductive Loss Leave|10|Reproductive Loss Leave
+SCK|Sick Leave|BRV|Bereavement
+SCK|Sick Leave|FAM|Family Care
+SCK|Sick Leave|SCK|Sick Personal
+SVR|Service Member Care|NON|None
+TMP|Temp Suspension Leave|10|Temp Suspension Leave
+UBR|Union Business Release Time|UBR|Union Business Release Time
+UNL|Union Leave|UNL|Union Leave
+VAC|Vacation|VAC|Vacation
+VAC|Vacation|WTS|Witness for Non CSU
+VCT|Victim Leave|10|Victim Leave
+VOT|Voting|VOT|Voting
+WTS|Witness|WTS|Witness for CSU`.split('\n').map((l) => { const [type, name, code, reason] = l.split('|'); return { type, name, code, reason }; });
+const NAMES = [...new Map(ROWS.map((r) => [r.type, r.name])).entries()];
+const reasonsOf = (type) => ROWS.filter((r) => r.type === type);
+const defaultReason = (type, rs) => (rs.length === 1 ? rs[0] : rs.find((r) => r.reason === r.name))?.code ?? null;
+const BAL = { VAC: ['vacation', 96], SCK: ['sick leave', 120], PHL: ['personal holiday', 8] };
+const DAY = 8;
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const FR = { 0.25: '¼', 0.5: '½', 0.75: '¾' };
+const days = (h) => { const d = h / DAY, w = Math.floor(d), f = +(d - w).toFixed(2); const s = f ? `${w || ''}${FR[f] ?? f.toString().slice(1)}` : `${w}`; return `${s} ${d <= 1 ? 'day' : 'days'}`; };
+const fmt = (iso) => new Date(iso + 'T12:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+
+// The ChoicePicker as the A2UI 0.9 renderer draws it (filter input + chip buttons), opened/closed by our script.
+function picker({ options, value, empty, missing, disabled, onPick, label }) {
+  const host = el('a2ui-choicepicker');
+  if (missing && !value) host.classList.add('dd-missing');
+  if (disabled) host.classList.add('disabled');
+  let filter = '';
+  const input = el('input', 'a2ui-filter-input'); input.type = 'text'; input.placeholder = 'Type to search…'; input.setAttribute('aria-label', `Search ${label}`);
+  const group = el('div', 'a2ui-choice-picker a2ui-chips-group');
+  const blank = el('button', 'dd-empty'); blank.type = 'button'; blank.append(el('span', 'sel-text', empty)); blank.hidden = !!value; blank.setAttribute('aria-label', `${label}: ${empty}`);
+  const close = () => { host.classList.remove('open'); filter = ''; input.value = ''; draw(); };
+  const open = () => { if (disabled) return; host.classList.add('open'); input.focus(); };
+  function draw() {
+    group.replaceChildren();
+    const shown = options.filter((o) => !filter || o.label.toLowerCase().includes(filter.toLowerCase()));
+    for (const o of shown) {
+      const on = o.value === value;
+      const b = el('button', 'a2ui-chip' + (on ? ' a2ui-chip-selected' : '')); b.type = 'button'; b.append(el('span', 'sel-text', o.label));
+      b.setAttribute('aria-pressed', String(on));
+      if (on) b.setAttribute('aria-label', `${label}: ${o.label}`);
+      b.onclick = () => host.classList.contains('open') ? (close(), onPick(o.value)) : open();
+      group.append(b);
+    }
+    if (!shown.length) group.append(el('div', 'dd-none', 'No matches.'));
+  }
+  input.oninput = () => { filter = input.value; draw(); };
+  host.addEventListener('keydown', (e) => { if (e.key === 'Escape') { close(); (host.querySelector('.a2ui-chip-selected') || blank).focus(); } });
+  blank.onclick = open;
+  document.addEventListener('mousedown', (e) => { if (host.isConnected && !host.contains(e.target)) close(); });
+  host.append(input, blank, group); draw();
+  return host;
+}
+
+let tipN = 0;
+function info(text) {
+  const w = el('span', 'info'); const id = `tip-${++tipN}`;
+  const b = el('button', null, 'i'); b.type = 'button'; b.setAttribute('aria-label', 'More information'); b.setAttribute('aria-describedby', id); b.setAttribute('aria-expanded', 'false');
+  b.onclick = () => b.setAttribute('aria-expanded', String(b.getAttribute('aria-expanded') !== 'true'));
+  b.onblur = () => b.setAttribute('aria-expanded', 'false');
+  const t = el('span', null, text); t.id = id; t.setAttribute('role', 'tooltip');
+  w.append(b, t); return w;
+}
+// Things the manager will need (shown in an info icon, nothing is uploaded).
+const PROOF = { JRY: 'Your manager will need a copy of your jury summons or certificate of service.', WTS: 'Your manager will need a copy of the subpoena.', MLA: 'Your manager will need a copy of your military orders.' };
+const NOTE_PRIVACY = 'Your manager, your timekeeper and Payroll Services can read this note. For anything confidential, talk to your manager directly.';
+// Partial days are read from the hours (and the words when both readings fit).
+function workdays(a, b) { let n = 0; for (let d = new Date(a + 'T12:00'); d <= new Date(b + 'T12:00'); d.setDate(d.getDate() + 1)) { const w = d.getDay(); if (w && w < 6) n++; } return n; }
+function spread(st) {
+  const N = workdays(st.from, st.to), H = st.hours;
+  if (H === N * DAY) return { kind: 'full', N };
+  if (N === 1) return { kind: 'one', N };
+  const all = H / N < DAY, start = H > DAY * (N - 1) && H < DAY * N;
+  if (all && start) return { kind: st.partial ?? 'ask', N };
+  return { kind: all ? 'all' : start ? 'start' : 'bad', N };
+}
+const hrsTxt = (h) => `${h} ${h === 1 ? 'hour' : 'hours'}`;
+
+const CASES = [
+  { title: '“My grandmother passed away…”', said: 'I want to file for time off. My grandmother passed away, and I need this Thursday and Friday for the funeral.',
+    lead: "I'm sorry for your loss. Check it and submit.", type: 'BRV', code: 'GGP', from: '2026-11-05', to: '2026-11-06', hours: 16, quote: 'My grandmother passed away' },
+  { title: '“Leaving at noon Thursday, out Friday” (part day + full day)', said: "I want to file for time off. I'm not feeling well, I'm leaving at noon on Thursday and I'll be out Friday",
+    lead: 'Feel better soon. Check it and submit.', type: 'SCK', code: 'SCK', from: '2026-11-05', to: '2026-11-06', hours: 12, partial: 'start', startAt: '12:00', quote: "I'm not feeling well" },
+  { title: '“I need Friday off” (no reason given)', said: 'I need Friday off',
+    lead: 'What kind of time off is this? Pick it below or tell me in the chat.', type: null, code: null, from: '2026-11-06', to: '2026-11-06', hours: 8 },
+  { title: '“I have jury duty Monday and Tuesday”', said: 'I want to file for time off, I have jury duty next Monday and Tuesday',
+    lead: 'Check it and submit.', type: 'JRY', code: 'JRY', from: '2026-11-09', to: '2026-11-10', hours: 16, quote: 'I have jury duty' },
+];
+
+for (const c of CASES) {
+  const st = { ...c };
+  const wrap = el('section', 'case'); wrap.append(el('h2', null, c.title), el('div', 'me', c.said));
+  const card = el('article', 'card'); wrap.append(card);
+  document.getElementById('wall').append(wrap);
+
+  const draw = () => {
+    card.replaceChildren();
+    const head = el('div', 'head'); head.append(el('span', null, 'HR · Time off'), el('time', null, '08:29')); card.append(head, el('p', 'lead', st.lead));
+    const name = st.type ? NAMES.find(([t]) => t === st.type)[1] : null;
+    const rs = st.type ? reasonsOf(st.type) : [];
+    const r = rs.find((x) => x.code === st.code);
+
+    // 3-second zone
+    const slip = el('section', 'slip'); slip.setAttribute('aria-label', 'Summary');
+    const what = el('div');
+    const wr = el('div', 'what-row'); wr.append(el('p', 'what' + (name ? '' : ' empty'), name ?? 'Choose the kind of leave'));
+    if (PROOF[st.type]) wr.append(info(PROOF[st.type]));
+    what.append(wr);
+    if (r && r.reason !== name && r.reason !== 'None') what.append(el('p', 'why', r.reason));
+    const sp = spread(st);
+    const when = el('p', 'when');
+    const span = st.from === st.to ? fmt(st.from) : `${fmt(st.from)} to ${fmt(st.to)}`;
+    if (sp.kind === 'full') when.append(el('b', null, span), `, ${days(st.hours)}`);
+    else if (sp.kind === 'one') when.append(el('b', null, span), `, ${hrsTxt(st.hours)}${st.part ? `, ${st.part}` : ''}`);
+    else if (sp.kind === 'start') { const first = st.hours - DAY * (sp.N - 1); when.append(el('b', null, `${fmt(st.from)}${st.startAt ? ` from ${st.startAt}` : ''}`), ` (${hrsTxt(first)}), then `, el('b', null, sp.N === 2 ? fmt(st.to) : `the next ${sp.N - 1} days`), ` in full`); }
+    else if (sp.kind === 'all') when.append(el('b', null, span), `, ${hrsTxt(+(st.hours / sp.N).toFixed(2))} each day`);
+    else if (sp.kind === 'ask') when.append(el('b', null, span), `, ${hrsTxt(st.hours)} — HR will ask how to spread them`);
+    else when.append(el('b', null, span), `, ${hrsTxt(st.hours)} is more than these days allow`);
+    slip.append(what, when);
+    const imp = el('div', 'impact');
+    if (!st.type) imp.append(el('p', 'free', 'Your balance shows here once you choose the kind of leave.'));
+    else if (!BAL[st.type]) imp.append(el('p', 'free', `${name} doesn't use your vacation or sick leave.`));
+    else {
+      const [what2, now] = BAL[st.type]; const used = Math.min(st.hours, now); const after = now - used;
+      const left = el('p', 'left'); left.append(el('span', 'n', days(after).split(' ')[0]), el('span', 't', `${days(after).split(' ')[1]} of ${what2} left after this`));
+      const bar = el('div', 'bar'); bar.setAttribute('aria-hidden', 'true');
+      const k = el('div', 'keep'); k.style.width = `${(after / now) * 100}%`; const u = el('div', 'use'); u.style.width = `${(used / now) * 100}%`; bar.append(k, u);
+      const lab = el('div', 'bar-labels'); lab.append(el('span', null, `You have ${days(now)} now`), el('span', null, `this request: ${days(used)}`));
+      imp.append(left, bar, lab);
+    }
+    slip.append(imp);
+    card.append(slip);
+    if (st.quote && st.type === c.type) card.append(el('p', 'because', `Picked from what you wrote: “${st.quote}”.`));
+
+    // form
+    const form = el('div', 'form');
+    const f1 = el('div', 'field'); const l1 = el('span', 'lbl'); l1.append('Kind of leave', el('span', 'req', '*')); f1.append(l1);
+    const pair = el('div', 'pair');
+    pair.append(picker({ label: 'Absence name', options: NAMES.map(([v, label]) => ({ value: v, label })), value: st.type, empty: 'Absence name', missing: true,
+      onPick: (v) => { if (v !== st.type) { st.type = v; st.code = defaultReason(v, reasonsOf(v)); } draw(); } }));
+    pair.append(picker({ label: 'Reason', options: rs.map((x) => ({ value: x.code, label: x.reason })), value: st.code, empty: st.type ? 'Reason' : 'Reason (pick a name first)',
+      missing: !!st.type, disabled: !st.type, onPick: (v) => { st.code = v; draw(); } }));
+    f1.append(pair); form.append(f1);
+    const f2 = el('div', 'field'); const l2 = el('span', 'lbl'); l2.append('Dates and hours', el('span', 'req', '*')); f2.append(l2);
+    const dates = el('div', 'dates');
+    const d1 = el('input', 'in'); d1.type = 'date'; d1.value = st.from; d1.setAttribute('aria-label', 'First day'); d1.onchange = () => { st.from = d1.value; draw(); };
+    const d2 = el('input', 'in'); d2.type = 'date'; d2.value = st.to; d2.setAttribute('aria-label', 'Last day'); d2.onchange = () => { st.to = d2.value; draw(); };
+    const h = el('label', 'hrs'); const hi = el('input', 'in'); hi.type = 'number'; hi.min = '0.25'; hi.step = '0.25'; hi.value = st.hours; hi.onchange = () => { st.hours = Number(hi.value) || 0; st.startAt = null; st.part = null; draw(); }; // a time from the words no longer fits edited hours
+    h.append(hi, el('span', null, 'hours'));
+    dates.append(d1, el('span', 'to', 'to'), d2, h); f2.append(dates); form.append(f2);
+    const f3 = el('div', 'field'); const l3 = el('label', null, 'Note for your manager (optional)'); const ta = el('textarea', 'in'); ta.rows = 1; l3.htmlFor = ta.id = `note-${CASES.indexOf(c)}`; const l3w = el('div'); l3w.style.display = 'flex'; l3w.style.alignItems = 'center'; l3w.style.marginBottom = '5px'; l3.style.margin = '0'; l3w.append(l3, info(NOTE_PRIVACY)); f3.append(l3w, ta); form.append(f3);
+    const act = el('div', 'actions'); const sb = el('button', 'btn', 'Submit request'); sb.disabled = !(st.type && st.code); act.append(sb, el('button', 'btn ghost', 'Cancel')); form.append(act);
+    card.append(form);
+  };
+  draw();
+}
+</script>
+</body>
+</html>

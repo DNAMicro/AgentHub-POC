@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { startFakeAnthropic, messageReply } from './support/fake-anthropic.js';
 import { readDates, readPartial, readRequest } from '../src/hr-intent.js';
-import { chooseAbsence, hrStatus } from '../src/hr-model.js';
+import { chooseAbsence, hrStatus, reasonForRelative, verify } from '../src/hr-model.js';
 
 const run = promisify(execFile);
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -99,51 +99,214 @@ test('readPartial: times, parts of the day, hours', () => {
   assert.equal(readPartial('leaving at 5pm'), null, 'nothing left of the day');
 });
 
-test('mock chooseAbsence: labelled heuristic with a quote from the words', async () => {
+test('mock chooseAbsence: labelled heuristic proposes a pair; code verifies it and picks BRV/SCK reasons', async () => {
   const r = await chooseAbsence({ text: 'My grandmother passed away' });
-  assert.equal(r.absenceName, 'Bereavement/Funeral');
+  assert.equal(r.absenceType, 'BRV');
+  assert.equal(r.absenceReason, 'GGP');
   assert.equal(r.quote, 'grandmother passed away');
-  assert.equal(r.relationship, 'grandmother');
   assert.match(r.model, /mock heuristic/);
   assert.equal(hrStatus().mode, 'mock');
   const self = await chooseAbsence({ text: 'I am sick, need Friday off' });
-  assert.equal(self.absenceName, 'Sick – Self');
-  assert.equal(self.relationship, '');
+  assert.deepEqual([self.absenceType, self.absenceReason], ['SCK', 'SCK']);
   const fam = await chooseAbsence({ text: 'My mother is sick, out Tuesday' });
-  assert.equal(fam.absenceName, 'Sick – Family Care');
-  assert.equal(fam.relationship, 'mother');
-  assert.equal((await chooseAbsence({ text: 'jury duty on Monday' })).absenceName, 'Jury Duty');
-  assert.equal((await chooseAbsence({ text: 'going to a conference' })).absenceName, 'Professional Development');
-  assert.equal((await chooseAbsence({ text: 'a personal holiday please' })).absenceName, 'Personal Holiday');
-  assert.equal((await chooseAbsence({ text: 'taking a vacation' })).absenceName, 'Vacation');
+  assert.deepEqual([fam.absenceType, fam.absenceReason], ['SCK', 'FAM']);
+  for (const [text, type, reason] of [
+    ['jury duty on Monday', 'JRY', 'JRY'], ['going to a conference', 'PDL', 'PDL'], ['a personal holiday please', 'PHL', 'PHL'],
+    ['taking a vacation', 'VAC', 'VAC'], ['I need Friday off', '', ''],
+  ]) {
+    const c = await chooseAbsence({ text });
+    assert.deepEqual([c.absenceType, c.absenceReason], [type, reason], text);
+  }
   const none = await chooseAbsence({ text: 'I need Friday off' });
-  assert.equal(none.absenceName, '');
   assert.equal(none.quote, '');
+});
+
+test('grandmother maps to GGP', () => {
+  assert.equal(reasonForRelative('my grandmother passed away'), 'GGP');
+  assert.equal(reasonForRelative('my great-grandfather died'), 'GGP');
+  assert.equal(reasonForRelative('my granddaughter'), 'AGC', 'not "daughter"');
+  assert.equal(reasonForRelative('my grandson'), 'AGC', 'not "son"');
+});
+
+test('mother-in-law before mother', () => {
+  assert.equal(reasonForRelative("my mother-in-law's funeral"), 'PIL');
+  assert.equal(reasonForRelative('my stepfather-in-law died'), 'PIL');
+  assert.equal(reasonForRelative('my son-in-law died'), 'CIL');
+  assert.equal(reasonForRelative('my sister-in-law died'), 'SBS');
+  assert.equal(reasonForRelative('my mother died'), 'PSP');
+  assert.equal(reasonForRelative('my stepmother died'), 'PSP');
+});
+
+test('reasonForRelative: the fixed map; no relative or two different relatives → null', () => {
+  for (const [text, code] of [
+    ['my son', 'ASD'], ['our kid', 'ASD'], ['my aunt', 'AUN'], ['my uncle', 'AUN'], ['my wife', 'SDP'], ['my husband', 'SDP'],
+    ['my partner', 'SDP'], ['my brother', 'SBS'], ['my cousin', 'OTH'], ['my niece', 'OTH'], ['my nephew', 'OTH'], ['my dad', 'PSP'],
+  ]) assert.equal(reasonForRelative(text), code, text);
+  for (const text of ['I need Friday off for a funeral', 'person and reason', 'kidding', 'childcare', 'my mother and my aunt died']) assert.equal(reasonForRelative(text), null, text);
+});
+
+test('cousin maps to Other', async () => {
+  const c = await chooseAbsence({ text: 'my cousin passed away' });
+  assert.equal(c.absenceType, 'BRV');
+  assert.equal(c.absenceReason, 'OTH', 'Other — never a closer-looking relative');
+});
+
+test('funeral with no relative leaves reason empty', async () => {
+  const c = await chooseAbsence({ text: 'I need Friday off for a funeral' });
+  assert.deepEqual([c.absenceType, c.absenceReason], ['BRV', '']);
+  const r = await readRequest({ text: 'I need Friday off for a funeral', now: MON });
+  assert.deepEqual(r.prefill, { absenceType: 'BRV', absenceReason: '', beginDate: '2026-11-06', endDate: '2026-11-06' });
+  assert.deepEqual(r.missing, ['absenceReason'], 'the reason is asked for, never guessed');
+});
+
+test('sick with my son is family care', async () => {
+  const c = await chooseAbsence({ text: 'My son is sick, I need Friday off' });
+  assert.deepEqual([c.absenceType, c.absenceReason], ['SCK', 'FAM']);
+  const r = await readRequest({ text: 'My son is sick, I need Friday off', now: MON });
+  assert.deepEqual(r.missing, []);
+});
+
+test('Sick Leave is Family Care only when the relative is tied to the illness or the care', async () => {
+  const sck = (text, quote) => verify(text, { pair: 'SCK:SCK', quote, note: '' }).absenceReason;
+  assert.equal((await chooseAbsence({ text: "I'm sick, my partner will cover class" })).absenceReason, 'SCK', 'a relative merely mentioned');
+  assert.equal(sck("I'm sick, my partner will cover class", 'sick'), 'SCK');
+  assert.equal((await chooseAbsence({ text: 'my son is sick, I need to stay home with him Friday' })).absenceReason, 'FAM');
+  assert.equal(sck("I'm taking care of my mother tomorrow", 'taking care of'), 'FAM', 'the model/mock chose SCK; code ties the care to the relative');
+  assert.equal(verify("I'm taking care of my mother tomorrow", { pair: 'SCK:FAM', quote: 'taking care of', note: '' }).absenceReason, 'FAM');
+  assert.equal(sck("I have a doctor's appointment, my wife will drive me", 'appointment'), 'SCK', 'the appointment clause has no relative');
+  assert.equal((await chooseAbsence({ text: "I have a doctor's appointment, my wife will drive me" })).absenceReason, 'SCK');
+  assert.equal(sck("my daughter's fever, out Friday", 'fever'), 'FAM');
+  assert.equal(sck('looking after my dad Friday', 'looking after'), 'FAM');
+  assert.equal(sck('I am sick and my kids are fine', 'sick'), 'SCK');
+});
+
+test('verify: type must exist and the quote must be in the words; reasons by code', () => {
+  const v = (text, pair, quote = text) => { const r = verify(text, { pair, quote, note: '' }); return [r.absenceType, r.absenceReason]; };
+  assert.deepEqual(v('my uncle died', 'BRV:GGP', 'uncle died'), ['BRV', 'AUN'], 'BRV reason from the words, not the model');
+  assert.deepEqual(v('a funeral', 'BRV:GGP', 'funeral'), ['BRV', ''], 'no relative named: empty');
+  assert.deepEqual(v('I am sick', 'SCK:FAM', 'sick'), ['SCK', 'SCK'], 'no relative: Sick Personal (never the model’s FAM)');
+  assert.deepEqual(v('my daughter is sick', 'SCK:SCK', 'sick'), ['SCK', 'FAM']);
+  assert.deepEqual(v('sick leave for bereavement', 'SCK:BRV', 'bereavement'), ['SCK', 'BRV']);
+  assert.deepEqual(v('I am sick', 'SCK:BRV', 'sick'), ['SCK', 'SCK'], 'SCK:BRV only when the words say bereavement');
+  assert.deepEqual(v('taking a vacation', 'VAC:WTS', 'vacation'), ['VAC', 'WTS'], 'another type: the model’s reason when it is a real pair');
+  assert.deepEqual(v('taking a vacation', 'VAC:GGP', 'vacation'), ['VAC', 'VAC'], 'not a pair: the default reason');
+  assert.deepEqual(v('a training day', 'OTH:99', 'training'), ['OTH', '10']);
+  assert.deepEqual(v('jury', 'XXX:JRY', 'jury'), ['', ''], 'unknown type');
+  assert.deepEqual(v('I need Friday off', 'VAC:VAC', 'vacation'), ['', ''], 'quote not in the words');
+  assert.deepEqual(v('I need Friday off', 'VAC:VAC', ''), ['', ''], 'empty quote');
 });
 
 test('readRequest: combines the reading and lists what is still missing', async () => {
   const r = await readRequest({ text: 'My grandmother passed away, I need Thursday and Friday off', now: MON });
-  assert.deepEqual(r.prefill, { absenceName: 'Bereavement/Funeral', beginDate: '2026-11-05', endDate: '2026-11-06', hours: undefined, relationship: 'grandmother', note: '' });
+  assert.deepEqual(r.prefill, { absenceType: 'BRV', absenceReason: 'GGP', beginDate: '2026-11-05', endDate: '2026-11-06' });
   assert.equal(r.quote, 'grandmother passed away');
   assert.equal(r.partial, null);
+  assert.equal(r.startAt, null);
+  assert.equal(r.side, null);
   assert.deepEqual(r.missing, []);
 
   const m = await readRequest({ text: 'I need Friday off', now: MON });
-  assert.equal(m.prefill.absenceName, '');
+  assert.equal(m.prefill.absenceType, '');
   assert.equal(m.prefill.beginDate, '2026-11-06');
-  assert.deepEqual(m.missing, ['absenceName']);
+  assert.deepEqual(m.missing, ['absenceType'], 'no type: the reason is not asked separately');
 
   const d = await readRequest({ text: 'I am sick', now: MON });
   assert.deepEqual(d.missing, ['dates']);
 
-  const rel = await readRequest({ text: 'I need Friday off for a funeral', now: MON });
-  assert.equal(rel.prefill.absenceName, 'Bereavement/Funeral');
-  assert.deepEqual(rel.missing, ['relationship'], 'a relationship is asked for only when the absence needs one');
-
   const p = await readRequest({ text: 'I was sick yesterday afternoon', now: TUE });
   assert.equal(p.prefill.beginDate, '2026-11-02');
   assert.equal(p.partial.hours, 4);
+  assert.equal(p.startAt, null, '“afternoon” says no leaving time');
   assert.equal(p.prefill.hours, undefined, 'the store computes hours');
+
+  const leave = await readRequest({ text: "I'm sick, leaving at 2pm Friday", now: MON });
+  assert.deepEqual([leave.partial, leave.startAt, leave.side], [{ mode: 'start_day_only', hours: 3 }, '14:00', null]);
+  const early = await readRequest({ text: 'leaving 2 hours early Friday', now: MON });
+  assert.equal(early.startAt, '15:00');
+  const arr = await readRequest({ text: 'coming in at 10am Monday', now: TUE });
+  assert.deepEqual([arr.partial, arr.startAt, arr.side], [{ mode: 'start_day_only', hours: 2, side: 'arrive' }, null, 'arrive']);
+});
+
+// ---- part days over several days (R1-strict) ------------------------------------------------------
+// The partial day's hours follow Rule A as before: leaving at noon = 17:00 − 12:00 = 5 hours.
+test('noon Thursday out Friday is start day only', async () => {
+  const r = await readRequest({ text: "I'm not feeling well, I'm leaving at noon on Thursday and I'll be out Friday", now: TUE });
+  assert.equal(r.prefill.beginDate, '2026-11-05');
+  assert.equal(r.prefill.endDate, '2026-11-06');
+  assert.deepEqual(r.partial, { mode: 'start_day_only', hours: 5 });
+  assert.equal(r.startAt, '12:00');
+  assert.equal(r.side, null);
+  assert.deepEqual([r.prefill.absenceType, r.prefill.absenceReason], ['SCK', 'SCK']);
+  assert.deepEqual(r.missing, []);
+  const early = await readRequest({ text: "Leaving 2 hours early Thursday and I won't be in Friday", now: TUE });
+  assert.deepEqual([early.partial, early.startAt, early.prefill.endDate], [{ mode: 'start_day_only', hours: 2 }, '15:00', '2026-11-06']);
+  const late = await readRequest({ text: 'Coming in at 10am Thursday, out Friday', now: TUE });
+  assert.deepEqual([late.partial, late.startAt, late.side], [{ mode: 'start_day_only', hours: 2, side: 'arrive' }, null, 'arrive']);
+  // Friday then Monday: the weekend between is no gap.
+  const fm = await readRequest({ text: 'Leaving at 3pm Friday and out Monday', now: TUE });
+  assert.deepEqual([fm.prefill.beginDate, fm.prefill.endDate, fm.partial?.hours], ['2026-11-06', '2026-11-09', 2]);
+});
+
+test('leaving at noon today and out tomorrow: the same first-day shape (today is the first day)', async () => {
+  // Not pinned by any earlier test; the earlier pinned case has no day in the cue clause (below) and stays null.
+  const r = await readRequest({ text: 'leaving at noon today and out tomorrow', now: MON });
+  assert.deepEqual([r.prefill.beginDate, r.prefill.endDate, r.partial, r.startAt], ['2026-11-02', '2026-11-03', { mode: 'start_day_only', hours: 5 }, '12:00']);
+  const pinned = await readRequest({ text: "I'm sick, leaving at noon, and out tomorrow too", now: MON });
+  assert.equal(pinned.partial, null);
+});
+
+test('first-day part day: anything else is full days (null)', async () => {
+  for (const text of [
+    'out Thursday and Friday, leaving at noon Friday', // the cue is on the LAST day
+    'leaving at noon Friday and out Thursday', // the cue's day is not the first
+    'leaving at noon Thursday and at 3 Friday', // two cues
+    'leaving at noon Thursday and Friday', // Friday is not said to be "out"
+    "leaving at noon Thursday but I won't be out Friday", // negated
+    'leaving at noon Thursday and out Monday', // a gap (Friday)
+    'leaving at noon Tuesday Nov 10 and out Wednesday', // Nov 11 is a holiday: not two workdays
+    'leaving at noon Thursday and out Friday, maybe', // correction word
+    'leaving at noon Thursday and out Friday, sorry 1pm', // a number after the cue
+    'My kid is sick, leaving 2 hours early Thursday and out Friday', // someone else's leaving
+    'students leave at noon Thursday and I am out Friday', // not the professor's time
+    'out this afternoon and tomorrow', // pinned (N1): “tomorrow” alone is not said to be out
+  ]) {
+    const r = await readRequest({ text, now: TUE });
+    assert.equal(r.partial, null, text);
+    assert.equal(r.startAt, null, text);
+  }
+});
+
+test('two cues over two days gives full days', async () => {
+  const r = await readRequest({ text: 'leaving at noon Thursday and at 3 Friday', now: TUE });
+  assert.equal(r.partial, null);
+  assert.ok(!r.missing.includes('absenceReason'));
+});
+
+test('four hours each day', async () => {
+  const r = await readRequest({ text: '4 hours each day Mon to Wed next week', now: TUE });
+  assert.equal(r.prefill.beginDate, '2026-11-09');
+  assert.equal(r.prefill.endDate, '2026-11-11');
+  assert.deepEqual(r.partial, { mode: 'all_days', hours: 4 });
+  assert.equal(r.startAt, null);
+  const a = await readRequest({ text: '4 hours a day next Mon to Wed', now: TUE });
+  assert.deepEqual([a.prefill.beginDate, a.prefill.endDate, a.partial], ['2026-11-09', '2026-11-11', { mode: 'all_days', hours: 4 }]);
+  for (const [text, hours] of [['Out Mon to Wed next week, 4.5 hours per day', 4.5], ['three hours every day Thursday and Friday', 3], ['I need 2 hours off each day Thursday and Friday', 2]]) {
+    assert.deepEqual((await readRequest({ text, now: TUE })).partial, { mode: 'all_days', hours }, text);
+  }
+  // "next week" read on a Monday too: the following week, never today.
+  assert.equal((await readRequest({ text: '4 hours each day Mon to Wed next week', now: MON })).prefill.beginDate, '2026-11-09');
+});
+
+test('“N hours a day” only when explicit, in a range, and alone', async () => {
+  for (const text of [
+    '4 hours each day Friday', // one day
+    '8 hours each day Thursday and Friday', // a full day
+    'I work 4 hours a day, out Thursday and Friday', // about work, not the absence
+    'not 4 hours a day, Thursday and Friday', // negated
+    '4 hours each day Thursday and Friday, leaving at noon', // another cue
+    '4 hours each day Thursday and Friday, or maybe 3', // correction
+    '4 hours Thursday and Friday', // not "each day"
+  ]) assert.notEqual((await readRequest({ text, now: TUE })).partial?.mode, 'all_days', text);
 });
 
 test('readPartial: "N hours" anywhere is a partial day; a time of day or a long span is not', () => {
@@ -473,7 +636,7 @@ test('changesDay (whole message, ruling): a change word anywhere + “X to Y” 
 
 test('readRequest end to end: "Off Nov 6, 4 hours, personal holiday" is a 4-hour partial day', async () => {
   const r = await readRequest({ text: 'I need time off: Off Nov 6, 4 hours, personal holiday', now: MON });
-  assert.equal(r.prefill.absenceName, 'Personal Holiday');
+  assert.deepEqual([r.prefill.absenceType, r.prefill.absenceReason], ['PHL', 'PHL']);
   assert.equal(r.prefill.beginDate, '2026-11-06');
   assert.equal(r.prefill.endDate, '2026-11-06');
   assert.deepEqual(r.partial, { mode: 'start_day_only', hours: 4 });
@@ -494,43 +657,53 @@ async function live(text, modelJson, { status = 200 } = {}) {
   });
   return JSON.parse(stdout);
 }
-const out = (o) => ({ absence_name: '', quote: '', relationship: '', note: '', ...o });
+const out = (o) => ({ pair: '', quote: '', note: '', ...o });
 
 test('live: a valid choice is kept, request carries no sampling params and uses low effort', async () => {
-  const { r, ev } = await live('My uncle died, I need Friday off', out({ absence_name: 'Bereavement/Funeral', quote: 'uncle died', relationship: 'Uncle', note: 'Back Monday' }));
-  assert.equal(r.absenceName, 'Bereavement/Funeral');
+  const { r, ev } = await live('My uncle died, I need Friday off', out({ pair: 'BRV:AUN', quote: 'uncle died', note: 'Back Monday' }));
+  assert.equal(r.absenceType, 'BRV');
+  assert.equal(r.absenceReason, 'AUN');
   assert.equal(r.quote, 'uncle died');
-  assert.equal(r.relationship, 'uncle');
   assert.equal(r.note, 'Back Monday');
   assert.deepEqual(ev, ['model_call_started', 'model_response_received']);
   const body = stub.requests[0].body;
   assert.equal(body.temperature, undefined);
   assert.equal(body.output_config.effort, 'low');
-  const enumValues = body.output_config.format.schema.properties.absence_name.enum;
-  assert.ok(enumValues.includes('') && enumValues.includes('Jury Duty'));
+  const enumValues = body.output_config.format.schema.properties.pair.enum;
+  assert.equal(enumValues.length, 52, 'the 51 pairs and ""');
+  assert.ok(enumValues.includes('') && enumValues.includes('JRY:JRY') && enumValues.includes('BRV:GGP'));
+  assert.deepEqual(Object.keys(body.output_config.format.schema.properties).sort(), ['choices', 'note', 'pair', 'quote']);
+  assert.equal(body.output_config.format.schema.properties.choices.items.enum.length, 34, 'choices: the 34 names only');
+  assert.match(body.system, /BRV:GGP = Bereavement — Grandparent\/Great Grandparent/);
 });
 
-test('live: a name that is not on the list is dropped', async () => {
-  const { r } = await live('My uncle died', out({ absence_name: 'Bereavement Leave', quote: 'uncle died' }));
-  assert.equal(r.absenceName, '');
+test('live: grandmother funeral — the reason comes from the words, never from the model', async () => {
+  const { r } = await live('My grandmother’s funeral is Friday', out({ pair: 'BRV:SDP', quote: 'funeral' }));
+  assert.deepEqual([r.absenceType, r.absenceReason], ['BRV', 'GGP']);
+  const none = (await live('I need Friday off for a funeral', out({ pair: 'BRV:GGP', quote: 'funeral' }))).r;
+  assert.deepEqual([none.absenceType, none.absenceReason], ['BRV', ''], 'no relative named: empty, never the model’s pick');
+  const fam = (await live('I am sick, out Friday', out({ pair: 'SCK:FAM', quote: 'sick' }))).r;
+  assert.deepEqual([fam.absenceType, fam.absenceReason], ['SCK', 'SCK'], 'no relative named: Sick Personal');
+});
+
+test('live: a pair that is not on the list is dropped', async () => {
+  const { r } = await live('My uncle died', out({ pair: 'BEREAVEMENT:AUN', quote: 'uncle died' }));
+  assert.equal(r.absenceType, '');
+  assert.equal(r.absenceReason, '');
   assert.equal(r.quote, '');
 });
 
 test('live: a quote that is not in the words drops the name', async () => {
-  const { r } = await live('I need Friday off', out({ absence_name: 'Bereavement/Funeral', quote: 'my uncle died' }));
-  assert.equal(r.absenceName, '');
+  const { r } = await live('I need Friday off', out({ pair: 'BRV:AUN', quote: 'my uncle died' }));
+  assert.equal(r.absenceType, '');
+  assert.equal(r.absenceReason, '');
   assert.equal(r.quote, '');
-});
-
-test('live: a relationship that is not in the words is dropped', async () => {
-  const { r } = await live('I am sick today', out({ absence_name: 'Sick – Self', quote: 'sick', relationship: 'sister' }));
-  assert.equal(r.absenceName, 'Sick – Self');
-  assert.equal(r.relationship, '');
 });
 
 test('live: a failed call returns an empty name and a sanitized code, never a guess', async () => {
   const { r, ev } = await live('I am sick today', null, { status: 429 });
-  assert.equal(r.absenceName, '');
+  assert.equal(r.absenceType, '');
+  assert.equal(r.absenceReason, '');
   assert.equal(r.error, 'rate_limited');
   assert.deepEqual(ev, ['model_call_started', 'model_call_failed']);
 });
@@ -543,4 +716,155 @@ test('final fix 6: a month with a list of bare days reads every day, or asks —
   assert.equal(readDates('Nov 5th and the 6th', MON), null, 'a day the reading can’t take is asked, not dropped');
   assert.deepEqual(readDates('Nov 5, 2026', MON), { beginDate: '2026-11-05', endDate: '2026-11-05' }, 'a year is not a day');
   assert.deepEqual(readDates('out Nov 5 and 2 students will cover', MON), null, 'a number after "and" that is not a day: asked');
+});
+
+// ---- fix round 2 (strict review): each of these was a wrong non-null reading; R1 says null / '' instead ------
+const days = async (text) => { const r = await readRequest({ text, now: TUE }); return [r.prefill.beginDate, r.prefill.endDate]; };
+
+test('C1: "next week" in another clause does not move the days', async () => {
+  for (const [text, b, e] of [
+    ["I'm sick Friday, next week I'm back", '2026-11-06', '2026-11-06'],
+    ['sick Friday, next week is fine', '2026-11-06', '2026-11-06'],
+    ["out Friday, next week I'll be in", '2026-11-06', '2026-11-06'],
+    ['out Thursday, next week we have exams', '2026-11-05', '2026-11-05'],
+    ['out Thu and Fri, next week the TA covers', '2026-11-05', '2026-11-06'],
+  ]) assert.deepEqual(await days(text), [b, e], text);
+  const too = await readRequest({ text: 'out Thursday and Friday, next week too', now: TUE });
+  assert.deepEqual([too.prefill.beginDate, too.prefill.endDate], ['', ''], 'more days next week: no dates (HR asks)');
+  assert.ok(too.missing.includes('dates'));
+  // Still read: "next week" right after or right before the day list.
+  assert.deepEqual(await days('Mon to Wed next week'), ['2026-11-09', '2026-11-11']);
+  assert.deepEqual(await days('next week, Mon to Wed'), ['2026-11-09', '2026-11-11']);
+});
+
+test('C2: the first-day shape needs the SPEAKER to be the one out on the other days', async () => {
+  for (const text of [
+    "I'm leaving at noon on Thursday and my TA is out Friday", 'leaving at noon Thursday and my wife is out Friday',
+    'leaving at noon Thursday and the students are off Friday', 'leaving at noon Thursday; Friday the class is off',
+    'leaving at noon Thursday and we are off Friday',
+  ]) {
+    const r = await readRequest({ text, now: TUE });
+    assert.equal(r.partial, null, text);
+    // Two day references the plain reader can't join: no dates (HR asks), as before this task.
+    assert.deepEqual([r.prefill.beginDate, r.prefill.endDate], ['', ''], text);
+  }
+  assert.equal((await readRequest({ text: "leaving at noon Thursday and I'll be out Friday", now: TUE })).partial?.mode, 'start_day_only');
+  assert.equal((await readRequest({ text: "leaving at noon Thursday and I'm off Friday", now: TUE })).partial?.mode, 'start_day_only');
+});
+
+test('C3: only the speaker’s own relative gives a Bereavement reason', async () => {
+  for (const text of [
+    "my friend's mother passed away, funeral Friday", "my colleague's son died, funeral Friday", "my neighbor's husband passed away, funeral Friday",
+    "a student's father died, funeral Friday", "my son's teacher passed away, funeral Friday", "my kid's friend died, funeral Friday",
+  ]) {
+    const r = await readRequest({ text, now: TUE });
+    assert.deepEqual([r.prefill.absenceType, r.prefill.absenceReason], ['BRV', ''], text);
+    assert.ok(r.missing.includes('absenceReason'), text);
+  }
+  for (const [text, code] of [
+    ["my mother's funeral is Friday", 'PSP'], ["grandma's funeral Friday", 'GGP'], ['funeral for my late husband Friday', 'SDP'],
+    ["my stepdaughter's funeral Friday", 'ASD'],
+  ]) assert.equal((await readRequest({ text, now: TUE })).prefill.absenceReason, code, text);
+});
+
+test('C4: “N hours a day” with a purpose, a non-day tail or an estimate is not the absence', async () => {
+  for (const text of [
+    '4 hours a day for meetings Thursday and Friday', 'I need 4 hours a day for meetings Thursday and Friday',
+    'for 4 hours a day Thursday and Friday the students will be in lab', '2 hours each day of class Thursday and Friday',
+    'out 2 hours each day of class Thursday and Friday', 'about 4 hours a day Thursday and Friday',
+  ]) assert.equal((await readRequest({ text, now: TUE })).partial, null, text);
+});
+
+test('I5: a first-person sick clause, or a relative who is not ill or cared for by the speaker, is Sick Personal', async () => {
+  for (const text of [
+    "I'm sick Friday so my partner is taking care of the kids", "I'm sick Friday, my mom is looking after my son",
+    "I'm ill Friday, my husband's appointment is moved", "my sister is a doctor, I'm sick Friday",
+    "I'm sick Friday, my dad's hospital called to say he's fine",
+  ]) {
+    assert.equal(verify(text, { pair: 'SCK:FAM', quote: text.match(/sick|ill/)[0], note: '' }).absenceReason, 'SCK', text);
+    assert.equal((await readRequest({ text, now: TUE })).prefill.absenceReason, 'SCK', text);
+  }
+});
+
+test('I6: a condition on the other day means no first-day shape', async () => {
+  assert.equal((await readRequest({ text: 'leaving at noon Thursday and out Friday if my flight is delayed', now: TUE })).partial, null);
+});
+
+test('I7: spaced in-law and step forms', () => {
+  assert.equal(reasonForRelative('my mother in law'), 'PIL');
+  assert.equal(reasonForRelative('my sister in law died'), 'SBS');
+  assert.equal(reasonForRelative('my step mother died'), 'PSP');
+  assert.equal(reasonForRelative('my step mother in law died'), 'PIL');
+  for (const t of ['', 'nobody', "a friend's aunt"]) assert.equal(reasonForRelative(t), null, 'string or null, never undefined');
+});
+
+test('minor: half day over two days is ambiguous; “c’mon” is not Monday', async () => {
+  assert.equal((await readRequest({ text: 'half day Thursday and Friday off', now: TUE })).partial, null);
+  assert.deepEqual(await days("c'mon, I'm sick Friday"), ['2026-11-06', '2026-11-06']);
+  assert.deepEqual(await days('cmon, I’m sick Friday'), ['2026-11-06', '2026-11-06']);
+});
+
+test('asksBalance / asksRequests: only the professor’s own leave questions fire (fix round 1)', async () => {
+  const { asksBalance, asksRequests } = await import('../src/hr-intent.js');
+  const yes = { 'how much sick leave do I have?': 'sick', "what's my vacation balance": 'vacation', 'my leave balances': 'all', 'how many vacation days do I have left': 'vacation', 'how many sick days do I have': 'sick', "what's my PTO balance": 'all', 'how many personal holiday days do I have left?': 'personalHoliday' };
+  for (const [t, kind] of Object.entries(yes)) assert.equal(asksBalance(t), kind, t);
+  for (const t of ['show my time off requests', 'list my time off requests', 'what time off have I requested', 'which leave have I filed']) assert.equal(asksRequests(t), true, t);
+  const no = ['@alex how many days do you have left to submit the homework?', '@alex your balance is low, how many days do you have left?', '@alex please check your balance on the library account', '@alex show my requests',
+    "I'm sick, how many days do I have left?", "I'm out sick next week, how many days do I have", "how many days do I have left? I'm sick and need time off", 'I feel sick, how many hours do I have left, need to leave early',
+    "my vacation balance is low so I'll take unpaid leave", "what have I submitted for the grant? and I'm sick", 'how many days are left in the semester', 'how many hours do I have left to grade? I\'m out',
+    'the balance of the exam: how many hours do students have left', 'how many days of leave do students have left', 'show my requests for the room booking', 'what have I filed for grading',
+    'I need Friday off', 'file time off for my vacation', 'show my requests', 'what have I filed', 'how much vacation do I have left before Friday'];
+  for (const t of no) { assert.equal(asksBalance(t), null, t); assert.equal(asksRequests(t), false, t); }
+});
+
+// ---- final review fixes ------------------------------------------------------------------------------------
+test('final: taking my relative to the doctor is Family Care; an unconfirmed FAM proposal is empty, never SCK', async () => {
+  for (const text of ['I am taking my son to the doctor on Friday', 'I need to take my mom to her doctor appointment Friday']) {
+    const r = await readRequest({ text, now: TUE });
+    assert.deepEqual([r.prefill.absenceType, r.prefill.absenceReason], ['SCK', 'FAM'], text);
+  }
+  assert.equal(verify('I have a thing Friday', { pair: 'SCK:FAM', quote: 'thing', note: '' }).absenceReason, '', 'HR asks');
+  assert.equal(verify('I am sick Friday', { pair: 'SCK:FAM', quote: 'sick', note: '' }).absenceReason, 'SCK', 'the speaker is sick');
+  assert.equal(verify('I have a thing Friday', { pair: 'SCK:SCK', quote: 'thing', note: '' }).absenceReason, 'SCK', 'SCK:SCK stays');
+  assert.equal(verify('my wife is taking my son to the doctor Friday', { pair: 'SCK:FAM', quote: 'doctor', note: '' }).absenceReason, '', 'someone else takes him');
+});
+
+test('final: a relative word counts only after my/our (+ late, dear, younger, …) or at the start of a clause', async () => {
+  for (const text of ['my research partner passed away', 'my business partner died', 'my sorority sister passed away', 'the father of my wife died']) {
+    const r = await readRequest({ text, now: TUE });
+    assert.deepEqual([r.prefill.absenceType, r.prefill.absenceReason], ['BRV', ''], text);
+  }
+  for (const [text, code] of [
+    ['my late husband passed away', 'SDP'], ['my younger brother died', 'SBS'], ["my mother's funeral is Friday", 'PSP'], ["grandma's funeral Friday", 'GGP'],
+  ]) assert.equal((await readRequest({ text, now: TUE })).prefill.absenceReason, code, text);
+});
+
+test('“half a day” and “half of the day” read as 4 hours, like “half day” (user report 2026-11-03)', async () => {
+  for (const t of ['taking half a day', 'out for half a day Friday', 'off half of the day Friday', 'I need half a day off']) {
+    assert.equal(readPartial(t)?.hours, 4, t);
+  }
+  const r = await readRequest({ text: 'I need to file for a leave to take my kid to school next Tuesday for half a day', now: TUE });
+  assert.equal(r.prefill.beginDate, '2026-11-10');
+  assert.equal(r.partial?.hours, 4);
+  assert.equal((await readRequest({ text: 'half a day Thursday and Friday off', now: TUE })).partial, null, 'which day? ambiguous');
+});
+
+// ---- choices when no single name fits (user rule 2026-11-03: offer the options he can pick from) ----
+test('choices: a school visit offers Vacation, Personal Holiday and Dock; a name that is chosen offers none', () => {
+  const c = (text, choices = []) => verify(text, { pair: '', quote: '', note: '', choices }).choices;
+  assert.deepEqual(c('take my kid to school next Tuesday for half a day'), ['VAC', 'PHL', 'DCK']);
+  assert.deepEqual(c("parent-teacher conference Friday"), ['VAC', 'PHL', 'DCK']);
+  assert.deepEqual(c('I need Friday off'), [], 'nothing to go on: no choices from code (HR adds its defaults)');
+  assert.deepEqual(c('a family thing Friday', ['PHL', 'VAC', 'NOPE', 'VAC', 'PTO', 'DCK']), ['PHL', 'VAC', 'PTO'], 'model choices: real names only, no repeats, at most 3');
+  assert.deepEqual(verify('my vacation Friday', { pair: 'VAC:VAC', quote: 'vacation', note: '', choices: ['PHL'] }).choices, [], 'a picked name needs no choices');
+  assert.deepEqual(c('my kid is sick at school', ['SCK']), ['SCK'], 'a sick child is not a school visit: the model choice stays');
+});
+
+test('choices: readRequest carries them (mock) and live keeps only real names', async () => {
+  const r = await readRequest({ text: 'I need to file for a leave to take my kid to school next Tuesday for half a day', now: TUE });
+  assert.equal(r.prefill.absenceType, '');
+  assert.deepEqual(r.choices, ['VAC', 'PHL', 'DCK']);
+  const { r: l } = await live('a family thing on Friday', out({ choices: ['PHL', 'XYZ', 'VAC'] }));
+  assert.equal(l.absenceType, '');
+  assert.deepEqual(l.choices, ['PHL', 'VAC']);
 });

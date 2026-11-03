@@ -43,6 +43,7 @@ const MAX_HISTORY = Number(process.env.UI_HISTORY_LIMIT ?? 1000); // bounded; ol
 const FEED_RETRY_MS = 1000;
 const PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url));
 const SHARED_FORM_MODULE = fileURLToPath(new URL('./forms.js', import.meta.url));
+const SHARED_ABSENCE_MODULE = fileURLToPath(new URL('./absence-types.js', import.meta.url));
 const ACTION_KEYS = ['name', 'surfaceId', 'sourceComponentId', 'timestamp', 'context'];
 const CONTEXT_ID_PATTERN = /^[\w-]{8,100}$/;
 const CONFIG_EVENTS = new Set(['skills_saved', 'card_notification', 'hub_registration', 'lesson_posted', 'lesson_publish_result', 'lessons_reset', 'staff_decision']); // + Part 9: the Professor's own lesson events; + HR: the Professor's staff-desk decision (no words) // specialist events not tied to a run
@@ -249,6 +250,7 @@ export async function startUiServer({ port = 4444 } = {}) {
   app.use((req, res, next) => guardHost(req, res, next));
   app.use(express.json({ limit: '64kb' }));
   app.get('/shared/forms.js', (req, res) => res.type('text/javascript').sendFile(SHARED_FORM_MODULE));
+  app.get('/shared/absence-types.js', (req, res) => res.type('text/javascript').sendFile(SHARED_ABSENCE_MODULE));
   // Each tab has its own address; the page picks the tab from the path. Only these three exist.
   app.get(['/conversation', '/activity', '/topology', '/professor'], (req, res) => res.sendFile('index.html', { root: PUBLIC_DIR }));
   app.use(express.static(PUBLIC_DIR));

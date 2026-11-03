@@ -22,11 +22,12 @@ import { createSkillService } from './agent-settings.js';
 import { loadSpecialistConfig } from './config.js';
 import { createHubLink } from './hub-link.js';
 import { apiHost, keyEnvName, useModel } from './llm.js';
-import { A2UI_EXTENSION_URI, A2UI_MIME_TYPE, BASIC_CATALOG_ID, RELATIONSHIP_REQUIRED, WORKFLOWS, buildTimeOffForm, checkTimeOffValues, isA2uiPart, validateFinal } from './forms.js';
+import { A2UI_EXTENSION_URI, A2UI_MIME_TYPE, BASIC_CATALOG_ID, WORKFLOWS, buildTimeOffForm, checkTimeOffValues, hhmm, isA2uiPart, validateFinal } from './forms.js';
 import { createFormHost } from './form-host.js';
-import { createHrStore, shortDate } from './hr-store.js';
-import { dayReferences, mentionedDays, mentionsDay, mentionsHours, readPartial, readRequest } from './hr-intent.js';
-import { hrStatus, readRelationship } from './hr-model.js';
+import { createHrStore } from './hr-store.js';
+import { CREDIT_LABEL, PROOF, STANDARD_DAY, daysText, defaultReason, isPair, nameOf, shortDate, spreadOf, titleOf, whenText, workdays } from './absence-types.js';
+import { asksBalance, asksRequests, dayReferences, mentionedDays, mentionsDay, mentionsHours, readPartial, readRequest } from './hr-intent.js';
+import { familyCare, hrStatus, reasonForRelative, selfSick } from './hr-model.js';
 
 const HOST = '127.0.0.1';
 const JSONRPC_PATH = '/a2a/jsonrpc';
@@ -53,107 +54,165 @@ export const HR_DEFAULT_SKILLS = {
     knowledge: '',
   }],
 };
-
+// Offered when the words give nothing to go on: the names that use his three leave balances.
+const DEFAULT_CHOICES = ['VAC', 'SCK', 'PHL'];
 // Fixed wording (owner-approved card copy).
 const TEXT = {
   refused: 'HR serves university staff only.',
   disabled: 'Time-off requests aren’t offered by the HR Agent right now.',
   noClient: 'I can fill in a time-off card, but your client didn’t declare A2UI v0.9 support, so I can’t show it.',
-  intro: 'Here\'s your request. Check it and submit.',
+  intro: 'Check it and submit.',
+  noName: 'What kind of time off is this? If none of these fit, pick from the dropdown below.',
   receipt: 'Sent to your manager for a decision.',
-  noCredits: 'This doesn\'t use your vacation or sick hours.',
+  badHours: 'These hours don’t fit the dates.', // same words as validateTimeOff (src/forms.js)
 };
-const INTRO_PREFIX = { 'Bereavement/Funeral': 'I\'m sorry for your loss. ', 'Sick – Bereavement': 'I\'m sorry for your loss. ', 'Sick – Self': 'Feel better soon. ' };
+const SORRY = 'I\'m sorry for your loss. ';
+// The lead line (approved mockup): no name yet → ask for it; otherwise kind words by type + reason, then
+// “Check it and submit.”
+const leadOf = (type, reason) => {
+  if (!type) return TEXT.noName;
+  if (type === 'BRV' || (type === 'SCK' && reason === 'BRV') || (type === 'OTH' && (reason === '30' || reason === '40'))) return `${SORRY}${TEXT.intro}`;
+  if (type === 'SCK' && reason === 'SCK') return `Feel better soon. ${TEXT.intro}`; // Sick Personal only
+  return TEXT.intro;
+};
 const QUESTIONS = {
-  absenceName: 'What kind of time off is this — for example vacation, sick, or a personal holiday?',
+  absenceReason: 'Which reason fits? Pick it on the card or tell me here.',
   dates: 'Which day or days?',
-  relationship: 'Who in your family is it for?',
 };
+const REASON_QUESTION = { BRV: 'Who in your family is it for?' };
+const WORKDAY_START = 8 * 60; // an arrival partial: the day starts at 08:00 (hr-intent.js)
 
 const store = createHrStore();
 let skillService = null;
 const workflowEnabled = () => skillService.policy().skills.some((s) => s.id === WORKFLOWS[WORKFLOW_ID].skillId);
 
+const hoursWord = (n) => `${Number(Number(n).toFixed(2))} ${n === 1 ? 'hour' : 'hours'}`;
+const validType = (type) => (type && nameOf(type) ? type : ''); // plan() accepts any type: check it first
+// Total hours for N workdays from a partial read in the words (store shape { mode, hours }).
+const totalOf = (days, partial) => {
+  if (partial?.mode === 'all_days') return partial.hours * days;
+  if (partial?.mode === 'start_day_only') return partial.hours + STANDARD_DAY * (days - 1);
+  return STANDARD_DAY * days;
+};
+// spreadOf's answer → the store's partial (null = full days).
+const storePartial = (spread) => {
+  if (spread.mode === 'one_day' || spread.mode === 'start_day_only') return { mode: 'start_day_only', hours: spread.first };
+  if (spread.mode === 'all_days') return { mode: 'all_days', hours: spread.each };
+  return null;
+};
+// The words' answer to the spread question. Anything else leaves it asking.
+const FIRST_DAY_ONLY = /^\s*(?:(?:yes|yeah|no)[,.!]?\s+)?(?:(?:just|only)\s+)?(?:on\s+)?(?:the\s+)?first\s+day(?:\s+only)?(?:\s*,?\s*please)?\s*[.!]?\s*$/i;
+const EACH_DAY = /^\s*(?:(?:yes|yeah|no)[,.!]?\s+)?(?:(?:the\s+)?same\s+(?:hours\s+)?)?(?:each|every)\s+day(?:\s*,?\s*please)?\s*[.!]?\s*$/i;
+export const spreadAnswer = (text) => (FIRST_DAY_ONLY.test(String(text ?? '')) ? 'start_day_only' : EACH_DAY.test(String(text ?? '')) ? 'all_days' : null);
+
 const missingOf = (v) => [
-  ...(v.absenceName ? [] : ['absenceName']),
+  ...(validType(v.absenceType) ? (isPair(v.absenceType, v.absenceReason) ? [] : ['absenceReason']) : ['absenceType']),
   ...(v.beginDate && v.endDate ? [] : ['dates']),
-  ...(RELATIONSHIP_REQUIRED.has(v.absenceName) && !v.relationship ? ['relationship'] : []),
 ];
-const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-const startTime = (hours) => {
-  const mins = 17 * 60 - Math.round(hours * 60); // a partial first day ends at 17:00 (hr-intent.js)
-  return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
-};
-const endTime = (hours) => { // an arrival partial: the day starts at 08:00 (hr-intent.js)
-  const mins = 8 * 60 + Math.round(hours * 60);
-  return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
-};
+
+// Hours and spread for the card. state: { values, cardHours (number typed on the card, or null), partial (from the
+// words, store shape, or null), mode (the words' spread choice, or null), startAt, side }.
+// → { total, spread, partial } — spread is spreadOf's answer; total null without dates.
+function spreadFor(state) {
+  const { beginDate, endDate } = state.values;
+  if (!beginDate || !endDate) return { total: null, spread: null, partial: null, days: [] };
+  const days = workdays(beginDate, endDate);
+  const total = state.cardHours ?? (days.length ? totalOf(days.length, state.partial) : null);
+  if (!days.length || total == null) return { total, spread: { mode: 'invalid' }, partial: null, days };
+  const spread = spreadOf(days.length, total, state.mode ?? state.partial?.mode ?? null);
+  return { total, spread, partial: spread.mode === 'ask' || spread.mode === 'invalid' ? null : storePartial(spread), days };
+}
+
+// A problem with the dates themselves (the store's own checks with full days), or null. A balance shortfall is not
+// one: it depends on the hours.
+function datesProblem(staffId, type, values) {
+  const p = store.plan(staffId, { absenceType: type, beginDate: values.beginDate, endDate: values.endDate, partial: null });
+  return !p.ok && p.code !== 'not_enough' ? p.reason : null;
+}
 
 // Everything the card shows, worked out by code from the values (and the store's Forecast).
-function cardFor(staffId, { values, partial, quote }) {
+function cardFor(staffId, state) {
+  const { values } = state;
+  const type = validType(values.absenceType);
   const missing = missingOf(values);
-  const hasDates = Boolean(values.beginDate && values.endDate);
-  const plan = hasDates ? store.plan(staffId, { absenceName: values.absenceName, beginDate: values.beginDate, endDate: values.endDate, partial }) : null;
-  let when = null;
-  if (hasDates) {
-    const range = values.beginDate === values.endDate ? shortDate(values.beginDate) : `${shortDate(values.beginDate)} – ${shortDate(values.endDate)}`;
-    const days = plan?.days ?? store.workdays(values.beginDate, values.endDate).length;
-    // An arrival partial is the time missed before arriving (“until 10:00”); otherwise the time from leaving (“from 15:00”).
-    const span = partial?.side === 'arrive' ? `until ${endTime(partial.hours)}` : `from ${startTime(partial?.hours)}`;
-    when = partial && plan?.hours ? `${range} · ${span} (${plural(plan.hours, 'hour')})` : days ? `${range} · ${plural(days, 'full day')}` : range;
+  const { total, spread, partial, days } = spreadFor(state);
+  let question = null;
+  let problem = null;
+  let plan = null;
+  // Holiday boundaries, no workdays, too long: shown before any spread question (the hours can't fix those).
+  const blocked = spread?.mode === 'ask' ? datesProblem(staffId, type, values) : null;
+  if (blocked) problem = blocked;
+  else if (spread?.mode === 'ask') {
+    missing.push('spread');
+    const first = total - STANDARD_DAY * (days.length - 1);
+    question = `Is that ${hoursWord(first)} on ${shortDate(days[0])} and the rest in full, or ${hoursWord(total / days.length)} each day?`;
+  } else if (spread) {
+    plan = store.plan(staffId, { absenceType: type, beginDate: values.beginDate, endDate: values.endDate, partial });
+    if (!plan.ok) problem = plan.reason;
+    else if (spread.mode === 'invalid') problem = TEXT.badHours;
   }
-  const credit = plan?.credit ?? null;
-  const question = missing.length ? QUESTIONS[missing[0]] : null;
+  // The clock is shown only while the first day is still the one the words described.
+  const wordsFirst = state.partial?.mode === 'start_day_only' && ['one_day', 'start_day_only'].includes(spread?.mode) && spread.first === state.partial.hours;
+  const startAt = wordsFirst ? state.startAt ?? null : null;
+  const side = wordsFirst ? state.side ?? null : null;
+  const when = spread && spread.mode !== 'invalid' && total != null ? whenText({ beginDate: values.beginDate, endDate: values.endDate, hours: total, spread, startAt, side }) : null;
+  // A missing name is asked in the lead line itself; the first other missing field keeps its question.
+  const first = missing.find((f) => f !== 'absenceType');
+  if (first && first !== 'spread') question = first === 'absenceReason' ? REASON_QUESTION[type] ?? QUESTIONS.absenceReason : QUESTIONS[first];
+  const credit = plan?.credit ? { type: plan.credit.type, label: CREDIT_LABEL[plan.credit.type], now: plan.credit.now, after: plan.credit.after } : null;
+  const { title, subtitle } = type ? titleOf(type, values.absenceReason) : { title: 'Time off request', subtitle: null };
   const hrCard = {
-    title: values.absenceName || 'Time off request',
-    when,
-    why: quote && values.absenceName ? `Chosen because you said “${quote}”.` : null,
-    intro: `${INTRO_PREFIX[values.absenceName] ?? ''}${TEXT.intro}`,
-    balance: credit ? { type: credit.type, now: credit.now, after: credit.after } : null,
-    note: !credit && values.absenceName && plan?.ok ? TEXT.noCredits : null,
-    missing,
-    question,
-    problem: plan && !plan.ok ? plan.reason : null,
+    title, subtitle, when,
+    why: state.quote && type ? `Picked from what you wrote: “${state.quote}”.` : null,
+    intro: leadOf(type, values.absenceReason),
+    question, problem, missing, credit,
+    // No name: the names he can pick from (pills under the lead) — the words' choices, else his three leave balances.
+    choices: type ? [] : (state.choices?.length ? state.choices : DEFAULT_CHOICES).map((t) => ({ type: t, name: nameOf(t) })),
+    proof: PROOF[type] ?? null,
+    balances: store.balances(staffId),
+    spread: spread ?? null,
+    startAt, side,
   };
-  return { hrCard, hours: plan?.hours ?? null };
+  return { hrCard, hours: total };
 }
 
-// The card's hours: the full days the store works out, or a shorter FIRST day (a partial day). Anything
-// else is refused — hours never come from the browser unchecked.
-function partialFromHours(staffId, values) {
-  const full = store.plan(staffId, { ...values, absenceName: '', partial: null });
-  if (!full.ok) return { error: full.reason };
-  const std = store.staff(staffId).standardHours;
-  const hours = Number(values.hours);
-  if (hours === full.hours) return { partial: null };
-  const first = std - (full.hours - hours);
-  if (first > 0 && first < std) return { partial: { mode: 'start_day_only', hours: first } };
-  return { error: `For these dates the hours are ${full.hours} (${plural(full.days, 'full day')}), or fewer only on the first day (more than ${full.hours - std}).` };
-}
 const pick = (v) => (Array.isArray(v) ? v[0] ?? '' : v ?? '');
 const dateOf = (v) => (typeof v === 'string' ? v.trim().slice(0, 10) : '');
+const sameSpread = (a, b) => a && b && a.beginDate === b.beginDate && a.endDate === b.endDate && Number(a.hours) === Number(b.hours);
 
 const formHost = createFormHost({
   agentId: 'hr',
   isEnabled: (workflowId) => (workflowId === WORKFLOW_ID ? workflowEnabled() : false),
   emitViz, log,
-  // Leave type details are sensitive: the relationship and the note never reach the server log.
-  logValues: (v) => (v ? { ...v, relationship: '[redacted]', note: '[redacted]' } : v),
+  // Leave details are sensitive: the reason (it can be a relationship) and the note never reach the server log.
+  logValues: (v) => (v ? { ...v, absenceReason: '[redacted]', note: '[redacted]' } : v),
   workflows: {
     [WORKFLOW_ID]: {
       build: (surfaceId, { prefill, missing }) => buildTimeOffForm(surfaceId, { prefill, missing }),
       actions: {
         // Final: the staff member is re-checked against the Hub's signature on THIS request, then the code
-        // checks, the Forecast and the record (store.submit is synchronous and idempotent by operation ID).
+        // checks, the spread, the Forecast and the record (store.submit is synchronous and idempotent by operation ID).
         async submitTimeOff(form, context, { operationId, trusted, emit }) {
           if (hubLink.verifiedStaff(trusted, form.contextId) !== form.data.staffId) return { status: 'rejected', message: 'This request belongs to another staff member.', errors: { _form: 'This request belongs to another staff member.' } };
           const v = validateFinal(WORKFLOW_ID, context);
           if (!v.ok) return { status: 'rejected', message: 'Please correct the highlighted fields.', errors: v.errors };
-          const values = { absenceName: pick(context.absenceName), beginDate: dateOf(context.beginDate), endDate: dateOf(context.endDate), relationship: String(context.relationship ?? '').trim(), note: String(context.note ?? '').trim() };
+          const values = { absenceType: pick(context.absenceType), absenceReason: pick(context.absenceReason), beginDate: dateOf(context.beginDate), endDate: dateOf(context.endDate), note: String(context.note ?? '').trim() };
+          if (!nameOf(values.absenceType) || !isPair(values.absenceType, values.absenceReason)) return { status: 'rejected', message: 'Choose a reason.', errors: { absenceReason: 'Choose a reason.' } };
+          const hours = Number(context.hours);
+          // The words' spread choice counts only for the dates and hours it was made for.
+          const decided = form.data.spread;
+          const mode = sameSpread(decided, { ...values, hours }) ? decided.mode : null;
+          const { spread, partial } = spreadFor({ values, cardHours: hours, partial: null, mode });
+          const blocked = spread.mode === 'ask' ? datesProblem(form.data.staffId, values.absenceType, values) : null;
+          if (blocked) return { status: 'rejected', message: blocked, errors: { _form: blocked } };
+          if (spread.mode === 'ask') {
+            const days = workdays(values.beginDate, values.endDate);
+            const q = `Is that ${hoursWord(hours - STANDARD_DAY * (days.length - 1))} on ${shortDate(days[0])} and the rest in full, or ${hoursWord(hours / days.length)} each day?`;
+            return { status: 'rejected', message: q, errors: { hours: q } };
+          }
+          if (spread.mode === 'invalid') return { status: 'rejected', message: TEXT.badHours, errors: { hours: TEXT.badHours } };
           const staffId = form.data.staffId;
-          const h = partialFromHours(staffId, { ...values, hours: context.hours });
-          if (h.error) return { status: 'rejected', message: h.error, errors: { hours: h.error } };
-          const r = store.submit(staffId, { ...values, partial: h.partial }, operationId);
+          const r = store.submit(staffId, { absenceType: values.absenceType, absenceReason: values.absenceReason, beginDate: values.beginDate, endDate: values.endDate, partial }, operationId);
           emit('hr_operation', { operation: 'submitTimeOff', ok: r.ok, code: r.ok ? 'sent_to_manager' : r.code });
           if (!r.ok) return { status: 'rejected', message: r.reason, errors: { _form: r.reason } };
           log('recorded time-off request', { requestId: r.receipt.requestId, hours: r.receipt.hours, status: r.receipt.status });
@@ -174,6 +233,22 @@ const reply = (ctx, text, metadata) => ({
   metadata, extensions: [], referenceTaskIds: [],
 });
 
+// Balance and request questions are answered as plain text from the store: no card, nothing filed, no model.
+const BALANCE_WORDS = { sick: 'sick leave', vacation: 'vacation', personalHoliday: 'personal holiday' };
+const hoursText = (h) => `${h} ${h === 1 ? 'hour' : 'hours'}`;
+export function balanceText(balances, which) {
+  const keys = which === 'all' ? ['sick', 'vacation', 'personalHoliday'] : [which];
+  return keys.map((k) => `You have ${daysText(balances[k])} (${hoursText(balances[k])}) of ${BALANCE_WORDS[k]}.`).join('\n');
+}
+export function requestsText(list) {
+  if (!list.length) return 'You have no time-off requests.';
+  return list.map((r) => {
+    const { subtitle } = titleOf(r.absenceType, r.absenceReason);
+    const dates = r.beginDate === r.endDate ? shortDate(r.beginDate) : `${shortDate(r.beginDate)} to ${shortDate(r.endDate)}`;
+    return `${r.requestId}: ${r.absenceName}${subtitle ? ` (${subtitle})` : ''}, ${dates}, ${hoursText(r.hours)} — sent to your manager.`;
+  }).join('\n');
+}
+
 const ledger = new Map(); // `${contextId}|${messageId}` → Promise<readRequest result>; a repeat reuses it (no second paid call)
 function readOnce(ctx, text, runId) {
   const key = `${ctx.contextId}|${ctx.userMessage.messageId}`;
@@ -188,20 +263,48 @@ function readOnce(ctx, text, runId) {
   return promise;
 }
 
+// The clock for a partial read from the words: a leaving time is in readRequest's startAt; an arrival is
+// 08:00 + hours ("until 10:00").
+const clockOf = (partial, startAt) => (partial?.side === 'arrive' ? hhmm(WORKDAY_START + Math.round(partial.hours * 60)) : startAt ?? null);
+
+// The reason the follow-up's OWN words establish for the CURRENT type (never a bare default): Bereavement → the
+// speaker's relative; Sick Leave → Bereavement (the word, Task 4's rule), Family Care, or Sick Personal for a
+// first-person sick clause.
+function reasonFromWords(type, text, read) {
+  if (type === 'BRV') return reasonForRelative(text);
+  if (type === 'SCK') {
+    if (read.prefill.absenceType === 'SCK' && read.prefill.absenceReason === 'BRV' && /\bbereavement\b/i.test(text)) return 'BRV';
+    if (familyCare(text)) return 'FAM';
+    if (selfSick(text)) return 'SCK';
+  }
+  return null;
+}
+
 // A chat message while this staff member's card is open fills that card. First the card as the staff member
 // sees it now (cardValues: the browser's current values, checked — when sent they ARE the card, so a field
 // cleared there is empty), then the words: non-empty values from the new words replace those. The card is
 // re-issued in place (supersedes the open one).
 const ADDITION = /\b(also|plus|as\s+well|too|add|another|extra)\b/i;
-function merge(open, read, text, staffId, cardValues) {
+function merge(open, read, text, cardValues) {
   const before = open.data;
-  const card = cardValues ? { absenceName: '', beginDate: '', endDate: '', relationship: '', note: '', ...cardValues } : { ...before.values };
+  const card = cardValues ? { absenceType: '', absenceReason: '', beginDate: '', endDate: '', note: '', ...cardValues } : { ...before.values };
+  const typedHours = cardValues?.hours !== undefined ? Number(cardValues.hours) : null;
   delete card.hours;
   const values = { ...card };
-  for (const f of ['absenceName', 'beginDate', 'endDate', 'relationship', 'note']) if (read.prefill[f]) values[f] = read.prefill[f];
+  // The name: the words win. The reason, checked against the CURRENT name after every change: a reason the
+  // follow-up's own words establish (Bereavement/Sick Leave: reasonFromWords; other names: the words' reason when
+  // they named the name), the card's reason if it belongs to the name, the name's default, or empty (HR asks).
+  // "actually make it sick leave" establishes no reason → '' (never Sick Personal guessed from the name).
+  const wordsType = validType(read.prefill.absenceType);
+  if (wordsType) values.absenceType = wordsType;
+  const type = values.absenceType;
+  const wordsReason = wordsType && wordsType !== 'SCK' && wordsType !== 'BRV' ? read.prefill.absenceReason : null;
+  values.absenceReason = [wordsReason, reasonFromWords(type, text, read), card.absenceReason, defaultReason(type)].find((c) => c && isPair(type, c)) ?? '';
+  for (const f of ['beginDate', 'endDate']) if (read.prefill[f]) values[f] = read.prefill[f];
+  if (read.note) values.note = read.note;
   // Dates in a follow-up, fail safe (never extended, never guessed): an addition word with a day (“also Monday”, “add
   // Wednesday”) clears them; a return-day message that isn't the one clear shape clears them; dates read cleanly
-  // replace them (the loop above); a day that couldn't be read clears them; otherwise the card's dates stay.
+  // replace them; a day that couldn't be read clears them; otherwise the card's dates stay.
   // Cleared dates make HR ask “Which day or days?”.
   const clearDates = () => { values.beginDate = ''; values.endDate = ''; };
   // A follow-up that names one of the card's CURRENT days together with other days (“Move Friday to Monday and
@@ -213,28 +316,32 @@ function merge(open, read, text, staffId, cardValues) {
   else if (namesCardDay && namesOtherDay) clearDates();
   else if (read.datesUnclear) clearDates();
   else if (!read.prefill.beginDate && mentionsDay(text)) clearDates();
-  // A name from the words that needs no relationship (e.g. bereavement → vacation) drops the one the old name needed.
-  if (values.absenceName !== card.absenceName && !RELATIONSHIP_REQUIRED.has(values.absenceName)) values.relationship = '';
-  // The CURRENT name (from the card or the words) needs a relationship: read it from these words.
-  if (!values.relationship && RELATIONSHIP_REQUIRED.has(values.absenceName)) values.relationship = readRelationship(text);
-  // The partial day: the words first; else the card's hours (a shorter first day, checked by the store);
-  // else the earlier one while the dates are unchanged.
-  const wordsKeptDates = values.beginDate === card.beginDate && values.endDate === card.endDate;
-  let kept = null;
-  if (wordsKeptDates && cardValues?.hours && values.beginDate && values.endDate) {
-    const h = partialFromHours(staffId, { ...values, hours: cardValues.hours });
-    kept = h.error ? null : h.partial;
-  } else if (wordsKeptDates && card.beginDate === before.values.beginDate && card.endDate === before.values.endDate) kept = before.partial;
-  // Hours from the words apply only to a single-day absence (a span of days is full days).
-  const single = values.beginDate && values.beginDate === values.endDate;
-  const fromWords = (single || !values.beginDate) && dayReferences(text) <= 1 ? readPartial(text) : null;
-  // Hours: a follow-up with a real hour signal (“make that 1pm”, “Actually make it a full day”, “Make it three
-  // instead”) uses its one clear value or else a full day — the old value is never kept. Without one, the hours stay.
-  const partial = mentionsHours(text) ? fromWords : (fromWords ?? kept);
-  // “Chosen because you said …” only while the name is still the one those words chose.
-  const quote = read.prefill.absenceName ? read.quote : values.absenceName === before.values.absenceName ? before.quote : null;
-  return { values, partial, quote };
+
+  // Hours. Dates changed by the words → full days (unless the words also give hours for them).
+  const datesKept = values.beginDate === card.beginDate && values.endDate === card.endDate;
+  const cardDatesAsBefore = card.beginDate === before.values.beginDate && card.endDate === before.values.endDate;
+  // The hours TYPED on the card go with the card's CURRENT dates (even dates moved on the card) unless the words
+  // set the dates themselves; spreadOf/plan then ask or refuse — they are never silently replaced by full days.
+  const cardHours = datesKept && typedHours !== null ? typedHours : null;
+  // The words' earlier spread choice holds only while the hours are the ones it was made for.
+  const sameHours = cardHours === null || cardHours === before.hours;
+  const kept = datesKept && cardDatesAsBefore
+    ? { cardHours: cardHours ?? before.cardHours ?? null, partial: sameHours ? before.partial : null, mode: sameHours ? before.mode : null, startAt: before.startAt, side: before.side }
+    : { cardHours, partial: null, mode: null, startAt: null, side: null };
+  const answer = spreadAnswer(text);
+  if (answer) return { values, ...kept, mode: answer, quote: quoteOf(read, values, before) };
+  if (mentionsHours(text)) {
+    // A real hour signal: its one clear value, or else full days — the old value is never kept.
+    let partial = null;
+    let startAt = null;
+    if (read.partial && read.prefill.beginDate === values.beginDate && read.prefill.endDate === values.endDate) ({ partial, startAt } = read);
+    else if ((!values.beginDate || values.beginDate === values.endDate) && dayReferences(text) <= 1) partial = readPartial(text);
+    return { values, cardHours: null, partial, mode: partial?.mode ?? null, startAt: clockOf(partial, startAt), side: partial?.side ?? null, quote: quoteOf(read, values, before) };
+  }
+  return { values, ...kept, quote: quoteOf(read, values, before) };
 }
+// “Picked from what you wrote …” only while the name is still the one those words chose.
+const quoteOf = (read, values, before) => (validType(read.prefill.absenceType) ? read.quote : values.absenceType === before.values.absenceType ? before.quote : null);
 
 const hrExecutor = {
   async execute(ctx, bus) {
@@ -259,6 +366,15 @@ const hrExecutor = {
     const staffId = hubLink.verifiedStaff(incoming.metadata, ctx.contextId);
     if (!staffId || !store.staff(staffId)) return send(TEXT.refused, 'refused');
     if (!workflowEnabled()) return send(TEXT.disabled, 'workflow_disabled');
+    // A question about balances or filed requests: text only. An open card stays open and unchanged.
+    const whichBalance = asksBalance(text);
+    const wantsRequests = asksRequests(text);
+    if (whichBalance || wantsRequests) {
+      const parts = [];
+      if (whichBalance) parts.push(balanceText(store.balances(staffId), whichBalance));
+      if (wantsRequests) parts.push(requestsText(store.requests(staffId)));
+      return send(parts.join('\n'), whichBalance && wantsRequests ? 'info' : whichBalance ? 'balance' : 'requests');
+    }
     if (!formHost.clientSupportsForms(incoming)) return send(TEXT.noClient, 'workflow_unsupported_client');
 
     const read = await readOnce(ctx, text, runId);
@@ -268,17 +384,27 @@ const hrExecutor = {
     const followUp = open && openId !== same && open.data.staffId === staffId;
     // The open card's current values, if the Professor sent them with this follow-up (checked again here).
     const cardValues = followUp && incoming.metadata?.formValues !== undefined ? checkTimeOffValues(incoming.metadata.formValues) : null;
-    const state = followUp ? merge(open, read, text, staffId, cardValues?.ok ? cardValues.values : null) : { values: { ...read.prefill }, partial: read.partial, quote: read.quote };
-    delete state.values.hours; // hours always come from the store
+    const state = followUp
+      ? merge(open, read, text, cardValues?.ok ? cardValues.values : null)
+      : {
+        values: { ...read.prefill, absenceType: validType(read.prefill.absenceType), note: read.note ?? '' },
+        cardHours: null, partial: read.partial, mode: read.partial?.mode ?? null,
+        startAt: clockOf(read.partial, read.startAt), side: read.side ?? null, quote: read.quote,
+      };
+    // Choices when no single name fits: this message's, else the ones the open card already offered.
+    state.choices = read.choices?.length ? read.choices : followUp ? open.data.choices ?? [] : [];
+    if (!isPair(state.values.absenceType, state.values.absenceReason)) state.values.absenceReason = state.values.absenceType ? defaultReason(state.values.absenceType) ?? '' : '';
     const { hrCard, hours } = cardFor(staffId, state);
     const prefill = Object.fromEntries(Object.entries({ ...state.values, hours }).filter(([, v]) => v !== '' && v != null));
     emitViz('request_read', runId, { followUp: Boolean(followUp), cardValues: Boolean(cardValues?.ok), prefilled: Object.keys(prefill), missing: hrCard.missing, outcome: hrCard.problem ? 'forecast_failed' : hrCard.missing.length ? 'missing' : 'ready', code: read.error ?? null });
+    // The spread the words decided, kept with the card for the dates and hours it was decided for (Submit, follow-ups).
+    const decided = state.mode && hours != null ? { beginDate: state.values.beginDate, endDate: state.values.endDate, hours, mode: state.mode } : null;
     formHost.issue(ctx, bus, {
       workflowId: WORKFLOW_ID, prefill, runId,
       intro: hrCard.question ? `${hrCard.intro} ${hrCard.question}` : hrCard.intro,
       supersedes: followUp ? openId : null,
       buildOptions: { missing: hrCard.missing },
-      data: { staffId, values: state.values, partial: state.partial, quote: state.quote },
+      data: { staffId, values: state.values, hours, cardHours: state.cardHours, partial: state.partial, mode: state.mode, startAt: state.startAt, side: state.side, quote: state.quote, choices: state.choices, spread: decided },
       extra: { hrCard, hr: { outcome: 'card' } },
     });
   },

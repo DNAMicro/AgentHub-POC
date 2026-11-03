@@ -183,3 +183,49 @@ words and the card's own validation runs); typing in the card works too.
 8. The chat keeps the card's outcome text, not live form state.
 9. Sample staff record: Professor Amir (`staff-amir`), 8-hour standard day, Vacation 96 h, Sick 120 h,
    Personal Holiday 8 h; sample campus holidays list; manager named only in config text.
+
+## 12. Revision, 2026-11-03 (owner-approved card redesign)
+
+Approved mockup: [`2026-11-03-hr-card-redesign.html`](2026-11-03-hr-card-redesign.html). Real list:
+[`2026-11-03-absence-types.psv`](2026-11-03-absence-types.psv) — the owner's “Absence Type and Reasons.xlsx”
+(`ABS_TYPE_OPTN|type name|ABSENCE_REASON|reason`), 34 absence names, 51 name + reason pairs. This section
+replaces §6's card and §7's sample list where they differ.
+
+**Owner decisions (their words where quoted):**
+- The absence name and reason come from the real list; a name repeats because it has several reasons.
+- Two fields like CHRS: **Absence name**, then **Reason** listing only that name's reasons. “it needs to be an
+  autocomplete dropdown”: both are the A2UI 0.9 **ChoicePicker** (`filterable: true`, `displayStyle: 'chips'`),
+  drawn by our CSS + a small open/close script as a closed dropdown that opens into a search box and a list.
+  The agent sends a standard ChoicePicker; no custom component, no protocol change.
+- Changing the name clears a reason that does not belong to it. A name with one reason, or with a reason worded
+  exactly like the name (Vacation → Vacation, Dock → Dock, Other → Other), fills that reason in; it can be changed.
+  Bereavement and Sick Leave never get a guessed reason.
+- The **Relationship** row is removed: for Bereavement the reason *is* the relationship (e.g. “my grandmother” →
+  `GGP` Grandparent/Great Grandparent).
+- **“I should be able to read it in no more than 3 seconds.”** The card opens with a shaded summary, top to bottom:
+  *what* (absence name; the reason under it unless it repeats the name or is “None”), *when* (dates and length in
+  words), *what's left* — one large number “N days of <leave> left after this”, one slim bar scaled to the current
+  balance and labelled at both ends (“You have N days now” / “this request: N days”). No legend, no sample maximum,
+  no day squares. A name that uses no balance says “<Name> doesn't use your vacation or sick leave.” Days are
+  8 hours; quarter days show as ¼ ½ ¾.
+- Below the summary, the form (single column, labels on top): Kind of leave (the two dropdowns side by side),
+  Dates and hours (first day, “to”, last day, hours), Note for your manager (optional), Submit request / Cancel.
+  Submit is disabled until a name and a reason are chosen.
+- **Partial days come from the hours** — no field (owner: “cant we determine partial day from the hours?”). For
+  N working days and H hours: H = 8N → full days; N = 1 → that one day; otherwise “first day partial, rest full”
+  fits when 8(N−1) < H < 8N and “the same hours each day” fits when H/N < 8. When only one fits, use it. When both
+  fit, the professor's words decide (“leaving at noon Thursday, out Friday” → first day partial); if they do not,
+  HR asks in the chat which one — never guesses.
+- **Notices are ⓘ icons** (hover, keyboard focus or tap): next to the note label — “Your manager, your timekeeper
+  and Payroll Services can read this note. For anything confidential, talk to your manager directly.”; next to
+  the name, only for names needing proof — Jury Duty: summons or certificate of service; Witness: subpoena;
+  Military leave: orders. Nothing is uploaded.
+- **Sample person**: Professor Amir is a **department chair on a 12-month appointment** (so earns vacation).
+  Balances: vacation 96 h (earns 16 h a month), sick 120 h (8 h a month, no limit), personal holiday 8 h (one
+  day a calendar year) — rates from CSU sources (CFA contract Art. 24; CSU benefits summary). Credit types:
+  `VAC` → vacation, `SCK` → sick, `PHL` → personal holiday; every other name uses no balance.
+- **View balances / View requests** (CHRS links) are answered **in the chat**, not on the card: “what's my sick
+  balance?”, “show my requests”.
+- CHRS fields checked against the reference page: Absence Name, Reason, Begin/End Date, Duration, Partial Days
+  (from hours), Forecast (automatic: the summary + HR's check on Submit), Comments (note), Attachment (ⓘ hint
+  only), Submit (no second “Yes” — owner's no-extra-steps rule), success message (receipt in chat; no email).

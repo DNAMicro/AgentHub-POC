@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HR card: dropdowns</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;600;700;800&family=IBM+Plex+Mono&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#eef1f5; --surface:#fff; --field:#f7f9fb; --text:#18202b; --muted:#5a6676; --border:#d6dce4; --border-strong:#b8c1cd;
+    --hr:#1f6f8b; --hr-tint:#e3f0f5; --req:#b4261f; --miss:#fff6e0; --miss-line:#d99a1e; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:24px 16px 48px; background:var(--bg); font-family:"Atkinson Hyperlegible Next", system-ui, sans-serif; color:var(--text); }
+  h1 { font-size:1.4rem; margin:0 0 6px; }
+  .intro { max-width:84ch; margin:0 0 20px; color:var(--muted); line-height:1.5; }
+  .cases { display:grid; grid-template-columns:repeat(auto-fit, minmax(440px, 1fr)); gap:22px; align-items:start; }
+  @media (max-width:520px) { .cases { grid-template-columns:1fr; } }
+  .chead { margin:0 2px 10px; font-weight:800; }
+  .chat { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px; display:grid; gap:12px; }
+  .me { justify-self:end; max-width:90%; background:color-mix(in srgb, var(--hr) 8%, var(--surface)); border-radius:12px 12px 4px 12px; padding:8px 12px; }
+  .me p { margin:0; line-height:1.5; }
+  .agent { border:1px solid var(--border); border-left:4px solid var(--hr); border-radius:4px 12px 12px 12px; padding:12px 14px 14px; }
+  .who { color:var(--hr); font-size:.76rem; font-weight:700; display:flex; justify-content:space-between; margin-bottom:3px; }
+  .who span { color:var(--muted); font-weight:400; font-family:"IBM Plex Mono", monospace; }
+  .lead { margin:2px 0 12px; color:var(--muted); font-size:.92rem; }
+  .title { font-size:1.3rem; font-weight:800; margin:0; }
+  .when { margin:4px 0 0; }
+  .because { margin:6px 0 0; font-size:.84rem; color:var(--hr); }
+  .missing { margin:8px 0 0; font-size:.84rem; color:#7a5200; background:var(--miss); border-radius:6px; padding:5px 8px; }
+  .rows { margin:14px 0 0; border-top:1px solid var(--border); }
+  .row { display:grid; grid-template-columns:8.5em 1fr; gap:10px; align-items:center; padding:8px 0; border-bottom:1px solid var(--border); font-size:.92rem; }
+  .row > span { color:var(--muted); }
+  .req { color:var(--req); font-weight:700; margin-left:2px; }
+  .f { font:inherit; font-size:.92rem; width:100%; border:0; border-bottom:1px solid var(--border); padding:5px 8px; background:transparent; }
+  .f:focus { outline:none; border-color:var(--hr); box-shadow:0 0 0 3px var(--hr-tint); }
+  .bal { margin-top:14px; }
+  .bal-row { display:flex; gap:6px; flex-wrap:wrap; font-size:.88rem; margin-bottom:5px; }
+  .meter { height:10px; border-radius:999px; background:var(--field); border:1px solid var(--border); overflow:hidden; display:flex; }
+  .meter .keep { background:var(--hr); }
+  .meter .use { background:repeating-linear-gradient(135deg, #e0a23a 0 4px, #f3cf8c 4px 8px); }
+  .bal .note { margin-top:5px; }
+  .ticks { display:flex; justify-content:space-between; font-size:.74rem; color:var(--muted); margin-top:3px; font-family:"IBM Plex Mono", monospace; }
+  .legend { display:flex; gap:14px; font-size:.78rem; color:var(--muted); margin-top:5px; }
+  .legend i { display:inline-block; width:12px; height:8px; border-radius:2px; margin-right:5px; vertical-align:middle; }
+  .legend .k { background:var(--hr); } .legend .u { background:repeating-linear-gradient(135deg, #e0a23a 0 3px, #f3cf8c 3px 6px); }
+  .meter .empty { flex:1; }
+  .days { display:flex; flex-wrap:wrap; gap:6px 12px; }
+  .grp { display:flex; gap:3px; }
+  .day { display:block; width:18px; height:18px; border-radius:4px; border:1px solid color-mix(in srgb, var(--hr) 55%, var(--border));
+    background:linear-gradient(90deg, var(--hr) 0 var(--keep), transparent var(--keep)),
+               repeating-linear-gradient(135deg, #e0a23a 0 3px, #f3cf8c 3px 6px);
+    background-size:100% 100%, var(--use) 100%; background-repeat:no-repeat; }
+  .note { font-size:.84rem; color:var(--muted); margin-top:12px; }
+  .actions { display:flex; gap:10px; margin-top:14px; }
+  .btn { font:inherit; font-weight:700; font-size:.95rem; border-radius:8px; padding:8px 16px; border:1px solid var(--hr); background:var(--hr); color:#fff; }
+  .btn.ghost { background:none; color:var(--hr); }
+  .stored { margin-top:12px; font-family:"IBM Plex Mono", monospace; font-size:.75rem; color:var(--muted); background:var(--field); border-radius:6px; padding:6px 8px; }
+
+  /* ---- The dropdown. Markup below is what the A2UI 0.9 renderer draws for a
+     filterable ChoicePicker (input.a2ui-filter-input + .a2ui-chips-group of
+     button.a2ui-chip). Only CSS and a small open/close script turn it into a
+     dropdown; the agent still sends a standard ChoicePicker. ---- */
+  a2ui-choicepicker { display:block; position:relative; }
+  a2ui-choicepicker .a2ui-filter-input { display:none; }
+  a2ui-choicepicker .a2ui-chip { display:none; }
+  /* Closed: only the chosen option shows, drawn as the field. */
+  a2ui-choicepicker:not(.open) .a2ui-chip-selected,
+  a2ui-choicepicker:not(.open) .dd-empty { display:flex; width:100%; justify-content:space-between; align-items:center; text-align:left;
+    font:inherit; font-size:.92rem; color:var(--text); background:var(--surface); border:1px solid var(--border-strong); border-radius:8px; padding:6px 10px; cursor:pointer; }
+  a2ui-choicepicker:not(.open) .a2ui-chip-selected::after,
+  a2ui-choicepicker:not(.open) .dd-empty::after { content:""; width:7px; height:7px; border-right:2px solid var(--muted); border-bottom:2px solid var(--muted); transform:rotate(45deg) translateY(-2px); margin-left:10px; flex:none; }
+  a2ui-choicepicker:not(.open) .a2ui-chip-selected:hover, a2ui-choicepicker:not(.open) .dd-empty:hover { border-color:var(--hr); }
+  a2ui-choicepicker:not(.open) .a2ui-chip-selected:focus-visible, a2ui-choicepicker:not(.open) .dd-empty:focus-visible { outline:none; border-color:var(--hr); box-shadow:0 0 0 3px var(--hr-tint); }
+  .dd-empty { display:none; }
+  a2ui-choicepicker:not(.open) .dd-empty:not([hidden]) { color:var(--muted); }
+  a2ui-choicepicker.dd-missing:not(.open) .dd-empty { background:var(--miss); border-color:var(--miss-line); color:#7a5200; }
+  a2ui-choicepicker.disabled .dd-empty { cursor:not-allowed; opacity:.6; }
+  /* Open: search box + scrolling list in a floating panel. */
+  a2ui-choicepicker.open .a2ui-filter-input { display:block; width:100%; font:inherit; font-size:.92rem; border:1px solid var(--hr); border-radius:8px 8px 0 0; padding:7px 10px; box-shadow:0 0 0 3px var(--hr-tint); outline:none; }
+  a2ui-choicepicker.open .a2ui-chips-group { position:absolute; z-index:5; left:0; right:0; max-height:250px; overflow:auto; background:var(--surface); border:1px solid var(--hr); border-top:0; border-radius:0 0 8px 8px; box-shadow:0 10px 24px rgb(24 32 43 / .14); padding:4px 0; }
+  a2ui-choicepicker.open .a2ui-chip { display:block; width:100%; text-align:left; font:inherit; font-size:.9rem; color:var(--text); background:none; border:0; padding:6px 12px; cursor:pointer; }
+  a2ui-choicepicker.open .a2ui-chip:hover, a2ui-choicepicker.open .a2ui-chip:focus-visible { background:var(--hr-tint); outline:none; }
+  a2ui-choicepicker.open .a2ui-chip-selected { font-weight:700; color:var(--hr); }
+  a2ui-choicepicker.open .a2ui-chip-selected::before { content:"✓ "; }
+  a2ui-choicepicker.open .dd-none { display:block; padding:6px 12px; color:var(--muted); font-size:.88rem; }
+  .dd-none { display:none; }
+  .hint { color:var(--muted); font-size:.8rem; margin-top:4px; }
+</style>
+</head>
+<body>
+  <h1>Absence name and reason — dropdown design (Option 1)</h1>
+  <p class="intro">Two dropdowns: <b>Absence name</b> (34 names), then <b>Reason</b> (only that name's reasons). Closed, each shows just its value with a ▾. Click it: a search box and a scrolling list open; type to narrow, click to pick, and it closes (Esc or clicking outside closes too). Under the fields, each square is one 8-hour day of leave left, in groups of 7; striped squares are this request. Sample person: Professor Amir, department chair on a 12-month appointment (earns vacation). Changing the name clears a reason that doesn't belong; a name with one reason, or a reason worded like the name (Vacation → Vacation), fills it in. Left: HR filled everything. Right: no reason was given, so the name is empty and highlighted and HR asks in the chat. Real list from “Absence Type and Reasons.xlsx”; sample data, made up.</p>
+
+  <div class="cases">
+    <section>
+      <div class="chead">“My grandmother passed away…”</div>
+      <div class="chat">
+        <div class="me"><p>I want to file for time off. My grandmother passed away, and I need this Thursday and Friday for the funeral.</p></div>
+        <div class="agent" data-card="a" data-type="BRV" data-code="GGP">
+          <div class="who">HR · Time off <span>08:29</span></div>
+          <p class="lead">I'm sorry for your loss. Here's your request. Check it and submit.</p>
+          <p class="title"></p>
+          <p class="when">Thu, Nov 5 – Fri, Nov 6 · 2 full days</p>
+          <p class="because">Chosen because you said “My grandmother passed away”.</p>
+          <div class="rows">
+            <div class="row"><span>Absence name<span class="req">*</span></span><div class="slot-name"></div></div>
+            <div class="row"><span>Reason<span class="req">*</span></span><div class="slot-reason"></div></div>
+            <div class="row"><span>Begin date<span class="req">*</span></span><input class="f" type="date" value="2026-11-05"></div>
+            <div class="row"><span>End date<span class="req">*</span></span><input class="f" type="date" value="2026-11-06"></div>
+            <div class="row"><span>Hours<span class="req">*</span></span><input class="f" type="number" value="16"></div>
+            <div class="row"><span>Note for manager</span><input class="f" placeholder="Optional"></div>
+          </div>
+          <div class="bal"></div>
+          <div class="actions"><button class="btn">Submit request</button><button class="btn ghost">Cancel</button></div>
+          <div class="stored"></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="chead">“I need Friday off” (no reason given)</div>
+      <div class="chat">
+        <div class="me"><p>I need Friday off</p></div>
+        <div class="agent" data-card="b" data-type="" data-code="">
+          <div class="who">HR · Time off <span>08:31</span></div>
+          <p class="lead">Here's your request. Check it and submit. What kind of time off is this — for example vacation, sick, or a personal holiday?</p>
+          <p class="title"></p>
+          <p class="when">Fri, Nov 6 · 1 full day</p>
+          <p class="missing">Still needed: absence name — pick it below or answer HR in the chat.</p>
+          <div class="rows">
+            <div class="row"><span>Absence name<span class="req">*</span></span><div class="slot-name"></div></div>
+            <div class="row"><span>Reason<span class="req">*</span></span><div class="slot-reason"></div></div>
+            <div class="row"><span>Begin date<span class="req">*</span></span><input class="f" type="date" value="2026-11-06"></div>
+            <div class="row"><span>End date<span class="req">*</span></span><input class="f" type="date" value="2026-11-06"></div>
+            <div class="row"><span>Hours<span class="req">*</span></span><input class="f" type="number" value="8"></div>
+            <div class="row"><span>Note for manager</span><input class="f" placeholder="Optional"></div>
+          </div>
+          <div class="bal"></div>
+          <div class="actions"><button class="btn">Submit request</button><button class="btn ghost">Cancel</button></div>
+          <div class="stored"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+
+<script>
+const ROWS = `ADM|Administrative Leave Paid|MPA|MPP Paid Admin Leave - 42729a
+ADM|Administrative Leave Paid|MPB|MPP Paid Admin Leave - 42729b
+BNM|Bone Marrow|BNM|Bonemarrow
+BRV|Bereavement|AGC|Grandchild
+BRV|Bereavement|ASD|Child
+BRV|Bereavement|AUN|Aunt/Uncle
+BRV|Bereavement|CIL|Son-in-law/Daughter-in-law
+BRV|Bereavement|GGP|Grandparent/Great Grandparent
+BRV|Bereavement|OTH|Other
+BRV|Bereavement|PIL|Parent-/Step-Parent-in-law
+BRV|Bereavement|PSP|Parent/Step Parent
+BRV|Bereavement|SBS|Sibling/Sibling-In-Law
+BRV|Bereavement|SDP|Spouse/Domestic Partner
+CAT|Catastrophic Leave|10|Catastrophic Leave
+CFR|California Family Rights Act|NON|None
+CIT|Citizens Necessity|CIT|Citizens Necessity
+CPD|Pregnancy Disability|NON|None
+DCK|Dock|DCK|Dock
+DCK|Dock|WTS|Witness for Non CSU
+ECL|Ed Code Maternity Leave|NON|None
+EMR|Emergency Leave|10|Emergency Leave
+FML|Family Medical Leave|NON|None
+HCD|Holiday Credit Leave|10|Holiday Credit Leave
+HTO|Holiday Time off Leave|10|Holiday Time off Leave
+JRY|Jury Duty|JRY|Jury Duty
+MAT|Maternity Leave|10|Maternity Leave
+MIL|Family Medical Leave Military|NON|None
+MLA|Military leave - Employee|MLA|Military leave - Employee
+MLD|Military Spouse/Dom Leave|MLD|Military Spouse/Dom Leave
+MPA|Maternity/Paternity/Adoption|MPA|Maternity/Paternity/Adoption
+ODL|Organ Donor Leave|ODL|Organ Donor Leave
+OTH|Other|10|Other
+OTH|Other|20|Compassionate Leave
+OTH|Other|30|Relative Passed Away
+OTH|Other|40|Bereavement
+PDL|Professional Development|PDL|Professional Development
+PHL|Personal Holiday|PHL|Personal Holiday
+PTO|Personal Time off days|10|Personal Time off days
+RPP|Reproductive Loss Leave|10|Reproductive Loss Leave
+SCK|Sick Leave|BRV|Bereavement
+SCK|Sick Leave|FAM|Family Care
+SCK|Sick Leave|SCK|Sick Personal
+SVR|Service Member Care|NON|None
+TMP|Temp Suspension Leave|10|Temp Suspension Leave
+UBR|Union Business Release Time|UBR|Union Business Release Time
+UNL|Union Leave|UNL|Union Leave
+VAC|Vacation|VAC|Vacation
+VAC|Vacation|WTS|Witness for Non CSU
+VCT|Victim Leave|10|Victim Leave
+VOT|Voting|VOT|Voting
+WTS|Witness|WTS|Witness for CSU`.split('\n').map((l) => { const [type, name, code, reason] = l.split('|'); return { type, name, code, reason }; });
+const NAMES = [...new Map(ROWS.map((r) => [r.type, r.name])).entries()];
+const reasonsOf = (type) => ROWS.filter((r) => r.type === type);
+// One reason, or a reason worded like the name (Vacation, Dock, Other), is filled in; it can still be changed.
+const defaultReason = (type, rs) => (rs.length === 1 ? rs[0] : rs.find((r) => r.reason === r.name))?.code ?? null;
+const BAL = { VAC: ['Vacation hours', 96], SCK: ['Sick hours', 120], PHL: ['Personal Holiday hours', 8] };
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+// Balance as day squares: one square = one 8-hour day. Solid = left after this
+// request, striped = this request, outline = nothing (a part day shows as a part square).
+// Sample: Professor Amir, department chair on a 12-month appointment.
+const EARNS = { VAC: 'earns 2 days a month', SCK: 'earns 1 day a month, no limit', PHL: '1 day each calendar year' };
+const DAY = 8;
+function balance(type, name, hrs) {
+  const key = BAL[type] ? type : 'VAC';
+  const [label, nowH] = BAL[key];
+  const usedH = BAL[type] ? Math.min(hrs, nowH) : 0;
+  const days = (h) => { const d = h / DAY; return `${Number.isInteger(d) ? d : d.toFixed(2).replace(/0$/, '')} day${d === 1 ? '' : 's'}`; };
+  const row = el('div', 'bal-row');
+  row.append(el('span', null, `${label.replace(' hours', '')}:`));
+  const nums = el('span');
+  if (usedH) nums.append(el('b', null, days(nowH)), ' now, ', el('b', null, days(nowH - usedH)), ` after (${usedH} h)`);
+  else nums.append(el('b', null, days(nowH)), ` left (${nowH} h)`);
+  row.append(nums);
+  const sq = el('div', 'days');
+  const leftH = nowH - usedH;
+  for (let i = 0; i < Math.ceil(nowH / DAY); i++) {
+    const a = i * DAY, b = a + DAY;
+    const keep = Math.max(0, Math.min(b, leftH) - a) / DAY;              // part of this day still left
+    const use = Math.max(0, Math.min(b, nowH) - Math.max(a, leftH)) / DAY; // part this request takes
+    const d = el('i', 'day');
+    d.style.setProperty('--keep', `${keep * 100}%`);
+    d.style.setProperty('--use', `${(keep + use) * 100}%`);
+    if (i % 7 === 0) sq.append(el('span', 'grp'));
+    sq.lastChild.append(d);
+  }
+  const out = [row, sq];
+  const leg = el('div', 'legend');
+  const one = el('span'); one.append(el('i', 'k'), '1 day (8 h)'); leg.append(one);
+  if (usedH) { const u = el('span'); u.append(el('i', 'u'), 'this request'); leg.append(u); }
+  leg.append(el('span', null, `· ${EARNS[key]}`));
+  out.push(leg);
+  if (!type) out.push(el('div', 'note', 'Pick an absence name to see which leave it uses.'));
+  else if (!BAL[type]) out.push(el('div', 'note', `${name} doesn't use your vacation or sick leave.`));
+  return out;
+}
+
+// Draws what the A2UI 0.9 renderer draws for a filterable chips ChoicePicker.
+function picker({ options, value, empty, missing, disabled, onPick }) {
+  const host = el('a2ui-choicepicker');
+  if (missing && !value) host.classList.add('dd-missing');
+  if (disabled) host.classList.add('disabled');
+  let filter = '';
+  const input = el('input', 'a2ui-filter-input'); input.type = 'text'; input.placeholder = 'Type to search…'; input.setAttribute('aria-label', 'Filter options');
+  const group = el('div', 'a2ui-choice-picker a2ui-chips-group');
+  const blank = el('button', 'dd-empty', empty); blank.type = 'button';
+  const none = el('div', 'dd-none', 'No matches.');
+  const close = () => { host.classList.remove('open'); filter = ''; input.value = ''; draw(); };
+  const open = () => { if (disabled) return; host.classList.add('open'); input.focus(); };
+  function draw() {
+    group.replaceChildren();
+    const shown = options.filter((o) => !filter || o.label.toLowerCase().includes(filter.toLowerCase()));
+    for (const o of shown) {
+      const b = el('button', 'a2ui-chip' + (o.value === value ? ' a2ui-chip-selected' : ''), o.label); b.type = 'button';
+      b.setAttribute('aria-pressed', String(o.value === value));
+      b.onclick = () => host.classList.contains('open') ? (close(), onPick(o.value)) : open();
+      group.append(b);
+    }
+    if (!shown.length) group.append(none);
+    blank.hidden = !!value; blank.style.display = value ? 'none' : '';
+  }
+  input.oninput = () => { filter = input.value; draw(); };
+  host.addEventListener('keydown', (e) => { if (e.key === 'Escape') { close(); (host.querySelector('.a2ui-chip-selected') || blank).focus(); } });
+  blank.onclick = open;
+  document.addEventListener('mousedown', (e) => { if (!host.contains(e.target)) close(); });
+  host.append(input, blank, group); draw();
+  return host;
+}
+
+for (const card of document.querySelectorAll('.agent[data-card]')) {
+  const state = { type: card.dataset.type || null, code: card.dataset.code || null };
+  const missing = !state.type;
+  const draw = () => {
+    card.querySelector('.slot-name').replaceChildren(picker({
+      options: NAMES.map(([v, label]) => ({ value: v, label })), value: state.type, empty: 'Choose an absence name', missing,
+      onPick: (v) => { if (v !== state.type) { state.type = v; const rs = reasonsOf(v); state.code = defaultReason(v, rs); } draw(); },
+    }));
+    const rs = state.type ? reasonsOf(state.type) : [];
+    const slot = card.querySelector('.slot-reason');
+    slot.replaceChildren(picker({
+      options: rs.map((r) => ({ value: r.code, label: r.reason })), value: state.code,
+      empty: state.type ? 'Choose a reason' : 'Choose an absence name first', missing: !!state.type, disabled: !state.type,
+      onPick: (v) => { state.code = v; draw(); },
+    }));
+    if (state.code && state.code === defaultReason(state.type, rs)) slot.append(el('div', 'hint', rs.length === 1 ? 'Only one reason for this name — filled in for you.' : 'The usual reason for this name — change it if needed.'));
+    const name = state.type ? NAMES.find(([t]) => t === state.type)[1] : null;
+    const r = rs.find((x) => x.code === state.code);
+    card.querySelector('.title').textContent = !name ? 'Time off request' : r && r.reason !== name && r.reason !== 'None' ? `${name} — ${r.reason}` : name;
+    const hrs = Number(card.querySelector('input[type=number]').value);
+    card.querySelector('.bal').replaceChildren(...balance(state.type, name, hrs));
+    card.querySelector('.stored').textContent = `HR records: absence ${name ? `${state.type} (${name})` : '— missing'}, reason ${r ? `${r.code} (${r.reason})` : '— missing'}`;
+    const m = card.querySelector('.missing'); if (m) m.hidden = !!(state.type && state.code);
+  };
+  draw();
+}
+</script>
+</body>
+</html>

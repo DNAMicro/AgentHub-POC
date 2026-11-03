@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HR card: name and reason</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;600;700;800&family=IBM+Plex+Mono&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#eef1f5; --surface:#fff; --field:#f7f9fb; --text:#18202b; --muted:#5a6676; --border:#d6dce4; --border-strong:#b8c1cd;
+    --professor:#a3315a; --hr:#1f6f8b; --hr-tint:#e3f0f5; --req:#b4261f; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:24px 16px 48px; background:var(--bg); font-family:"Atkinson Hyperlegible Next", system-ui, sans-serif; color:var(--text); }
+  h1 { font-size:1.4rem; margin:0 0 6px; }
+  .intro { max-width:80ch; margin:0 0 20px; color:var(--muted); line-height:1.5; }
+  .cases { display:grid; grid-template-columns:repeat(auto-fit, minmax(440px, 1fr)); gap:22px; align-items:start; }
+  @media (max-width:520px) { .cases { grid-template-columns:1fr; } }
+  .chead { margin:0 2px 4px; font-weight:800; font-size:1.05rem; }
+  .csub { margin:0 2px 10px; color:var(--muted); font-size:.9rem; line-height:1.45; }
+  .chat { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px; display:grid; gap:12px; }
+  .me { justify-self:end; max-width:90%; background:color-mix(in srgb, var(--hr) 8%, var(--surface)); border-radius:12px 12px 4px 12px; padding:8px 12px; }
+  .me p { margin:0; line-height:1.5; }
+  .agent { border:1px solid var(--border); border-left:4px solid var(--hr); border-radius:4px 12px 12px 12px; padding:12px 14px 14px; }
+  .who { color:var(--hr); font-size:.76rem; font-weight:700; display:flex; justify-content:space-between; margin-bottom:3px; }
+  .who span { color:var(--muted); font-weight:400; font-family:"IBM Plex Mono", monospace; }
+  .lead { margin:2px 0 12px; color:var(--muted); font-size:.92rem; }
+  .title { font-size:1.3rem; font-weight:800; margin:0; }
+  .when { margin:4px 0 0; }
+  .because { margin:6px 0 0; font-size:.84rem; color:var(--hr); }
+  .rows { margin:14px 0 0; border-top:1px solid var(--border); }
+  .row { display:grid; grid-template-columns:8.5em 1fr; gap:10px; align-items:start; padding:9px 0; border-bottom:1px solid var(--border); font-size:.92rem; }
+  .row > span { color:var(--muted); padding-top:5px; }
+  .req { color:var(--req); font-weight:700; margin-left:2px; }
+  .f { font:inherit; font-size:.92rem; width:100%; border:0; border-bottom:1px solid var(--border); padding:5px 8px; background:transparent; }
+  .search { font:inherit; font-size:.88rem; width:100%; border:1px solid var(--border-strong); border-radius:8px; padding:6px 10px; margin-bottom:8px; }
+  .search:focus, .f:focus { outline:none; border-color:var(--hr); box-shadow:0 0 0 3px var(--hr-tint); }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip { font:inherit; font-size:.82rem; border:1px solid var(--border-strong); background:var(--surface); color:var(--text); border-radius:999px; padding:4px 11px; cursor:pointer; }
+  .chip:hover { border-color:var(--hr); }
+  .chip[aria-pressed="true"] { background:var(--hr); border-color:var(--hr); color:#fff; }
+  .chip:focus-visible { outline:3px solid var(--hr-tint); outline-offset:1px; }
+  .chip .dim { opacity:.75; }
+  .empty { color:var(--muted); font-size:.85rem; }
+  .auto { color:var(--muted); font-size:.82rem; margin-top:5px; }
+  .note { font-size:.84rem; color:var(--muted); margin-top:12px; }
+  .actions { display:flex; gap:10px; margin-top:14px; }
+  .btn { font:inherit; font-weight:700; font-size:.95rem; border-radius:8px; padding:8px 16px; border:1px solid var(--hr); background:var(--hr); color:#fff; }
+  .btn.ghost { background:none; color:var(--hr); }
+  .stored { margin-top:12px; font-family:"IBM Plex Mono", monospace; font-size:.75rem; color:var(--muted); background:var(--field); border-radius:6px; padding:6px 8px; }
+</style>
+</head>
+<body>
+  <h1>Absence name and reason — two designs</h1>
+  <p class="intro">Same request in both: “My grandmother passed away, and I need this Thursday and Friday for the funeral.” HR has already filled everything; the professor only checks and submits. Both use the real list (34 names, 51 name + reason pairs). Try it: type in a search box, click a different chip. The grey line under each card shows what HR would record. Sample data, made up.</p>
+
+  <div class="cases">
+    <section>
+      <div class="chead">Option 1 — two linked fields (like CHRS)</div>
+      <p class="csub">Pick the name first. The Reason row then shows only that name's reasons. Changing the name clears a reason that no longer fits; a name with one reason fills it in by itself.</p>
+      <div class="chat">
+        <div class="me"><p>I want to file for time off. My grandmother passed away, and I need this Thursday and Friday for the funeral.</p></div>
+        <div class="agent">
+          <div class="who">HR · Time off <span>08:29</span></div>
+          <p class="lead">I'm sorry for your loss. Here's your request. Check it and submit.</p>
+          <p class="title" id="o1-title"></p>
+          <p class="when">Thu, Nov 5 – Fri, Nov 6 · 2 full days</p>
+          <p class="because">Chosen because you said “My grandmother passed away”.</p>
+          <div class="rows">
+            <div class="row"><span>Absence name<span class="req">*</span></span><div><input class="search" id="o1-search" placeholder="Search 34 names…" aria-label="Search absence names"><div class="chips" id="o1-names"></div></div></div>
+            <div class="row"><span>Reason<span class="req">*</span></span><div><div class="chips" id="o1-reasons"></div><div class="auto" id="o1-auto"></div></div></div>
+            <div class="row"><span>Begin date<span class="req">*</span></span><input class="f" type="date" value="2026-11-05"></div>
+            <div class="row"><span>End date<span class="req">*</span></span><input class="f" type="date" value="2026-11-06"></div>
+            <div class="row"><span>Hours<span class="req">*</span></span><input class="f" type="number" value="16"></div>
+            <div class="row"><span>Note for manager</span><input class="f" placeholder="Optional"></div>
+          </div>
+          <p class="note" id="o1-bal"></p>
+          <div class="actions"><button class="btn">Submit request</button><button class="btn ghost">Cancel</button></div>
+          <div class="stored" id="o1-stored"></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="chead">Option 2 — one searchable list of pairs</div>
+      <p class="csub">Each chip is a name and a reason together, so there is one choice and nothing to keep in step. Type a word (“grand”, “sick”, “jury”) to narrow the list.</p>
+      <div class="chat">
+        <div class="me"><p>I want to file for time off. My grandmother passed away, and I need this Thursday and Friday for the funeral.</p></div>
+        <div class="agent">
+          <div class="who">HR · Time off <span>08:29</span></div>
+          <p class="lead">I'm sorry for your loss. Here's your request. Check it and submit.</p>
+          <p class="title" id="o2-title"></p>
+          <p class="when">Thu, Nov 5 – Fri, Nov 6 · 2 full days</p>
+          <p class="because">Chosen because you said “My grandmother passed away”.</p>
+          <div class="rows">
+            <div class="row"><span>Absence<span class="req">*</span></span><div><input class="search" id="o2-search" placeholder="Search 51 name + reason pairs…" aria-label="Search absence name and reason"><div class="chips" id="o2-pairs"></div></div></div>
+            <div class="row"><span>Begin date<span class="req">*</span></span><input class="f" type="date" value="2026-11-05"></div>
+            <div class="row"><span>End date<span class="req">*</span></span><input class="f" type="date" value="2026-11-06"></div>
+            <div class="row"><span>Hours<span class="req">*</span></span><input class="f" type="number" value="16"></div>
+            <div class="row"><span>Note for manager</span><input class="f" placeholder="Optional"></div>
+          </div>
+          <p class="note" id="o2-bal"></p>
+          <div class="actions"><button class="btn">Submit request</button><button class="btn ghost">Cancel</button></div>
+          <div class="stored" id="o2-stored"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+<script>
+// From "Absence Type and Reasons.xlsx" (ABS_TYPE_OPTN, type, reason code, reason).
+const ROWS = `ADM|Administrative Leave Paid|MPA|MPP Paid Admin Leave - 42729a
+ADM|Administrative Leave Paid|MPB|MPP Paid Admin Leave - 42729b
+BNM|Bone Marrow|BNM|Bonemarrow
+BRV|Bereavement|AGC|Grandchild
+BRV|Bereavement|ASD|Child
+BRV|Bereavement|AUN|Aunt/Uncle
+BRV|Bereavement|CIL|Son-in-law/Daughter-in-law
+BRV|Bereavement|GGP|Grandparent/Great Grandparent
+BRV|Bereavement|OTH|Other
+BRV|Bereavement|PIL|Parent-/Step-Parent-in-law
+BRV|Bereavement|PSP|Parent/Step Parent
+BRV|Bereavement|SBS|Sibling/Sibling-In-Law
+BRV|Bereavement|SDP|Spouse/Domestic Partner
+CAT|Catastrophic Leave|10|Catastrophic Leave
+CFR|California Family Rights Act|NON|None
+CIT|Citizens Necessity|CIT|Citizens Necessity
+CPD|Pregnancy Disability|NON|None
+DCK|Dock|DCK|Dock
+DCK|Dock|WTS|Witness for Non CSU
+ECL|Ed Code Maternity Leave|NON|None
+EMR|Emergency Leave|10|Emergency Leave
+FML|Family Medical Leave|NON|None
+HCD|Holiday Credit Leave|10|Holiday Credit Leave
+HTO|Holiday Time off Leave|10|Holiday Time off Leave
+JRY|Jury Duty|JRY|Jury Duty
+MAT|Maternity Leave|10|Maternity Leave
+MIL|Family Medical Leave Military|NON|None
+MLA|Military leave - Employee|MLA|Military leave - Employee
+MLD|Military Spouse/Dom Leave|MLD|Military Spouse/Dom Leave
+MPA|Maternity/Paternity/Adoption|MPA|Maternity/Paternity/Adoption
+ODL|Organ Donor Leave|ODL|Organ Donor Leave
+OTH|Other|10|Other
+OTH|Other|20|Compassionate Leave
+OTH|Other|30|Relative Passed Away
+OTH|Other|40|Bereavement
+PDL|Professional Development|PDL|Professional Development
+PHL|Personal Holiday|PHL|Personal Holiday
+PTO|Personal Time off days|10|Personal Time off days
+RPP|Reproductive Loss Leave|10|Reproductive Loss Leave
+SCK|Sick Leave|BRV|Bereavement
+SCK|Sick Leave|FAM|Family Care
+SCK|Sick Leave|SCK|Sick Personal
+SVR|Service Member Care|NON|None
+TMP|Temp Suspension Leave|10|Temp Suspension Leave
+UBR|Union Business Release Time|UBR|Union Business Release Time
+UNL|Union Leave|UNL|Union Leave
+VAC|Vacation|VAC|Vacation
+VAC|Vacation|WTS|Witness for Non CSU
+VCT|Victim Leave|10|Victim Leave
+VOT|Voting|VOT|Voting
+WTS|Witness|WTS|Witness for CSU`.split('\n').map((l) => { const [type, name, code, reason] = l.split('|'); return { type, name, code, reason }; });
+const NAMES = [...new Map(ROWS.map((r) => [r.type, r.name])).entries()];
+const reasonsOf = (type) => ROWS.filter((r) => r.type === type);
+const BAL = { VAC: ['Vacation hours', 96], SCK: ['Sick hours', 120], PHL: ['Personal Holiday hours', 8] };
+const HOURS = 16;
+const label = (r) => r.reason === r.name || r.reason === 'None' ? r.name : `${r.name} — ${r.reason}`;
+const balText = (type) => BAL[type] ? `${BAL[type][0]}: ${BAL[type][1].toFixed(1)} now, ${(BAL[type][1] - HOURS).toFixed(1)} after` : 'No balance check for this absence name in the demo.';
+const chip = (text, on, click) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.textContent = text; b.setAttribute('aria-pressed', String(on)); b.onclick = click; return b; };
+const $ = (id) => document.getElementById(id);
+
+// Option 1
+const o1 = { type: 'BRV', code: 'GGP' };
+function drawO1() {
+  const q = $('o1-search').value.trim().toLowerCase();
+  const names = $('o1-names'); names.replaceChildren();
+  const shown = NAMES.filter(([, n]) => !q || n.toLowerCase().includes(q));
+  for (const [type, name] of shown) names.append(chip(name, type === o1.type, () => {
+    if (type !== o1.type) { o1.type = type; const rs = reasonsOf(type); o1.code = rs.length === 1 ? rs[0].code : null; }
+    drawO1();
+  }));
+  if (!shown.length) { const e = document.createElement('span'); e.className = 'empty'; e.textContent = 'No names match.'; names.append(e); }
+  const rs = reasonsOf(o1.type);
+  const reasons = $('o1-reasons'); reasons.replaceChildren();
+  for (const r of rs) reasons.append(chip(r.reason, r.code === o1.code, () => { o1.code = r.code; drawO1(); }));
+  $('o1-auto').textContent = rs.length === 1 ? 'Only one reason for this name — filled in for you.' : (o1.code ? '' : 'Pick a reason.');
+  const name = NAMES.find(([t]) => t === o1.type)[1];
+  const r = rs.find((x) => x.code === o1.code);
+  $('o1-title').textContent = r ? label(r) : name;
+  $('o1-bal').textContent = balText(o1.type);
+  $('o1-stored').textContent = `HR records: absence ${o1.type} (${name}), reason ${r ? `${r.code} (${r.reason})` : '— missing'}`;
+}
+$('o1-search').oninput = drawO1;
+
+// Option 2
+const o2 = { key: 'BRV|GGP' };
+function drawO2() {
+  const q = $('o2-search').value.trim().toLowerCase();
+  const pairs = $('o2-pairs'); pairs.replaceChildren();
+  const shown = ROWS.filter((r) => !q || label(r).toLowerCase().includes(q));
+  for (const r of shown) pairs.append(chip(label(r), `${r.type}|${r.code}` === o2.key, () => { o2.key = `${r.type}|${r.code}`; drawO2(); }));
+  if (!shown.length) { const e = document.createElement('span'); e.className = 'empty'; e.textContent = 'No pairs match.'; pairs.append(e); }
+  const r = ROWS.find((x) => `${x.type}|${x.code}` === o2.key);
+  $('o2-title').textContent = label(r);
+  $('o2-bal').textContent = balText(r.type);
+  $('o2-stored').textContent = `HR records: absence ${r.type} (${r.name}), reason ${r.code} (${r.reason})`;
+}
+$('o2-search').oninput = drawO2;
+
+drawO1(); drawO2();
+</script>
+</body>
+</html>

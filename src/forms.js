@@ -5,6 +5,8 @@
 // Dependency-free ESM so the browser can load it too (served at /shared/forms.js).
 // All availability, rooms and hours are FICTIONAL demo data.
 
+import { HOLIDAYS, absenceNames, reasonsOf, isPair, workdays, spreadOf } from './absence-types.js';
+
 export const A2UI_VERSION = 'v0.9';
 export const A2UI_EXTENSION_URI = 'https://a2ui.org/a2a-extension/a2ui/v0.9';
 export const A2UI_MIME_TYPE = 'application/a2ui+json';
@@ -28,16 +30,8 @@ const TUTORING_FIELDS = ['firstName', 'lastName', 'email', 'preferredDate', 'per
 const BOOKING_CRITERIA = ['date', 'room', 'duration', 'groupSize'];
 const BOOKING_FIELDS = ['firstName', 'lastName', 'email', ...BOOKING_CRITERIA, 'slot'];
 
-// Staff time off (HR Agent). Absence names follow the CHRS list (en dash U+2013); the model may only
-// pick from it, and code decides everything else.
-export const ABSENCE_NAMES = ['Vacation', 'Personal Holiday', 'Sick – Self', 'Sick – Family Care', 'Sick – Bereavement', 'Bereavement/Funeral', 'Jury Duty', 'Professional Development', 'Military Leave', 'Dock'];
-export const CREDIT_OF = { 'Vacation': 'vacation', 'Personal Holiday': 'personalHoliday', 'Sick – Self': 'sick', 'Sick – Family Care': 'sick', 'Sick – Bereavement': 'sick' }; // the others use no credits
-export const RELATIONSHIP_REQUIRED = new Set(['Bereavement/Funeral', 'Sick – Family Care', 'Sick – Bereavement']);
-// The relationship row is always on the card (a name picked ON the card may need it). Its label is bound to
-// /ui/relationshipLabel: the star shows when the card's current name needs one (the browser updates it as
-// the name changes; HR sets the starting one).
-export const RELATIONSHIP_LABEL = { required: 'Relationship *', optional: 'Relationship (bereavement or family care)' };
-const TIME_OFF_FIELDS = ['absenceName', 'beginDate', 'endDate', 'hours', 'relationship', 'note'];
+// Staff time off (HR Agent). Absence name + reason pairs come from absence-types.js (the CHRS list).
+const TIME_OFF_FIELDS = ['absenceType', 'absenceReason', 'beginDate', 'endDate', 'hours', 'note'];
 
 export const WORKFLOWS = {
   'tutoring-request': {
@@ -260,31 +254,38 @@ export function validateLoanRenewal(input) {
   return Object.keys(errors).length ? { ok: false, errors } : { ok: true, values: { loanId: input.loanId, returnDate: input.returnDate } };
 }
 
+const TYPE_CODES = new Set(absenceNames().map((n) => n.type));
 const safeDate = (d) => DATE_RE.test(d) && !Number.isNaN(Date.parse(`${d}T12:00:00Z`)) && isRealDate(d);
 // Time off: { ok, errors } (errors keyed by field; empty when ok). Balances are the HR agent's job.
 export function validateTimeOff(input) {
   const keyError = checkKeys(input, TIME_OFF_FIELDS);
   if (keyError) return { ok: false, errors: { _form: keyError } };
   const errors = {};
-  const name = single(input.absenceName);
-  if (typeof name !== 'string' || !ABSENCE_NAMES.includes(name)) errors.absenceName = 'Choose an absence name.';
+  const type = single(input.absenceType);
+  const code = single(input.absenceReason);
+  if (typeof type !== 'string' || !TYPE_CODES.has(type)) errors.absenceType = 'Choose an absence name.';
+  if (typeof code !== 'string' || !code || typeof type !== 'string' || !isPair(type, code)) errors.absenceReason = 'Choose a reason.';
   const begin = typeof input.beginDate === 'string' ? datePart(input.beginDate) : null;
   const end = typeof input.endDate === 'string' ? datePart(input.endDate) : null;
   if (!begin || !safeDate(begin)) errors.beginDate = 'Enter a begin date.';
   if (!end || !safeDate(end)) errors.endDate = 'Enter an end date.';
   else if (!errors.beginDate && end < begin) errors.endDate = 'The end date can’t be before the begin date.';
+  if (!errors.beginDate && !errors.endDate) {
+    const HOLIDAY = "An absence can't begin or end on a campus holiday.";
+    if (HOLIDAYS.includes(begin)) errors.beginDate = HOLIDAY;
+    if (HOLIDAYS.includes(end)) errors.endDate = HOLIDAY;
+    if (!errors.beginDate && !errors.endDate && workdays(begin, end).length === 0) errors.endDate = 'That range has no workdays.';
+  }
   const hoursText = typeof input.hours === 'number' ? String(input.hours) : text(input.hours ?? '');
   const hours = hoursText && /^\d+(\.\d+)?$/.test(hoursText) ? Number(hoursText) : NaN;
   if (!(hours > 0)) errors.hours = 'Enter the number of hours (more than 0).';
   else if (!errors.beginDate && !errors.endDate) {
-    const days = Math.round((new Date(`${end}T12:00:00Z`) - new Date(`${begin}T12:00:00Z`)) / 86400000) + 1;
-    if (hours > 24 * days) errors.hours = `That is more than ${24 * days} hours for ${days} day${days > 1 ? 's' : ''}.`;
+    // "ask" is valid: HR asks which days the hours cover. Only hours that cannot fit the dates are refused.
+    if (spreadOf(workdays(begin, end).length, hours, null).mode === 'invalid') errors.hours = 'These hours don’t fit the dates.';
   }
-  if (RELATIONSHIP_REQUIRED.has(name) && !text(input.relationship ?? '')) errors.relationship = 'Relationship is required for this absence.';
-  for (const [f, max] of [['relationship', LIMITS.name], ['note', LIMITS.notes]]) {
-    if (input[f] == null) continue;
-    if (typeof input[f] !== 'string') errors[f] = 'Must be text.';
-    else if (input[f].trim().length > max) errors[f] = `Must be at most ${max} characters.`;
+  if (input.note != null) {
+    if (typeof input.note !== 'string') errors.note = 'Must be text.';
+    else if (input.note.trim().length > LIMITS.notes) errors.note = `Must be at most ${LIMITS.notes} characters.`;
   }
   return { ok: Object.keys(errors).length === 0, errors };
 }
@@ -300,17 +301,17 @@ export function checkTimeOffValues(input) {
   // The same field rules as validateTimeOff (cross-field ones — end before begin, hours over the span — are
   // left to Submit).
   const rules = {
-    absenceName: (v) => (ABSENCE_NAMES.includes(v) ? null : 'Choose an absence name.'),
+    absenceType: (v) => (TYPE_CODES.has(v) ? null : 'Choose an absence name.'),
+    absenceReason: (v) => (v ? null : 'Choose a reason.'),
     beginDate: (v) => (safeDate(datePart(v)) ? null : 'Enter a begin date.'),
     endDate: (v) => (safeDate(datePart(v)) ? null : 'Enter an end date.'),
     hours: (v) => (/^\d+(\.\d+)?$/.test(v) && Number(v) > 0 ? null : 'Enter the number of hours (more than 0).'),
-    relationship: (v) => (v.length <= LIMITS.name ? null : `Must be at most ${LIMITS.name} characters.`),
     note: (v) => (v.length <= LIMITS.notes ? null : `Must be at most ${LIMITS.notes} characters.`),
   };
   const values = {};
   const errors = {};
   for (const f of TIME_OFF_FIELDS) {
-    let v = f === 'absenceName' ? single(input[f]) : input[f];
+    let v = f === 'absenceType' || f === 'absenceReason' ? single(input[f]) : input[f];
     if (f === 'hours' && typeof v === 'number') v = String(v);
     if (v == null || v === '') continue;
     if (typeof v !== 'string') { errors[f] = 'Must be text.'; continue; }
@@ -320,6 +321,8 @@ export function checkTimeOffValues(input) {
     if (problem) errors[f] = problem;
     else values[f] = v;
   }
+  // A reason that is not one of the chosen name's reasons is dropped (the pair is checked at Submit).
+  if (values.absenceReason && values.absenceType && !isPair(values.absenceType, values.absenceReason)) { delete values.absenceReason; errors.absenceReason = 'Choose a reason.'; }
   return { ok: true, values, errors };
 }
 
@@ -498,27 +501,35 @@ export function buildReviewUpdate(surfaceId, lines) {
 export function buildEditUpdate(surfaceId) {
   return [v({ updateComponents: { surfaceId, components: [{ id: 'root', component: 'Column', children: BOOKING_EDIT_CHILDREN }] } })];
 }
-// Staff time-off card. prefill: absenceName / beginDate / endDate / hours / relationship / note
+// The reason picker for one absence name. Also used by the browser to swap the options (updateComponents)
+// when the name changes. No name yet: no options.
+export function reasonPicker(type) {
+  return {
+    id: 'absenceReason', component: 'ChoicePicker', label: 'Reason', variant: 'mutuallyExclusive', displayStyle: 'chips', filterable: true,
+    options: type ? reasonsOf(type).map((r) => ({ label: r.reason, value: r.code })) : [],
+    value: { path: '/absenceReason' }, checks: [required('/absenceReason', 'Reason')],
+  };
+}
+
+// Staff time-off card. prefill: absenceType / absenceReason (codes) / beginDate / endDate / hours / note
 // (values code has already checked); missing: field names the HR agent still needs from the professor.
 export function buildTimeOffForm(surfaceId, { prefill = {}, missing = [] } = {}) {
   const wf = WORKFLOWS['staff-time-off'];
-  const needsRelationship = RELATIONSHIP_REQUIRED.has(prefill.absenceName) || missing.includes('relationship');
   const path = (f) => ({ path: `/${f}` });
   const row = (f) => ({ id: `${f}_row`, component: 'Row', children: [f] });
   const fields = [
-    { id: 'absenceName', component: 'ChoicePicker', label: 'Absence name *', variant: 'mutuallyExclusive', displayStyle: 'chips', options: ABSENCE_NAMES.map((n) => ({ label: n, value: n })), value: path('absenceName'), checks: [required('/absenceName', 'Absence name')] },
+    { id: 'absenceType', component: 'ChoicePicker', label: 'Absence name', variant: 'mutuallyExclusive', displayStyle: 'chips', filterable: true, options: absenceNames().map((n) => ({ label: n.name, value: n.type })), value: path('absenceType'), checks: [required('/absenceType', 'Absence name')] },
+    reasonPicker(prefill.absenceType ?? null),
     { id: 'beginDate', component: 'DateTimeInput', label: 'Begin date *', enableDate: true, enableTime: false, value: path('beginDate'), checks: [required('/beginDate', 'Begin date')] },
     { id: 'endDate', component: 'DateTimeInput', label: 'End date *', enableDate: true, enableTime: false, value: path('endDate'), checks: [required('/endDate', 'End date')] },
     { id: 'hours', component: 'TextField', label: 'Hours *', variant: 'number', value: path('hours'), checks: [required('/hours', 'Hours')] },
-    // Always present; required only while /ui/relationshipNeeded is set (the browser keeps it in step with the name).
-    { id: 'relationship', component: 'TextField', label: path('ui/relationshipLabel'), variant: 'shortText', value: path('relationship'), checks: [afterSubmit({ call: 'or', args: { values: [{ call: 'regex', args: { value: path('relationship'), pattern: '\\S' } }, { call: 'not', args: { value: { call: 'required', args: { value: path('ui/relationshipNeeded') } } } }] } }, 'Relationship is required for this absence.'), maxLen('/relationship', LIMITS.name, 'Relationship')] },
-    { id: 'note', component: 'TextField', label: 'Note for manager', variant: 'longText', value: path('note'), checks: [maxLen('/note', LIMITS.notes, 'Note')] },
+    { id: 'note', component: 'TextField', label: 'Note for your manager (optional)', variant: 'longText', value: path('note'), checks: [maxLen('/note', LIMITS.notes, 'Note')] },
   ];
-  const sendButton = (id, label, name, ctx, variant) => [
+  const sendButton = (id, label, name, ctx, variant, extra = []) => [
     textC(`${id}_label`, label),
     {
       id, component: 'Button', child: `${id}_label`, variant,
-      checks: [{ condition: { call: 'not', args: { value: { path: '/ui/submitLocked' } } }, message: 'Please wait.' }],
+      checks: [{ condition: { call: 'not', args: { value: { path: '/ui/submitLocked' } } }, message: 'Please wait.' }, ...extra],
       action: { event: { name, context: Object.fromEntries(ctx.map((f) => [f, path(f)])) } },
     },
   ];
@@ -532,7 +543,7 @@ export function buildTimeOffForm(surfaceId, { prefill = {}, missing = [] } = {})
           textC('title', wf.title, 'h3'),
           ...fields.flatMap((f) => [f, row(f.id)]),
           { id: 'actions', component: 'Row', children: ['submit_button', 'cancel_button'] },
-          ...sendButton('submit_button', 'Submit request', 'submitTimeOff', TIME_OFF_FIELDS, 'primary'),
+          ...sendButton('submit_button', 'Submit request', 'submitTimeOff', TIME_OFF_FIELDS, 'primary', [{ condition: { call: 'and', args: { values: [{ call: 'required', args: { value: path('absenceType') } }, { call: 'required', args: { value: path('absenceReason') } }] } }, message: 'Choose an absence name and a reason.' }]),
           ...sendButton('cancel_button', 'Cancel', 'cancelForm', [], 'borderless'),
         ],
       },
@@ -541,9 +552,9 @@ export function buildTimeOffForm(surfaceId, { prefill = {}, missing = [] } = {})
       updateDataModel: {
         surfaceId, path: '/',
         value: {
-          absenceName: prefill.absenceName ? [prefill.absenceName] : [], beginDate: prefill.beginDate ?? '', endDate: prefill.endDate ?? '',
-          hours: prefill.hours != null ? String(prefill.hours) : '', relationship: prefill.relationship ?? '', note: prefill.note ?? '',
-          ui: { submitAttempted: false, submitLocked: false, relationshipNeeded: needsRelationship ? 'yes' : '', relationshipLabel: needsRelationship ? RELATIONSHIP_LABEL.required : RELATIONSHIP_LABEL.optional },
+          absenceType: prefill.absenceType ? [prefill.absenceType] : [], absenceReason: prefill.absenceReason ? [prefill.absenceReason] : [], beginDate: prefill.beginDate ?? '', endDate: prefill.endDate ?? '',
+          hours: prefill.hours != null ? String(prefill.hours) : '', note: prefill.note ?? '',
+          ui: { submitAttempted: false, submitLocked: false },
         },
       },
     }),

@@ -42,7 +42,7 @@ const hrAction = async (body, on = s) => {
 };
 const surfaceOf = (card) => card.a2ui.find((m) => m.createSurface).createSurface.surfaceId;
 const dataModel = (card) => card.a2ui.find((m) => m.updateDataModel).updateDataModel.value;
-const submitAction = (card, context) => ({ name: 'submitTimeOff', surfaceId: surfaceOf(card), sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context: { relationship: '', note: '', ...context } });
+const submitAction = (card, context) => ({ name: 'submitTimeOff', surfaceId: surfaceOf(card), sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context: { note: '', ...context } });
 const lastOf = (chat, role) => chat.filter((m) => m.role === role).at(-1);
 const HELD_SICK = "I'm sick, cancel Friday's class"; // the mock heuristic is unsure about it
 
@@ -75,23 +75,24 @@ test('a staff request opens HR’s card (bereavement); Submit files it and the c
   assert.equal(r.action, 'staff');
   let st = await state();
   assert.equal(st.lessons.length, 0, 'never posted to students');
-  assert.equal(st.hrCard.card.title, 'Bereavement/Funeral');
+  assert.equal(st.hrCard.card.title, 'Bereavement');
   assert.match(st.hrCard.formRef, /^hf-/);
-  assert.equal(dataModel(st.hrCard).relationship, 'grandmother');
+  assert.deepEqual(dataModel(st.hrCard).absenceReason, ['GGP']);
+  assert.equal(st.hrCard.card.subtitle, 'Grandparent/Great Grandparent');
   const hr = lastOf(st.chat, 'hr');
-  assert.match(hr.text, /^I'm sorry for your loss\. Here's your request\. Check it and submit\./);
+  assert.equal(hr.text, "I'm sorry for your loss. Check it and submit.");
   assert.equal(hr.formRef, st.hrCard.formRef);
   assert.equal(hr.a2ui, undefined, 'the live card is not stored in the chat');
 
   const operationId = `op-${randomUUID()}`;
-  const body = { operationId, formRef: st.hrCard.formRef, action: submitAction(st.hrCard, { absenceName: ['Bereavement/Funeral'], beginDate: '2026-11-05', endDate: '2026-11-06', hours: '16', relationship: 'grandmother' }) };
+  const body = { operationId, formRef: st.hrCard.formRef, action: submitAction(st.hrCard, { absenceType: ['BRV'], absenceReason: ['GGP'], beginDate: '2026-11-05', endDate: '2026-11-06', hours: '16' }) };
   const done = await hrAction(body);
   assert.equal(done.http, 200, JSON.stringify(done));
   assert.equal(done.status, 'accepted');
   const id = done.receipt.requestId;
   assert.match(id, /^TO-/);
   st = await state();
-  assert.equal(lastOf(st.chat, 'hr').text, `Sent to your manager for a decision. Request ${id}: Bereavement/Funeral, Thu, Nov 5 – Fri, Nov 6, 16 h.`);
+  assert.equal(lastOf(st.chat, 'hr').text, `Sent to your manager for a decision. Request ${id}: Bereavement (Grandparent/Great Grandparent), Thu, Nov 5 to Fri, Nov 6, 16 hours.`);
   assert.equal(lastOf(st.chat, 'hr').closed, true);
   assert.equal(st.hrCard, null, 'the card is closed');
   assert.equal((await requests()).length, 1);
@@ -106,8 +107,9 @@ test('a staff request opens HR’s card (bereavement); Submit files it and the c
 test('missing absence name: HR asks; the next message fills the open card (vacation)', async () => {
   await say('I need Friday off');
   let st = await state();
-  assert.ok(st.hrCard.card.missing.includes('absenceName'));
-  assert.match(lastOf(st.chat, 'hr').text, /What kind of time off is this/);
+  assert.ok(st.hrCard.card.missing.includes('absenceType'));
+  assert.equal(lastOf(st.chat, 'hr').text, 'What kind of time off is this? If none of these fit, pick from the dropdown below.');
+  assert.deepEqual(st.hrCard.card.choices.map((c) => c.type), ['VAC', 'SCK', 'PHL']);
   const first = st.hrCard.formRef;
   // While the card is open, a message without @assistant goes to HR (a follow-up), not to students.
   const r = await say("it's for a vacation day");
@@ -130,10 +132,10 @@ test('“both”: HR first; after Submit the neutral note is offered, and “yes
   let st = await state();
   assert.ok(st.hrCard, 'HR got the held message');
   assert.equal(st.lessons.length, 0, 'nothing to the class yet');
-  const done = await hrAction({ operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: submitAction(st.hrCard, { absenceName: ['Sick – Self'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8' }) });
+  const done = await hrAction({ operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: submitAction(st.hrCard, { absenceType: ['SCK'], absenceReason: ['SCK'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8' }) });
   assert.equal(done.status, 'accepted', JSON.stringify(done));
   st = await state();
-  assert.match(lastOf(st.chat, 'hr').text, /^Sent to your manager for a decision\. Request TO-\w+: Sick – Self, Fri, Nov 6, 8 h\.$/);
+  assert.match(lastOf(st.chat, 'hr').text, /^Sent to your manager for a decision\. Request TO-\w+: Sick Leave \(Sick Personal\), Fri, Nov 6, 8 hours\.$/);
   assert.equal(lastOf(st.chat, 'assistant').text, 'Want me to tell the class: “Professor Amir is out on Fri, Nov 6.”? Reply yes to post it.');
   assert.equal(st.lessons.length, 0, 'not posted before the professor says yes');
 
@@ -192,7 +194,7 @@ async function noteOffer() {
   assert.equal((await say("I'm sick, cancel Friday's class")).reply, UNSURE);
   await say('both');
   const st = await state();
-  const done = await hrAction({ operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: submitAction(st.hrCard, { absenceName: ['Sick – Self'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8' }) });
+  const done = await hrAction({ operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: submitAction(st.hrCard, { absenceType: ['SCK'], absenceReason: ['SCK'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8' }) });
   assert.equal(done.status, 'accepted', JSON.stringify(done));
   assert.equal(lastOf((await state()).chat, 'assistant').text, NOTE_OFFER);
 }
@@ -248,7 +250,7 @@ test('fix 4: an open card expires with the Hub’s TTL; the Hub’s typed code c
     assert.ok(st.hrCard);
     await new Promise((r) => setTimeout(r, 1700));
     // Expired at the Hub (code card_closed): the Professor closes the card — no wording parsed.
-    const late = await hrAction({ operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: submitAction(st.hrCard, { absenceName: ['Vacation'], beginDate: '2026-11-20', endDate: '2026-11-20', hours: '8' }) }, t);
+    const late = await hrAction({ operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: submitAction(st.hrCard, { absenceType: ['VAC'], absenceReason: ['VAC'], beginDate: '2026-11-20', endDate: '2026-11-20', hours: '8' }) }, t);
     assert.equal(late.status, 'rejected');
     assert.equal(late.closed, true);
     assert.equal((await state(t)).hrCard, null);
@@ -288,7 +290,7 @@ test('fix 1: @assistant never sees or posts a private staff message; staff words
   try {
     const staff = await say('My grandmother passed away, I need this Thursday and Friday', undefined, t);
     assert.equal(staff.action, 'staff');
-    assert.equal((await state(t)).hrCard.card.title, 'Bereavement/Funeral');
+    assert.equal((await state(t)).hrCard.card.title, 'Bereavement');
     // Cancel the card so the next plain message isn't an HR follow-up (the @assistant one never is).
     const card = (await state(t)).hrCard;
     await hrAction({ operationId: `op-${randomUUID()}`, formRef: card.formRef, action: { name: 'cancelForm', surfaceId: surfaceOf(card), sourceComponentId: 'cancel_button', timestamp: new Date().toISOString(), context: {} } }, t);
@@ -370,49 +372,51 @@ test('final fix 4: short leave words from a staff message (sick) are private too
 // The browser's path for a professor message with a card open: UI server → Hub (developer proxy) →
 // Professor (/author/chat) → Hub → HR, with the card's current values alongside the words.
 const sayWithCard = async (text, card, values, operationId = `op-${randomUUID()}`) => {
-  const res = await post(`${s.ui.url}/api/professor/chat`, { operationId, text, formRef: card.formRef, formValues: { absenceName: [], beginDate: '', endDate: '', hours: '', relationship: '', note: '', ...values } });
+  const res = await post(`${s.ui.url}/api/professor/chat`, { operationId, text, formRef: card.formRef, formValues: { absenceType: [], absenceReason: [], beginDate: '', endDate: '', hours: '', note: '', ...values } });
   return { http: res.status, ...(await res.json()) };
 };
 
 test('final fix 2: dates edited on the card survive a chat answer (“vacation”)', async () => {
   await say('I need Friday off');
   let st = await state();
-  assert.ok(st.hrCard.card.missing.includes('absenceName'));
+  assert.ok(st.hrCard.card.missing.includes('absenceType'));
   // The professor moves the dates on the card to Thu Nov 12 – Fri Nov 13, then answers HR in the chat.
   const r = await sayWithCard('vacation', st.hrCard, { beginDate: '2026-11-12', endDate: '2026-11-13', hours: '16', note: 'Back Monday' });
   assert.equal(r.http, 200);
   assert.equal(r.action, 'staff');
   st = await state();
   const dm = dataModel(st.hrCard);
-  assert.deepEqual(dm.absenceName, ['Vacation'], 'the words named it');
+  assert.deepEqual(dm.absenceType, ['VAC'], 'the words named it');
+  assert.deepEqual(dm.absenceReason, ['VAC'], 'Vacation’s own reason is filled in');
   assert.equal(dm.beginDate, '2026-11-12', 'the card’s begin date survived');
   assert.equal(dm.endDate, '2026-11-13', 'the card’s end date survived');
   assert.equal(dm.note, 'Back Monday');
   assert.equal(dm.hours, '16', 'hours from the store for the card’s dates');
-  assert.match(st.hrCard.card.when, /Thu, Nov 12 – Fri, Nov 13/);
+  assert.equal(st.hrCard.card.when, 'Thu, Nov 12 to Fri, Nov 13, 2 days');
   assert.deepEqual(await requests(), []);
   // Bad card values are refused at the UI server (unknown key) — nothing reaches HR.
   const bad = await post(`${s.ui.url}/api/professor/chat`, { operationId: `op-${randomUUID()}`, text: 'vacation', formRef: st.hrCard.formRef, formValues: { surprise: 'x' } });
   assert.equal(bad.status, 400);
 });
 
-test('final fix 1: a relationship name picked ON the card is filled from the chat, and Submit works', async () => {
+test('final fix 1: Bereavement picked ON the card gets its reason from the relative named in the chat, and Submit works', async () => {
   await say('I need Friday off');
   let st = await state();
-  // The professor picks Bereavement/Funeral on the card (the relationship row is there), then answers in the chat.
-  const r = await sayWithCard('It was my uncle', st.hrCard, { absenceName: ['Bereavement/Funeral'], beginDate: '2026-11-06', endDate: '2026-11-06' });
+  // The professor picks Bereavement on the card (no reason yet), then answers in the chat.
+  const r = await sayWithCard('It was my uncle', st.hrCard, { absenceType: ['BRV'], beginDate: '2026-11-06', endDate: '2026-11-06' });
   assert.equal(r.action, 'staff');
   st = await state();
   const dm = dataModel(st.hrCard);
-  assert.deepEqual(dm.absenceName, ['Bereavement/Funeral'], 'the name picked on the card is kept');
-  assert.equal(dm.relationship, 'uncle', 'read from the follow-up because the CURRENT name needs one');
-  assert.equal(dm.ui.relationshipLabel, 'Relationship *');
-  assert.ok(!st.hrCard.card.missing.includes('relationship'));
-  const done = await hrAction({ operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: submitAction(st.hrCard, { absenceName: ['Bereavement/Funeral'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8', relationship: 'uncle' }) });
+  assert.deepEqual(dm.absenceType, ['BRV'], 'the name picked on the card is kept');
+  assert.deepEqual(dm.absenceReason, ['AUN'], 'read from the follow-up because the CURRENT name is Bereavement');
+  assert.equal(st.hrCard.card.subtitle, 'Aunt/Uncle');
+  assert.deepEqual(st.hrCard.card.missing, []);
+  const done = await hrAction({ operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: submitAction(st.hrCard, { absenceType: ['BRV'], absenceReason: ['AUN'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8' }) });
   assert.equal(done.status, 'accepted');
   const filed = await requests();
   assert.equal(filed.length, 1);
-  assert.equal(filed[0].absenceName, 'Bereavement/Funeral');
+  assert.equal(filed[0].absenceName, 'Bereavement');
+  assert.equal(filed[0].absenceReason, 'AUN');
 });
 
 test('gap 2: a live staff classifier call is a Professor → model hop on the UI stream, with no staff words', async () => {
@@ -503,7 +507,7 @@ test('a clear choice longer than 8 words (“please file it with HR for me, than
   const r = await say(reply);
   assert.equal(r.action, 'staff', JSON.stringify(r));
   const st = await state();
-  assert.equal(st.hrCard.card.title, 'Sick – Self', 'the held message went to HR');
+  assert.equal(st.hrCard.card.title, 'Sick Leave', 'the held message went to HR');
   assert.equal(st.lessons.length, 0);
 });
 
@@ -521,8 +525,8 @@ test('“both please” after the unsure question still files the held message a
   const b = await say('both please');
   assert.equal(b.action, 'staff');
   let st = await state();
-  assert.equal(st.hrCard.card.title, 'Sick – Self', 'HR got the held message');
-  const done = await hrAction({ operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: submitAction(st.hrCard, { absenceName: ['Sick – Self'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8' }) });
+  assert.equal(st.hrCard.card.title, 'Sick Leave', 'HR got the held message');
+  const done = await hrAction({ operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: submitAction(st.hrCard, { absenceType: ['SCK'], absenceReason: ['SCK'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8' }) });
   assert.equal(done.status, 'accepted', JSON.stringify(done));
   st = await state();
   assert.equal(lastOf(st.chat, 'assistant').text, 'Want me to tell the class: “Professor Amir is out on Fri, Nov 6.”? Reply yes to post it.');
@@ -547,7 +551,7 @@ for (const answer of ['HR', 'file it with HR', 'the class', 'tell the class']) {
     const st = await state();
     if (/HR/.test(answer)) {
       assert.equal(r.action, 'staff');
-      assert.equal(st.hrCard.card.title, 'Sick – Self');
+      assert.equal(st.hrCard.card.title, 'Sick Leave');
       assert.equal(st.lessons.length, 0);
     } else {
       assert.equal(r.action, 'post');
@@ -578,7 +582,7 @@ test('a long reply that is really a choice is treated as that choice, never post
       assert.equal(st.hrCard, null);
     } else {
       assert.equal(r.action, 'staff', reply);
-      assert.equal(st.hrCard.card.title, 'Sick – Self', `${reply}: HR got the held message`);
+      assert.equal(st.hrCard.card.title, 'Sick Leave', `${reply}: HR got the held message`);
       assert.equal(st.lessons.length, 0, reply);
     }
   }
@@ -626,7 +630,7 @@ test('Rule B choices: one clear choice acts on the held message; mixed or unclea
       assert.equal(st.hrCard, null, reply);
     } else {
       assert.equal(r.action, 'staff', `${reply}: ${JSON.stringify(r)}`);
-      assert.equal(st.hrCard.card.title, 'Sick – Self', reply);
+      assert.equal(st.hrCard.card.title, 'Sick Leave', reply);
       assert.equal(st.lessons.length, 0, `${reply}: the held text is not posted`);
     }
   }
@@ -697,7 +701,7 @@ test('“class too” / “class also” mean both: HR first, the held text is n
     const r = await say(reply);
     assert.equal(r.action, 'staff', `${reply}: ${JSON.stringify(r)}`);
     const st = await state();
-    assert.equal(st.hrCard.card.title, 'Sick – Self', reply);
+    assert.equal(st.hrCard.card.title, 'Sick Leave', reply);
     assert.equal(st.lessons.length, 0, `${reply}: the held text is not posted`);
   }
 });
@@ -769,10 +773,10 @@ test('R3 held question: a clear choice with new content acts on the HELD message
     assert.ok(told(r), `${reply}: ${JSON.stringify(r)}`);
     assert.ok(await chatHasNotice(), `${reply}: notice in the chat`);
     const st = await state();
-    assert.equal(st.hrCard.card.title, 'Sick – Self', `${reply}: HR got the held message`);
+    assert.equal(st.hrCard.card.title, 'Sick Leave', `${reply}: HR got the held message`);
     assert.equal(st.lessons.length, 0, reply);
     if (both) {
-      const done = await hrAction({ operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: submitAction(st.hrCard, { absenceName: ['Sick – Self'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8' }) });
+      const done = await hrAction({ operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: submitAction(st.hrCard, { absenceType: ['SCK'], absenceReason: ['SCK'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8' }) });
       assert.equal(done.status, 'accepted');
       assert.equal(lastOf((await state()).chat, 'assistant').text, NOTE_OFFER, 'both: the note offer follows');
     }
@@ -820,10 +824,10 @@ test('N2: a follow-up that mentions hours but cannot be read clearly clears the 
     await post(`${s.hub.url}/dev/classroom/reset`, {});
     assert.equal((await say("I'm sick, I need to leave at 2pm Friday for a sick day")).action, 'staff', follow);
     let st = await state();
-    assert.match(st.hrCard.card.when, /\(3 hours\)/, `${follow}: the first card is 3 hours`);
+    assert.match(st.hrCard.card.when, /\b3 hours\b/, `${follow}: the first card is 3 hours`);
     assert.equal((await say(follow)).action, 'staff', follow);
     st = await state();
-    assert.doesNotMatch(st.hrCard.card.when, /\(3 hours\)/, `${follow}: the old 3 hours are not kept (${st.hrCard.card.when})`);
+    assert.doesNotMatch(st.hrCard.card.when, /\b3 hours\b/, `${follow}: the old 3 hours are not kept (${st.hrCard.card.when})`);
   }
 });
 
@@ -834,7 +838,7 @@ test('minor: a refusal standing alone in its own sentence does not block a clear
     const r = await say(reply);
     assert.equal(r.action, 'staff', `${reply}: ${JSON.stringify(r)}`);
     const st = await state();
-    assert.equal(st.hrCard.card.title, 'Sick – Self', reply);
+    assert.equal(st.hrCard.card.title, 'Sick Leave', reply);
     assert.equal(st.lessons.length, 0, reply);
   }
   // A class pick next to a refusal still never posts.
@@ -857,18 +861,18 @@ test('item 5: a negation anywhere means the reply is not a pure class choice (as
   await post(`${s.hub.url}/dev/classroom/reset`, {});
   assert.equal((await say(HELD_SICK)).reply, UNSURE);
   assert.equal((await say('No. Both please')).action, 'staff');
-  assert.equal((await state()).hrCard.card.title, 'Sick – Self');
+  assert.equal((await state()).hrCard.card.title, 'Sick Leave');
 });
 
 test('item 2: follow-ups without a real hour signal keep the hours; “make that 1pm” still clears them', async () => {
   for (const [follow, keeps] of [['No note needed', true], ['Make it a personal holiday instead', true], ['make that 1pm', false]]) {
     await post(`${s.hub.url}/dev/classroom/reset`, {});
     assert.equal((await say('I need a vacation day Friday, leaving 2 hours early')).action, 'staff', follow);
-    assert.match((await state()).hrCard.card.when, /\(2 hours\)/, `${follow}: first card is 2 hours`);
+    assert.match((await state()).hrCard.card.when, /\b2 hours\b/, `${follow}: first card is 2 hours`);
     assert.equal((await say(follow)).action, 'staff', follow);
     const when = (await state()).hrCard.card.when;
-    if (keeps) assert.match(when, /\(2 hours\)/, `${follow}: hours kept (${when})`);
-    else assert.doesNotMatch(when, /\(2 hours\)/, `${follow}: hours cleared (${when})`);
+    if (keeps) assert.match(when, /\b2 hours\b/, `${follow}: hours kept (${when})`);
+    else assert.doesNotMatch(when, /\b2 hours\b/, `${follow}: hours cleared (${when})`);
   }
 });
 
@@ -905,11 +909,11 @@ test('follow-up hours: a real hour signal without one clear value gives a full d
   ]) {
     await post(`${s.hub.url}/dev/classroom/reset`, {});
     assert.equal((await say('I need a vacation day Friday, leaving 2 hours early')).action, 'staff', follow);
-    assert.match((await state()).hrCard.card.when, /\(2 hours\)/, follow);
+    assert.match((await state()).hrCard.card.when, /\b2 hours\b/, follow);
     assert.equal((await say(follow)).action, 'staff', follow);
     const when = (await state()).hrCard.card.when;
-    if (keeps) assert.match(when, /\(2 hours\)/, `${follow}: kept (${when})`);
-    else assert.doesNotMatch(when, /\(2 hours\)/, `${follow}: never keeps 2 (${when})`);
+    if (keeps) assert.match(when, /\b2 hours\b/, `${follow}: kept (${when})`);
+    else assert.doesNotMatch(when, /\b2 hours\b/, `${follow}: never keeps 2 (${when})`);
   }
 });
 
@@ -966,10 +970,10 @@ test('change verb + “X to Y” on an open card clears the dates, whatever the 
 
 test('the card says “until 10:00” for an arrival and “from 15:00” for leaving', async () => {
   assert.equal((await say('I need a personal holiday, coming in at 10am Monday')).action, 'staff');
-  assert.match((await state()).hrCard.card.when, /until 10:00 \(2 hours\)/);
+  assert.match((await state()).hrCard.card.when, /, 2 hours, until 10:00$/);
   await post(`${s.hub.url}/dev/classroom/reset`, {});
   assert.equal((await say('I need a personal holiday, leaving at 3pm Friday')).action, 'staff');
-  assert.match((await state()).hrCard.card.when, /from 15:00 \(2 hours\)/);
+  assert.match((await state()).hrCard.card.when, /, 2 hours, from 15:00$/);
 });
 
 test('mock classifier: holiday / personal day / day off / PTO / vacation without “I” is asked about, never posted', async () => {
@@ -1016,4 +1020,26 @@ test('a student-tagged message with the professor’s own soft leave cue or “o
   }
   await post(`${s.hub.url}/dev/classroom/reset`, {});
   assert.equal((await say('@alex your homework is late')).action, 'post', 'no first person: delivered as today');
+});
+
+test('Task 7: balance and request questions go to HR as text (mock): no unsure question, no card, nothing posted or filed', async () => {
+  const b = await say('how much sick leave do I have?');
+  assert.equal(b.action, 'staff');
+  assert.equal(b.reply, 'You have 15 days (120 hours) of sick leave.');
+  let st = await state();
+  assert.equal(st.hrCard, null, 'no card');
+  assert.equal(st.lessons.length, 0, 'nothing posted to students');
+  assert.deepEqual(await requests(), []);
+  assert.equal(lastOf(st.chat, 'hr').text, b.reply);
+  assert.equal(lastOf(st.chat, 'hr').formRef, undefined);
+
+  // With a card open: answered, the card stays open.
+  await say("I'm sick on Wednesday, Nov 18");
+  const open = (await state()).hrCard;
+  assert.ok(open?.formRef);
+  const q = await say('show my time off requests');
+  assert.equal(q.reply, 'You have no time-off requests.');
+  st = await state();
+  assert.equal(st.hrCard.formRef, open.formRef, 'the same card is still open');
+  assert.deepEqual(await requests(), []);
 });

@@ -42,20 +42,38 @@ test('the grandmother message: the Professor state carries the card; Submit thro
   const r = await say(GRANDMOTHER);
   assert.equal(r.action, 'staff');
   let st = await state();
-  assert.equal(st.hrCard.card.title, 'Bereavement/Funeral');
-  assert.match(st.hrCard.card.why, /^Chosen because you said “.+”\.$/);
+  assert.equal(st.hrCard.card.title, 'Bereavement');
+  assert.equal(st.hrCard.card.subtitle, 'Grandparent/Great Grandparent');
+  assert.match(st.hrCard.card.why, /^Picked from what you wrote: “.+”\.$/);
   assert.ok(st.hrCard.a2ui.some((m) => m.createSurface), 'the A2UI surface travels to the browser');
   assert.equal(lastOf(st.chat, 'hr').formRef, st.hrCard.formRef, 'the HR chat entry names the open card');
 
   const operationId = `op-${randomUUID()}`;
-  const done = await act({ operationId, formRef: st.hrCard.formRef, action: userAction(st.hrCard, 'submitTimeOff', 'submit_button', { absenceName: ['Bereavement/Funeral'], beginDate: '2026-11-05', endDate: '2026-11-06', hours: '16', relationship: 'grandmother', note: '' }) });
+  const done = await act({ operationId, formRef: st.hrCard.formRef, action: userAction(st.hrCard, 'submitTimeOff', 'submit_button', { absenceType: ['BRV'], absenceReason: ['GGP'], beginDate: '2026-11-05', endDate: '2026-11-06', hours: '16', note: '' }) });
   assert.equal(done.http, 200, JSON.stringify(done));
   assert.equal(done.status, 'accepted');
   st = await state();
-  assert.equal(lastOf(st.chat, 'hr').text, `Sent to your manager for a decision. Request ${done.receipt.requestId}: Bereavement/Funeral, Thu, Nov 5 – Fri, Nov 6, 16 h.`);
+  assert.equal(lastOf(st.chat, 'hr').text, `Sent to your manager for a decision. Request ${done.receipt.requestId}: Bereavement (Grandparent/Great Grandparent), Thu, Nov 5 to Fri, Nov 6, 16 hours.`);
   assert.equal(st.hrCard, null, 'the card is closed');
   assert.equal((await requests()).length, 1);
   assert.equal(st.lessons.length, 0, 'never posted to students');
+});
+
+test('Sick Leave: the UI server posts absenceType/absenceReason codes and the chat gets the receipt', async () => {
+  const r = await say("I want to file for time off, I'm sick and need Friday off");
+  assert.equal(r.action, 'staff', JSON.stringify(r));
+  let st = await state();
+  assert.equal(st.hrCard.card.title, 'Sick Leave');
+  const done = await act({ operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: userAction(st.hrCard, 'submitTimeOff', 'submit_button', { absenceType: ['SCK'], absenceReason: ['SCK'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8', note: '' }) });
+  assert.equal(done.http, 200, JSON.stringify(done));
+  assert.equal(done.status, 'accepted');
+  assert.equal(done.receipt.absenceType, 'SCK');
+  assert.equal(done.receipt.absenceReason, 'SCK');
+  st = await state();
+  assert.equal(lastOf(st.chat, 'hr').text, `Sent to your manager for a decision. Request ${done.receipt.requestId}: Sick Leave (Sick Personal), Fri, Nov 6, 8 hours.`);
+  const filed = await requests();
+  assert.equal(filed.length, 1);
+  assert.equal(filed[0].hours, 8);
 });
 
 test('Cancel through the UI server closes the card without filing', async () => {
@@ -72,15 +90,21 @@ test('Cancel through the UI server closes the card without filing', async () => 
 test('input checks at the UI server: cross-site Origin 403, unexpected fields 400, invalid values 400 — nothing reaches HR', async () => {
   await say(GRANDMOTHER);
   const st = await state();
-  const good = { operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: userAction(st.hrCard, 'submitTimeOff', 'submit_button', { absenceName: ['Bereavement/Funeral'], beginDate: '2026-11-05', endDate: '2026-11-06', hours: '16', relationship: 'grandmother', note: '' }) };
+  const good = { operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: userAction(st.hrCard, 'submitTimeOff', 'submit_button', { absenceType: ['BRV'], absenceReason: ['GGP'], beginDate: '2026-11-05', endDate: '2026-11-06', hours: '16', note: '' }) };
   assert.equal((await act(good, { Origin: 'http://evil.example' })).http, 403);
   assert.equal((await act({ ...good, extra: 1 })).http, 400);
   assert.equal((await act({ ...good, operationId: 'bad id!' })).http, 400);
   assert.equal((await act({ ...good, action: { ...good.action, url: 'x' } })).http, 400);
   assert.equal((await act({ ...good, action: { ...good.action, sourceComponentId: 'cancel_button' } })).http, 400, 'action must come from its own button');
-  const invalid = await act({ ...good, action: { ...good.action, context: { ...good.action.context, absenceName: [] } } });
+  const invalid = await act({ ...good, action: { ...good.action, context: { ...good.action.context, absenceType: [] } } });
   assert.equal(invalid.http, 400);
-  assert.ok(invalid.errors?.absenceName, JSON.stringify(invalid));
+  assert.ok(invalid.errors?.absenceType, JSON.stringify(invalid));
+  // A stale reason from another name (an old browser) is refused too.
+  const foreign = await act({ ...good, action: { ...good.action, context: { ...good.action.context, absenceReason: ['VAC'] } } });
+  assert.equal(foreign.http, 400);
+  assert.equal(foreign.errors?.absenceReason, 'Choose a reason.', JSON.stringify(foreign));
+  // The old relationship field is not a card field any more.
+  assert.equal((await act({ ...good, action: { ...good.action, context: { ...good.action.context, relationship: 'grandmother' } } })).http, 400);
   assert.deepEqual(await requests(), []);
   assert.ok((await state()).hrCard, 'the card is still open');
 });

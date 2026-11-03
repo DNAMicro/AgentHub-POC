@@ -12,11 +12,13 @@
 //
 // HR (staff only): when the professor asks for time off, HR's card comes back in the Professor state
 // (`hrCard`: formRef, the A2UI messages HR sent, and a summary HR worked out by code). The card is drawn
-// here as HR's chat bubble: a headline (absence name), one “when” line, one “why” line, the fields from
-// HR's A2UI surface (official renderer, editable in place), the balance bar, Submit request / Cancel.
+// here as HR's chat bubble: a summary slip readable in 3 seconds (what, when, what is left), the fields
+// from HR's A2UI surface (official renderer, editable in place; the two pickers styled as dropdowns),
+// notes behind ⓘ icons, Submit request / Cancel.
 // Buttons post the renderer's action to /api/professor/hr/actions → Hub → Professor agent → Hub → HR.
 import { MessageProcessor, basicCatalog } from './vendor/a2ui.js';
-import { A2UI_VERSION, RELATIONSHIP_LABEL, RELATIONSHIP_REQUIRED, validateFinal } from '/shared/forms.js';
+import { A2UI_VERSION, reasonPicker, validateFinal } from '/shared/forms.js';
+import { CREDIT_LABEL, CREDIT_OF_TYPE, NOTE_PRIVACY, PROOF, STANDARD_DAY, daysText, defaultReason, isPair, nameOf as absenceName, shortDate, spreadOf, titleOf, whenText, workdays } from '/shared/absence-types.js';
 const $ = (id) => document.getElementById(id);
 const el = (tag, { dataset = {}, ...props } = {}, ...children) => {
   const node = Object.assign(document.createElement(tag), props);
@@ -310,12 +312,18 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
   // ---- HR (staff only): the open time-off card ------------------------------------------------------
   // One card at a time (HR re-issues it with a new formRef after a follow-up message). The rendered card
   // is kept across re-renders (same element, same renderer) so what the professor typed is never lost.
+  // Approved design (docs/superpowers/specs/2026-11-03-hr-card-redesign.html), readable in 3 seconds:
+  //   lead line → the summary slip (what, when, what is left) → “Picked from what you wrote” → HR's A2UI
+  //   surface (two dropdowns, dates and hours, note with an ⓘ) → Submit request / Cancel.
+  // The slip is recomputed here from the surface's data model with the shared module, so it follows what
+  // the professor changes on the card; HR checks everything again on Submit (the server is the authority).
   const HR_LABEL = 'HR · Time off';
-  const BALANCE_NAMES = { vacation: 'Vacation hours', sick: 'Sick hours', personalHoliday: 'Personal holiday hours' };
-  const MISSING_TEXT = { absenceName: 'absence name', dates: 'dates', relationship: 'relationship' };
+  const SUMMARY_PATHS = ['/absenceType', '/absenceReason', '/beginDate', '/endDate', '/hours'];
   let hrCard = null; // professorState.professor.hrCard
-  let hr = null; // { formRef, li, processor, surface, applied, busy, attempt, notice, lead }
-  const hours = (n) => (Number.isFinite(n) ? n.toFixed(1) : String(n));
+  let hr = null; // { formRef, surfaceId, li, processor, surface, slip, because, applied, busy, attempt, notice, lead, subs, type, orig, card }
+  let tipCount = 0;
+  const first = (v) => [].concat(v ?? [])[0] ?? '';
+  const hoursText = (h) => `${Number(h.toFixed(2))} ${h === 1 ? 'hour' : 'hours'}`;
   function hrDispose() {
     if (!hr) return;
     for (const sub of hr.subs ?? []) sub.unsubscribe();
@@ -326,17 +334,164 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     hr.notice.dataset.kind = kind;
     hr.notice.replaceChildren(...[...new Set([].concat(lines).filter(Boolean))].map((t) => el('p', { textContent: t }))); // HR's reason often repeats its field error
   }
-  function balanceView(card) {
-    if (card.balance) {
-      const { type, now, after } = card.balance;
-      const keep = now > 0 ? Math.max(0, Math.min(100, (after / now) * 100)) : 0;
-      return el('div', { className: 'hr-balance' },
-        el('div', { className: 'hr-bal-row' }, el('span', { textContent: BALANCE_NAMES[type] ?? `${type} hours` }),
-          el('span', {}, el('b', { textContent: hours(now) }), ' now, ', el('b', { textContent: hours(after) }), ' after')),
-        el('div', { className: 'hr-meter', role: 'img', ariaLabel: `${BALANCE_NAMES[type] ?? type}: ${hours(now)} now, ${hours(after)} after this request` },
-          el('div', { className: 'keep', style: `width: ${keep}%` }), el('div', { className: 'use', style: `width: ${100 - keep}%` })));
+  // ⓘ: a note behind an icon — shown on hover, keyboard focus and tap (click toggles aria-expanded).
+  // Esc hides it while the icon keeps focus (WCAG 1.4.13); it shows again on the next focus or tap.
+  function infoTip(text, label = 'More information') {
+    const id = `hr-tip-${++tipCount}`;
+    const button = el('button', { type: 'button', textContent: 'i', ariaLabel: label, ariaExpanded: 'false' });
+    button.setAttribute('aria-describedby', id);
+    const wrap = el('span', { className: 'hr-info' }, button, el('span', { id, role: 'tooltip', textContent: text }));
+    button.addEventListener('click', () => { wrap.classList.remove('tip-hidden'); button.setAttribute('aria-expanded', String(button.getAttribute('aria-expanded') !== 'true')); });
+    button.addEventListener('blur', () => { wrap.classList.remove('tip-hidden'); button.setAttribute('aria-expanded', 'false'); });
+    button.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); wrap.classList.add('tip-hidden'); button.setAttribute('aria-expanded', 'false'); } });
+    return wrap;
+  }
+  // “Thu, Nov 5 to Fri, Nov 6, 2 days” → the day(s) in bold, the rest plain (textContent only).
+  const DAY_RE = /(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), [A-Z][a-z]{2} \d{1,2}(?: (?:from|until) \d{1,2}:\d{2})?(?: to (?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), [A-Z][a-z]{2} \d{1,2})?|the next \d+ days/g;
+  function boldDays(text) {
+    const out = [];
+    let at = 0;
+    for (const m of text.matchAll(DAY_RE)) {
+      if (m.index > at) out.push(text.slice(at, m.index));
+      out.push(el('b', { textContent: m[0] }));
+      at = m.index + m[0].length;
     }
-    return card.note ? el('div', { className: 'hr-balance' }, el('p', { className: 'hr-note', textContent: card.note })) : null;
+    if (at < text.length) out.push(text.slice(at));
+    return out;
+  }
+  // The card's current values, as the professor sees them.
+  function hrNow() {
+    const dm = hr.surface.dataModel;
+    const hoursRaw = String(dm.get('/hours') ?? '').trim();
+    return { type: first(dm.get('/absenceType')), reason: first(dm.get('/absenceReason')), beginDate: String(dm.get('/beginDate') ?? '').slice(0, 10), endDate: String(dm.get('/endDate') ?? '').slice(0, 10), hours: hoursRaw === '' ? NaN : Number(hoursRaw), hoursRaw };
+  }
+  // The “when” line and the hours this request uses (null when they can't be worked out yet).
+  function whenOf(v, card) {
+    if (!v.beginDate || !v.endDate) return { text: 'Dates still needed', missing: true, used: null };
+    const days = workdays(v.beginDate, v.endDate);
+    const range = v.beginDate === v.endDate ? shortDate(v.beginDate) : `${shortDate(v.beginDate)} to ${shortDate(v.endDate)}`;
+    if (!days.length) return { text: `${range}, no working days`, missing: true, used: null };
+    if (!Number.isFinite(v.hours) || v.hours <= 0) return { text: `${range}, hours still needed`, missing: true, used: null };
+    // A time read from the words (and the words' spread choice) holds only while the dates and hours are
+    // still the ones HR filled in.
+    const same = v.beginDate === hr.orig.beginDate && v.endDate === hr.orig.endDate && v.hoursRaw === hr.orig.hoursRaw;
+    const spread = same && card.spread?.mode ? card.spread : spreadOf(days.length, v.hours, null);
+    if (spread.mode === 'ask') return { text: `${range}, ${hoursText(v.hours)} — HR will ask how to spread them`, missing: false, used: v.hours };
+    if (spread.mode === 'invalid') {
+      const tooMany = v.hours > STANDARD_DAY * days.length;
+      return { text: `${range}, ${hoursText(v.hours)} ${tooMany ? 'is more than these days allow' : '— these hours don’t fit the dates'}`, missing: true, used: null };
+    }
+    const text = whenText({ beginDate: v.beginDate, endDate: v.endDate, hours: v.hours, spread, startAt: same ? card.startAt ?? null : null, side: same ? card.side ?? null : null });
+    return { text, missing: false, used: v.hours };
+  }
+  // HR's lead asks for the kind of leave when it had none. Once the professor picks a name on the card, the
+  // lead follows the approved rules (page chrome; HR's own text comes back if the name is cleared).
+  const NO_NAME_LEAD = /^What kind of time off is this\?/;
+  const SORRY = (type, reason) => type === 'BRV' || (type === 'OTH' && (reason === '30' || reason === '40')) || (type === 'SCK' && reason === 'BRV');
+  const leadFor = (type, reason) => (SORRY(type, reason) ? "I'm sorry for your loss. Check it and submit." : type === 'SCK' && reason === 'SCK' ? 'Feel better soon. Check it and submit.' : 'Check it and submit.');
+  // No name yet and HR offered choices: the question, then the choices as pills, then HR's “If none of these fit …”.
+  function drawLead(v) {
+    const named = Boolean(v.type && absenceName(v.type));
+    const asking = NO_NAME_LEAD.test(hr.leadText) && !named;
+    const offer = asking && hr.choices.childElementCount > 0;
+    const text = NO_NAME_LEAD.test(hr.leadText) && named ? leadFor(v.type, v.reason) : offer ? hr.leadText.match(NO_NAME_LEAD)[0] : hr.leadText;
+    if (hr.lead.textContent !== text) hr.lead.textContent = text;
+    const hint = offer ? hr.leadText.replace(NO_NAME_LEAD, '').trim() : '';
+    if (hr.hint.textContent !== hint) hr.hint.textContent = hint;
+    hr.choices.hidden = !offer;
+    hr.hint.hidden = !offer || !hint;
+  }
+  // The 3-second summary: what, when, and what is left after this request.
+  function drawSlip() {
+    const card = hr.card;
+    const v = hrNow();
+    const named = Boolean(v.type && absenceName(v.type));
+    const { title, subtitle } = named ? titleOf(v.type, v.reason) : { title: null, subtitle: null };
+    const whatRow = el('div', { className: 'hr-what-row' }, el('p', { className: `hr-what${named ? '' : ' empty'}`, textContent: title ?? 'Choose the kind of leave' }), named && PROOF[v.type] ? infoTip(PROOF[v.type]) : null);
+    const when = whenOf(v, card);
+    const whenEl = el('p', { className: 'hr-when', dataset: { missing: String(when.missing) } }, ...boldDays(when.text));
+    const impact = el('div', { className: 'hr-impact' });
+    const creditKey = named ? CREDIT_OF_TYPE[v.type] : null;
+    const now = creditKey ? Number(card.balances?.[creditKey]) : NaN;
+    if (!named) impact.append(el('p', { className: 'hr-free', textContent: 'Your balance shows here once you choose the kind of leave.' }));
+    else if (!creditKey) impact.append(el('p', { className: 'hr-free', textContent: `${title} doesn't use your vacation or sick leave.` }));
+    else if (!Number.isFinite(now)) impact.append(el('p', { className: 'hr-free', textContent: `HR will check your ${CREDIT_LABEL[creditKey]} balance.` }));
+    else if (when.used == null) impact.append(el('p', { className: 'hr-free', textContent: `You have ${daysText(now)} of ${CREDIT_LABEL[creditKey]} now.` }));
+    else if (when.used > now) impact.append(el('p', { className: 'hr-free hr-short', textContent: `Not enough ${CREDIT_LABEL[creditKey]}: this request needs ${daysText(when.used)}, you have ${daysText(now)}.` }));
+    else {
+      const after = now - when.used;
+      const [n, ...rest] = daysText(after).split(' ');
+      const pct = (x) => `${now > 0 ? Math.max(0, Math.min(100, (x / now) * 100)) : 0}%`;
+      impact.append(
+        el('p', { className: 'hr-left' }, el('span', { className: 'hr-left-n', textContent: n }), ' ', el('span', { className: 'hr-left-t', textContent: `${rest.join(' ')} of ${CREDIT_LABEL[creditKey]} left after this` })),
+        el('div', { className: 'hr-bar', ariaHidden: 'true' }, el('div', { className: 'hr-keep', style: `width: ${pct(after)}` }), el('div', { className: 'hr-use', style: `width: ${pct(when.used)}` })),
+        el('div', { className: 'hr-bar-labels' }, el('span', { textContent: `You have ${daysText(now)} now` }), el('span', { textContent: `this request: ${daysText(when.used)}` })));
+    }
+    drawLead(v);
+    hr.slip.replaceChildren(el('div', {}, whatRow, subtitle ? el('p', { className: 'hr-why', textContent: subtitle }) : null), whenEl, impact);
+    // HR's own findings hold while the card still says what HR read: the name the words chose, and the
+    // problem HR found with exactly these values.
+    hr.because.hidden = !(card.why && v.type === hr.orig.type);
+    const unchanged = v.type === hr.orig.type && v.reason === hr.orig.reason && v.beginDate === hr.orig.beginDate && v.endDate === hr.orig.endDate && v.hoursRaw === hr.orig.hoursRaw;
+    hr.problem.hidden = !(card.problem && unchanged);
+  }
+  // The two pickers are the renderer's filterable chips ChoicePicker, styled as closed dropdowns: closed
+  // shows the picked chip (or our own placeholder button), a click opens the filter box and the list,
+  // picking / Esc / a click outside closes it.
+  const pickerId = (p) => p.context?.componentModel?.id ?? (p.querySelector('label')?.textContent?.trim() === 'Reason' ? 'absenceReason' : 'absenceType');
+  function closePicker(p) {
+    if (!p.classList.contains('open')) return;
+    p.classList.remove('open');
+    if ('filter' in p) p.filter = ''; // the renderer's own filter state: the whole list next time
+  }
+  function openPicker(p) {
+    if (p.classList.contains('disabled')) return;
+    for (const other of hr.li.querySelectorAll('a2ui-choicepicker.open')) if (other !== p) closePicker(other);
+    p.classList.add('open');
+    p.querySelector('.a2ui-filter-input')?.focus();
+  }
+  // Page chrome for the pickers (placeholder button, missing/disabled state) and the note's ⓘ. The renderer
+  // may redraw a field: this runs again after every change inside the surface and only adds what is gone.
+  function decorateSurface() {
+    if (!hr) return;
+    const v = hrNow();
+    for (const p of hr.li.querySelectorAll('a2ui-choicepicker')) {
+      const reason = pickerId(p) === 'absenceReason';
+      const value = reason ? v.reason : v.type;
+      const label = reason ? 'Reason' : 'Absence name';
+      const empty = reason ? (v.type ? 'Choose a reason…' : 'Reason (pick a name first)') : 'Choose…';
+      let blank = p.querySelector(':scope > .dd-empty');
+      if (!blank) {
+        blank = el('button', { type: 'button', className: 'dd-empty' }, el('span', { className: 'sel-text' }));
+        blank.addEventListener('click', () => openPicker(p));
+        p.prepend(blank); // before the renderer's own nodes: never inside a part it redraws
+      }
+      if (blank.firstChild.textContent !== empty) blank.firstChild.textContent = empty;
+      blank.setAttribute('aria-label', `${label}: ${empty}`);
+      blank.hidden = Boolean(value);
+      p.classList.toggle('dd-missing', !value && (!reason || Boolean(v.type)));
+      p.classList.toggle('disabled', reason && !v.type);
+      p.classList.toggle('no-match', !p.querySelector('.a2ui-chip'));
+      const input = p.querySelector('.a2ui-filter-input');
+      if (input && input.placeholder !== 'Type to search…') { input.placeholder = 'Type to search…'; input.setAttribute('aria-label', `Search ${label.toLowerCase()}`); }
+    }
+    const note = hr.li.querySelector('a2ui-basic-textfield:has(textarea)');
+    // Prepended (outside the renderer's own nodes) and shown after the label by CSS; its name says what it is about,
+    // so a screen reader meeting it first still knows which field it explains.
+    if (note && !note.querySelector(':scope > .hr-info')) note.prepend(infoTip(NOTE_PRIVACY, 'Who can read the note for your manager'));
+  }
+  // A new absence name: the reason list becomes that name's reasons (an A2UI updateComponents through the
+  // card's own renderer), with its default reason picked or none.
+  function nameChanged() {
+    if (!hr) return;
+    const type = first(hr.surface.dataModel.get('/absenceType'));
+    if (type === hr.type) return;
+    hr.type = type;
+    hr.processor.processMessages(structuredClone([{ version: A2UI_VERSION, updateComponents: { surfaceId: hr.surfaceId, components: [reasonPicker(type || null)] } }]));
+    // Same rule as HR's merge: keep the reason if it belongs to the new name, else the name's default reason or none.
+    const current = first(hr.surface.dataModel.get('/absenceReason'));
+    const code = !type ? null : (current && isPair(type, current) ? current : defaultReason(type));
+    hr.surface.dataModel.set('/absenceReason', code ? [code] : []);
   }
   // HR's chat entry for the open card → the card itself (built once per formRef, then updated in place).
   function hrCardItem(m, open) {
@@ -351,42 +506,68 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
       const surfaceEl = el('a2ui-surface', { className: 'form-surface hr-surface' });
       surfaceEl.surface = surface;
       const lead = el('p', { className: 'hr-lead', textContent: m.text });
+      // HR's choices when it couldn't pick one name: a tap fills Absence name, like picking it in the dropdown.
+      const choices = el('div', { className: 'hr-choices', role: 'group', ariaLabel: 'Kinds of leave HR suggests', hidden: true },
+        ...[].concat(card.choices ?? []).filter((c) => absenceName(c?.type)).map((c) => {
+          const pill = el('button', { type: 'button', className: 'hr-pill', textContent: absenceName(c.type) });
+          pill.addEventListener('click', () => { if (hr?.li === li) hr.surface.dataModel.set('/absenceType', [c.type]); });
+          return pill;
+        }));
+      const hint = el('p', { className: 'hr-hint', hidden: true });
       const notice = el('div', { className: 'notice', role: 'status' });
-      const missing = (card.missing ?? []).filter((f) => MISSING_TEXT[f]);
-      const li = el('li', { className: 'msg hr-card', dataset: { dir: 'received', speaker: 'hr', formRef: open.formRef, missing: missing.join(' ') } },
+      const slip = el('section', { className: 'hr-slip', ariaLabel: 'Summary' });
+      const because = el('p', { className: 'hr-because', textContent: card.why ?? '', hidden: true });
+      const problem = el('p', { className: 'hr-problem', textContent: card.problem ?? '', hidden: true });
+      const li = el('li', { className: 'msg hr-card', dataset: { dir: 'received', speaker: 'hr', formRef: open.formRef, missing: (card.missing ?? []).join(' ') } },
         el('div', { className: 'msg-head' }, el('span', { className: 'msg-dir', textContent: HR_LABEL }), el('time', { dateTime: m.at ?? '', textContent: m.at ? new Date(m.at).toLocaleTimeString([], { hour12: false }) : '' })),
-        lead,
-        el('p', { className: 'hr-title', textContent: card.title ?? 'Time off request' }),
-        el('p', { className: 'hr-when', dataset: { missing: String(!card.when) }, textContent: card.when ?? 'Dates still needed' }),
-        card.why ? el('p', { className: 'hr-why', textContent: card.why }) : null,
-        card.problem ? el('p', { className: 'hr-problem', textContent: card.problem }) : null,
-        missing.length ? el('p', { className: 'hr-missing', textContent: `Still needed: ${missing.map((f) => MISSING_TEXT[f]).join(', ')} — fill in the highlighted field${missing.length > 1 ? 's' : ''} or answer HR in the chat.` }) : null,
-        surfaceEl, balanceView(card), notice);
-      hr = { formRef: open.formRef, surfaceId, li, processor, surface, applied: open.a2ui.length, busy: false, attempt: null, notice, lead, subs: [] };
-      // The relationship row is always there; it is required (star, check) only while the name picked on the
-      // card needs one — kept in step here as the professor changes the name.
-      const relationshipNeeded = () => {
-        const name = [].concat(surface.dataModel.get('/absenceName') ?? [])[0] ?? '';
-        const needed = RELATIONSHIP_REQUIRED.has(name);
-        surface.dataModel.set('/ui/relationshipNeeded', needed ? 'yes' : '');
-        surface.dataModel.set('/ui/relationshipLabel', needed ? RELATIONSHIP_LABEL.required : RELATIONSHIP_LABEL.optional);
-        li.dataset.relationshipNeeded = String(needed);
-      };
-      relationshipNeeded();
-      hr.subs.push(surface.dataModel.subscribe('/absenceName', relationshipNeeded));
+        lead, choices, hint, problem, slip, because, surfaceEl, notice);
+      hr = { formRef: open.formRef, surfaceId, li, processor, surface, slip, because, problem, applied: open.a2ui.length, busy: false, attempt: null, notice, lead, choices, hint, leadText: m.text, subs: [], card, type: null, orig: null };
+      const v = hrNow();
+      hr.type = v.type;
+      hr.orig = v;
+      drawSlip();
+      const redraw = () => { if (hr?.li === li) { drawSlip(); decorateSurface(); } };
+      for (const path of SUMMARY_PATHS) hr.subs.push(surface.dataModel.subscribe(path, () => queueMicrotask(redraw)));
+      hr.subs.push(surface.dataModel.subscribe('/absenceType', () => queueMicrotask(nameChanged)));
+      // Dropdown behaviour, delegated on the card (the renderer may replace a picker's insides).
+      li.addEventListener('click', (e) => {
+        const p = e.target.closest('a2ui-choicepicker');
+        if (!p || !li.contains(p)) return;
+        const chip = e.target.closest('.a2ui-chip');
+        if (!chip) return;
+        if (p.classList.contains('open')) { closePicker(p); queueMicrotask(() => p.querySelector('.a2ui-chip-selected, .dd-empty:not([hidden])')?.focus()); } // picked (the renderer has set the value)
+        else openPicker(p);
+      });
+      li.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        const p = e.target.closest?.('a2ui-choicepicker.open');
+        if (!p) return;
+        e.preventDefault();
+        closePicker(p);
+        (p.querySelector('.a2ui-chip-selected') ?? p.querySelector('.dd-empty'))?.focus();
+      });
+      const outside = (e) => { for (const p of li.querySelectorAll('a2ui-choicepicker.open')) if (!p.contains(e.target)) closePicker(p); };
+      document.addEventListener('mousedown', outside);
+      document.addEventListener('focusin', outside);
+      hr.subs.push({ unsubscribe: () => { document.removeEventListener('mousedown', outside); document.removeEventListener('focusin', outside); } });
+      const watcher = new MutationObserver(() => decorateSurface());
+      watcher.observe(surfaceEl, { childList: true, subtree: true });
+      hr.subs.push({ unsubscribe: () => watcher.disconnect() });
+      queueMicrotask(decorateSurface);
     } else if (open.a2ui.length > hr.applied) {
       // HR refused a Submit: its A2UI updates (field errors) arrive appended to the card's messages.
       hr.processor.processMessages(structuredClone(open.a2ui.slice(hr.applied).filter((x) => !x.deleteSurface)));
       hr.applied = open.a2ui.length;
     }
-    hr.lead.textContent = m.text;
+    hr.leadText = m.text;
+    drawLead(hrNow());
     return hr.li;
   }
   // The open card's current values (what the professor sees and may have edited), or null.
   function hrValues() {
     if (!hr?.surface) return null;
     const dm = hr.surface.dataModel;
-    const values = Object.fromEntries(['absenceName', 'beginDate', 'endDate', 'hours', 'relationship', 'note'].map((f) => [f, structuredClone(dm.get(`/${f}`) ?? '')]));
+    const values = Object.fromEntries(['absenceType', 'absenceReason', 'beginDate', 'endDate', 'hours', 'note'].map((f) => [f, structuredClone(dm.get(`/${f}`) ?? '')]));
     return { formRef: hr.formRef, values };
   }
   // The renderer's button events (typing never reaches here). Submit is checked with the same rules HR

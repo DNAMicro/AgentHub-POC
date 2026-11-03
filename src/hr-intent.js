@@ -1,9 +1,11 @@
 // Reading a time-off request by CODE: dates and partial days come only from the professor's words,
 // never from a model. The absence name is chosen in hr-model.js (and verified there).
-import { RELATIONSHIP_REQUIRED, addDays, todayIn } from './forms.js';
+import { addDays, hhmm, todayIn } from './forms.js';
+import { workdays } from './absence-types.js';
 import { chooseAbsence } from './hr-model.js';
 
-const DAYS = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6, tues: 2, thurs: 4, weds: 3 };
+// Short forms Mon–Fri are days too ("Mon to Wed"); "sat"/"sun" are not (ordinary words).
+const DAYS = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6, tues: 2, thurs: 4, weds: 3, mon: 1, tue: 2, wed: 3, thu: 4, thur: 4, fri: 5 };
 const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12 };
 const MONTH_RE = 'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?';
 const ORD = '(?:st|nd|rd|th)?';
@@ -17,7 +19,7 @@ const LEFTOVER_DAY = new RegExp(`^\\s*(?:,|and|&|to|through|thru|until|-|–)\\s
 
 // One scan over the words; each alternative names what it found.
 const MENTION = new RegExp([
-  `\\b(?:(?<prefix>this|next|last|coming)\\s+)?(?<weekday>${Object.keys(DAYS).join('|')})\\b`,
+  `\\b(?<!\\bc['’])(?:(?<prefix>this|next|last|coming)\\s+)?(?<weekday>${Object.keys(DAYS).join('|')})\\b`,
   '\\b(?<rel>today|tonight|this\\s+(?:morning|afternoon|evening)|tomorrow|yesterday)\\b', // “this afternoon”, “tonight” = today
   `\\b(?<month>${MONTH_RE})\\.?\\s+(?<day>\\d{1,2})${ORD}\\b(?:\\s*(?:to|through|thru|until|-|–)\\s*(?<day2>\\d{1,2})${ORD}\\b(?![:/]|\\.\\d|${AT_TIME})|(?<more>(?:\\s*(?:,\\s*(?:and\\s+|&\\s*)?|and\\s+|&\\s*)\\d{1,2}${ORD}\\b${DAY_END})+))?(?:,?\\s+(?<year>20\\d\\d))?`,
   '(?<![\\d/])(?<nm>\\d{1,2})/(?<nd>\\d{1,2})(?:/(?<ny>\\d{4}|\\d{2}))?(?![\\d/])',
@@ -55,11 +57,35 @@ function weekdayDate(today, target, prefix, after) {
   return addDays(from, (target - dow(from) + 7) % 7);
 }
 
+// "Mon to Wed next week" / "next week, Mon to Wed": "next week" right next to the weekday list makes its first
+// bare weekday the one in the following Mon-start week (as "next Mon"); the others follow it as in any list.
+const NEXT_WEEK = /\bnext\s+week\b/gi;
+const DAY_ONLY_TAIL = new RegExp(`^(?:\\s*(?:${Object.keys(DAYS).join('|')}|and|or|to|through|thru|until|on|-|–)\\b)*\\s*(?:[,;.!?]|$)`, 'i');
+// "out Thursday and Friday, next week too": more days in a week the reading can't name → no dates (HR asks).
+const MORE_NEXT_WEEK = /\bnext\s+week\s+(?:too|also|as\s+well)\b|\balso\s+next\s+week\b/i;
+function nextWeekList(str) {
+  const nw = [...str.matchAll(NEXT_WEEK)];
+  if (nw.length !== 1) return false;
+  const days = [...str.matchAll(MENTION)].filter((m) => m.groups.weekday);
+  if (!days.length || days.some((m) => m.groups.prefix)) return false;
+  const [first, last] = [days[0], days.at(-1)];
+  const at = nw[0].index;
+  const lastEnd = last.index + last[0].length;
+  // After the list, "next week" counts only when nothing but day words / joiners follow it to the end of its clause
+  // ("out Friday, next week I'm back" is about another week: no shift).
+  const tail = str.slice(at + nw[0][0].length);
+  const afterList = at >= lastEnd && /^\s*,?\s*$/.test(str.slice(lastEnd, at)) && DAY_ONLY_TAIL.test(tail);
+  const beforeList = at + nw[0][0].length <= first.index && /^\s*,?\s*(?:on\s+)?$/i.test(str.slice(at + nw[0][0].length, first.index));
+  return afterList || beforeList;
+}
+
 export function readDates(text, now = new Date()) {
   const today = todayIn(now);
   const str = String(text ?? '');
   const found = [];
   let prevEnd = null;
+  if (MORE_NEXT_WEEK.test(str)) return null;
+  let nextWeek = nextWeekList(str);
   for (const m of str.matchAll(MENTION)) {
     const g = m.groups;
     const rest = str.slice(m.index + m[0].length);
@@ -70,7 +96,9 @@ export function readDates(text, now = new Date()) {
     prevEnd = m.index + m[0].length;
     let dates = [];
     if (g.weekday) {
-      dates = [weekdayDate(today, DAYS[g.weekday.toLowerCase()], g.prefix, g.prefix ? null : found.at(-1))];
+      const prefix = g.prefix ?? (nextWeek && !found.length ? 'next' : undefined);
+      nextWeek = false;
+      dates = [weekdayDate(today, DAYS[g.weekday.toLowerCase()], prefix, prefix ? null : found.at(-1))];
     } else if (g.rel) {
       dates = [addDays(today, { tomorrow: 1, yesterday: -1 }[g.rel.toLowerCase()] ?? 0)];
     } else if (g.month) {
@@ -215,9 +243,18 @@ const LEAVE_AT = new RegExp(`\\b(?<verb>leav(?:e|ing)|head(?:ing)?\\s+out|go(?:i
 const ARRIVE_AT = new RegExp(`\\b(?<verb>com(?:e|ing)\\s+in|be\\s+in|in|arriv(?:e|ing))${BETWEEN}\\s+(?:at|around)\\s+${CLOCK}`, 'gi');
 // Morning/afternoon/half day count only when tied to being off/out/sick/leaving ("off the afternoon", "out this
 // morning", "sick yesterday afternoon", "afternoon off", "half day"); "I have class in the morning" is not a cue.
+// “half day”, “half-day”, “half a day”, “half of the day”.
+const HALF_DAY = 'half(?:[- ]|\\s+a\\s+|\\s+of\\s+(?:the|a|my)\\s+)day';
 const DAY_WORDS_BETWEEN = `(?:(?:the|this|tomorrow|yesterday|today|on|${Object.keys(DAYS).join('|')})\\s+)*`;
-const DAY_PARTS = new RegExp(`\\b(?:off|out|sick|ill|unwell|leaving|leave|away|absent)\\s+${DAY_WORDS_BETWEEN}(?:morning|afternoon)\\b|\\b(?:morning|afternoon)\\s+off\\b|\\bhalf[- ]day\\b`, 'gi');
+const DAY_PARTS = new RegExp(`\\b(?:off|out|sick|ill|unwell|leaving|leave|away|absent)\\s+${DAY_WORDS_BETWEEN}(?:morning|afternoon)\\b|\\b(?:morning|afternoon)\\s+off\\b|\\b${HALF_DAY}\\b`, 'gi');
 export function readPartial(text) {
+  const c = readCue(text);
+  if (!c) return null;
+  return c.kind === 'arrive' ? { mode: 'start_day_only', hours: c.hours, side: 'arrive' } : { mode: 'start_day_only', hours: c.hours };
+}
+// Rule A's one readable cue: { hours, kind, end } — kind 'leave' (a leaving clock time or "N hours early": the
+// leaving time is known, 17:00 − hours), 'arrive', or 'other' (a length with no time: "4 hours off", "afternoon").
+function readCue(text) {
   const s = String(text ?? '');
   if (CORRECTION.test(s)) return null;
   const found = []; // hours, or null for a cue that is present but not readable as the absence's length
@@ -225,6 +262,7 @@ export function readPartial(text) {
   const cue = (value, m) => { found.push(value); spans.push([m.index, m.index + m[0].length]); };
   const tied = []; // [start, end) of each verb-tied clock cue
   const arrivals = new Set(); // indexes in found that are arrivals (“coming in at 10am”, “2 hours late”)
+  const leaves = new Set(); // indexes in found whose leaving time is said (“leaving at noon”, “leaving 2 hours early”)
   for (const [re, toHours] of [[LEAVE_AT, (m) => (WORKDAY_END - m) / 60], [ARRIVE_AT, (m) => (m - WORKDAY_START) / 60]]) {
     for (const t of s.matchAll(re)) {
       tied.push([t.index, t.index + t[0].length]);
@@ -234,7 +272,7 @@ export function readPartial(text) {
       const h = t.groups.noon ? 12 : leavingHour(t.groups);
       if (h === null) continue; // not a time ("at 4 hours", a bare number)
       const hours = toHours(h * 60 + Number(t.groups.min ?? 0));
-      if (hours > 0 && hours < STANDARD_HOURS) { if (re === ARRIVE_AT) arrivals.add(found.length); cue(hours, t); } // otherwise not a cue
+      if (hours > 0 && hours < STANDARD_HOURS) { (re === ARRIVE_AT ? arrivals : leaves).add(found.length); cue(hours, t); } // otherwise not a cue
     }
   }
   // A clock time outside every verb-tied cue blocks.
@@ -246,6 +284,7 @@ export function readPartial(text) {
     const after = s.slice(n.index + n[0].length);
     if (EARLY_LATE.test(after)) {
       if (/^\s*late/i.test(after)) arrivals.add(found.length);
+      else if (/^\s*(?:early|earlier)\b/i.test(after)) leaves.add(found.length);
       cue(earlyLateHours(before, after) ? hours : null, { index: n.index, 0: n[0] + after.match(EARLY_LATE)[0] }); // the cue includes “early/late”
       continue;
     }
@@ -260,8 +299,8 @@ export function readPartial(text) {
   // hours are today's, tomorrow is another day → no partial day.
   const later = s.slice(end).search(DAY_REF);
   if (later >= 0 && /[,;.!?]|\band\b/i.test(s.slice(end, end + later))) return null;
-  // side 'arrive': the hours are missed BEFORE arriving (the card says “until 10:00”); otherwise before leaving.
-  return arrivals.has(0) ? { mode: 'start_day_only', hours: found[0], side: 'arrive' } : { mode: 'start_day_only', hours: found[0] };
+  // 'arrive': the hours are missed BEFORE arriving (the card says “until 10:00”); otherwise before leaving.
+  return { hours: found[0], kind: arrivals.has(0) ? 'arrive' : leaves.has(0) ? 'leave' : 'other', end };
 }
 
 // Is "N hours early/late" the professor's own leaving/arriving, with only a day/time (and a short reason) after it?
@@ -288,7 +327,8 @@ export function mentionsHours(text) {
   // (“No note needed”, “Make it a personal holiday instead”) are not signals.
   const s = String(text ?? '');
   return new RegExp(ANY_CLOCK.source, 'i').test(s)
-    || /\b(?:hours?|hrs?|early|late|earlier|later|morning|afternoon|evening|tonight|half[- ]?day|(?:full|all|whole|entire)\s+day)\b/i.test(s)
+    || /\b(?:hours?|hrs?|early|late|earlier|later|morning|afternoon|evening|tonight|(?:full|all|whole|entire)\s+day)\b/i.test(s)
+    || new RegExp(`\\b(?:half[- ]?day|${HALF_DAY})\\b`, 'i').test(s)
     || /\d|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|half)\b/i.test(s.replace(DATES, ' '));
 }
 // Does the text name a day or date at all (readable or not)?
@@ -343,23 +383,172 @@ export function mentionedDays(text, now = new Date()) {
 }
 export const dayReferences = (text, now = new Date()) => mentionedDays(text, now).size;
 
+// ---- part days over several days (R1-strict: anything unclear → null, full days the professor edits) ----------
+const CLAUSE_SPLIT = /[,;.!?]|\b(?:and|but|then)\b/i;
+const clausesOf = (text) => {
+  const out = [];
+  let rest = String(text ?? '');
+  let at = 0;
+  for (;;) {
+    const m = rest.match(CLAUSE_SPLIT);
+    if (!m) { out.push({ text: rest, start: at, end: at + rest.length }); return out; }
+    out.push({ text: rest.slice(0, m.index), start: at, end: at + m.index });
+    at += m.index + m[0].length;
+    rest = rest.slice(m.index + m[0].length);
+  }
+};
+// A clause that names the remaining day(s) as away: out/off/away/sick/absent (not negated) or "won't be in".
+const AWAY = /\b(?:out|off|away|sick|absent)\b/i;
+const WONT_BE_IN = /\bwon['’]?t\s+be\s+in\b/i;
+// …and the one away is the SPEAKER: "I'm out", "I'll be off", or no subject ("and out Friday"). "my TA is out",
+// "we are off", "the class is off" are someone else (speakerMoves: "we" and any noun are not the speaker).
+function awayClause(c) {
+  const m = c.match(WONT_BE_IN) ?? c.match(AWAY);
+  if (!m) return false;
+  if (m[0].match(WONT_BE_IN) ? NEGATED.test(c.replace(WONT_BE_IN, ' ')) : NEGATED.test(c)) return false;
+  const subject = c.slice(0, m.index).replace(new RegExp(`\\b(?:${Object.keys(DAYS).join('|')}|today|tomorrow|tonight)\\b`, 'gi'), ' ');
+  return speakerMoves(subject.replace(/\bwon['’]?t\b/gi, ' ')) && !/\b(?:is|are|was|were)\b/i.test(subject);
+}
+// "…and out Friday if my flight is delayed": a condition or doubt about a day → no first-day shape.
+const CONDITIONAL = /\b(?:if|unless|in\s+case|depending|might|maybe|possibly|probably)\b/i;
+const sameDays = (a, b) => a.length === b.length && a.every((d, i) => d === b[i]);
+
+// "leaving at noon on Thursday and I'll be out Friday": the message's single hour cue sits in the clause that names
+// the FIRST day, every other clause has no hour signal, and the clauses naming the other days say the professor is
+// away. Returns { partial, cue, dates } or null. `dates` is the range the clauses name (all of them workdays, no gap).
+function startDayOnly(text, now, dates) {
+  const s = String(text ?? '');
+  if (CORRECTION.test(s) || CONDITIONAL.test(s)) return null;
+  const clauses = clausesOf(s).filter((c) => c.text.trim());
+  const timed = clauses.filter((c) => mentionsHours(c.text));
+  if (timed.length !== 1) return null;
+  const cueClause = timed[0];
+  if (new RegExp(`\\b(?:half[- ]?day|${HALF_DAY})\\b`, 'i').test(cueClause.text)) return null; // "half day Thursday and Friday off": which days? ambiguous
+  const cueDays = [...mentionedDays(cueClause.text, now)];
+  if (cueDays.length !== 1) return null;
+  const named = new Set(cueDays);
+  for (const c of clauses) {
+    if (c === cueClause) continue;
+    const days = mentionedDays(c.text, now);
+    if (!days.size) continue;
+    if (!awayClause(c.text)) return null;
+    for (const d of days) named.add(d);
+  }
+  const sorted = [...named].sort();
+  if (sorted[0] !== cueDays[0] || sorted.length < 2) return null; // the cue's day is the first day
+  if (!sameDays(sorted, workdays(sorted[0], sorted.at(-1)))) return null; // every day a workday, no gap
+  if (dates && (dates.beginDate !== sorted[0] || dates.endDate !== sorted.at(-1))) return null;
+  // Rule A on the words up to the end of the cue's clause (earlier clauses keep their say: "My kid is sick, …").
+  const c = readCue(s.slice(0, cueClause.end));
+  if (!c) return null;
+  const after = s.slice(cueClause.end);
+  if (NUMBER_AFTER.test(after.replace(DATES, ' ')) || MARKER_AFTER.test(after)) return null;
+  return { cue: c, dates: { beginDate: sorted[0], endDate: sorted.at(-1) } };
+}
+
+// "4 hours each day Mon to Wed": only an explicit "N hours each/every/a/per day" (N digits or one–seven, halves
+// allowed), 0 < N < 8, nothing else about hours, no correction word, not negated, and only day/leave words before it.
+const NUM_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7 };
+const EACH_DAY = new RegExp(`(?<![\\w.:/])(\\d+(?:\\.5)?|\\.5|${Object.keys(NUM_WORDS).join('|')})\\s*-?\\s*(?:hours?|hrs?)\\s+(?:(?:off|out|away)\\s+)?(?:each|every|a|per)\\s+day\\b`, 'gi');
+const EACH_DAY_BEFORE = new RegExp(`^(?:i|i['’]m|i['’]ll|i['’]d|need|will|would|like|want|to|take|taking|be|off|out|away|for|just|only|please|so|also|leave|leaving|absent|time|on|from|the|this|next|week|to|through|thru|until|${Object.keys(DAYS).join('|')}|today|tomorrow|${MONTH_RE}|\\d{1,2}(?:st|nd|rd|th)?)$`, 'i');
+const ESTIMATE = /\b(?:about|around|roughly|approximately|approx|maybe|like|or\s+so|ish)\b|~/i;
+// After the phrase only days, dates and joiners may follow to the end of the message ("for meetings", "of class",
+// "the students will be in lab" → not the absence's length).
+const EACH_DAY_AFTER = new RegExp(`^(?:[\\s,.;:!?–-]*(?:${Object.keys(DAYS).join('|')}|today|tomorrow|${MONTH_RE}|\\d{1,2}(?:st|nd|rd|th)?|on|this|next|week|the|and|to|through|thru|until|from|off|out|please|thanks)\\b)*[\\s.,;:!?–-]*$`, 'i');
+function allDays(text) {
+  const s = String(text ?? '');
+  if (CORRECTION.test(s) || CONDITIONAL.test(s) || ESTIMATE.test(s)) return null;
+  const hits = [...s.matchAll(EACH_DAY)];
+  if (hits.length !== 1) return null;
+  const m = hits[0];
+  const n = NUM_WORDS[m[1].toLowerCase()] ?? Number(m[1]);
+  if (!(n > 0 && n < STANDARD_HOURS)) return null;
+  if (mentionsHours(s.slice(0, m.index) + ' ' + s.slice(m.index + m[0].length))) return null; // any other hour signal
+  const after = s.slice(m.index + m[0].length);
+  if (NOT_LENGTH_AFTER.test(after) || !EACH_DAY_AFTER.test(after)) return null;
+  const clause = clauseBefore(s.slice(0, m.index)).split(/\b(?:and|but|so|then)\b/i).at(-1);
+  if (NEGATED.test(clause)) return null;
+  const words = clause.replace(/[^\w’'\s]/g, ' ').split(/\s+/).filter(Boolean);
+  if (!words.every((w) => EACH_DAY_BEFORE.test(w))) return null; // "I work 4 hours a day": not the absence
+  return n;
+}
+
+const startAtOf = (cue) => (cue?.kind === 'leave' ? hhmm(WORKDAY_END - Math.round(cue.hours * 60)) : null);
+
 export async function readRequest({ text, now = new Date(), emit }) {
   // “Sick, going home at 1pm, back Wednesday”: Wednesday is the return day — no absence date from it (HR asks).
-  const [choice, { dates, unclear }] = [await chooseAbsence({ text, emit }), datesWithReturn(text, now)];
+  const [choice, read] = [await chooseAbsence({ text, emit }), datesWithReturn(text, now)];
+  let { dates } = read;
+  const { unclear } = read;
+  let cue = null;
+  let partial = null;
+  const single = dates && dates.beginDate === dates.endDate;
+  if (single || !dates) {
+    // Partial hours on ONE day apply only when the message refers to exactly one day: two or more days ("this
+    // afternoon and tomorrow"), none, or a span → full days.
+    if (single && dayReferences(text, now) === 1) cue = readCue(text);
+    if (cue) partial = cue.kind === 'arrive' ? { mode: 'start_day_only', hours: cue.hours, side: 'arrive' } : { mode: 'start_day_only', hours: cue.hours };
+  }
+  // Several days: a first-day part day (its clause names the first day, the others say "out"), or the same hours
+  // each day ("4 hours each day"). Dates the plain reader could not join ("noon Thursday and out Friday") are
+  // taken only in that exact first-day shape.
+  if (!partial && !unclear && !returnPhrases(text).length && (!dates || workdays(dates.beginDate, dates.endDate).length >= 2)) {
+    const first = startDayOnly(text, now, dates);
+    if (first) {
+      dates = first.dates;
+      cue = first.cue;
+      partial = cue.kind === 'arrive' ? { mode: 'start_day_only', hours: cue.hours, side: 'arrive' } : { mode: 'start_day_only', hours: cue.hours };
+    } else if (dates) {
+      const each = allDays(text);
+      if (each !== null) partial = { mode: 'all_days', hours: each };
+    }
+  }
   const prefill = {
-    absenceName: choice.absenceName,
+    absenceType: choice.absenceType,
+    absenceReason: choice.absenceReason,
     beginDate: dates?.beginDate ?? '',
     endDate: dates?.endDate ?? '',
-    hours: undefined, // the store works hours out from the dates and the partial day
-    relationship: choice.relationship,
-    note: choice.note,
   };
-  // Partial hours apply only when the message refers to exactly ONE day (and the absence is that one day): two or
-  // more days ("this afternoon and tomorrow"), none, or a span → full days.
-  const partial = dayReferences(text, now) === 1 && !(dates && dates.beginDate !== dates.endDate) ? readPartial(text) : null;
   const missing = [];
-  if (!prefill.absenceName) missing.push('absenceName');
+  if (!prefill.absenceType) missing.push('absenceType');
+  else if (!prefill.absenceReason) missing.push('absenceReason');
   if (!dates) missing.push('dates');
-  if (RELATIONSHIP_REQUIRED.has(prefill.absenceName) && !prefill.relationship) missing.push('relationship');
-  return { prefill, partial, quote: choice.quote, missing, ...(unclear ? { datesUnclear: true } : {}), ...(choice.error ? { error: choice.error } : {}) };
+  return {
+    prefill, partial, startAt: partial?.mode === 'start_day_only' ? startAtOf(cue) : null, side: partial?.side ?? null,
+    quote: choice.quote, note: choice.note, choices: choice.choices ?? [], missing,
+    ...(unclear ? { datesUnclear: true } : {}), ...(choice.error ? { error: choice.error } : {}),
+  };
+}
+
+// ---- questions about balances and filed requests (read by code; answered as text, nothing is filed) ----
+// Narrow on purpose: both fire only for the professor's OWN leave, with an explicit leave word and a question
+// shape, and never when anything suggests a leave request, a student, a class matter or a day.
+const VETO = [
+  /@\w/, // a student tag anywhere
+  /\bi\s*(?:['’]m|am)\s+(?:\w+\s+)?(?:sick|ill|unwell|out|off)\b/i, /\bi\s+feel\s+(?:\w+\s+)?(?:sick|ill|unwell)\b/i,
+  /\b(?:need|needs|needed|taking|take|took)\s+(?:\w+\s+){0,2}(?:time\s+off|leave|off)\b/i, /\bunpaid\s+leave\b/i,
+  /\bleave\s+early\b/i, /\bcan['’]?t\s+make\s+it\b/i, /\bwon['’]?t\s+be\s+in\b/i,
+  /\b(?:next|this)\s+week\b/i, /\b(?:today|tomorrow|tonight|yesterday)\b/i,
+  /\b(?:semester|students?|class(?:es)?|homework|exam|grading|grades?|lab|assignments?|submit)\b/i,
+];
+const OWN = /\b(?:my|do\s+i\s+have|have\s+i\s+got)\b/i;
+const OWN_LEFT = /\bi\s+have\b[^?]*\bleft\b/i;
+const LEAVE_WORD = /\b(?:vacation|sick\s+(?:leave|days?|hours?|time)|personal\s+holidays?|pto|leave\s+balances?|time[- ]off|leave)\b/i;
+const QUANTITY = /\b(?:balances?|how\s+much|how\s+many|remaining|left|do\s+i\s+have)\b/i;
+const vetoed = (s) => VETO.some((re) => re.test(s)) || mentionsDay(s);
+
+export function asksBalance(text) {
+  const s = String(text ?? '');
+  if (vetoed(s) || !(OWN.test(s) || OWN_LEFT.test(s)) || !LEAVE_WORD.test(s) || !QUANTITY.test(s)) return null;
+  if (/\bpto\b/i.test(s)) return 'all';
+  const named = [['sick', /\bsick\s+(?:leave|days?|hours?|time)\b/i], ['vacation', /\bvacation\b/i], ['personalHoliday', /\bpersonal\s+holidays?\b/i]].filter(([, re]) => re.test(s)).map(([k]) => k);
+  return named.length === 1 ? named[0] : 'all';
+}
+
+const KIND = String.raw`(?:time[- ]off|leave|absences?)`;
+export function asksRequests(text) {
+  const s = String(text ?? '');
+  if (vetoed(s)) return false;
+  return new RegExp(String.raw`\bmy\s+(?:time[- ]off|leave|absence)\s+requests\b`, 'i').test(s)
+    || new RegExp(String.raw`\b(?:what|which)\s+${KIND}\s+(?:have\s+i|did\s+i)\s+(?:filed|requested|submitted|file|request)\b`, 'i').test(s);
 }
