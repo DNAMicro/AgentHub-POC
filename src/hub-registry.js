@@ -7,7 +7,7 @@
 // separately — registration alone never means "online".
 //
 // Storage is a plain in-memory Map behind this small interface, so a durable store could replace it.
-import { signStudent } from './hub-link.js';
+import { signStaff, signStudent } from './hub-link.js';
 import { getCard, validateCard } from './cards.js';
 
 export const STATUS = { ready: 'ready', stale: 'stale', unreachable: 'unreachable', disconnected: 'disconnected', disabled: 'disabled', invalid: 'invalid_card' };
@@ -80,8 +80,9 @@ export function createHubRegistry({ peers, expiryMs, cardFetchMs = 3000, onEvent
     return e.refreshing;
   }
 
+  const ROLES = { tutor: 'Tutoring specialist', library: 'Library specialist', professor: 'Course professor', hr: 'Staff service (staff only)' };
   const snapshotOf = (e) => ({
-    agentId: e.peer.agentId, displayName: e.peer.displayName, role: e.peer.agentId === 'tutor' ? 'Tutoring specialist' : e.peer.agentId === 'library' ? 'Library specialist' : 'Specialist',
+    agentId: e.peer.agentId, displayName: e.peer.displayName, role: ROLES[e.peer.agentId] ?? 'Specialist',
     status: e.status, registered: e.registered, enabled: e.enabled, reachable: e.reachable, cardStatus: e.cardStatus,
     lastHeartbeatAt: e.lastHeartbeatAt ? new Date(e.lastHeartbeatAt).toISOString() : null,
     registeredAt: e.registeredAt ? new Date(e.registeredAt).toISOString() : null,
@@ -101,6 +102,11 @@ export function createHubRegistry({ peers, expiryMs, cardFetchMs = 3000, onEvent
     signFor(agentId, fields) {
       const key = entries.get(agentId)?.callKey;
       return key ? signStudent(key, fields) : null;
+    },
+    // HR (staff only): sign the STAFF caller forwarded on the Hub's staff path (a distinct signature).
+    signStaffFor(agentId, { staffId, contextId, operationId }) {
+      const key = entries.get(agentId)?.callKey;
+      return key ? signStaff(key, { staffId, contextId, operationId }) : null;
     },
     isReady: (agentId) => entries.get(agentId)?.status === STATUS.ready,
     status: (agentId) => entries.get(agentId)?.status ?? null,

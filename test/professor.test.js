@@ -799,3 +799,35 @@ test('mock: after an answered question, “ask the professor” passes it on onc
   assert.match(r3.reply.text, /already passed “What is market segmentation\?”/);
   assert.equal((await professorState(s)).chat.filter((m) => m.role === 'student').length, 1);
 });
+
+// Topology: the Professor view's own model calls (naming a direct post, the @assistant) are Professor → model
+// hops on the UI stream, in a `prof-<operationId>` run, with no message words. Scripted output = plumbing.
+test('professor view model calls reach the UI stream as professor-model hops: a direct post and an @assistant turn', async () => {
+  const stub = await startFakeAnthropic();
+  stub.respondWith((body) => {
+    const system = Array.isArray(body.system) ? body.system.map((b) => b.text).join('') : String(body.system);
+    if (system.includes('time-off requests go to HR')) return messageReply(JSON.stringify({ kind: 'class_message' }));
+    if (system.includes('course assistant')) return messageReply(JSON.stringify({ action: 'post', reply: 'Sending it.', kind: 'message', audience: 'all', title: 'Quiz day', content: 'The quiz is on Monday.', content_is_verbatim: false, seed_id: '' }));
+    return messageReply(JSON.stringify({ kind: 'message', title: 'Quiz day' }));
+  });
+  const { s, stream } = await classroom({ professorEnv: { PROFESSOR_MODE: 'live', ANTHROPIC_API_KEY: `sk-ant-test-${randomUUID()}`, ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0' } });
+  try {
+    const turn = async (text, purpose) => {
+      const operationId = `op-${randomUUID()}`;
+      const r = await (await post(`${s.ui.url}/api/professor/chat`, { operationId, text })).json();
+      assert.equal(r.action, 'post', JSON.stringify(r));
+      const run = `prof-${operationId}`;
+      const hop = (type) => stream.events.find((e) => e.source === 'professor' && e.runId === run && e.type === type && e.topo?.edge === 'professor-model' && e.data?.purpose === purpose);
+      await waitFor(() => hop('model_call_started') && hop('model_response_received'), { what: `${purpose}: professor model hop on the UI stream` });
+      // Both sides of both hops: the call goes Professor → model, the reply comes model → Professor.
+      assert.deepEqual([hop('model_call_started').topo.from, hop('model_call_started').topo.to], ['professor', 'model']);
+      assert.deepEqual([hop('model_response_received').topo.from, hop('model_response_received').topo.to], ['model', 'professor']);
+      return run;
+    };
+    const runs = [await turn('Bring a pencil to the pop quiz on Monday', 'name a post'), await turn('@assistant tell everyone about the pop quiz with a pencil', 'professor chat')];
+    const runEvents = stream.events.filter((e) => runs.includes(e.runId));
+    assert.ok(!/pencil|pop quiz|Quiz day|quiz is on/i.test(JSON.stringify(runEvents)), 'no message words in the run telemetry');
+  } finally {
+    await stub.close();
+  }
+});

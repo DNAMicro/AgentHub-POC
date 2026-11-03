@@ -30,6 +30,9 @@
   --router: #9a6300;      /* ochre — the university Hub: routing and relay */
   --hub: var(--router);
   --model: #5b6472;       /* slate — the model provider (outside the university) */
+  --hr: #1f6f8b;          /* petrol — the HR Agent (staff only) */
+  --hr-tint: #e3f0f5;
+  --req: #b4261f;         /* the required-field star */
   --student-tint: #e6edfb;
   --on-student: #ffffff;
   --accent: var(--student);
@@ -60,6 +63,9 @@
     --router: #e3b04b;
     --hub: var(--router);
     --model: #aab4c2;
+    --hr: #6cc0dd;
+    --hr-tint: #16303a;
+    --req: #ff8f86;
     --student-tint: #1e2a45;
     --on-student: #0d1526;
     --ok: #63cf93;
@@ -163,6 +169,7 @@ h2 { margin: 0; font-size: 1.07rem; font-weight: 700; color: var(--agent, var(--
 .msg[data-speaker="professor"] { --who: var(--professor); }
 .msg[data-speaker="router"] { --who: var(--router); }
 .msg[data-speaker="hub"] { --who: var(--hub); }
+.msg[data-speaker="hr"] { --who: var(--hr); }
 .chat-log .msg[data-dir="info"] { background: var(--field); }
 .msg-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 0.8rem; color: var(--muted); }
 .msg-dir { font-weight: 600; color: var(--who); }
@@ -707,3 +714,90 @@ body:has(#view-conversation:not([hidden]), #view-professor:not([hidden])) { heig
 .handover-status strong { font-weight: 700; }
 .handover-status .told { color: var(--muted); }
 .handover-status .told q { quotes: "“" "”"; }
+
+/* ---- HR (staff only): the time-off card in the Professor view (approved design hr-card-v4) ----
+   A headline (absence name), one “when” line, one “why” line, the fields of HR's A2UI surface as rows
+   editable in place (the official renderer draws them), the balance bar, then Submit request / Cancel. */
+.hr-card { max-width: min(100%, 560px); width: 100%; border: 1px solid var(--border); border-left: 4px solid var(--hr); border-radius: 4px 12px 12px 12px; background: var(--surface); padding: 12px 14px 14px; display: flex; flex-direction: column; }
+.hr-card .msg-head .msg-dir { color: var(--hr); font-weight: 700; }
+.hr-card .msg-head time { font-family: var(--mono); font-size: 0.72rem; }
+.hr-lead { margin: 2px 0 12px; color: var(--muted); font-size: 0.92rem; }
+.hr-title { font-size: 1.3rem; font-weight: 800; line-height: 1.2; margin: 0; }
+.hr-when { font-size: 1rem; margin: 4px 0 0; }
+.hr-when[data-missing="true"] { color: var(--req); font-weight: 600; }
+.hr-why { margin: 6px 0 0; font-size: 0.84rem; color: var(--hr); }
+.hr-problem { margin: 8px 0 0; padding: 6px 10px; border-radius: 8px; font-size: 0.88rem; color: var(--warn); background: var(--warn-bg); }
+.hr-missing { margin: 8px 0 0; font-size: 0.86rem; color: var(--req); }
+.hr-surface {
+  margin-top: 14px;
+  --a2ui-color-primary: var(--hr);
+  --a2ui-color-primary-hover: color-mix(in srgb, var(--hr) 85%, #000);
+  --a2ui-color-on-primary: #fff;
+  --a2ui-textfield-color-border-focus: var(--hr);
+  --a2ui-textfield-border: 1px solid transparent;
+  --a2ui-datetimeinput-border: 1px solid transparent;
+  --a2ui-textfield-padding: 5px 8px;
+  --a2ui-datetimeinput-padding: 5px 8px;
+  --a2ui-textfield-border-radius: 6px;
+  --a2ui-datetimeinput-border-radius: 6px;
+  --a2ui-datetimeinput-background: transparent;
+  --a2ui-color-input: transparent;
+  --a2ui-label-font-weight: 400;
+  --a2ui-textfield-label-font-weight: 400;
+  --a2ui-datetimeinput-label-font-weight: 400;
+  --a2ui-choicepicker-label-font-weight: 400;
+  --a2ui-choicepicker-label-color: var(--muted);
+  --a2ui-choicepicker-chip-padding: 3px 10px;
+  --a2ui-choicepicker-chip-font-size: 0.82rem;
+  --a2ui-choicepicker-chip-font-weight: 400;
+  --a2ui-column-gap: 0;
+  --a2ui-row-gap: 0;
+}
+/* The renderer draws in the light DOM. Its surface and root column are flattened into the card (display:
+   contents) so the balance bar can sit between the fields and the buttons, as in the design. */
+.hr-card .hr-surface, .hr-card .hr-surface > a2ui-basic-column { display: contents; }
+.hr-card > .hr-balance { order: 1; }
+.hr-card > .notice { order: 2; }
+.hr-card a2ui-basic-row:has(a2ui-basic-button) { order: 3; display: flex; gap: 10px; align-items: center; margin-top: 14px; }
+/* The card's headline already names the request: the surface's own “Time off request” heading is not repeated. */
+.hr-card .hr-surface a2ui-basic-text:has(> .a2ui-text-h3) { display: none; }
+/* One row per field: label left, the value right, editable where it is. */
+.hr-card a2ui-basic-row:not(:has(a2ui-basic-button)) { display: block; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 0.92rem; }
+.hr-card a2ui-basic-row:has(a2ui-choicepicker) { margin-top: 14px; border-top: 1px solid var(--border); }
+.hr-card :is(a2ui-choicepicker, .a2ui-date-time-container, a2ui-basic-textfield) { display: grid; grid-template-columns: 9.5em minmax(0, 1fr); gap: 2px 10px; align-items: center; }
+.hr-card :is(a2ui-choicepicker, .a2ui-date-time-container, a2ui-basic-textfield) > :nth-child(n+3) { grid-column: 2; }
+.hr-card :is(a2ui-choicepicker, .a2ui-date-time-container, a2ui-basic-textfield) > label { justify-self: start; color: var(--muted); font-weight: 400; font-size: 0.92rem; margin: 0; }
+/* Required fields: HR's labels end in “ *”; the star is drawn red (the label keeps its text for screen readers). */
+/* The relationship row (the card's only one-line text field) gets the star only while the chosen name needs it. */
+.hr-card :is(a2ui-choicepicker, .a2ui-date-time-container, a2ui-basic-textfield:not(:has(textarea, input[type="text"]))) > label,
+.hr-card[data-relationship-needed="true"] a2ui-basic-textfield:has(input[type="text"]) > label {
+  color: transparent; -webkit-background-clip: text; background-clip: text;
+  background-image: linear-gradient(to left, var(--req) 0.5em, var(--muted) 0.5em);
+}
+.hr-card .a2ui-chips-group { display: flex; flex-wrap: wrap; gap: 5px; }
+.hr-card :is(.a2ui-textfield, .a2ui-date-time-input) { font: inherit; font-size: 0.92rem; color: var(--text); width: 100%; background: transparent; border: 1px solid transparent; border-bottom-color: var(--border); border-radius: 6px; padding: 5px 8px; box-sizing: border-box; }
+.hr-card :is(.a2ui-textfield, .a2ui-date-time-input):hover { border-color: var(--border-strong); background: var(--field); }
+.hr-card :is(.a2ui-textfield, .a2ui-date-time-input):focus { outline: none; border-color: var(--hr); background: var(--surface); box-shadow: 0 0 0 3px var(--hr-tint); }
+.hr-card textarea.a2ui-textfield { min-height: 2.2em; height: 2.4em; resize: vertical; }
+.hr-card .a2ui-date-time-inputs { display: flex; }
+/* Missing fields: empty and highlighted (HR also asks in the chat). */
+.hr-card[data-missing~="absenceName"] a2ui-basic-row:has(a2ui-choicepicker),
+.hr-card[data-missing~="dates"] a2ui-basic-row:has(a2ui-datetimeinput),
+.hr-card[data-missing~="relationship"] a2ui-basic-row:has(input[type="text"]) {
+  background: color-mix(in srgb, var(--req) 7%, var(--surface)); box-shadow: inset 3px 0 0 var(--req); padding-left: 10px;
+}
+/* Balance: now / after; the striped part is this request. */
+.hr-balance { margin-top: 14px; }
+.hr-bal-row { display: flex; justify-content: space-between; font-size: 0.88rem; margin-bottom: 5px; }
+.hr-meter { height: 10px; border-radius: 999px; background: var(--field); border: 1px solid var(--border); overflow: hidden; display: flex; }
+.hr-meter .keep { background: var(--hr); }
+.hr-meter .use { background: repeating-linear-gradient(135deg, #e0a23a 0 4px, #f3cf8c 4px 8px); }
+.hr-note { font-size: 0.84rem; color: var(--muted); margin: 5px 0 0; }
+/* Buttons: Submit request (filled), Cancel (outline). */
+.hr-card .a2ui-button.a2ui-button { font: inherit; font-weight: 700; font-size: 0.95rem; border-radius: 8px; padding: 8px 16px; margin: 0; }
+.hr-card .a2ui-button.a2ui-button-borderless { background: none; --_a2ui-text-color: var(--hr); color: var(--hr); border: 1px solid color-mix(in srgb, var(--hr) 45%, var(--border)); }
+.hr-card .notice:not(:empty) { margin-top: 10px; }
+/* HR's other replies in the Professor chat (questions, receipts, refusals). */
+.prof-log .msg[data-speaker="hr"]:not(.hr-card) { border-left: 4px solid var(--hr); }
+.prof-log .msg[data-speaker="hr"] .msg-dir { color: var(--hr); font-weight: 700; }
+.prof-log .msg.hr-receipt .msg-text::before { content: "✓ "; color: var(--ok); font-weight: 700; }

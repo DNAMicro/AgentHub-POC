@@ -1,10 +1,10 @@
-// Rehearsal stack for the live walkthrough: the five demo processes on their own ports with temp data
-// files, so a rehearsal never touches the user's running demo (ports 4444, 41241-41244) or data/*.json.
+// Rehearsal stack for the live walkthrough: the six demo processes on their own ports with temp data
+// files, so a rehearsal never touches the user's running demo (ports 4444, 41241-41245) or data/*.json.
 //   node scripts/demo/rehearsal-stack.js --ui 5444 --base 52240 [--mock]
-// Tutor base+1, Library base+2, Hub base+3, Professor base+4, UI --ui. Live models by default (paid; the
+// Tutor base+1, Library base+2, Hub base+3, Professor base+4, HR base+5 (staff only), UI --ui. Live models by default (paid; the
 // children are launched WITHOUT ANTHROPIC_BASE_URL so Claude Code's local proxy cannot answer); --mock = free.
 // Prints "rehearsal ready http://127.0.0.1:<ui>" once the UI is listening and the Student session is registered.
-// SIGTERM / SIGINT stops all five. Never prints key values.
+// SIGTERM / SIGINT stops all six. Never prints key values.
 import { spawn } from 'node:child_process';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -21,8 +21,8 @@ if (!Number.isInteger(ui) || !Number.isInteger(base)) {
   console.error('usage: node scripts/demo/rehearsal-stack.js --ui <port> --base <port> [--mock]');
   process.exit(2);
 }
-const forbidden = (p) => p === 4444 || (p >= 41241 && p <= 41244);
-const ports = { tutor: base + 1, library: base + 2, hub: base + 3, professor: base + 4, ui };
+const forbidden = (p) => p === 4444 || (p >= 41241 && p <= 41245);
+const ports = { tutor: base + 1, library: base + 2, hub: base + 3, professor: base + 4, hr: base + 5, ui };
 for (const p of Object.values(ports)) {
   if (forbidden(p)) { console.error(`refusing port ${p}: it belongs to the user's demo`); process.exit(2); }
 }
@@ -42,10 +42,11 @@ const baseEnv = { ...process.env, ...files };
 delete baseEnv.ANTHROPIC_BASE_URL; // the Claude Code shell sets a local proxy that answers with fake 429s
 const specialist = { HUB_URL: url(ports.hub) };
 const procs = [
-  ['hub', 'src/hub-agent.js', { PORT: String(ports.hub), ROUTER_MODE: mode, TUTOR_URL: url(ports.tutor), LIBRARY_URL: url(ports.library), PROFESSOR_URL: url(ports.professor), STUDENT_URL: url(ports.ui) }],
+  ['hub', 'src/hub-agent.js', { PORT: String(ports.hub), ROUTER_MODE: mode, TUTOR_URL: url(ports.tutor), LIBRARY_URL: url(ports.library), PROFESSOR_URL: url(ports.professor), HR_URL: url(ports.hr), STUDENT_URL: url(ports.ui) }],
   ['tutor', 'src/tutor-agent.js', { ...specialist, PORT: String(ports.tutor), TUTOR_MODE: mode }],
   ['library', 'src/library-agent.js', { ...specialist, PORT: String(ports.library), LIBRARY_MODE: mode }],
   ['prof', 'src/professor-agent.js', { ...specialist, PORT: String(ports.professor), PROFESSOR_MODE: mode }],
+  ['hr', 'src/hr-agent.js', { ...specialist, PORT: String(ports.hr), HR_MODE: mode }],
   ['ui', 'src/ui-server.js', { HUB_URL: url(ports.hub), UI_PORT: String(ports.ui), STUDENT_MODE: mode }],
 ].map(([name, script, env]) => {
   const child = spawn(process.execPath, [script], { cwd: root, env: { ...baseEnv, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -77,7 +78,7 @@ for (;;) {
     const s = await getJson(`${url(ui)}/api/status`);
     const t = await getJson(`${url(ports.hub)}/viz/topology`);
     const ok = (id) => t.specialists.find((x) => x.agentId === id)?.status === 'ready' && t.feeds[id];
-    if (s.hubFeedConnected && s.university?.cardValid && s.student?.session === 'registered' && ['tutor', 'library', 'professor'].every(ok)) break;
+    if (s.hubFeedConnected && s.university?.cardValid && s.student?.session === 'registered' && ['tutor', 'library', 'professor', 'hr'].every(ok)) break;
   } catch { /* not up yet */ }
   if (Date.now() > deadline) { console.error('rehearsal stack did not become ready in 60 s'); stop(); await new Promise(() => {}); }
   await new Promise((r) => setTimeout(r, 300));

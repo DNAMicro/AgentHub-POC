@@ -26,3 +26,6 @@ npm-debug.log*
 .DS_Store
 .vscode/
 .idea/
+
+# Brainstorm mockup server (local scratch)
+.superpowers/

@@ -29,6 +29,8 @@ import { apiHost, briefReply, keyEnvName, useModel } from './llm.js';
 import { asksStudent, planRequest, studentAssistantStatus } from './student-assistant.js';
 import { createAgUiBridge } from './ag-ui-bridge.js';
 import { createProfessorAgUi } from './ag-ui-professor.js';
+import { cardValues } from './staff.js';
+import { ID } from './lessons.js';
 import { decideFill } from './form-fill.js';
 import { AGENT_CARD_PATH, A2A_PROTOCOL_VERSION } from '@a2a-js/sdk';
 import { DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
@@ -43,7 +45,17 @@ const PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url));
 const SHARED_FORM_MODULE = fileURLToPath(new URL('./forms.js', import.meta.url));
 const ACTION_KEYS = ['name', 'surfaceId', 'sourceComponentId', 'timestamp', 'context'];
 const CONTEXT_ID_PATTERN = /^[\w-]{8,100}$/;
-const CONFIG_EVENTS = new Set(['skills_saved', 'card_notification', 'hub_registration', 'lesson_posted', 'lesson_publish_result', 'lessons_reset']); // + Part 9: the Professor's own lesson events // specialist events not tied to a run
+const CONFIG_EVENTS = new Set(['skills_saved', 'card_notification', 'hub_registration', 'lesson_posted', 'lesson_publish_result', 'lessons_reset', 'staff_decision']); // + Part 9: the Professor's own lesson events; + HR: the Professor's staff-desk decision (no words) // specialist events not tied to a run
+// The Professor view's own runs, started by the professor through this UI, so shown like this UI's runs on the
+// monitor (never in the student's AG-UI stream). The suffix is the professor's operation ID (src/lessons.js ID).
+//   staff-<operationId>: an HR staff request/action — emitted by the Professor, the Hub and HR only.
+//   prof-<operationId>:  a Professor view chat turn (its model calls: naming a post, the @assistant) — the Professor only.
+const RUN_SOURCES = { staff: new Set(['professor', 'hub', 'hr']), prof: new Set(['professor']) };
+export function professorViewRun(source, runId) {
+  const m = typeof runId === 'string' ? /^(staff|prof)-(.*)$/s.exec(runId) : null;
+  return m && ID.test(m[2]) && RUN_SOURCES[m[1]].has(source) ? m[1] : null;
+}
+const isProfessorViewRunId = (runId) => typeof runId === 'string' && /^(staff|prof)-/.test(runId);
 const EPHEMERAL = new Set(['heartbeat']); // shown live (if the viewer wants them) but not kept in history
 
 // Allowed forward transitions per run kind. Late events can never move a run backwards.
@@ -128,7 +140,9 @@ export async function startUiServer({ port = 4444 } = {}) {
     for (const res of clients) writeEvent(res, stamped);
     if (!EPHEMERAL.has(event.type)) {
       const { topo: _topo, ...plain } = stamped; // topology labels stay on the monitoring stream
-      agui.push(plain);
+      // The Professor view's own runs (staff-*, prof-*) never enter the student's AG-UI stream: they would
+      // be nested in whatever student run is open. They still reach the monitor/Topology above.
+      if (!isProfessorViewRunId(plain.runId)) agui.push(plain);
       professorAgUi.onAppEvent(plain);
     }
   }
@@ -215,7 +229,7 @@ export async function startUiServer({ port = 4444 } = {}) {
       if (source === 'hub' || CONFIG_EVENTS.has(type)) publish({ source, type, runId: null, data: event.data, at: event.at });
       return;
     }
-    if (!runs.has(event.runId)) return; // only runs started from this UI
+    if (!runs.has(event.runId) && !professorViewRun(source, event.runId)) return; // only runs started from this UI (and the Professor view's staff and chat runs)
     // Keep the agent's own timestamp: it records when the agent observed the event.
     publish({ source, type, runId: event.runId, data: event.data, at: event.at });
     if (source === 'hub' && type === 'message_received') setState(event.runId, 'waiting');
@@ -665,7 +679,38 @@ export async function startUiServer({ port = 4444 } = {}) {
   }
   app.get('/api/professor/state', (req, res) => proxyAuthor(req, res, '/state', 'GET'));
   apiPost.post('/professor/lessons', (req, res) => proxyAuthor(req, res, '/lessons', 'POST'));
-  apiPost.post('/professor/chat', (req, res) => proxyAuthor(req, res, '/chat', 'POST'));
+  apiPost.post('/professor/chat', (req, res) => {
+    // HR: the open card's values, if sent, are checked with the form's own field rules (as for AG-UI runs).
+    const { formRef, formValues, ...rest } = req.body ?? {};
+    const card = cardValues({ formRef, formValues });
+    if (card.error) return res.status(400).json({ error: card.error });
+    req.body = { ...rest, ...card.fields };
+    return proxyAuthor(req, res, '/chat', 'POST');
+  });
+  // HR (staff only): Submit / Cancel on the professor's open time-off card, as the A2UI renderer produced
+  // it. Checked here with the same rules HR applies (invalid values are never sent), then browser → UI
+  // server → Hub (developer proxy) → Professor agent, which sends it Professor → Hub → HR (signed).
+  apiPost.post('/professor/hr/actions', async (req, res) => {
+    const { operationId, formRef, action } = req.body ?? {};
+    if (Object.keys(req.body ?? {}).some((k) => !['operationId', 'formRef', 'action'].includes(k))) return res.status(400).json({ errors: { _form: 'Unexpected request fields.' } });
+    if (typeof operationId !== 'string' || !/^[\w-]{8,100}$/.test(operationId)) return res.status(400).json({ errors: { _form: 'Missing or malformed operation ID.' } });
+    if (typeof formRef !== 'string' || !/^[\w-]{1,120}$/.test(formRef)) return res.status(400).json({ errors: { _form: 'Missing card reference.' } });
+    if (!action || typeof action !== 'object' || Array.isArray(action) || Object.keys(action).some((k) => !ACTION_KEYS.includes(k))) return res.status(400).json({ errors: { _form: 'Unexpected action fields.' } });
+    // The surface binding (which card this formRef is) is checked by the Professor agent and the Hub.
+    const checked = checkAction({ version: A2UI_VERSION, action }, { workflowId: 'staff-time-off', surfaceId: action.surfaceId });
+    if (!checked.ok) return res.status(400).json({ errors: { _form: checked.error } });
+    if (checked.spec.final) {
+      const v = validateFinal('staff-time-off', checked.context);
+      if (!v.ok) return res.status(400).json({ errors: v.errors });
+    }
+    try {
+      const r = await professorCall('/hr-action', { operationId, formRef, action });
+      res.status(r.status).json(r.json);
+    } catch {
+      res.status(502).json({ error: `${hub.name} is not reachable, so the card wasn’t sent. Press the button again — it won’t file twice.` });
+    }
+    professorAgUi.refresh(); // the Professor view's state (chat + card) changed
+  });
   apiPost.post('/agents/:agentId/skills/preview', (req, res) => proxySettings(req, res, '/preview', 'POST'));
   apiPost.put('/agents/:agentId/skills', (req, res) => proxySettings(req, res, '', 'PUT'));
 

@@ -232,7 +232,7 @@ Run `npm test` after Phase 1. Every existing test must still pass.
 5. Mock and scripted outputs prove plumbing only. Live judgment is probabilistic; don't claim otherwise.
 6. Never log, emit or snapshot `callKey` or the API key.
 7. Generated UI only here, only from the validated catalog. No model-generated code, HTML, URLs or API paths.
-8. Two duplicate guards stay: the form host (in memory) and the loan store (on disk), both by operationId.
+8. Two duplicate guards stay: the form host (in memory) and the loan store (in memory), both by operationId.
 9. Room booking and the tutoring form keep working unchanged.
 
 ## Avoid these known problems

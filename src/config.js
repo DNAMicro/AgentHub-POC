@@ -1,6 +1,6 @@
-// Part 7: connection configuration for the four agents, with startup validation.
+// Part 7: connection configuration for the agents, with startup validation.
 //
-// Each agent reads an optional JSON file (STUDENT_CONFIG / HUB_CONFIG / TUTOR_CONFIG / LIBRARY_CONFIG;
+// Each agent reads an optional JSON file (STUDENT_CONFIG / HUB_CONFIG / TUTOR_CONFIG / LIBRARY_CONFIG / HR_CONFIG …;
 // examples in config/*.example.json) over built-in localhost defaults. A few environment variables
 // override single values so tests can use free ports. Invalid configuration throws a clear error —
 // nothing silently falls back to direct Student-to-specialist routing.
@@ -84,6 +84,8 @@ const SPECIALISTS = {
   library: { port: 41242, displayName: 'Library Agent', file: 'LIBRARY_CONFIG', model: 'LIBRARY_MODEL', label: 'Library' },
   // Part 9: the Marketing 101 Professor (a private specialist behind the Hub, like the others).
   professor: { port: 41244, displayName: 'Marketing 101 Professor', file: 'PROFESSOR_CONFIG', model: 'PROFESSOR_MODEL', label: 'Professor' },
+  // HR (staff only): time-off requests from university staff, reached only through the Hub's staff path.
+  hr: { port: 41245, displayName: 'HR Agent', file: 'HR_CONFIG', model: 'HR_MODEL', label: 'HR' },
 };
 
 export function loadSpecialistConfig(role) {
@@ -124,6 +126,8 @@ export function loadHubConfig() {
       { agentId: 'tutor', expectedName: 'Tutor Agent', displayName: 'Tutor Agent', baseUrl: 'http://127.0.0.1:41241' },
       { agentId: 'library', expectedName: 'Library Agent', displayName: 'Library Agent', baseUrl: 'http://127.0.0.1:41242' },
       { agentId: 'professor', expectedName: 'Marketing 101 Professor', displayName: 'Marketing 101 Professor', baseUrl: 'http://127.0.0.1:41244' },
+      // HR (staff only): reached only through the Hub's signed staff path (destination audience 'staff').
+      { agentId: 'hr', expectedName: 'HR Agent', displayName: 'HR Agent', baseUrl: 'http://127.0.0.1:41245' },
     ],
     destinations: {
       // name/tags/examples are PUBLIC: they become the Hub card's capability skills (no worker names or URLs).
@@ -143,7 +147,12 @@ export function loadHubConfig() {
         tags: ['marketing', 'marketing 101', 'segmentation', 'targeting', 'positioning', 'branding', 'pricing', 'promotion', 'customer value', 'lesson', 'professor amir', 'amir'],
         examples: ['What is the difference between segmentation and targeting?', 'Can you explain the lesson about customer value?', 'Can you ask Professor Amir about the homework?'],
       },
+      // HR (staff only): audience 'staff' keeps it off the Hub card, out of the student router and out of
+      // requestedCapability. Only the signed staff path (src/staff.js) reaches it.
+      hr: { worker: 'hr', audience: 'staff', name: 'Human Resources', description: 'Staff services: time off and absences.' },
     },
+    // HR (staff only, trusted data): which registered agent acts for which staff member (fictional).
+    staff: { professor: { staffId: 'staff-amir', name: 'Professor Amir' } },
     students: ['student-alex', 'student-sam'],
     // Part 9: display names (fictional), so a professor can tag “@alex” or write “Sam” in chat.
     studentNames: { 'student-alex': 'Alex Student', 'student-sam': 'Sam Student' },
@@ -186,8 +195,13 @@ export function loadHubConfig() {
     workers.add(d?.worker);
     check(p, d?.tags === undefined || (Array.isArray(d.tags) && d.tags.every((t) => typeof t === 'string' && t.trim())), `destination "${dest}": tags must be a list of words.`);
     check(p, d?.examples === undefined || (Array.isArray(d.examples) && d.examples.every((t) => typeof t === 'string')), `destination "${dest}": examples must be a list of sentences.`);
+    check(p, d?.audience === undefined || ['student', 'staff'].includes(d.audience), `destination "${dest}": audience must be "student" or "staff".`);
   }
-  check(p, Object.keys(cfg.destinations ?? {}).length > 0, 'at least one destination is required.');
+  check(p, Object.values(cfg.destinations ?? {}).some((d) => d?.audience !== 'staff'), 'at least one student destination is required.');
+  for (const [agentId, st] of Object.entries(cfg.staff ?? {})) {
+    check(p, ids.has(agentId), `staff: "${agentId}" is not an allowlisted peer.`);
+    check(p, ID.test(st?.staffId ?? ''), `staff.${agentId}.staffId must be a lowercase id like "staff-amir".`);
+  }
   check(p, Array.isArray(cfg.students) && cfg.students.every((s) => ID.test(s)), 'students must be a list of student ids.');
   for (const [sid, url] of Object.entries(cfg.studentEndpoints ?? {})) {
     check(p, cfg.students.includes(sid), `studentEndpoints: "${sid}" is not a configured student.`);

@@ -1,17 +1,17 @@
 // Part 7: topology labels for telemetry events. The browser's live graph draws a pulse only for an
 // event this function labels — it never infers a hop from timing or guesses a direction.
 //
-// Each label names the edge (Student↔Hub, Hub↔Tutor, Hub↔Library — there is no Student↔specialist
-// edge — plus each agent's own HTTPS calls to its model: Student, Hub router, Tutor, Library),
+// Each label names the edge (Student↔Hub, Hub↔Tutor, Hub↔Library, Hub↔Professor, Hub↔HR — there is no
+// Student↔specialist edge — plus each agent's own HTTPS calls to its model: Student, Hub router, Tutor, Library, Professor, HR),
 // the direction the data travelled, a category, and a phase:
 //   attempted (send started) · accepted (receiver confirmed) · processing (work inside a node)
 //   completed (result returned) · failed · unknown (outcome not known, e.g. a timeout)
 // Labels carry only IDs and short fixed text; message content, emails, notes and form values are
 // never copied into them.
 
-const SPECIALISTS = new Set(['tutor', 'library', 'professor']);
+const SPECIALISTS = new Set(['tutor', 'library', 'professor', 'hr']); // hr: staff only (reached only by the Hub's staff path)
 const edgeFor = (agentId) => (SPECIALISTS.has(agentId) ? `hub-${agentId}` : null);
-const NODE_NAMES = { student: 'Student', hub: 'University Hub', tutor: 'Tutor', library: 'Library', professor: 'Marketing 101 Professor', model: 'Model provider' };
+const NODE_NAMES = { student: 'Student', hub: 'University Hub', tutor: 'Tutor', library: 'Library', professor: 'Marketing 101 Professor', hr: 'HR Agent', model: 'Model provider' };
 
 function hop(from, to, category, phase, label) {
   const edge = from === 'model' || to === 'model' ? `${from === 'model' ? to : from}-model`
@@ -32,6 +32,8 @@ const MODEL_CALLS = {
   scope_check_started: (a, d) => (d.mode === 'live' ? hop(a, 'model', 'model', 'attempted', 'Model call: scope check') : inside(a, 'routing', 'processing', 'Scope check')),
   scope_checked: (a, d) => (d.usage ? hop('model', a, 'model', 'completed', `Scope verdict: ${d.verdict}`) : inside(a, 'routing', 'processing', 'Scope check')),
 };
+
+const STAFF_KINDS = new Set(['staff_reply', 'staff_action_result']);
 
 const STUDENT = {
   model_call_started: (d) => MODEL_CALLS.model_call_started('student', d),
@@ -66,7 +68,7 @@ const HUB = {
   model_call_failed: (d) => MODEL_CALLS.model_call_failed('hub', d),
   message_received: () => hop('student', 'hub', 'request', 'accepted', 'Hub received the question'),
   request_repeat: () => inside('hub', 'request', 'processing', 'Repeat request — earlier result reused'),
-  route_decided: (d) => inside('hub', 'routing', d.decision === 'route' ? 'processing' : 'completed', d.decision === 'route' ? `Routed to ${d.destination}${{ student: ' (Student’s choice)', lesson: ' (inbox item record)' }[d.decidedBy] ?? ''}` : `Not routed: ${d.decision}`),
+  route_decided: (d) => inside('hub', 'routing', d.decision === 'route' ? 'processing' : 'completed', d.decision === 'route' ? `Routed to ${d.destination}${{ student: ' (Student’s choice)', lesson: ' (inbox item record)', staff: ' (staff path)' }[d.decidedBy] ?? ''}` : `Not routed: ${d.decision}`),
   capability_rejected: () => inside('hub', 'routing', 'failed', 'Unknown capability ignored — Hub routed itself'),
   // Part 9: the reverse route, Professor → Hub → Student, and the student's receipts.
   lesson_publish_received: (d) => hop(d.agentId, 'hub', 'lesson', 'accepted', `${d.kind === 'message' ? 'Message' : 'Lesson'} received from the Professor (verified${d.audience === 'all' ? `, for all ${d.recipients} students` : ''})`),
@@ -86,7 +88,11 @@ const HUB = {
   forward_attempted: (d) => hop('hub', d.agentId, 'request', 'attempted', `Forwarded to ${NODE_NAMES[d.agentId] ?? d.agentId}`),
   forward_completed: (d) => hop(d.agentId, 'hub', d.kind === 'form_offer' ? 'form' : 'request', 'completed', d.kind === 'form_offer' ? 'Specialist returned a form' : 'Specialist answered'),
   forward_failed: (d) => hop('hub', d.agentId, 'request', d.outcome === 'unknown' ? 'unknown' : 'failed', d.outcome === 'answered_with_error' ? 'Specialist reported an error' : d.outcome === 'unknown' ? 'Specialist did not answer in time' : 'Specialist unreachable'),
-  relay_sent: (d) => hop('hub', 'student', d.kind === 'form_offer' ? 'form' : 'request', 'attempted', d.repeat ? 'Earlier result relayed again' : 'Hub relayed the reply'),
+  relay_sent: (d) => (STAFF_KINDS.has(d.kind) ? (SPECIALISTS.has(d.to) ? hop('hub', d.to, d.kind === 'staff_action_result' ? 'form' : 'request', d.status === 'ok' ? 'completed' : d.status === 'outcome_unknown' ? 'unknown' : 'failed', `Hub relayed HR’s ${d.kind === 'staff_action_result' ? 'card result' : 'reply'} (${d.status})`) : inside('hub', 'request', 'failed', 'Staff request refused (unverified sender)'))
+    : hop('hub', 'student', d.kind === 'form_offer' ? 'form' : 'request', 'attempted', d.repeat ? 'Earlier result relayed again' : 'Hub relayed the reply')),
+  // HR (staff only): the signed staff path, Professor agent → Hub → HR. Labels carry no staff words.
+  staff_request_received: (d) => hop(d.agentId, 'hub', d.kind === 'action' ? 'form' : 'request', 'accepted', d.kind === 'action' ? 'Hub received a staff card action (verified)' : 'Hub received a staff request (verified)'),
+  staff_refused: (d) => inside('hub', 'request', 'failed', `Staff request refused (${d.code})`),
   form_ref_created: () => inside('hub', 'form', 'processing', 'Hub created a form reference'),
   form_action_received: () => hop('student', 'hub', 'form', 'accepted', 'Hub received a form action'),
   form_action_rejected: () => inside('hub', 'form', 'failed', 'Hub refused the form action'),
@@ -122,6 +128,9 @@ const SPECIALIST = {
   skills_saved: (a) => inside(a, 'card', 'processing', 'Skills saved'),
   lesson_posted: (a, d) => inside(a, 'lesson', 'processing', `Professor posted a ${d.kind === 'message' ? 'message' : 'lesson'}${d.audience === 'all' ? ' to all students' : ''}`),
   lesson_publish_result: (a, d) => hop('hub', a, 'lesson', d.status === 'rejected' ? 'failed' : ['not_delivered', 'uncertain'].includes(d.status) ? 'unknown' : 'completed', `Hub: lesson ${d.status}${d.duplicate ? ' (stored result)' : ''}`),
+  // HR (staff only): what HR read from the request (outcome only), and the Professor's staff desk.
+  request_read: (a, d) => inside(a, 'form', d.outcome === 'forecast_failed' ? 'failed' : 'processing', d.outcome === 'missing' ? 'Read the request — something is missing, asking' : d.outcome === 'forecast_failed' ? 'Read the request — the balance check failed' : 'Read the request — card ready'),
+  staff_decision: (a, d) => inside(a, 'routing', 'processing', d.kind === 'staff_request' ? 'A staff request — sent to HR' : d.kind === 'unsure' ? 'Staff or class? Asking the professor' : 'A class message — not for HR'),
   card_notification: (a, d) => hop(a, 'hub', 'card', d.outcome === 'delivered' ? 'completed' : d.outcome === 'pending' ? 'unknown' : 'failed', `Card-change notice ${d.outcome}`),
 };
 

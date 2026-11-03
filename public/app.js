@@ -57,7 +57,7 @@ const topology = createTopology({
   svg: $('topo'), detail: $('topo-detail'), list: $('topo-events'), count: $('topo-count'), traceSelect: $('topo-trace'),
   truncatedNote: $('topo-truncated'), clockEl: $('topo-clock'),
   controls: { heartbeats: $('topo-heartbeats'), reduce: $('topo-reduce'), pause: $('topo-pause') },
-  agentColor: (id) => ({ student: 'var(--student)', hub: 'var(--hub)', tutor: 'var(--tutor)', library: 'var(--library)', professor: 'var(--professor)', model: 'var(--model)' })[id] ?? 'var(--muted)',
+  agentColor: (id) => ({ student: 'var(--student)', hub: 'var(--hub)', tutor: 'var(--tutor)', library: 'var(--library)', professor: 'var(--professor)', hr: 'var(--hr)', model: 'var(--model)' })[id] ?? 'var(--muted)',
   // A small dot on the Topology tab when traffic happens while another tab is showing.
   onActivity: () => { if ($('view-topology').hidden) $('tab-pulse').dataset.on = 'true'; },
 });
@@ -498,7 +498,7 @@ const errorText = (errors) => Object.entries(errors ?? {}).map(([field, msg]) =>
 
 // ---- Part 5: advertised skills, Student's cached view, propagation ---------
 
-const AGENT_NAMES = { tutor: 'Tutor Agent', library: 'Library Agent', professor: 'Marketing 101 Professor', hub: 'University Hub', student: 'Student agent' };
+const AGENT_NAMES = { tutor: 'Tutor Agent', library: 'Library Agent', professor: 'Marketing 101 Professor', hr: 'HR Agent', hub: 'University Hub', student: 'Student agent' };
 let universityName = 'California State University Fullerton';
 // Replies come from the university; the specialist that produced one is shown as attribution.
 const viaUniversity = (id) => (id && id !== 'hub' ? `${universityName} · ${AGENT_NAMES[id] ?? id}` : universityName);
@@ -1322,7 +1322,7 @@ function applyTopology(snap, { topo = true, dom = true } = {}) {
   }
   renderRouter(snap.hub?.router);
   const hubBox = [el('div', { className: 'skills-row' }, el('span', { className: 'label', textContent: 'Destinations:' }),
-    ...(snap.hub?.destinations ?? []).map((d) => el('span', { className: 'chip', textContent: `${d.destination} → ${d.workerName}` })))];
+    ...(snap.hub?.destinations ?? []).map((d) => el('span', { className: 'chip', textContent: `${d.destination} → ${d.workerName}${d.audience === 'staff' ? ' (staff only)' : ''}` })))];
   els.hubBox.replaceChildren(...hubBox);
   for (const s of snap.specialists ?? []) {
     if (!agents[s.agentId]) continue;

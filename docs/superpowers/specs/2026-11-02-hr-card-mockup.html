@@ -1,0 +1,105 @@
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;600;700;800&family=IBM+Plex+Mono&display=swap" rel="stylesheet">
+<style>
+  .hrm { --bg:#eef1f5; --surface:#fff; --field:#f7f9fb; --text:#18202b; --muted:#5a6676; --border:#d6dce4; --border-strong:#b8c1cd;
+    --professor:#a3315a; --hr:#1f6f8b; --hr-tint:#e3f0f5; --ok:#1d7a46; --ok-bg:#e2f3e8; --req:#b4261f;
+    font-family:"Atkinson Hyperlegible Next", system-ui, sans-serif; color:var(--text); }
+  .hrm * { box-sizing:border-box; }
+  .hrm .intro { max-width:72ch; margin:0 0 20px; color:var(--muted); line-height:1.5; }
+  .hrm .cases { display:grid; grid-template-columns:repeat(auto-fit, minmax(420px, 1fr)); gap:22px; align-items:start; }
+  .hrm .case { background:var(--bg); border-radius:14px; padding:14px; }
+  .hrm .chead { margin:0 2px 10px; font-weight:700; }
+  .hrm .chat { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px; display:grid; gap:12px; }
+  .hrm .me { justify-self:end; max-width:90%; background:color-mix(in srgb, var(--professor) 9%, var(--surface)); border:1px solid color-mix(in srgb, var(--professor) 30%, var(--border)); border-radius:12px 12px 4px 12px; padding:8px 12px; }
+  .hrm .who { font-size:.76rem; font-weight:700; margin-bottom:3px; }
+  .hrm .me .who { color:var(--professor); }
+  .hrm .me p { margin:0; line-height:1.5; }
+  .hrm .agent { border:1px solid var(--border); border-left:4px solid var(--hr); border-radius:4px 12px 12px 12px; background:var(--surface); padding:12px 14px 14px; }
+  .hrm .agent .who { color:var(--hr); display:flex; justify-content:space-between; }
+  .hrm .agent .who span { color:var(--muted); font-weight:400; font-family:"IBM Plex Mono", monospace; font-size:.72rem; }
+  .hrm .lead { margin:2px 0 12px; color:var(--muted); font-size:.92rem; }
+  .hrm .title { font-size:1.3rem; font-weight:800; line-height:1.2; margin:0; }
+  .hrm .when { font-size:1rem; margin:4px 0 0; }
+  .hrm .because { margin:6px 0 0; font-size:.84rem; color:var(--hr); }
+  .hrm .rows { margin:14px 0 0; border-top:1px solid var(--border); }
+  .hrm .row { display:grid; grid-template-columns:9.5em 1fr auto; gap:10px; align-items:center; padding:8px 0; border-bottom:1px solid var(--border); font-size:.92rem; }
+  .hrm .row dt { color:var(--muted); }
+  .hrm .row dd { margin:0; }
+  .hrm .req { color:var(--req); font-weight:700; margin-left:2px; }
+  .hrm .edit { font:inherit; font-size:.82rem; color:var(--hr); background:none; border:0; padding:0; text-decoration:underline; text-underline-offset:2px; }
+  .hrm .bal { margin-top:14px; }
+  .hrm .bal-row { display:flex; justify-content:space-between; font-size:.88rem; margin-bottom:5px; }
+  .hrm .meter { height:10px; border-radius:999px; background:var(--field); border:1px solid var(--border); overflow:hidden; display:flex; }
+  .hrm .meter .keep { background:var(--hr); }
+  .hrm .meter .use { background:repeating-linear-gradient(135deg, #e0a23a 0 4px, #f3cf8c 4px 8px); }
+  .hrm .note { font-size:.84rem; color:var(--muted); margin-top:5px; }
+  .hrm .actions { display:flex; gap:10px; margin-top:14px; align-items:center; }
+  .hrm .btn { font:inherit; font-weight:700; font-size:.95rem; border-radius:8px; padding:8px 16px; border:1px solid var(--hr); background:var(--hr); color:#fff; }
+  .hrm .btn.ghost { background:none; color:var(--hr); border-color:color-mix(in srgb, var(--hr) 45%, var(--border)); }
+.hrm .row { grid-template-columns:9.5em 1fr; }
+  .hrm .row dd .f { font:inherit; font-size:.92rem; color:var(--text); width:100%; background:transparent; border:1px solid transparent; border-bottom-color:var(--border); border-radius:6px; padding:5px 8px; }
+  .hrm .row dd .f:hover { border-color:var(--border-strong); background:var(--field); }
+  .hrm .row dd .f:focus { outline:none; border-color:var(--hr); background:#fff; box-shadow:0 0 0 3px var(--hr-tint); }
+  .hrm .row dd select.f { appearance:none; background-image:linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position:calc(100% - 14px) 50%, calc(100% - 9px) 50%; background-size:5px 5px; background-repeat:no-repeat; }
+  .hrm .pair { display:flex; gap:8px; align-items:center; }
+  .hrm .pair .f { flex:1; }
+  .hrm .pair span { color:var(--muted); }
+</style>
+
+<div class="hrm">
+  <h2>Cleaner form, edit in place</h2>
+  <p class="intro">The same two requests, simplified. A headline says what's being filed, one line says why, and every field is editable right where it is: click the value and type or pick. No extra step. <span class="req">*</span> marks fields needed to submit; HR filled them all. Sample data, made up.</p>
+
+  <div class="cases">
+    <div class="case">
+      <div class="chead">A death in the family</div>
+      <div class="chat">
+        <div class="me"><div class="who">Professor Amir</div><p>I want to file for time off. My grandmother passed away, and I need this Thursday and Friday for the funeral.</p></div>
+        <div class="agent">
+          <div class="who">HR · Time off <span>11:42</span></div>
+          <p class="lead">I'm sorry for your loss. Here's your request. Check it and submit.</p>
+          <p class="title">Bereavement/Funeral</p>
+          <p class="when">Thu, Nov 5 – Fri, Nov 6 · 2 full days</p>
+          <p class="because">Chosen because you said “my grandmother passed away”.</p>
+          <dl class="rows">
+            <div class="row"><dt>Absence name<span class="req">*</span></dt><dd><select class="f"><option>Vacation</option><option>Personal Holiday</option><option>Sick – Self</option><option>Sick – Family Care</option><option>Sick – Bereavement</option><option selected>Bereavement/Funeral</option><option>Jury Duty</option><option>Professional Development</option></select></dd></div>
+            <div class="row"><dt>Dates<span class="req">*</span></dt><dd class="pair"><input class="f" type="date" value="2026-11-05"><span>to</span><input class="f" type="date" value="2026-11-06"></dd></div>
+            <div class="row"><dt>Hours<span class="req">*</span></dt><dd class="pair"><input class="f" type="number" step="0.25" value="16.00"><span>hours, full days</span></dd></div>
+            <div class="row"><dt>Relationship<span class="req">*</span></dt><dd><input class="f" value="Grandmother"></dd></div>
+          </dl>
+          <div class="bal">
+            <div class="bal-row"><span>Vacation left</span><b>96.0 h</b></div>
+            <div class="meter"><div class="keep" style="width:80%"></div></div>
+            <div class="note">Bereavement doesn't use your vacation or sick hours.</div>
+          </div>
+          <div class="actions"><button class="btn">Submit request</button><button class="btn ghost">Cancel</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="case">
+      <div class="chead">Going home sick at noon</div>
+      <div class="chat">
+        <div class="me"><div class="who">Professor Amir</div><p>I want to file for time off. I'm not feeling well and I'm leaving at noon today.</p></div>
+        <div class="agent">
+          <div class="who">HR · Time off <span>11:58</span></div>
+          <p class="lead">Feel better soon. Here's your request. Check it and submit.</p>
+          <p class="title">Sick – Self</p>
+          <p class="when">Today, Mon, Nov 2 · afternoon (4 hours)</p>
+          <p class="because">Chosen because you said “I'm not feeling well”.</p>
+          <dl class="rows">
+            <div class="row"><dt>Absence name<span class="req">*</span></dt><dd><select class="f"><option>Vacation</option><option>Personal Holiday</option><option selected>Sick – Self</option><option>Sick – Family Care</option><option>Sick – Bereavement</option><option>Bereavement/Funeral</option><option>Jury Duty</option><option>Professional Development</option></select></dd></div>
+            <div class="row"><dt>Date<span class="req">*</span></dt><dd><input class="f" type="date" value="2026-11-02"></dd></div>
+            <div class="row"><dt>Hours<span class="req">*</span></dt><dd class="pair"><input class="f" type="number" step="0.25" value="4.00"><span>hours, from 12:00</span></dd></div>
+            <div class="row"><dt>Note for manager</dt><dd><input class="f" placeholder="Optional — your manager can read this"></dd></div>
+          </dl>
+          <div class="bal">
+            <div class="bal-row"><span>Sick hours</span><span><b>120.0</b> now, <b>116.0</b> after</span></div>
+            <div class="meter"><div class="keep" style="width:96.7%"></div><div class="use" style="width:3.3%"></div></div>
+          </div>
+          <div class="actions"><button class="btn">Submit request</button><button class="btn ghost">Cancel</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

@@ -40,7 +40,8 @@ export function createFormHost({ agentId, workflows, isEnabled, emitViz, log, lo
   // The same chat request seen again (retry/reconcile) gets the same open form back, never a second one.
   // Part 8: `payload(formId)` supplies a generated surface instead of the workflow's template; `version`
   // is its revision in this conversation and `data` the issuing context the handlers need.
-  function issue(ctx, bus, { workflowId, prefill = {}, runId, intro, supersedes = null, payload = null, version = FORM_VERSION, data = {}, extra = {} }) {
+  // `buildOptions` are extra template inputs (HR: `missing`, the fields its card highlights as still needed).
+  function issue(ctx, bus, { workflowId, prefill = {}, runId, intro, supersedes = null, payload = null, version = FORM_VERSION, data = {}, extra = {}, buildOptions = {} }) {
     const requestKey = `${ctx.contextId}|${ctx.userMessage.messageId}`;
     const earlier = forms.get(byRequest.get(requestKey));
     if (earlier?.state === 'awaiting_input') {
@@ -52,7 +53,7 @@ export function createFormHost({ agentId, workflows, isEnabled, emitViz, log, lo
     }
     const wf = workflows[workflowId];
     const formId = `${workflowId}-${randomUUID().slice(0, 8)}`;
-    const a2ui = payload ? payload(formId) : wf.build(formId, { prefill, now: new Date() });
+    const a2ui = payload ? payload(formId) : wf.build(formId, { prefill, now: new Date(), ...buildOptions });
     const prior = supersedes ? forms.get(supersedes) : null;
     if (prior) prior.state = 'superseded';
     const metadata = { runId, agentId, formId, workflowId, formVersion: version, issuer: agentId, supersedes: prior ? supersedes : null, prefilled: Object.keys(prefill), ...extra };
@@ -143,7 +144,7 @@ export function createFormHost({ agentId, workflows, isEnabled, emitViz, log, lo
         return;
       }
 
-      if (form.state !== 'awaiting_input') return reject({ _form: `This form is ${form.state === 'accepted' ? 'already submitted' : form.state}.` });
+      if (form.state !== 'awaiting_input') return reject({ _form: form.closedMessage ?? `This form is ${form.state === 'accepted' ? 'already submitted' : form.state}.` });
       // Checked against the CURRENT skills, not those in force when the form was issued.
       if (!isEnabled(form.workflowId)) return reject({ _form: 'This workflow is no longer offered (its skill is disabled).' });
       // Generated surfaces: the action must come from a button that exists in the surface this agent sent.
@@ -169,5 +170,18 @@ export function createFormHost({ agentId, workflows, isEnabled, emitViz, log, lo
   // The form an earlier attempt of this same chat request produced (null if none).
   const formForRequest = (ctx) => byRequest.get(`${ctx.contextId}|${ctx.userMessage.messageId}`) ?? null;
 
-  return { issue, handleAction, openForm, formForRequest, clientSupportsForms, form: (id) => forms.get(id) };
+  // Close every open form (a demo reset of the records they would write to). A later action on one is
+  // refused with `message`; a repeat of an operation already answered still gets its stored result.
+  function closeAll(message) {
+    let closed = 0;
+    for (const form of forms.values()) {
+      if (form.state !== 'awaiting_input') continue;
+      form.state = 'closed';
+      form.closedMessage = message;
+      closed += 1;
+    }
+    return closed;
+  }
+
+  return { issue, handleAction, openForm, formForRequest, clientSupportsForms, closeAll, form: (id) => forms.get(id) };
 }

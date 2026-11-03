@@ -25,6 +25,8 @@ import { datesIn } from './a2ui-catalog.js';
 import { slotsIn } from './meeting-times.js';
 import { createJsonStore } from './json-store.js';
 import { AUDIENCE, ID, LESSON_PUBLISH_MEDIA_TYPE, LESSON_STATUS_MEDIA_TYPE, contentHash, validateLesson } from './lessons.js';
+import { resetStaff, staffAction, staffTurn, staffView } from './professor-staff.js';
+import { cardValues } from './staff.js';
 
 const HOST = '127.0.0.1';
 const JSONRPC_PATH = '/a2a/jsonrpc';
@@ -285,8 +287,12 @@ const ASSISTANT_TAG = /(^|\s)@assistant\b[\s,:]*/i;
 // view). It goes to that student only, as the professor's own message. answers: the chat id of the
 // student's message being answered; a sent reply marks that hand-over (or else the student's newest
 // waiting one) answered.
-async function professorChat({ operationId, text, replyTo = null, answers = null }) {
+// formRef + formValues (HR, optional): the open time-off card's current values in the browser; sent to HR
+// with a follow-up so what the professor changed on the card isn't lost.
+async function professorChat({ operationId, text, replyTo = null, answers = null, formRef, formValues }) {
   if (typeof operationId !== 'string' || !ID.test(operationId)) return { http: 400, body: { error: 'Missing or malformed operation id.' } };
+  const card = cardValues({ formRef, formValues });
+  if (card.error) return { http: 400, body: { error: card.error } };
   const said = typeof text === 'string' ? text.trim() : '';
   if (!said) return { http: 400, body: { error: 'Write something first.' } };
   if (said.length > 4000) return { http: 400, body: { error: 'Keep it under 4000 characters.' } };
@@ -302,26 +308,105 @@ async function professorChat({ operationId, text, replyTo = null, answers = null
     const roster = (hub?.courses?.find((c) => c.courseId === COURSE.courseId)?.enrolled ?? []).map((st) => ({ studentId: st.studentId, name: st.name ?? st.studentId, online: st.online }));
     if (replyTo !== null && !roster.some((x) => x.studentId === replyTo)) return { http: 400, body: { error: 'That student isn’t in this class.' } };
     const reply = toAssistant ? null : replyTo; // "@assistant …" is a request to the assistant, whoever is being replied to
-    // The assistant asked "when can Alex come?": the professor's next untagged message with times answers it.
-    const waiting = outbox.get().pendingMeeting;
-    const times = !toAssistant && !reply && waiting && Date.now() - waiting.at < 15 * 60_000 && !/^\s*@/.test(said) ? slotsIn(said) : [];
-    const viaAssistant = toAssistant || times.length > 0;
-    const entry = { id: `${operationId}:p`, role: 'professor', text: said, at, toAssistant: viaAssistant, ...(reply ? { replyTo: reply } : {}) };
+    const ownId = `${operationId}:p`;
+    const entry = { id: ownId, role: 'professor', text: said, at, toAssistant, ...(reply ? { replyTo: reply } : {}) };
     outbox.update((s) => { s.chat.push(entry); });
-    const result = times.length ? await offerMeeting({ operationId, audience: waiting.audience, slots: times, roster })
-      : toAssistant ? await assistantTurn({ operationId, said, roster, hub }) : await directPost({ operationId, said, roster, to: reply });
+    // HR (staff only): is this a request for the professor himself as staff? (src/professor-staff.js)
+    // @assistant messages and replies to one student are never staff turns. While an HR card is open, any
+    // other message goes to HR as a follow-up that fills the card — even one that reads like a class message.
+    // Its events (incl. the live staff classifier's model call) belong to the staff run the Hub also uses
+    // (`staff-<operationId>`), so the UI server relays them and Topology draws the Professor → model hop.
+    const staff = await staffTurn({ operationId, text: said, entryId: ownId, hubLink, bypass: toAssistant || Boolean(reply), card: card.fields, emit: (type, data) => emitViz(type, `staff-${operationId}`, data) });
+    // The professor answered “class” to the unsure question: the HELD message goes out as today.
+    const sendText = staff?.continueWith ?? said;
+    const target = staff?.continueWith ? staff.entryId : ownId;
+    let result;
+    let viaAssistant = toAssistant;
+    if (staff?.note) result = await postNote({ operationId, text: staff.note });
+    else if (staff && !staff.continueWith) result = staff;
+    else {
+      // The assistant asked "when can Alex come?": the professor's next untagged message with times answers it.
+      const waiting = outbox.get().pendingMeeting;
+      const times = !staff && !toAssistant && !reply && waiting && Date.now() - waiting.at < 15 * 60_000 && !/^\s*@/.test(said) ? slotsIn(said) : [];
+      viaAssistant = toAssistant || times.length > 0;
+      result = times.length ? await offerMeeting({ operationId, audience: waiting.audience, slots: times, roster })
+        : toAssistant ? await assistantTurn({ operationId, said, roster, hub }) : await directPost({ operationId, said: sendText, roster, to: reply });
+    }
+    const { entries = null, continueWith, entryId, note, notice: _n, ...stored } = result;
+    // A reply to a pending question that also carried NEW content: the answer was acted on, the new part was not
+    // sent (src/professor-staff.js, NOT_SENT) — say so in the chat and keep the professor's message private.
+    const notice = staff?.notice ?? null;
+    if (notice) stored.notice = notice;
     outbox.update((s) => {
       // A reset while this was worked on cleared the chat: keep the professor's message.
-      if (generation !== resetGeneration && !s.chat.some((m) => m.id === `${operationId}:p`)) s.chat.push(entry);
-      const own = s.chat.find((m) => m.id === `${operationId}:p`);
-      if (!viaAssistant) Object.assign(own, { postKey: result.post?.key ?? null, problem: result.post ? null : result.reply });
+      if (generation !== resetGeneration && !s.chat.some((m) => m.id === ownId)) s.chat.push(entry);
+      const own = s.chat.find((m) => m.id === ownId);
+      own.toAssistant = viaAssistant;
+      if (entries) {
+        // A staff turn (HR's reply, the unsure question, the note): each as its own chat entry, text only.
+        own.staff = true;
+        const now = new Date().toISOString();
+        for (const e of entries) s.chat.push({ id: `${operationId}:${e.role === 'hr' ? 'h' : 'a'}`, at: now, staff: true, ...e });
+      } else if (!viaAssistant) {
+        // A held message the professor chose to send to the class is no longer private (staff: false).
+        Object.assign(s.chat.find((m) => m.id === target) ?? own, { postKey: result.post?.key ?? null, problem: result.post ? null : result.reply, ...(staff?.continueWith ? { staff: false } : {}) });
+      }
       else s.chat.push({ id: `${operationId}:a`, role: 'assistant', text: result.reply, at: new Date().toISOString(), action: result.action, postKey: result.post?.key ?? null, model: result.model ?? null });
+      if (notice) {
+        own.staff = true;
+        s.chat.push({ id: `${operationId}:n`, role: 'assistant', text: notice, at: new Date().toISOString(), action: 'clarify', staff: true });
+      }
       if (reply && result.post) markAnswered(s, reply, typeof answers === 'string' ? answers : null, own.at);
       s.chat = s.chat.slice(-200);
-      s.chatOps[operationId] = result;
+      s.chatOps[operationId] = stored;
     });
-    emitViz('professor_chat', null, { action: result.action, check: result.check ?? null, kind: result.kind ?? null, viaAssistant });
-    return { http: 200, body: result };
+    emitViz('professor_chat', null, { action: stored.action, check: stored.check ?? null, kind: stored.kind ?? null, viaAssistant });
+    return { http: 200, body: stored };
+  } finally {
+    chatBusy = false;
+  }
+}
+
+// “Both”: the professor said yes to the neutral note (code-built from HR's receipt dates) — posted to the
+// whole class as the professor's own message, with exactly the words the professor approved.
+async function postNote({ operationId, text }) {
+  const r = await createPost({ operationId, kind: 'message', title: `${COURSE.professorName} is out`, text, audience: 'all', source: 'chat', verbatim: false });
+  if (!r.body.lesson || r.body.ack?.status === 'rejected') {
+    const problem = `Nothing was sent: ${r.body.ack?.reason ?? Object.values(r.body.errors ?? {})[0] ?? 'refused'}.`;
+    return { action: 'error', reply: problem, post: null, entries: [{ role: 'assistant', text: problem, action: 'error' }] };
+  }
+  const post = { key: lessonKey(r.body.lesson.lessonId, r.body.lesson.revision) };
+  const said = `Posted to the class: “${text}”`;
+  return { action: 'post', kind: 'message', reply: said, post, entries: [{ role: 'assistant', text: said, action: 'post', postKey: post.key }] };
+}
+
+// The professor pressed Submit or Cancel on the open HR card (Professor → Hub → HR, signed). One at a
+// time with the chat; a repeat of the same operation gets its stored (definite) outcome.
+async function hrAction({ operationId, formRef, action }) {
+  if (typeof operationId !== 'string' || !ID.test(operationId)) return { http: 400, body: { error: 'Missing or malformed operation id.' } };
+  if (typeof formRef !== 'string' || !formRef || formRef.length > 120) return { http: 400, body: { error: 'Missing card reference.' } };
+  if (!action || typeof action !== 'object' || Array.isArray(action) || typeof action.name !== 'string') return { http: 400, body: { error: 'Missing card action.' } };
+  const done = outbox.get().chatOps[`hr:${operationId}`];
+  if (done) return { http: 200, body: { ...done, duplicate: true } };
+  if (chatBusy) return { http: 409, body: { error: 'Still working on your previous message.' } };
+  chatBusy = true;
+  try {
+    const generation = resetGeneration;
+    const r = await staffAction({ operationId, formRef, action, hubLink, emit: (type, data) => emitViz(type, `staff-${operationId}`, data) }); // the Hub's run for this action
+    if (r.entries && generation === resetGeneration) {
+      outbox.update((s) => {
+        const now = new Date().toISOString();
+        for (const e of r.entries) {
+          const id = `${operationId}:${e.role === 'hr' ? 'h' : 'a'}`;
+          s.chat = s.chat.filter((m) => m.id !== id); // a retried unknown outcome replaces its earlier entry
+          s.chat.push({ id, at: now, staff: true, ...e });
+        }
+        s.chat = s.chat.slice(-200);
+        if (r.definite) s.chatOps[`hr:${operationId}`] = r.body;
+      });
+    }
+    emitViz('professor_chat', null, { action: 'hr_action', status: r.body?.status ?? null, viaAssistant: false });
+    return { http: r.http, body: r.body };
   } finally {
     chatBusy = false;
   }
@@ -343,7 +428,8 @@ async function directPost({ operationId, said, roster, to = null }) {
   const unknownTag = [...said.matchAll(/(?:^|\s)@([\w-]+)/g)].map((m) => m[1].toLowerCase()).find((h) => !roster.some((x) => [x.studentId, x.name.split(' ')[0].toLowerCase()].includes(h)));
   if (unknownTag && /^\s*@/.test(said)) return { action: 'error', reply: `There's no @${unknownTag} in Marketing 101, so nothing was sent.`, post: null };
   const audience = tagged.length ? tagged.map((x) => x.studentId).join(',') : 'all';
-  const named = await classifyPost({ text, emit: (type, data) => emitViz(type, null, data) });
+  // Its model call belongs to this chat turn's run (`prof-<operationId>`), so Topology shows the hop.
+  const named = await classifyPost({ text, emit: (type, data) => emitViz(type, `prof-${operationId}`, data) });
   const r = await createPost({ operationId, kind: named.kind, title: named.title, text, audience, source: 'chat', verbatim: true });
   if (!r.body.lesson || r.body.ack?.status === 'rejected') return { action: 'error', reply: `Nothing was sent: ${r.body.ack?.reason ?? Object.values(r.body.errors ?? {})[0] ?? 'refused'}.`, post: null };
   return { action: 'post', reply: null, post: { key: lessonKey(r.body.lesson.lessonId, r.body.lesson.revision) }, kind: named.kind };
@@ -353,11 +439,13 @@ async function directPost({ operationId, said, roster, to = null }) {
 async function assistantTurn({ operationId, said, roster, hub }) {
   const nameOf = (id) => id.split(',').map((x) => roster.find((r) => r.studentId === x)?.name ?? x).join(', ');
   const posts = postsView(hub).map((l) => ({ title: l.title, kind: l.kind, audience: l.audience === 'all' ? 'all' : nameOf(l.audience), sentAt: l.createdAt, deliveries: l.deliveries.map((d) => ({ name: nameOf(d.studentId), state: d.state, opened: d.opened })) }));
-  const recentChat = outbox.get().chat.slice(-8, -1);
+  // HR (staff only): the professor's staff messages and HR's replies are private — the model sees only that
+  // they exist, marked private (never their text), and checkPost never counts them as words for students.
+  const recentChat = outbox.get().chat.slice(-8, -1).map((m) => (m.staff ? { role: m.role, text: PRIVATE_STAFF_TEXT, staff: true } : m));
   const request = said.replace(ASSISTANT_TAG, ' ').trim();
   let decision;
   try {
-    decision = await interpretProfessor({ text: request, roster, seeds: SEED_LESSONS, posts, recent: recentChat, emit: (type, data) => emitViz(type, null, data) });
+    decision = await interpretProfessor({ text: request, roster, seeds: SEED_LESSONS, posts, recent: recentChat, emit: (type, data) => emitViz(type, `prof-${operationId}`, data) });
   } catch (err) {
     decision = { action: 'error', reply: `I couldn't work that out right now (${err.message ?? 'model error'}). Nothing was sent.` };
   }
@@ -373,7 +461,7 @@ async function assistantTurn({ operationId, said, roster, hub }) {
     return { ...result, action: 'clarify', check: 'needs_times', reply: `When can ${who} come? Give me a few times — for example “Tue 2pm, Wed 10:30am” — and I’ll send them to choose from. Just write the times; no need to tag me.` };
   }
   if (decision.action === 'post') {
-    const checked = checkPost(decision, request, roster, recentChat);
+    const checked = checkPost(decision, request, roster, recentChat, privateStaffWords(request));
     if (checked.problem) return { ...result, action: 'clarify', reply: checked.problem, check: checked.code };
     const r = await createPost({ operationId, ...checked.post, source: 'chat', author: 'assistant' });
     if (r.body.lesson && r.body.ack?.status !== 'rejected') {
@@ -412,8 +500,22 @@ async function offerMeeting({ operationId, audience, slots, roster }) {
   return { action: 'post', kind: 'message', post: { key: lessonKey(r.body.lesson.lessonId, r.body.lesson.revision) }, reply: `Sent ${who} ${slots.length === 1 ? 'this time' : `${slots.length} times to choose from`}: ${slots.map((x) => x.label).join('; ')}. You’ll see the choice here.` };
 }
 
-function checkPost(d, said, roster, recentChat) {
-  const professorWords = [said, ...recentChat.filter((t) => t.role === 'professor').map((t) => t.text)];
+// HR (staff only): words from the professor's private staff messages (to HR) that the current @assistant
+// request doesn't itself contain — e.g. “grandmother”, “passed away”. A draft using any of them would share
+// the private request with students, so checkPost refuses it (code guard, whatever the model was told).
+const PRIVATE_STAFF_TEXT = '[private: the professor’s own HR matter — never post, quote or repeat it to students]';
+const COMMON = new Set('about after again also because before being class could course every first friday monday need please really saturday should since students sunday their there these thing think thursday today tomorrow tuesday wednesday which while would'.split(' '));
+const wordsOf = (t) => norm(t).split(' ').filter((w) => w.length >= 5 && !COMMON.has(w));
+// Leave words are private whatever their length (the 5-letter rule above would miss “sick”, “died”, “flu”).
+const LEAVE_WORDS = new Set(['sick', 'ill', 'died', 'flu', 'leave', 'funeral', 'passed', 'death', 'grief', 'surgery', 'doctor', 'hospital']);
+const privateOf = (t) => [...wordsOf(t), ...norm(t).split(' ').filter((w) => LEAVE_WORDS.has(w))];
+function privateStaffWords(request) {
+  const allowed = new Set(norm(request).split(' '));
+  return [...new Set(outbox.get().chat.filter((m) => m.staff && m.role === 'professor').flatMap((m) => privateOf(m.text)))].filter((w) => !allowed.has(w));
+}
+function checkPost(d, said, roster, recentChat, privateWords = []) {
+  // Only messages the professor wrote for the class count as the professor's words (never staff ones).
+  const professorWords = [said, ...recentChat.filter((t) => t.role === 'professor' && !t.staff).map((t) => t.text)];
   const aud = resolveAudience(d, said, roster);
   if (aud.problem) return aud;
   const { audience, corrected } = aud;
@@ -432,6 +534,8 @@ function checkPost(d, said, roster, recentChat) {
   }
   text = String(text ?? '').trim();
   if (!text) return { problem: 'What should it say?', code: 'empty' };
+  const leaked = !seed && norm(`${title ?? ''} ${text}`).split(' ').filter((w) => privateWords.includes(w));
+  if (leaked?.length) return { problem: 'That would share part of your private HR request with students, so I didn’t send it. Write the message the way you want the class to read it.', code: 'private_staff' };
   if (!seed && verbatim && !professorWords.some((w) => norm(w).includes(norm(text)))) verbatim = false;
   const allowedDates = new Set([...professorWords.flatMap((w) => datesIn(w)), ...(seed ? datesIn(text) : [])]);
   const invented = datesIn(text).filter((x) => !allowedDates.has(x));
@@ -450,7 +554,7 @@ function authorRouter() {
     // Only posts the Hub never confirmed receiving; once accepted, delivery to the student is the Hub's job.
     for (const l of Object.values(outbox.get().lessons)) if (!l.hubAccepted && ['uncertain', 'not_delivered'].includes(l.hubStatus)) await publish(l);
     const hub = await hubView();
-    res.json({ course: COURSE, roster: hub?.courses?.find((c) => c.courseId === COURSE.courseId) ?? null, hubReachable: Boolean(hub), seeds: SEED_LESSONS, lessons: postsView(hub), chat: outbox.get().chat });
+    res.json({ course: COURSE, roster: hub?.courses?.find((c) => c.courseId === COURSE.courseId) ?? null, hubReachable: Boolean(hub), seeds: SEED_LESSONS, lessons: postsView(hub), chat: outbox.get().chat, hrCard: staffView() });
   });
   // Demo reset (requested through the Hub when the Student starts a new conversation): the posted list
   // and the remembered conversations go; the professor sends again. (The browser keeps any unsent draft.)
@@ -458,6 +562,7 @@ function authorRouter() {
     outbox.update((s) => { s.lessons = {}; s.operations = {}; s.chat = []; s.chatOps = {}; s.meetings = {}; s.pendingMeeting = null; });
     resetGeneration += 1;
     recent.clear();
+    resetStaff(); // HR: the open card, a held question or note offer; a new HR conversation
     emitViz('lessons_reset', null, {});
     res.json({ status: 'reset' });
   });
@@ -470,6 +575,12 @@ function authorRouter() {
   // The professor's chat: natural language in; the model decides post / answer / clarify; code checks it.
   router.post('/author/chat', async (req, res) => {
     const r = await professorChat(req.body ?? {});
+    res.status(r.http).json(r.body);
+  });
+  // HR (staff only): Submit / Cancel on the open time-off card → Hub → HR (origin-guarded like every
+  // non-GET /author route).
+  router.post('/author/hr-action', async (req, res) => {
+    const r = await hrAction(req.body ?? {});
     res.status(r.http).json(r.body);
   });
   return router;

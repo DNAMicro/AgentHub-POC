@@ -12,6 +12,7 @@
 import { randomUUID } from 'node:crypto';
 import { EventType } from '@ag-ui/core';
 import { EventEncoder } from '@ag-ui/encoder';
+import { cardValues } from './staff.js';
 
 const encoder = new EventEncoder();
 const POLL_MS = 3000;
@@ -98,7 +99,11 @@ export function createProfessorAgUi({ bootId, getState, postChat, unreachable })
     const last = [...input.messages].reverse().find((m) => m?.role === 'user');
     const text = typeof last?.content === 'string' ? last.content : '';
     const props = input.forwardedProps && typeof input.forwardedProps === 'object' ? input.forwardedProps : {};
-    const body = { operationId: props.operationId, text, ...(props.replyTo ? { replyTo: props.replyTo } : {}), ...(props.answers ? { answers: props.answers } : {}) };
+    // HR: the open card's current values (checked here with the form's own field rules; the Professor and HR
+    // check them again).
+    const card = cardValues(props);
+    if (card.error) return { status: 400, json: { error: card.error } };
+    const body = { operationId: props.operationId, text, ...(props.replyTo ? { replyTo: props.replyTo } : {}), ...(props.answers ? { answers: props.answers } : {}), ...card.fields };
     const runId = runStart();
     (async () => {
       let result;
@@ -122,5 +127,6 @@ export function createProfessorAgUi({ bootId, getState, postChat, unreachable })
   }
 
   const close = () => { clearInterval(timer); for (const res of clients) res.end(); };
-  return { connect, startRun, onAppEvent, close };
+  // refresh: after an HR card action (POST /api/professor/hr/actions), which is not a chat run.
+  return { connect, startRun, onAppEvent, refresh, close };
 }

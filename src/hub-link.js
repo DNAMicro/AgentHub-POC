@@ -15,6 +15,20 @@ import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 
 // HMAC over the forwarded student, the downstream A2A context and the Hub's operation ID.
 export const signStudent = (key, { studentId, contextId, operationId }) => createHmac('sha256', key).update(`${studentId}|${contextId}|${operationId}`).digest('base64url');
+// HR (staff only): the Hub signs a STAFF caller with a distinct prefix, so a student signature over the same
+// ids never verifies as staff (and the reverse). callerKind must say 'staff' as well.
+export const signStaff = (key, { staffId, contextId, operationId }) => createHmac('sha256', key).update(`staff|${staffId}|${contextId}|${operationId}`).digest('base64url');
+const sameSignature = (given, expected) => {
+  const a = Buffer.from(given);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+};
+// The staff member the Hub vouches for on this request (pure: the key is passed in), or null.
+export function verifyStaffSignature(key, metadata, contextId) {
+  const { staffId, hubOperationId, hubSignature, callerKind } = metadata ?? {};
+  if (callerKind !== 'staff' || typeof staffId !== 'string' || typeof hubOperationId !== 'string' || typeof hubSignature !== 'string') return null;
+  return sameSignature(hubSignature, signStaff(key, { staffId, contextId, operationId: hubOperationId })) ? staffId : null;
+}
 import { Role } from '@a2a-js/sdk';
 import { ClientFactory } from '@a2a-js/sdk/client';
 import { CARD_CHANGED_MEDIA_TYPE } from './skills.js';
@@ -91,10 +105,11 @@ export function createHubLink({ agentId, hubUrl, endpoint, cardUrl, enabled, hea
     // Part 9: a request this specialist starts itself (e.g. the Professor publishing a lesson), signed with
     // the key it gave the Hub at registration so the Hub can tell it really comes from this instance.
     // Returns the Hub's typed reply, or { status: 'not_delivered' | 'uncertain', reason }.
-    async sendSigned(mediaType, value, fields) {
+    // timeoutMs: how long to wait for the Hub (HR staff requests may include a model call downstream).
+    async sendSigned(mediaType, value, fields, { timeoutMs = 15000 } = {}) {
       const body = { ...value, professorId: agentId, instanceId, signature: sign(callKey, [agentId, instanceId, ...fields]) };
       try {
-        return await send(mediaType, body, 15000); // the Hub delivers to the Student before it replies
+        return await send(mediaType, body, timeoutMs); // the Hub delivers to the Student before it replies
       } catch (err) {
         const refused = err?.cause?.code === 'ECONNREFUSED';
         return { status: refused ? 'not_delivered' : 'uncertain', reason: offline(err) };
@@ -107,6 +122,10 @@ export function createHubLink({ agentId, hubUrl, endpoint, cardUrl, enabled, hea
       const expected = Buffer.from(signStudent(callKey, { studentId, contextId, operationId: hubOperationId }));
       const given = Buffer.from(hubSignature);
       return given.length === expected.length && timingSafeEqual(given, expected) ? studentId : null;
+    },
+    // HR: the staff member the Hub vouches for on this request, or null (a student signature never counts).
+    verifiedStaff(metadata, contextId) {
+      return verifyStaffSignature(callKey, metadata, contextId);
     },
     async start() {
       await register();

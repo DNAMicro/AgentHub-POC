@@ -90,7 +90,7 @@ async function exchange(baseUrl, text, { runId, contextId, messageId, timeoutMs,
     onEvent('tutor_error', { ...ids, ...tutorError, tutorMode: result.metadata?.tutorMode ?? null });
     throw Object.assign(new Error(tutorError.message), { tutorError, outcome: 'answered_with_error' });
   }
-  const reply = { ...ids, text: textOf(result), servedBy: result.metadata?.agentId ?? null, servedByName: result.metadata?.servedByName ?? null, tutorMode: result.metadata?.tutorMode ?? null, tutor: result.metadata?.tutor ?? null, library: result.metadata?.library ?? null, professor: result.metadata?.professor ?? null, hub: result.metadata?.hub ?? null };
+  const reply = { ...ids, text: textOf(result), servedBy: result.metadata?.agentId ?? null, servedByName: result.metadata?.servedByName ?? null, tutorMode: result.metadata?.tutorMode ?? null, tutor: result.metadata?.tutor ?? null, library: result.metadata?.library ?? null, professor: result.metadata?.professor ?? null, hub: result.metadata?.hub ?? null, hr: result.metadata?.hr ?? null };
   log('received reply', { ...reply, text: shown(reply.text) });
   onEvent('reply_received', { ...reply, runId: result.metadata?.runId ?? null });
   return reply;
@@ -146,7 +146,8 @@ function formFromTask(task, { messageId, onEvent }) {
     a2uiMessages,
   };
   const ids = { messageId: msg.messageId, contextId: task.contextId, taskId: task.id, inReplyTo: messageId };
-  const reply = { ...ids, text: textOf(msg), servedBy: meta.agentId ?? null, servedByName: meta.servedByName ?? null, tutorMode: null, tutor: null, library: null, hub: meta.hub ?? null, form };
+  // HR (staff only): the card's code-built summary (title, dates, balance, missing fields) rides in the metadata.
+  const reply = { ...ids, text: textOf(msg), servedBy: meta.agentId ?? null, servedByName: meta.servedByName ?? null, tutorMode: null, tutor: null, library: null, hub: meta.hub ?? null, hr: meta.hr ?? null, hrCard: meta.hrCard ?? null, form };
   log('received form', { formId: form.formId, workflowId: form.workflowId, taskId: form.taskId, contextId: form.contextId });
   // The checked A2UI messages ride along so the UI server can deliver them to the browser renderer.
   onEvent('form_received', { ...ids, formId: form.formId, formRef: form.formRef, workflowId: form.workflowId, formVersion: form.formVersion, issuer: form.issuer, servedByName: reply.servedByName, supersedes: form.supersedes, prefilled: form.prefilled, taskState: 'input-required', text: reply.text, a2uiMessages });

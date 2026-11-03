@@ -25,6 +25,15 @@ import {
   contentHash, deliveryIdFor, sign, validateLesson, verify,
 } from './lessons.js';
 
+// A part a registered agent signed itself (hubLink.sendSigned: the sender's id is in `professorId`):
+// 'ok' only for the currently registered instance and its registration key; else 'unregistered' or
+// 'bad_signature'. Used for lesson publishes and (HR) the staff path.
+export function verifyAgentSignature(registry, msg, fields) {
+  const e = registry.entry(msg?.professorId);
+  if (!e || !e.registered || e.instanceId !== msg.instanceId || !e.callKey) return 'unregistered';
+  return verify(e.callKey, [msg.professorId, msg.instanceId, ...fields], msg.signature) ? 'ok' : 'bad_signature';
+}
+
 export function createLessonService({ cfg, registry, emit = () => {}, file = process.env.HUB_LESSON_FILE ?? 'data/hub-lessons.json', deliverTimeoutMs = Number(process.env.HUB_DELIVER_TIMEOUT_MS ?? 5000), retryMs = Number(process.env.HUB_DELIVER_RETRY_MS ?? 3000) }) {
   const store = createJsonStore(file, { lessons: {}, operations: {}, deliveries: {}, notices: {} });
   const sessions = new Map(); // studentId → { instanceId, callKey, since }
@@ -66,11 +75,7 @@ export function createLessonService({ cfg, registry, emit = () => {}, file = pro
   }
 
   // ---- publishing (Professor → Hub) -----------------------------------------------------------------
-  function verifyProfessor(msg, fields) {
-    const e = registry.entry(msg?.professorId);
-    if (!e || !e.registered || e.instanceId !== msg.instanceId || !e.callKey) return 'unregistered';
-    return verify(e.callKey, [msg.professorId, msg.instanceId, ...fields], msg.signature) ? 'ok' : 'bad_signature';
-  }
+  const verifyProfessor = (msg, fields) => verifyAgentSignature(registry, msg, fields);
   // A post goes to one enrolled student or to 'all' — every student enrolled in the course, from the
   // Hub's own configuration. Each recipient gets their own delivery (own id, state and receipt).
   const summaryOf = (ds) => (ds.every((d) => d.state === 'delivered') ? 'delivered' : ['uncertain', 'queued', 'failed'].find((st) => ds.some((d) => d.state === st)) ?? 'queued');

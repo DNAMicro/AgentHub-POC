@@ -1,0 +1,328 @@
+// HR (staff only): the Professor agent's staff desk in the Professor view chat. Before a message without
+// @assistant goes to students, this decides whether it is a request for the professor HIMSELF as staff:
+//   * staff_request → HR, over the Hub's signed staff path (Professor → Hub → HR); HR's card comes back.
+//   * unsure        → ask the fixed question; the next message answers it (HR / class / both).
+//   * class_message → null: the chat continues exactly as today (direct post).
+// Nothing is filed or posted on a guess. For “both”, the class gets only a code-built neutral note
+// (“Professor Amir is out on …”, dates from HR's receipt), and only after the professor says yes.
+//
+// State here is memory only (owner rule): the open card (formRef, its A2UI messages, the hrCard summary),
+// the held message awaiting an answer, and the note awaiting “yes”. The chat itself (in the outbox) keeps
+// the text of every HR exchange, never the card. A classroom reset (resetStaff) clears it all and starts a
+// new HR conversation.
+import { randomUUID } from 'node:crypto';
+import { CARD_CLOSED, STAFF_ACTION_MEDIA_TYPE, STAFF_REQUEST_MEDIA_TYPE, staffActionFields, staffRequestFields } from './staff.js';
+import { shortDate } from './hr-store.js';
+import { COURSE } from './course-pack.js';
+import { classifyStaff } from './professor-model.js';
+
+export const UNSURE_QUESTION = 'Should I file this as time off with HR, tell the class, or both?';
+export const HOLDING = "I'm still holding your earlier message — please answer HR, the class, or both. If your reply also had something new, send it again after.";
+export const STILL_HOLDING = "I'm still holding your earlier message — answer HR, the class, or both. Your new message wasn't sent; please send it again after.";
+export const NOT_SENT = "Your new message wasn't sent; please send it again.";
+// One R3 rule: a reply to ANY pending question (the held HR/class/both question, the class-post offer, the note
+// offer) that brings NEW content — a day, date, month, number or leave word not in the pending text — is never
+// dropped silently: the clear answer is acted on and the professor is told the new part wasn't sent.
+const tokens = (text) => new Set((String(text).toLowerCase().match(/[\w’']+/g) ?? []).map((w) => w.replace(/['’]s$/, '')));
+const hasNewContent = (pendingText, reply) => {
+  const known = tokens(pendingText);
+  const words = String(reply).toLowerCase().replace(new RegExp(DROP.source, 'gi'), ' '); // “just leave it” is not a leave request
+  return (words.match(NEW_CONTENT) ?? []).some((w) => !known.has(w));
+};
+// Words that make a reply new content of its own: days, dates, months and leave words.
+const NEW_CONTENT = /\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|today|tomorrow|yesterday|week|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|\d{1,2}(?:st|nd|rd|th)?|off|sick|ill|leave|vacation|holiday|doctor|dentist|appointment|funeral|surgery|out)\b/g;
+const STAFF_TIMEOUT_MS = 60000; // the Hub waits for HR, which may make a model call (live)
+const HELD_FOR_MS = 15 * 60_000; // an unanswered question or note offer is forgotten after this
+// The Hub's card lifetime (same variable and default as src/hub-agent.js): after it, the Hub refuses the
+// card, so the Professor stops sending messages to HR as follow-ups and the chat is back to normal.
+const CARD_TTL_MS = Number(process.env.HUB_FORM_TTL_MS ?? 2 * 60 * 60 * 1000);
+export const NOTE_REASK = 'Should I post that note to the class? Reply yes or no.';
+export const NOTE_DECLINED = 'Okay, I won’t post it.';
+const NOTHING_DONE = 'Okay, nothing was filed or posted.';
+
+let conversationId = randomUUID(); // one HR conversation per classroom (a reset starts a new one)
+let openCard = null; // { formRef, a2ui, hrCard, conversationId, alsoTellClass, at }
+let pendingChoice = null; // { text, entryId, at, reasked } — the held message awaiting HR / class / both
+let pendingNote = null; // { text, at, reasked, kind?, entryId? } — the neutral class note (or an offered class post) awaiting “yes”
+
+// The answer to the unsure question (words, read by code): “both” wins; then HR words; then class words.
+const BOTH = /\bboth\b/i;
+const YES = /^\s*(yes|yeah|yep|sure|ok|okay|please|please do|post it|go ahead)\b/i;
+const YES_FILLER = /^(yes|yeah|yep|sure|ok|okay|post|it|please|do|go|ahead|thanks|thank|you)$/i;
+const HR_NAMED = /\b(hr|human\s+resources|file|filed|filing)\b/i;
+// Any refusal anywhere means it is not a yes (“please don't post it”, “ok, but don't tell them”).
+const NEGATION = /\b(no|nope|nah|not|never|don['’]?t|do not|won['’]?t|skip|cancel|neither)\b/i;
+// A short reply right after a question is an answer attempt — never a message for the class.
+const SHORT = (text) => text.trim().split(/\s+/).length <= 4;
+// Rule B — reading a reply to the HR / class / both question (see staffTurn). Structural, and fails safe: a reply
+// that mentions a choice word or has 8 words or fewer is GUARDED — never posted or classified on its own.
+const CHOICE_WORDS = /\b(hr|human\s+resources|file|filed|filing|class|students|them|both|tell|post)\b/i;
+const HR_CHOICE = /\b(hr|file|filed|filing)\b/i;
+const CLASS_CHOICE = /\b(class|students)\b/i;
+const DROP = /\b(leave it|forget it|skip it|drop it|never ?mind|nvm|nothing)\b/i;
+// Words that add nothing to a choice (choice words, politeness, small words). Two or more OTHER words (“Class, quiz
+// is on Monday”) make the reply more than a choice: asked again, never posted.
+const CHOICE_FILLER = /^(hr|file|filed|filing|class|students|everyone|tell|both|them|only|post|send|put|please|pls|thanks|thx|thank|you|a|an|lot|so|much|can|could|would|will|it|that|this|those|these|of|for|me|with|to|and|then|the|just|ok|okay|yes|yeah|yep|sure|go|ahead|all|my|our|i|do|no|not|nope|nah|never|neither|don['’]?t|dont|won['’]?t|leave|forget|skip|drop|nothing|mind|nvm)$/i;
+// The choices a reply names. Each part (split at , ; but then) is read alone, so a negation removes only the choice
+// in its own part (“HR, not the class” → HR). A negation that names no choice drops everything (“no, not HR” has
+// “no” alone). Returns null when the reply drops the hold.
+function choicesInSentence(text) {
+  const picked = new Set();
+  for (const part of text.split(/[,;]|\bbut\b|\bthen\b/i)) {
+    const named = [...(BOTH.test(part) ? ['hr', 'class'] : []), ...(HR_CHOICE.test(part) ? ['hr'] : []), ...(CLASS_CHOICE.test(part) ? ['class'] : [])];
+    if (NEGATION.test(part) || DROP.test(part)) {
+      // A bare refusal (“no”, “not sure”, “just leave it”) drops the hold; a negation inside the professor's own
+      // content (“I'm not feeling well …”) is not a refusal of the question.
+      const content = part.toLowerCase().replace(/[^\w’'\s]/g, ' ').split(/\s+/).filter((w) => w && !CHOICE_FILLER.test(w));
+      if (!named.length) { if (!content.length) return null; continue; }
+      continue; // a refused choice: not picked
+    }
+    for (const c of named) picked.add(c);
+    if (named.includes('class') && /\b(too|also|as well)\b/i.test(part)) picked.add('hr'); // “class too”: both
+  }
+  return picked;
+}
+// Sentence by sentence: a refusal standing alone in its own sentence (“No. HR please”, “Not sure. HR I guess”) does
+// not block a clear HR (or both) pick in another sentence — HR never posts. A class-only pick next to a refusal still
+// drops (“No. Class please” never posts the held text).
+function choicesIn(text) {
+  const sentences = text.split(/[.!]+/).filter((x) => x.trim());
+  if (sentences.length < 2) return choicesInSentence(text);
+  const picked = new Set();
+  let refused = false;
+  for (const x of sentences) {
+    const p = choicesInSentence(x);
+    if (p === null) refused = true;
+    else for (const c of p) picked.add(c);
+  }
+  if (refused && !picked.has('hr')) return null;
+  return picked;
+}
+const fresh = (held) => held && Date.now() - held.at < HELD_FOR_MS;
+const cardOpen = () => {
+  if (openCard && Date.now() - openCard.at > CARD_TTL_MS) openCard = null; // expired at the Hub too
+  return openCard;
+};
+
+// “Professor Amir is out on Fri, Nov 6.” / “Professor Amir is out Fri, Nov 6 – Mon, Nov 9.” (dates from HR).
+export function neutralNote({ beginDate, endDate }) {
+  if (!beginDate || !endDate) return null;
+  return beginDate === endDate ? `${COURSE.professorName} is out on ${shortDate(beginDate)}.` : `${COURSE.professorName} is out ${shortDate(beginDate)} – ${shortDate(endDate)}.`;
+}
+export const receiptText = (r) => `Sent to your manager for a decision. Request ${r.requestId}: ${r.absenceName}, ${r.beginDate === r.endDate ? shortDate(r.beginDate) : `${shortDate(r.beginDate)} – ${shortDate(r.endDate)}`}, ${r.hours} h.`;
+
+// The open card as /author/state shows it (the Professor view renders it); null when none is open.
+export const staffView = () => (cardOpen() ? { formRef: openCard.formRef, a2ui: openCard.a2ui, card: openCard.hrCard } : null);
+
+export function resetStaff() {
+  conversationId = randomUUID();
+  openCard = null;
+  pendingChoice = null;
+  pendingNote = null;
+}
+
+// One professor message. Returns null (not a staff turn: carry on as today), { continueWith, entryId }
+// (the professor chose “class” for a held message: send THAT message as today), { note } (the professor
+// said yes to the note offer: post it), or a staff result { action: 'staff', reply, entries, … }.
+// bypass: @assistant messages and replies to one student (the reply icon: an explicit “to this student”,
+// accepted by the owner's ruling) are never staff turns — not even while a card is open; they also drop
+// any held question or note offer (the professor moved on).
+// card: { formRef, formValues } — the browser's open card and its current (checked) values; sent to HR with
+// a follow-up only when it is the card that is open here (a stale card's values are never sent).
+// The result with the “new message wasn't sent” notice: in the reply text for a clarify, as `notice` otherwise
+// (the Professor agent adds it to the chat as its own assistant entry).
+function withNotice(r) {
+  if (r?.action === 'clarify' && typeof r.reply === 'string') return { ...r, reply: `${r.reply} ${NOT_SENT}`, entries: [{ role: 'assistant', text: `${r.reply} ${NOT_SENT}`, action: 'clarify' }] };
+  return { ...r, notice: NOT_SENT };
+}
+
+export async function staffTurn({ operationId, text, entryId, hubLink, bypass = false, card = {}, emit = () => {} }) {
+  if (bypass) {
+    pendingChoice = null;
+    pendingNote = null;
+    return null;
+  }
+  // While a card is open, every message without @assistant goes to HR as a follow-up (it fills the card),
+  // even one that reads like a class message — the professor finishes or cancels the card first.
+  if (cardOpen()) {
+    const formValues = card.formValues && card.formRef === openCard.formRef ? card.formValues : undefined;
+    return sendToHr({ operationId, text, hubLink, emit, decidedBy: 'open_card', formValues });
+  }
+  const say = (reply, extra = {}) => ({ action: 'clarify', reply, ...extra, entries: [{ role: 'assistant', text: reply, action: 'clarify' }] });
+
+  const note = fresh(pendingNote) ? pendingNote : null;
+  pendingNote = null;
+  if (note) {
+    const fresh = hasNewContent(note.text, text); // new content: act on the answer, and say it wasn't sent
+    const told = (r) => (fresh ? withNotice(r) : r);
+    const sayN = (reply, extra) => say(fresh ? `${reply} ${NOT_SENT}` : reply, extra);
+    if (NEGATION.test(text)) return sayN(NOTE_DECLINED, { check: 'note_declined' });
+    // A reply that names HR is never a yes to posting (“yes, to HR”, “Please send it to HR”).
+    if (HR_NAMED.test(text)) return sayN(NOTE_DECLINED, { check: 'note_declined' });
+    // A yes counts only when it is nothing but yes words (“yes”, “ok, post it”, “yes please, go ahead”). With new
+    // content, the first sentence decides (“Yes please. Also I need Monday off” is a yes); a yes with other words in
+    // the same sentence (“yes but change Tuesday to Wednesday”, “Yes, and I also need Tuesday off”) is asked again.
+    const decides = fresh ? text.split(/[.!?]/)[0] : text;
+    const pureYes = YES.test(decides) && decides.toLowerCase().replace(/[^\w’'\s]/g, ' ').split(/\s+/).filter(Boolean).every((w) => YES_FILLER.test(w));
+    const reaskNote = () => {
+      if (note.reasked) return sayN(NOTE_DECLINED, { check: 'note_declined' });
+      pendingNote = { ...note, reasked: true };
+      return sayN(NOTE_REASK, { check: 'note_reask' });
+    };
+    if (YES.test(text) && !pureYes) return reaskNote();
+    // A long class message offered while a message was held (“Should I post this to the class: …?”) goes out as
+    // the professor's own message (today's path); the neutral HR note goes out as the note.
+    if (pureYes) return told(note.kind === 'post' ? { continueWith: note.text, entryId: note.entryId } : { note: note.text });
+    // Not a clear yes or no: ask once more; a second unclear reply declines. Never posted either way. A reply with
+    // new content is an answer attempt too (never dropped silently).
+    if (SHORT(text) || fresh) return reaskNote();
+    // A longer message: a new message (the note offer is dropped).
+  }
+
+  const held = fresh(pendingChoice) ? pendingChoice : null;
+  pendingChoice = null;
+  let c = null; // the classifier's reading of THIS message (a long reply to the question is classified first)
+  if (held) {
+    // Rule B. A reply of 8 words or fewer is never posted or classified on its own: negation anywhere → drop
+    // (“HR, not the class”: the negation only removes the class); exactly one clear choice (HR, class, or both) →
+    // act on the HELD message; otherwise ask once more, then drop.
+    // A reply of more than 8 words: a pure choice (“please file it with HR for me, thanks a lot”) acts the same
+    // way, without a model call; anything else is classified on its own FIRST — a staff request goes to HR with
+    // its OWN words (negations like “not feeling well” don't drop it), a class message that mentions
+    // HR/file/class/students/them/both/tell is asked about once more (never posted), a class message without them
+    // posts as today, and “unsure” asks the question about THIS message. The held message is dropped unless re-asked.
+    const words = text.toLowerCase().replace(/[^\w’'\s]/g, ' ').split(/\s+/).filter(Boolean);
+    const picked = choicesIn(text);
+    const negated = NEGATION.test(text) || DROP.test(text);
+    const extra = words.filter((w) => !CHOICE_FILLER.test(w)).length;
+    const fresh = hasNewContent(held.text, text);
+    const actOnChoice = async () => {
+      const both = picked.has('hr') && picked.has('class');
+      if (picked.has('hr')) {
+        const r = await sendToHr({ operationId, text: held.text, hubLink, emit, decidedBy: both ? 'both' : 'professor_choice', alsoTellClass: both });
+        return fresh ? withNotice(r) : r;
+      }
+      emit('staff_decision', { kind: 'class_message', decidedBy: 'professor_choice' });
+      const r = { continueWith: held.text, entryId: held.entryId };
+      return fresh ? withNotice(r) : r;
+    };
+    const dropped = () => say(fresh ? `${NOTHING_DONE} ${NOT_SENT}` : NOTHING_DONE, { check: 'staff_or_class_dropped' });
+    const reask = () => {
+      if (held.reasked) return dropped();
+      pendingChoice = { ...held, reasked: true };
+      // A re-asked reply that brings NEW content was not sent: say so, so the professor knows to send it again.
+      return say(fresh ? STILL_HOLDING : UNSURE_QUESTION, { check: 'staff_or_class' });
+    };
+    // A question back (“HR or class?”) is always asked again.
+    if (/\?\s*$/.test(text)) return reask();
+    // A reply with ANY choice word is an answer to the question — never classified on its own, never posted or filed
+    // except on a clear choice: (a) its FIRST clause (up to . , ; — or “and”) is a pure HR or both choice (one other
+    // word allowed, e.g. “HR I guess”, “HR for Monday”) and no later clause picks the class instead; or (b) the whole
+    // reply is a pure class choice (no other word at all: “class only”, “tell the class please, and thanks so much”).
+    // Anything else (“Just tell the class, HR already knows I'm out Friday”, “Class please. Also I'm out next Monday …”)
+    // is held with the notice. A negation that refuses everything drops the hold (“no, not HR”, “don't file it”).
+    if (CHOICE_WORDS.test(text)) {
+      if (picked === null || (negated && !picked.size)) return dropped();
+      if (picked.size === 1 && picked.has('class') && extra === 0 && !negated) return actOnChoice(); // (b) — no negation anywhere (“Not HR. Class please” is held)
+      // The first clause, after any leading sentence that is only a refusal (“No. HR please”).
+      const sentences = text.split(/(?<=[.!])/);
+      while (sentences.length > 1 && choicesInSentence(sentences[0].replace(/[.!]+$/, '')) === null) sentences.shift();
+      const rest0 = sentences.join('');
+      const first = rest0.split(/[.,;—–]|\band\b/i)[0];
+      const firstPicked = choicesIn(first);
+      const firstExtra = first.toLowerCase().replace(/[^\w’'\s]/g, ' ').split(/\s+/).filter((w) => w && !CHOICE_FILLER.test(w)).length;
+      const laterClass = (choicesIn(rest0.slice(first.length)) ?? new Set()).has('class');
+      if (firstPicked?.has('hr') && firstExtra <= 1 && (firstPicked.has('class') || !laterClass)) { // (a)
+        picked.clear();
+        for (const x of firstPicked) picked.add(x);
+        return actOnChoice();
+      }
+      // (c): one neutral holding text, true in every case (it may or may not have had something new).
+      if (held.reasked) return dropped();
+      pendingChoice = { ...held, reasked: true };
+      return say(HOLDING, { check: 'staff_or_class' });
+    }
+    // No choice word: 8 words or fewer is not an answer — a negation drops the hold, anything else is asked again.
+    if (words.length <= 8) return negated ? dropped() : reask();
+    // More than 8 words and no choice word: classified on its own (a new message; the held one is dropped).
+    c = await classifyStaff({ text, emit });
+    if (c.kind === 'class_message') {
+      emit('staff_decision', { kind: c.kind, decidedBy: 'classifier', model: c.model ?? null, error: c.error ?? null });
+      // Nothing goes to students on one classifier verdict while a message is held: offer it, post only on a yes.
+      pendingNote = { text, at: Date.now(), kind: 'post', entryId };
+      const offer = `Should I post this to the class: “${text}”? Reply yes or no.`;
+      return say(offer, { check: 'post_offer' });
+    }
+    // Otherwise a new message, handled below (the held one is dropped, never posted or filed).
+  }
+
+  c ??= await classifyStaff({ text, emit });
+  emit('staff_decision', { kind: c.kind, decidedBy: 'classifier', model: c.model ?? null, error: c.error ?? null });
+  if (c.kind === 'class_message') return null;
+  if (c.kind === 'unsure') {
+    pendingChoice = { text, entryId, at: Date.now() };
+    return { action: 'clarify', check: 'staff_or_class', reply: UNSURE_QUESTION, model: c.model ?? null, entries: [{ role: 'assistant', text: UNSURE_QUESTION, action: 'clarify', model: c.model ?? null }] };
+  }
+  return sendToHr({ operationId, text, hubLink, emit, decidedBy: 'classifier', model: c.model });
+}
+
+// Professor → Hub → HR: a signed staff request in this classroom's HR conversation.
+async function sendToHr({ operationId, text, hubLink, emit, decidedBy, alsoTellClass = false, model = null, formValues }) {
+  const value = { type: 'staff_request', operationId, conversationId, text, ...(formValues ? { formValues } : {}) };
+  const asked = conversationId;
+  const r = await hubLink.sendSigned(STAFF_REQUEST_MEDIA_TYPE, value, staffRequestFields(value), { timeoutMs: STAFF_TIMEOUT_MS });
+  emit('staff_relayed', { kind: 'request', status: r.status, decidedBy, card: Boolean(r.reply?.formRef), cardValues: Boolean(formValues) });
+  const result = { action: 'staff', decidedBy, model, hr: { status: r.status, formRef: r.reply?.formRef ?? null } };
+  if (r.status === 'ok' && r.reply) {
+    // A reset while HR answered started a new conversation: that card is gone with it.
+    if (r.reply.formRef && asked === conversationId) {
+      openCard = { formRef: r.reply.formRef, a2ui: r.reply.a2ui ?? [], hrCard: r.reply.hrCard ?? null, conversationId: asked, alsoTellClass: alsoTellClass || Boolean(openCard?.alsoTellClass), at: Date.now() };
+    }
+    return { ...result, reply: r.reply.text, entries: [{ role: 'hr', text: r.reply.text, ...(r.reply.formRef ? { formRef: r.reply.formRef } : {}) }] };
+  }
+  const text2 = r.status === 'refused' ? `HR didn’t take this: ${r.reason ?? 'refused'}`
+    : r.status === 'not_delivered' ? `This didn’t reach HR: ${r.reason ?? 'unreachable'} Nothing was filed.`
+      : `HR didn’t answer in time (${r.reason ?? 'no answer'}). Nothing is filed until you submit a card — send it again to get one.`;
+  return { ...result, reply: text2, entries: [{ role: 'hr', text: text2, failed: true }] };
+}
+
+// The professor pressed a button on the open card. Returns { http, body, entries, definite }.
+// definite = HR's answer is known (store it for a repeat); an unknown outcome is retried with the SAME
+// operationId (the Hub and HR both dedupe), so it is not stored.
+export async function staffAction({ operationId, formRef, action, hubLink, emit = () => {} }) {
+  if (!cardOpen() || openCard.formRef !== formRef) return { http: 409, body: { error: 'That card isn’t open any more.' } };
+  const card = openCard;
+  const value = { type: 'staff_action', operationId, formRef, action, conversationId: card.conversationId };
+  const r = await hubLink.sendSigned(STAFF_ACTION_MEDIA_TYPE, value, staffActionFields(value), { timeoutMs: STAFF_TIMEOUT_MS });
+  emit('staff_relayed', { kind: 'action', status: r.status, actionName: typeof action?.name === 'string' ? action.name : null, closed: Boolean(r.reply?.closed) });
+  const current = openCard === card; // not reset or replaced while HR answered
+  const reply = r.reply ?? null;
+  if (r.status === 'ok' && reply?.closed) {
+    if (current) openCard = null;
+    const entries = [];
+    let status = 'cancelled';
+    if (reply.receipt) {
+      status = 'accepted';
+      entries.push({ role: 'hr', text: receiptText(reply.receipt), formRef, closed: true });
+      const note = card.alsoTellClass ? neutralNote(reply.receipt) : null;
+      if (note && current) {
+        pendingNote = { text: note, at: Date.now() };
+        entries.push({ role: 'assistant', text: `Want me to tell the class: “${note}”? Reply yes to post it.`, action: 'clarify' });
+      }
+    } else {
+      entries.push({ role: 'hr', text: reply.text, formRef, closed: true });
+    }
+    return { http: 200, definite: true, entries, body: { status, reply: entries[0].text, closed: true, ...(reply.receipt ? { receipt: reply.receipt } : {}) } };
+  }
+  if (r.status === 'ok' || r.status === 'refused') {
+    // HR (or the Hub) refused it: the card stays open with HR's errors, unless the Hub says (typed code,
+    // never its wording) that the card itself can't be acted on any more.
+    const gone = r.code === CARD_CLOSED;
+    if (current && gone) openCard = null;
+    if (current && !gone && reply?.a2ui?.length) openCard = { ...openCard, a2ui: [...openCard.a2ui, ...reply.a2ui] };
+    const text = r.reason ?? reply?.text ?? 'Not accepted.';
+    return { http: 200, definite: true, entries: [{ role: 'hr', text, formRef, failed: true }], body: { status: 'rejected', reply: text, closed: gone, ...(reply?.errors ? { errors: reply.errors } : {}) } };
+  }
+  const text = r.status === 'not_delivered' ? `Nothing was submitted: ${r.reason ?? 'HR is unreachable.'}` : `HR didn’t confirm in time, so the outcome is unknown. Press the button again — it won’t file twice.`;
+  return { http: 200, definite: false, entries: [{ role: 'hr', text, formRef, failed: true }], body: { status: r.status === 'not_delivered' ? 'not_delivered' : 'outcome_unknown', reply: text, closed: false } };
+}

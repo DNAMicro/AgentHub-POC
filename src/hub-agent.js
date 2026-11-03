@@ -20,10 +20,12 @@ import { loadHubConfig } from './config.js';
 import { apiHost, briefReply, keyEnvName, useModel } from './llm.js';
 import { createHubRegistry } from './hub-registry.js';
 import { CONTROL_MEDIA_TYPES, DEREGISTER_MEDIA_TYPE, HEARTBEAT_MEDIA_TYPE, REGISTER_MEDIA_TYPE } from './hub-link.js';
-import { createLessonService } from './hub-lessons.js';
+import { createLessonService, verifyAgentSignature } from './hub-lessons.js';
+import { CARD_CLOSED, HUB_STAFF_MEDIA_TYPES, STAFF_ACTION_MEDIA_TYPE, STAFF_REQUEST_MEDIA_TYPE, staffActionFields, staffReply, staffRequestFields } from './staff.js';
+import { ID } from './lessons.js';
 import { HUB_LESSON_MEDIA_TYPES, LESSON_PUBLISH_MEDIA_TYPE, LESSON_RECEIPT_MEDIA_TYPE, LESSON_STATUS_MEDIA_TYPE, STUDENT_SESSION_MEDIA_TYPE } from './lessons.js';
 import { CARD_CHANGED_MEDIA_TYPE } from './skills.js';
-import { A2UI_EXTENSION_URI, A2UI_MIME_TYPE, BASIC_CATALOG_ID, isA2uiPart } from './forms.js';
+import { A2UI_EXTENSION_URI, A2UI_MIME_TYPE, BASIC_CATALOG_ID, checkTimeOffValues, isA2uiPart } from './forms.js';
 import { ROUTER_MODE, decideRoute, routerStatus } from './router.js';
 import { askTutor, sendFormAction } from './student-agent.js';
 
@@ -78,6 +80,7 @@ const SAFE_FIELDS = new Set([
   'taskState', 'resumedTask', 'violates', 'handler', 'reviewer', 'latencyMs', 'earlierMessages', 'chars', 'fallback', 'operation', 'loanId', 'ok', 'generated', 'revision',
   'lessonId', 'deliveryId', 'inboxId', 'noticeId', 'courseId', 'attempt', 'found', 'kind', 'audience', 'recipients',
   'usage', 'inputTokens', 'outputTokens', 'cacheReadInputTokens', 'cacheCreationInputTokens', 'tutor', 'library',
+  'hrOutcome', // HR: card / refused / workflow_disabled … (an outcome code, never the staff member's words)
 ]);
 // Lists of field NAMES (never values) that may pass, e.g. which fields a form prefilled.
 const NAME_LIST_FIELDS = new Set(['prefilled']);
@@ -120,6 +123,10 @@ export function startHubServer({ port } = {}) {
   // Part 9: professor-initiated lessons and student sessions (src/hub-lessons.js).
   lessons = createLessonService({ cfg, registry, emit: (type, data) => emit(type, null, data) });
   const workerOf = Object.fromEntries(Object.entries(cfg.destinations).map(([dest, d]) => [d.worker, dest]));
+  // HR (staff only): destinations with audience 'staff' are reachable only through the signed staff path —
+  // never on the public card, in the student router's view, or as a student's requestedCapability.
+  const isStaff = (dest) => cfg.destinations[dest]?.audience === 'staff';
+  const studentDestinations = Object.entries(cfg.destinations).filter(([dest]) => !isStaff(dest));
 
   // Per Student conversation (= the Student↔Hub A2A context): owner, routing turns, and one separate
   // downstream A2A context per specialist (never reuse one service's IDs with another).
@@ -142,7 +149,7 @@ export function startHubServer({ port } = {}) {
   const services = () => registry.routingView().map((s) => ({ ...s, destination: workerOf[s.agentId] ?? null, publicName: cfg.destinations[workerOf[s.agentId]]?.name ?? '', description: cfg.destinations[workerOf[s.agentId]]?.description ?? '',
     // The teacher of the course this service serves (public: the student already sees the name): naming them identifies the course.
     ...(Object.values(cfg.courses ?? {}).find((c) => c.professor === s.agentId)?.professorName ? { instructor: Object.values(cfg.courses).find((c) => c.professor === s.agentId).professorName } : {}) }))
-    .filter((s) => s.destination); // a specialist is reachable only through its own destination
+    .filter((s) => s.destination && !isStaff(s.destination)); // a specialist is reachable only through its own (student) destination
 
   // ---- A2A executor ---------------------------------------------------------------------------
   const executor = {
@@ -152,6 +159,9 @@ export function startHubServer({ port } = {}) {
       if (control) return handleControl(ctx, bus, control);
       const lessonPart = msg.parts.find((p) => p.content?.$case === 'data' && HUB_LESSON_MEDIA_TYPES.has(p.mediaType));
       if (lessonPart) return handleLessonMessage(ctx, bus, lessonPart, msg);
+      // HR (staff only): a staff request or card action signed by a registered agent (src/staff.js).
+      const staffPart = msg.parts.find((p) => p.content?.$case === 'data' && HUB_STAFF_MEDIA_TYPES.has(p.mediaType));
+      if (staffPart) return handleStaff(ctx, bus, staffPart);
       const studentId = msg.metadata?.studentId;
       if (!cfg.students.includes(studentId)) return replyMessage(ctx, bus, 'This university front door only serves enrolled students configured for this demo.', { hub: { decision: 'rejected', reason: 'unknown_student' } });
       // Part 9: a student request must carry its agent's session signature (key confirmed at registration).
@@ -205,6 +215,173 @@ export function startHubServer({ port } = {}) {
     bus.finished();
   }
 
+  // ---- HR (staff only): the signed staff path (src/staff.js) ----------------------------------------
+  // A registered agent acting for a staff member (the Professor; who maps to whom is in cfg.staff, never in
+  // the message) signs each part with the key it gave the Hub at registration. The Hub verifies it, routes
+  // to the ready staff destination (no router call) and forwards over A2A with a STAFF signature (HR never
+  // accepts a student signature as staff). Two A2A legs with separate IDs, like the student path; HR's
+  // cards are mapped to opaque formRefs bound to the staff member and the conversation. In memory only.
+  const staffConversations = new Map(); // `${agentId}|${conversationId}` → { staffId, downstream: { agentId → contextId } }
+  const staffFormRefs = new Map(); // formRef → { staffId, agentId (sender), conversationId, issuer, downstream, state, createdAt }
+  const staffOperations = new Map(); // operationId → { hash, downstreamMessageId, promise } (promise only while definite)
+  const staffDestinations = () => Object.entries(cfg.destinations).filter(([dest]) => isStaff(dest)).map(([dest, d]) => ({ destination: dest, agentId: d.worker }));
+
+  async function handleStaff(ctx, bus, part) {
+    const value = part.content.value ?? {};
+    const isAction = part.mediaType === STAFF_ACTION_MEDIA_TYPE;
+    const operationId = typeof value.operationId === 'string' && ID.test(value.operationId) ? value.operationId : null;
+    const runId = operationId ? `staff-${operationId}` : null;
+    let sender = null;
+    const answer = (body) => {
+      bus.publish(AgentEvent.message({ messageId: randomUUID(), contextId: ctx.contextId, taskId: '', role: Role.ROLE_AGENT, parts: [jsonPart(body)], metadata: undefined, extensions: [], referenceTaskIds: [] }));
+      bus.finished();
+      emit('relay_sent', runId, { operationId, to: sender ?? 'unverified', kind: isAction ? 'staff_action_result' : 'staff_reply', status: body.status, servedBy: body.reply?.servedBy ?? null, hrOutcome: body.reply?.hrOutcome ?? null });
+    };
+    const refuse = (code, reason) => {
+      emit('staff_refused', runId, { operationId, code, kind: isAction ? 'action' : 'request' });
+      answer(staffReply('refused', { reason }));
+    };
+    const who = verifyAgentSignature(registry, value, isAction ? staffActionFields(value) : staffRequestFields(value));
+    if (who !== 'ok') return refuse(who, 'This request isn’t signed by a registered university agent.');
+    sender = value.professorId;
+    const staff = cfg.staff?.[sender];
+    if (!staff) return refuse('not_staff', 'Staff services are only for university staff.');
+    if (!operationId) return refuse('malformed', 'Missing or malformed operation ID.');
+    emit('staff_request_received', runId, { operationId, agentId: sender, kind: isAction ? 'action' : 'request', ...(isAction ? { formRef: typeof value.formRef === 'string' ? value.formRef.slice(0, 80) : null } : { chars: typeof value.text === 'string' ? value.text.length : 0, cardValues: value.formValues !== undefined }) });
+
+    // Dedupe by the sender's operation ID: the same values get the same (definite) result; other values are refused.
+    const payloadHash = hash(isAction ? { kind: 'action', sender, formRef: value.formRef, conversationId: value.conversationId, name: value.action?.name, context: value.action?.context } : { kind: 'request', sender, conversationId: value.conversationId, text: value.text, formValues: value.formValues ?? null });
+    let record = staffOperations.get(operationId);
+    if (record && record.hash !== payloadHash) return refuse('operation_reused', 'This operation ID was already used with different values.');
+    if (record?.promise) {
+      emit('request_repeat', runId, { operationId, note: 'Same staff operation as before — returning the earlier result; nothing forwarded again.' });
+      return answer(await record.promise);
+    }
+    if (!record) {
+      record = { hash: payloadHash, downstreamMessageId: randomUUID(), promise: null };
+      staffOperations.set(operationId, record);
+      trim(staffOperations);
+    }
+    const work = isAction ? staffAction(value, staff, runId, operationId) : staffRequest(value, staff, runId, operationId, record);
+    record.promise = work;
+    const body = await work;
+    // Not kept: an outcome HR may or may not have reached can be retried with the same operation ID
+    // (same downstream message ID / operation ID, so HR answers from its own records).
+    if (['outcome_unknown', 'not_delivered'].includes(body.status) || body.retryable) record.promise = null;
+    delete body.retryable;
+    answer(body);
+  }
+
+  async function staffRequest(value, staff, runId, operationId, record) {
+    const text = typeof value.text === 'string' ? value.text.trim().slice(0, 2000) : '';
+    if (typeof value.conversationId !== 'string' || !ID.test(value.conversationId) || !text) return { ...staffReply('refused', { reason: 'Malformed staff request.' }), retryable: true };
+    // The open card's current values (optional): checked with the form's own rules, passed on to HR as data.
+    const card = value.formValues === undefined ? { values: null } : checkTimeOffValues(value.formValues);
+    if (card.ok === false) return { ...staffReply('refused', { reason: 'Malformed card values.' }), retryable: true };
+    const ready = staffDestinations().filter((d) => registry.isReady(d.agentId));
+    if (!ready.length) {
+      emit('route_decided', runId, { operationId, decidedBy: 'staff', decision: 'unavailable', destination: null, agentId: null, skillId: null, reason: 'No staff service is ready.' });
+      return staffReply('not_delivered', { reason: 'Staff services aren’t available right now. Please try again in a little while.' });
+    }
+    const { destination, agentId } = ready[0];
+    emit('route_decided', runId, { operationId, decidedBy: 'staff', decision: 'route', destination, agentId, skillId: null, reason: 'A request from university staff — the staff services destination.', model: null });
+    const key = `${value.professorId}|${value.conversationId}`;
+    let conv = staffConversations.get(key);
+    if (!conv) {
+      conv = { staffId: staff.staffId, downstream: {} };
+      staffConversations.set(key, conv);
+      trim(staffConversations);
+    }
+    const peer = registry.peer(agentId);
+    const contextId = (conv.downstream[agentId] ??= randomUUID());
+    const hubOperationId = randomUUID();
+    emit('forward_attempted', runId, { operationId, agentId, destination, downstreamContextId: contextId, downstreamMessageId: record.downstreamMessageId });
+    activeFor.set(agentId, (activeFor.get(agentId) ?? 0) + 1);
+    counters.active += 1;
+    try {
+      const reply = await askTutor(peer.baseUrl, text, {
+        runId, contextId, messageId: record.downstreamMessageId, card: registry.entry(agentId).card, timeoutMs: cfg.timeouts.dispatchMs,
+        metadata: { hubOperationId, via: cfg.agentId, staffId: staff.staffId, callerKind: 'staff', ...(card.values ? { formValues: card.values } : {}), hubSignature: registry.signStaffFor(agentId, { staffId: staff.staffId, contextId, operationId: hubOperationId }) },
+      });
+      registry.markReachable(agentId, true);
+      if (reply.form) {
+        const formRef = createStaffFormRef(reply.form, { staffId: staff.staffId, sender: value.professorId, conversationId: value.conversationId, issuer: agentId, operationId });
+        emit('forward_completed', runId, { operationId, agentId, kind: 'form_offer', downstreamTaskId: reply.form.taskId, formRef, workflowId: reply.form.workflowId, hrOutcome: reply.hr?.outcome ?? null });
+        return staffReply('ok', { reply: { text: reply.text, servedBy: agentId, formRef, a2ui: reply.form.a2uiMessages, hrCard: reply.hrCard ?? null, hrOutcome: reply.hr?.outcome ?? null } });
+      }
+      emit('forward_completed', runId, { operationId, agentId, kind: 'answer', downstreamMessageId: reply.messageId, hrOutcome: reply.hr?.outcome ?? null });
+      return staffReply('ok', { reply: { text: reply.text, servedBy: agentId, hrOutcome: reply.hr?.outcome ?? null } });
+    } catch (err) {
+      const unknown = err.outcome === 'uncertain';
+      const serviceError = err.tutorError ?? null;
+      if (!serviceError) registry.markReachable(agentId, unknown ? null : false, err.message);
+      emit('forward_failed', runId, { operationId, agentId, outcome: serviceError ? 'answered_with_error' : unknown ? 'unknown' : 'not_delivered', code: serviceError?.code ?? err.cause?.code ?? null });
+      if (serviceError) return { ...staffReply('refused', { reason: `The ${peer.displayName} could not answer: ${serviceError.message}` }), retryable: true };
+      return unknown ? staffReply('outcome_unknown', { reason: `The ${peer.displayName} didn’t answer in time. It may still be working on it.` })
+        : staffReply('not_delivered', { reason: `The ${peer.displayName} is unreachable right now. Please try again in a little while.` });
+    } finally {
+      activeFor.set(agentId, activeFor.get(agentId) - 1);
+      counters.active -= 1;
+    }
+  }
+
+  // An HR card → an opaque Hub reference bound to the staff member, the sending agent and its conversation.
+  function createStaffFormRef(form, { staffId, sender, conversationId, issuer, operationId }) {
+    for (const m of staffFormRefs.values()) if (m.issuer === issuer && m.downstream.formId === form.formId) return m.formRef; // the same card again (a repeat)
+    for (const m of staffFormRefs.values()) {
+      if (form.supersedes && m.issuer === issuer && m.downstream.formId === form.supersedes && m.state === 'open') m.state = 'superseded';
+    }
+    const formRef = `hf-${randomUUID()}`;
+    staffFormRefs.set(formRef, {
+      formRef, staffId, agentId: sender, conversationId, issuer, workflowId: form.workflowId,
+      downstream: { formId: form.formId, taskId: form.taskId, contextId: form.contextId, formVersion: form.formVersion, workflowId: form.workflowId },
+      state: 'open', createdAt: Date.now(), operationId,
+    });
+    trim(staffFormRefs);
+    emit('form_ref_created', `staff-${operationId}`, { formRef, agentId: issuer, workflowId: form.workflowId, operationId, downstreamTaskId: form.taskId });
+    return formRef;
+  }
+
+  async function staffAction(value, staff, runId, operationId) {
+    const refused = (reason, code) => {
+      emit('form_action_rejected', runId, { formRef: typeof value.formRef === 'string' ? value.formRef.slice(0, 80) : null, operationId, reason });
+      return { ...staffReply('refused', { reason, code }), retryable: true };
+    };
+    const m = typeof value.formRef === 'string' ? staffFormRefs.get(value.formRef) : null;
+    const action = value.action && typeof value.action === 'object' && !Array.isArray(value.action) ? value.action : null;
+    if (!m) return refused('Unknown or altered form reference.', CARD_CLOSED);
+    if (m.staffId !== staff.staffId || m.agentId !== value.professorId) return refused('This card belongs to another staff member.', CARD_CLOSED);
+    // Required and signed (staffActionFields): the card must be acted on in the conversation it was issued in.
+    if (typeof value.conversationId !== 'string' || value.conversationId !== m.conversationId) return refused('This card belongs to another conversation.', CARD_CLOSED);
+    if (Date.now() - m.createdAt > FORM_TTL_MS) return refused('This card has expired. Ask again to get a new one.', CARD_CLOSED);
+    if (m.state === 'superseded') return refused('This card was replaced by a newer one.', CARD_CLOSED);
+    if (m.state === 'closed') return refused('This card is already completed.', CARD_CLOSED);
+    if (!action || typeof action.name !== 'string' || action.surfaceId !== m.downstream.formId) return refused('The action does not match this card.');
+
+    const peer = registry.peer(m.issuer);
+    emit('form_forwarded', runId, { formRef: m.formRef, operationId, agentId: m.issuer, actionName: action.name, downstreamTaskId: m.downstream.taskId });
+    try {
+      const result = await sendFormAction(peer.baseUrl, {
+        form: m.downstream, action, operationId, runId, card: registry.entry(m.issuer)?.card ?? undefined, timeoutMs: cfg.timeouts.formActionMs,
+        metadata: { hubOperationId: operationId, via: cfg.agentId, staffId: m.staffId, callerKind: 'staff', hubSignature: registry.signStaffFor(m.issuer, { staffId: m.staffId, contextId: m.downstream.contextId, operationId }) },
+      });
+      registry.markReachable(m.issuer, true);
+      const b = result.body;
+      const closed = ['accepted', 'cancelled'].includes(b.status);
+      if (closed) m.state = 'closed';
+      emit('form_result_relayed', runId, { formRef: m.formRef, operationId, agentId: m.issuer, status: b.status, receipt: b.receipt ? { id: b.receipt.requestId } : null });
+      const reply = { text: b.message ?? '', servedBy: m.issuer, formRef: m.formRef, closed, ...(result.a2uiUpdate.length ? { a2ui: result.a2uiUpdate } : {}), ...(b.receipt ? { receipt: b.receipt } : {}), ...(b.errors ? { errors: b.errors } : {}) };
+      if (['rejected', 'conflict'].includes(b.status)) return staffReply('refused', { reply, reason: b.errors?._form ?? b.message ?? 'Not accepted.' });
+      return staffReply('ok', { reply });
+    } catch (err) {
+      const unknown = err.outcome === 'uncertain';
+      if (!unknown) registry.markReachable(m.issuer, false, err.message);
+      emit('form_forward_failed', runId, { formRef: m.formRef, operationId, agentId: m.issuer, outcome: unknown ? 'unknown' : 'not_delivered' });
+      return unknown ? staffReply('outcome_unknown', { reason: `The ${peer.displayName} didn’t confirm in time; the outcome is unknown. Try again with the same operation.` })
+        : staffReply('not_delivered', { reason: `The ${peer.displayName} is unreachable, so nothing was submitted.` });
+    }
+  }
+
   // ---- chat: route, forward, relay --------------------------------------------------------------
   async function handleChat(ctx, bus, studentId) {
     const incoming = ctx.userMessage;
@@ -245,7 +422,7 @@ export function startHubServer({ port } = {}) {
     const lesson = typeof lessonDeliveryId === 'string' ? lessons.lessonRoute(conv.studentId, lessonDeliveryId) : null;
     if (lessonDeliveryId && !lesson) emit('lesson_route_rejected', runId, { operationId, reason: 'not this student’s lesson' });
     const requested = typeof requestedCapability === 'string' ? requestedCapability.slice(0, 60) : null;
-    const capability = requested && Object.hasOwn(cfg.destinations, requested) ? cfg.destinations[requested] : null;
+    const capability = requested && Object.hasOwn(cfg.destinations, requested) && !isStaff(requested) ? cfg.destinations[requested] : null;
     if (requested && !capability) emit('capability_rejected', runId, { operationId, capability: requested, reason: 'Not one of this university’s capabilities; the Hub routed the request itself.' });
     try {
       if (lesson) {
@@ -417,8 +594,9 @@ export function startHubServer({ port } = {}) {
   function topologySnapshot() {
     return {
       hub: { agentId: cfg.agentId, name: cfg.name, role: 'University front door and router', status: 'ready', router: routerStatus(), active: counters.active, openForms: [...formRefs.values()].filter((m) => m.state === 'open').length,
-        destinations: Object.entries(cfg.destinations).map(([dest, d]) => ({ destination: dest, worker: d.worker, workerName: registry.peer(d.worker)?.displayName ?? d.worker, description: d.description })) },
-      specialists: registry.snapshot().map((s) => ({ ...s, destination: workerOf[s.agentId] ?? null, active: activeFor.get(s.agentId) ?? 0 })),
+        destinations: Object.entries(cfg.destinations).map(([dest, d]) => ({ destination: dest, worker: d.worker, workerName: registry.peer(d.worker)?.displayName ?? d.worker, description: d.description, audience: d.audience ?? 'student' })) },
+      // audience: 'staff' marks a staff-only service (HR) for the developer views; students never reach it.
+      specialists: registry.snapshot().map((s) => ({ ...s, destination: workerOf[s.agentId] ?? null, audience: cfg.destinations[workerOf[s.agentId]]?.audience ?? 'student', active: activeFor.get(s.agentId) ?? 0 })),
       // Part 9: courses (trusted configuration), student sessions and lesson deliveries (ids and states only).
       courses: Object.entries(cfg.courses ?? {}).map(([courseId, c]) => ({ courseId, title: c.title, professor: c.professor, enrolled: c.enrolled })),
       lessons: lessons.snapshot(),
@@ -483,7 +661,8 @@ export function startHubServer({ port } = {}) {
         defaultOutputModes: ['text/plain', A2UI_MIME_TYPE, 'application/json'],
         // One public skill per capability (destination). A Student may name one of these IDs as
         // `requestedCapability`; the Hub still maps it to its own worker and checks readiness.
-        skills: Object.entries(cfg.destinations).map(([id, d]) => ({
+        // Staff-only destinations (HR) are not public capabilities.
+        skills: studentDestinations.map(([id, d]) => ({
           id, name: d.name ?? id, description: d.description ?? '', tags: d.tags ?? [id], examples: d.examples ?? [],
           inputModes: ['text/plain', A2UI_MIME_TYPE], outputModes: ['text/plain', A2UI_MIME_TYPE, 'application/json'], securityRequirements: [],
         })),
@@ -537,7 +716,8 @@ export function startHubServer({ port } = {}) {
         }
       };
       // Demo reset of every student's lessons and messages and the sample loans (the Student UI's New conversation). The Hub
-      // clears its records, asks each course’s professor to clear its posted list and the Library to restore its loans.
+      // clears its records, asks each course’s professor to clear its posted list, the Library to restore its loans
+      // and HR (staff only) to restore its records.
       dev.post('/dev/classroom/reset', async (req, res) => {
         lessons.reset();
         const professors = [...new Set(Object.values(cfg.courses ?? {}).map((c) => c.professor))];
@@ -562,11 +742,28 @@ export function startHubServer({ port } = {}) {
             library = 'unreachable';
           }
         }
-        res.json({ status: 'reset', professors: results, library });
+        // HR (staff only): its records back to the sample and its open cards closed; the Hub forgets every
+        // staff card reference and staff conversation too.
+        staffFormRefs.clear();
+        staffConversations.clear();
+        let hr = 'none';
+        const hrPeer = staffDestinations().map((d) => registry.peer(d.agentId)).find(Boolean);
+        if (hrPeer) {
+          try {
+            const r = await fetch(`${hrPeer.baseUrl}/dev/hr/reset`, { method: 'POST', signal: AbortSignal.timeout(5000) });
+            hr = r.ok ? 'reset' : `HTTP ${r.status}`;
+          } catch {
+            hr = 'unreachable';
+          }
+        }
+        res.json({ status: 'reset', professors: results, library, hr });
       });
       dev.get('/dev/agents/:agentId/author/state', author('/state', 'GET'));
       dev.post('/dev/agents/:agentId/author/lessons', author('/lessons', 'POST'));
       dev.post('/dev/agents/:agentId/author/chat', author('/chat', 'POST'));
+      // HR (staff only): Submit / Cancel on the professor's open time-off card (the Professor agent then
+      // sends it Professor → Hub → HR over the signed staff path; this proxy carries no staff authority).
+      dev.post('/dev/agents/:agentId/author/hr-action', author('/hr-action', 'POST'));
       // Manual "Refresh skills": re-fetch every specialist card from its configured URL (no model calls).
       dev.post('/dev/registry/refresh', (req, res) => {
         for (const peer of cfg.peers) registry.refresh(peer.agentId, 'manual');

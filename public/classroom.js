@@ -9,6 +9,14 @@
 //     course assistant's answers, and reply to one student.
 // Everything here comes from the UI server's APIs and real events. A toast or a delivery never marks a
 // lesson opened: only opening it does. Lesson text is content — always set with textContent.
+//
+// HR (staff only): when the professor asks for time off, HR's card comes back in the Professor state
+// (`hrCard`: formRef, the A2UI messages HR sent, and a summary HR worked out by code). The card is drawn
+// here as HR's chat bubble: a headline (absence name), one “when” line, one “why” line, the fields from
+// HR's A2UI surface (official renderer, editable in place), the balance bar, Submit request / Cancel.
+// Buttons post the renderer's action to /api/professor/hr/actions → Hub → Professor agent → Hub → HR.
+import { MessageProcessor, basicCatalog } from './vendor/a2ui.js';
+import { A2UI_VERSION, RELATIONSHIP_LABEL, RELATIONSHIP_REQUIRED, validateFinal } from '/shared/forms.js';
 const $ = (id) => document.getElementById(id);
 const el = (tag, { dataset = {}, ...props } = {}, ...children) => {
   const node = Object.assign(document.createElement(tag), props);
@@ -299,6 +307,119 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     if (m.needsProfessor) li.append(el('p', { className: 'needs-you', textContent: 'Needs your answer — the assistant didn’t decide this.' }), replyButton(m.to));
     return li;
   }
+  // ---- HR (staff only): the open time-off card ------------------------------------------------------
+  // One card at a time (HR re-issues it with a new formRef after a follow-up message). The rendered card
+  // is kept across re-renders (same element, same renderer) so what the professor typed is never lost.
+  const HR_LABEL = 'HR · Time off';
+  const BALANCE_NAMES = { vacation: 'Vacation hours', sick: 'Sick hours', personalHoliday: 'Personal holiday hours' };
+  const MISSING_TEXT = { absenceName: 'absence name', dates: 'dates', relationship: 'relationship' };
+  let hrCard = null; // professorState.professor.hrCard
+  let hr = null; // { formRef, li, processor, surface, applied, busy, attempt, notice, lead }
+  const hours = (n) => (Number.isFinite(n) ? n.toFixed(1) : String(n));
+  function hrDispose() {
+    if (!hr) return;
+    for (const sub of hr.subs ?? []) sub.unsubscribe();
+    if (hr.processor) hr.processor.processMessages([{ version: A2UI_VERSION, deleteSurface: { surfaceId: hr.surfaceId } }]);
+    hr = null;
+  }
+  function hrNotice(kind, lines) {
+    hr.notice.dataset.kind = kind;
+    hr.notice.replaceChildren(...[...new Set([].concat(lines).filter(Boolean))].map((t) => el('p', { textContent: t }))); // HR's reason often repeats its field error
+  }
+  function balanceView(card) {
+    if (card.balance) {
+      const { type, now, after } = card.balance;
+      const keep = now > 0 ? Math.max(0, Math.min(100, (after / now) * 100)) : 0;
+      return el('div', { className: 'hr-balance' },
+        el('div', { className: 'hr-bal-row' }, el('span', { textContent: BALANCE_NAMES[type] ?? `${type} hours` }),
+          el('span', {}, el('b', { textContent: hours(now) }), ' now, ', el('b', { textContent: hours(after) }), ' after')),
+        el('div', { className: 'hr-meter', role: 'img', ariaLabel: `${BALANCE_NAMES[type] ?? type}: ${hours(now)} now, ${hours(after)} after this request` },
+          el('div', { className: 'keep', style: `width: ${keep}%` }), el('div', { className: 'use', style: `width: ${100 - keep}%` })));
+    }
+    return card.note ? el('div', { className: 'hr-balance' }, el('p', { className: 'hr-note', textContent: card.note })) : null;
+  }
+  // HR's chat entry for the open card → the card itself (built once per formRef, then updated in place).
+  function hrCardItem(m, open) {
+    if (hr?.formRef !== open.formRef) {
+      hrDispose();
+      const card = open.card ?? {};
+      const surfaceId = open.a2ui.find((x) => x.createSurface)?.createSurface.surfaceId;
+      const processor = new MessageProcessor([basicCatalog], (action) => hrAction(action));
+      // The renderer adopts values by reference and mutates them: always hand it copies.
+      processor.processMessages(structuredClone(open.a2ui));
+      const surface = processor.model.getSurface(surfaceId);
+      const surfaceEl = el('a2ui-surface', { className: 'form-surface hr-surface' });
+      surfaceEl.surface = surface;
+      const lead = el('p', { className: 'hr-lead', textContent: m.text });
+      const notice = el('div', { className: 'notice', role: 'status' });
+      const missing = (card.missing ?? []).filter((f) => MISSING_TEXT[f]);
+      const li = el('li', { className: 'msg hr-card', dataset: { dir: 'received', speaker: 'hr', formRef: open.formRef, missing: missing.join(' ') } },
+        el('div', { className: 'msg-head' }, el('span', { className: 'msg-dir', textContent: HR_LABEL }), el('time', { dateTime: m.at ?? '', textContent: m.at ? new Date(m.at).toLocaleTimeString([], { hour12: false }) : '' })),
+        lead,
+        el('p', { className: 'hr-title', textContent: card.title ?? 'Time off request' }),
+        el('p', { className: 'hr-when', dataset: { missing: String(!card.when) }, textContent: card.when ?? 'Dates still needed' }),
+        card.why ? el('p', { className: 'hr-why', textContent: card.why }) : null,
+        card.problem ? el('p', { className: 'hr-problem', textContent: card.problem }) : null,
+        missing.length ? el('p', { className: 'hr-missing', textContent: `Still needed: ${missing.map((f) => MISSING_TEXT[f]).join(', ')} — fill in the highlighted field${missing.length > 1 ? 's' : ''} or answer HR in the chat.` }) : null,
+        surfaceEl, balanceView(card), notice);
+      hr = { formRef: open.formRef, surfaceId, li, processor, surface, applied: open.a2ui.length, busy: false, attempt: null, notice, lead, subs: [] };
+      // The relationship row is always there; it is required (star, check) only while the name picked on the
+      // card needs one — kept in step here as the professor changes the name.
+      const relationshipNeeded = () => {
+        const name = [].concat(surface.dataModel.get('/absenceName') ?? [])[0] ?? '';
+        const needed = RELATIONSHIP_REQUIRED.has(name);
+        surface.dataModel.set('/ui/relationshipNeeded', needed ? 'yes' : '');
+        surface.dataModel.set('/ui/relationshipLabel', needed ? RELATIONSHIP_LABEL.required : RELATIONSHIP_LABEL.optional);
+        li.dataset.relationshipNeeded = String(needed);
+      };
+      relationshipNeeded();
+      hr.subs.push(surface.dataModel.subscribe('/absenceName', relationshipNeeded));
+    } else if (open.a2ui.length > hr.applied) {
+      // HR refused a Submit: its A2UI updates (field errors) arrive appended to the card's messages.
+      hr.processor.processMessages(structuredClone(open.a2ui.slice(hr.applied).filter((x) => !x.deleteSurface)));
+      hr.applied = open.a2ui.length;
+    }
+    hr.lead.textContent = m.text;
+    return hr.li;
+  }
+  // The open card's current values (what the professor sees and may have edited), or null.
+  function hrValues() {
+    if (!hr?.surface) return null;
+    const dm = hr.surface.dataModel;
+    const values = Object.fromEntries(['absenceName', 'beginDate', 'endDate', 'hours', 'relationship', 'note'].map((f) => [f, structuredClone(dm.get(`/${f}`) ?? '')]));
+    return { formRef: hr.formRef, values };
+  }
+  // The renderer's button events (typing never reaches here). Submit is checked with the same rules HR
+  // applies; invalid values are never sent. A retry of the same values reuses the operation id, so an
+  // unknown outcome can be asked again without filing twice.
+  async function hrAction(action) {
+    const view = hr;
+    if (!view || view.busy || action.surfaceId !== view.surfaceId) return;
+    const final = action.name === 'submitTimeOff';
+    if (final) {
+      view.surface.dataModel.set('/ui/submitAttempted', true); // reveals the renderer's inline errors
+      const check = validateFinal('staff-time-off', action.context);
+      if (!check.ok) return hrNotice('bad', ['Please fix these before submitting. Nothing was sent.', ...Object.values(check.errors)]);
+    } else if (action.name !== 'cancelForm') return;
+    const { name, surfaceId, sourceComponentId, timestamp, context } = action;
+    const key = JSON.stringify([view.formRef, name, context]);
+    if (view.attempt?.key !== key) view.attempt = { key, operationId: `op-${crypto.randomUUID()}` };
+    view.busy = true;
+    view.surface.dataModel.set('/ui/submitLocked', true);
+    hrNotice('info', final ? 'Sending your request to HR…' : 'Cancelling…');
+    follow.pin(); // the professor's own action: keep the newest item in view
+    const r = await api('/api/professor/hr/actions', { method: 'POST', body: { operationId: view.attempt.operationId, formRef: view.formRef, action: { name, surfaceId, sourceComponentId, timestamp, context } } }).catch(() => null);
+    if (hr !== view) return; // the card closed or was replaced meanwhile (its outcome is in the chat)
+    view.busy = false;
+    view.surface.dataModel.set('/ui/submitLocked', false);
+    const body = r?.json ?? {};
+    if (!r) return hrNotice('bad', 'Couldn’t reach the server. Press the button again — it won’t file twice.');
+    if (r.ok && ['accepted', 'cancelled'].includes(body.status)) return hrNotice('ok', final ? 'Sent.' : 'Cancelled.'); // the card closes with the next state
+    if (r.ok && body.status === 'rejected') view.attempt = null; // HR answered: a new try is a new operation
+    const errors = body.errors ? Object.values(body.errors) : [];
+    hrNotice(body.status === 'outcome_unknown' || body.status === 'not_delivered' ? 'warn' : 'bad', [body.reply ?? body.error ?? (errors.length ? 'Not sent:' : `Not sent (HTTP ${r.status}).`), ...errors]);
+  }
+
   function renderProfessor() {
     const items = [];
     const handedOver = new Map(chat.filter((m) => m.role === 'assistant' && m.needsProfessor).map((m) => [m.id, m]));
@@ -308,6 +429,16 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
       else if (m.role === 'student') items.push(studentReply(m));
       else if (m.role === 'assistant' && m.needsProfessor && chat.some((s) => s.id === m.id.replace(/:r$/, ':s'))) continue; // shown on its card
       else if (m.role === 'assistant' && m.action === 'answer_student') items.push(assistantAnswer(m));
+      else if (m.role === 'hr') {
+        // HR (staff only): the open card where HR sent it; every other HR reply (a receipt, a question,
+        // a refusal) as HR's own bubble.
+        if (m.formRef && hrCard?.formRef === m.formRef && !m.closed && !m.failed) items.push(hrCardItem(m, hrCard));
+        else {
+          const li = bubble({ dir: m.failed ? 'error' : 'received', speaker: 'hr', label: HR_LABEL, at: m.at, text: m.text });
+          if (m.closed && /^Sent to your manager/.test(m.text)) li.classList.add('hr-receipt');
+          items.push(li);
+        }
+      }
       else if (m.role === 'professor') {
         const p = m.postKey && posts.get(m.postKey);
         if (p) items.push(sentPost(m, p));
@@ -328,10 +459,17 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     pv.waiting.hidden = !waiting;
     pv.waiting.textContent = String(waiting);
     pv.waiting.title = `${waiting} question${waiting === 1 ? '' : 's'} waiting for your answer`;
-    const signature = JSON.stringify([chat.length, pending?.text, [...handedOver.values()].map((m) => m.answeredAt ?? null), [...posts.values()].map((p) => [p.key, p.hubStatus, p.deliveries])]);
+    if (hr && !items.includes(hr.li)) hrDispose(); // the card closed (submitted, cancelled, expired, reset)
+    const signature = JSON.stringify([chat.length, pending?.text, [...handedOver.values()].map((m) => m.answeredAt ?? null), [...posts.values()].map((p) => [p.key, p.hubStatus, p.deliveries]), hrCard?.formRef ?? null, hrCard?.a2ui.length ?? 0, chat.at(-1)?.text]);
     if (signature === lastRendered) return;
     lastRendered = signature;
-    pv.log.replaceChildren(...items);
+    // The open HR card stays where it is in the page (never detached), so a field being edited keeps focus.
+    const keep = hr && items.includes(hr.li) && hr.li.parentNode === pv.log ? hr.li : null;
+    if (!keep) return pv.log.replaceChildren(...items);
+    for (const c of [...pv.log.children]) if (c !== keep) c.remove();
+    const at = items.indexOf(keep);
+    keep.before(...items.slice(0, at));
+    keep.after(...items.slice(at + 1));
   }
   // Part 10: the Professor view's state arrives over its own AG-UI stream (STATE_SNAPSHOT), pushed by the
   // UI server — no polling here. refreshProfessor() re-renders the latest state.
@@ -347,6 +485,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     pv.roster.replaceChildren(...roster.map((x) => el('span', { className: 'presence', dataset: { online: String(Boolean(x.online)) }, textContent: x.name, title: x.online ? 'Student agent online' : 'Student agent not connected — posts queue at the Hub' })));
     posts = new Map(s.lessons.map((p) => [p.key, p]));
     chat = s.chat ?? [];
+    hrCard = s.hrCard ?? null;
     const first = !lastRendered;
     renderProfessor();
     if (first) follow.pin(); // open on the newest message, like the student's chat
@@ -403,7 +542,10 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     pv.error.textContent = '';
     follow.pin();
     renderProfessor();
-    const r = await professorRun(text, { operationId: attempt.operationId, ...(pending.replyTo ? { replyTo: pending.replyTo } : {}), ...(pending.answers ? { answers: pending.answers } : {}) });
+    // An open HR card: its current values travel with the message, so a chat follow-up fills the card on
+    // top of what the professor already changed on it (HR merges these first, then the words).
+    const card = hrValues();
+    const r = await professorRun(text, { operationId: attempt.operationId, ...(pending.replyTo ? { replyTo: pending.replyTo } : {}), ...(pending.answers ? { answers: pending.answers } : {}), ...(card ? { formRef: card.formRef, formValues: card.values } : {}) });
     pending = null;
     pv.send.disabled = false;
     if (r?.ok) {

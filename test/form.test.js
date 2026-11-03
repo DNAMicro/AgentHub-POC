@@ -150,6 +150,8 @@ test('duplicate operations: double-click sends once; an identical retry returns 
   await waitLifecycle(stream, form.formId, ['accepted']);
   const first = lastLifecycle(stream.events, form.formId).receipt;
 
+  // The Tutor's log line comes from its process output, which can land after the A2A reply: wait for it, then count.
+  await waitFor(() => countIn(tutor.output(), `requestId: '${first.requestId}'`) >= 1, { what: 'the Tutor’s record log line' });
   assert.equal(countIn(tutor.output(), `requestId: '${first.requestId}'`), 1, 'recorded once');
 
   // The identical retry goes where the Student's retries go: to the Hub, which returns its stored result.
@@ -336,7 +338,8 @@ test('review: a flagged submission comes back unrecorded; “Send anyway” reco
   await waitFor(() => lastLifecycle(stream.events, other.formId)?.review, { what: 'flagged again' });
   await post(`${ui.url}/api/forms/${other.formId}/actions`, { operationId: randomUUID(), acknowledgeReview: true, action: { name: 'submitTutoringRequest', surfaceId: other.formId, sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context: typo } });
   await waitLifecycle(stream, other.formId, ['accepted']);
-  assert.ok(stream.events.some((e) => e.source === 'tutor' && e.type === 'form_review' && e.data.formId === other.formId && e.data.acknowledged));
+  // Tutor telemetry arrives on its own connection and may land after the lifecycle event: wait for it.
+  await waitFor(() => stream.events.some((e) => e.source === 'tutor' && e.type === 'form_review' && e.data.formId === other.formId && e.data.acknowledged), { what: 'acknowledged review event' });
   assert.equal((await post(`${ui.url}/api/forms/${other.formId}/actions`, { operationId: randomUUID(), acknowledgeReview: 'yes', action: {} })).status, 400, 'acknowledgeReview must be a boolean');
   stream.close();
 });

@@ -56,7 +56,11 @@ test('availability comes only from the fixture, for scheduling fields only; chan
   const labels = slotOptions(first).map((o) => o.label);
   assert.ok(labels.includes('09:00–10:00') && !labels.includes('10:00–11:00'), 'fixture-booked hour not offered');
   assert.ok(first.a2uiUpdate.some((m) => m.updateDataModel?.path === '/form/slot' && m.updateDataModel.value.length === 0), 'selection cleared');
-  const seen = findAll(stream.events, 'library', 'form_action_received').filter((e) => e.data.formId === form.formId).at(-1).data;
+  // The Library's own telemetry travels Library → Hub → UI on a separate connection and can land after the action's
+  // result: wait for it before reading it (it was read at once, which failed now and then under full-suite load).
+  const libraryEvent = () => findAll(stream.events, 'library', 'form_action_received').filter((e) => e.data.formId === form.formId).at(-1);
+  await waitFor(libraryEvent, { what: 'the Library’s form_action_received for this form' });
+  const seen = libraryEvent().data;
   assert.deepEqual(Object.keys(seen.criteria).sort(), ['date', 'duration', 'groupSize', 'room'], 'the Library saw scheduling fields only');
   assert.equal(seen.receivedValues, null);
 
@@ -178,6 +182,7 @@ test('form actions always go to the issuing agent, whatever the conversation is 
   assert.equal(r.decision.agentId, 'tutor');
   const tutorBefore = findAll(stream.events, 'tutor', 'form_action_received').length;
   await act(form.formId, 'checkAvailability', 'check_button', CRIT);
-  assert.equal(findAll(stream.events, 'library', 'form_action_received').at(-1).data.formId, form.formId);
+  // Library telemetry arrives on its own connection and may land after the action's reply: wait for it.
+  await waitFor(() => findAll(stream.events, 'library', 'form_action_received').some((e) => e.data.formId === form.formId), { what: 'library form_action_received for this form' });
   assert.equal(findAll(stream.events, 'tutor', 'form_action_received').length, tutorBefore, 'nothing reached the Tutor');
 });

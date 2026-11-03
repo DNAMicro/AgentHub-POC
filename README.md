@@ -1,6 +1,6 @@
 # AgentHub-POC
 
-A proof of concept for agents that work together over the real **Agent-to-Agent (A2A) protocol**. A Student agent talks to one University Hub, which routes each request to a Tutor, a Library or a Marketing 101 Professor agent and relays the answer. Agents can also send the student real interfaces (**A2UI**), use **Claude Haiku 5.5** to answer and decide, and the professor can start a conversation on their own.
+A proof of concept for agents that work together over the real **Agent-to-Agent (A2A) protocol**. A Student agent talks to one University Hub, which routes each request to a Tutor, a Library or a Marketing 101 Professor agent and relays the answer. A staff-only **HR Agent** handles the professor's own time off. Agents can also send the student real interfaces (**A2UI**), use **Claude Haiku 5.5** to answer and decide, and the professor can start a conversation on their own.
 
 Everything runs on your own machine (127.0.0.1 only) and uses fictional people, books and courses.
 
@@ -10,7 +10,7 @@ Requirements: **Node.js 20+** (verified on 26.11.1). An Anthropic API key only f
 
 ```bash
 npm install
-npm run demo          # all five processes with mock models: free, no network
+npm run demo          # all six processes with mock models: free, no network
 # open http://127.0.0.1:4444
 ```
 
@@ -78,25 +78,35 @@ Use `PORT=...` to change the Tutor's port and `TUTOR_URL=http://127.0.0.1:...` t
 ### Browser monitor: all agents (Parts 7–9)
 
 ```bash
-npm run demo:live     # all five processes, Hub router + Tutor + Library + Professor on Claude Haiku 5.5 (paid; key from env or .env)
+npm run demo:live     # all six processes, Hub router + Tutor + Library + Professor + HR on Claude Haiku 5.5 (paid; key from env or .env)
 npm run demo          # the same with mock models and the mock router (no network, no cost)
 ```
 
-`demo` runs `scripts/start-all.js`, which starts the five processes and prefixes their output; Ctrl+C stops them all (each specialist signs out from the Hub). To run them separately instead:
+`demo` runs `scripts/start-all.js`, which starts the six processes and prefixes their output; Ctrl+C stops them all (each specialist signs out from the Hub). To run them separately instead:
 
 ```bash
 npm run hub:live      # University Hub on 127.0.0.1:41243 (live router; or hub = mock router, hub:direct = everything to tutoring)
 npm run tutor:live    # Tutor Agent on 127.0.0.1:41241 (or tutor:mock / tutor) — registers with the Hub
 npm run library:live  # Library Agent on 127.0.0.1:41242 (or library = mock) — registers with the Hub
 npm run professor:live  # Marketing 101 Professor on 127.0.0.1:41244 (or professor = mock) — registers with the Hub
+npm run hr:live         # HR Agent (staff only) on 127.0.0.1:41245 (or hr = mock) — registers with the Hub
 npm run ui            # UI + Student Agent on 127.0.0.1:4444 — connects only to the Hub
 ```
+
+| Process | Port | Command |
+| --- | --- | --- |
+| Tutor Agent | 41241 | `npm run tutor` |
+| Library Agent | 41242 | `npm run library` |
+| University Hub | 41243 | `npm run hub` |
+| Marketing 101 Professor | 41244 | `npm run professor` |
+| HR Agent (staff only, Part 14) | 41245 | `npm run hr` (`hr:live` = Haiku) |
+| UI + Student Agent | 4444 | `npm run ui` |
 
 Then open **http://127.0.0.1:4444**. Start order doesn't matter: specialists keep retrying registration, and the Student re-reads the Hub's card when the Hub appears.
 
 **Build step.** `ui` and `demo` first build `public/vendor/a2ui.js`, the bundled A2UI renderer; `npm run build:ui` builds it on its own.
 
-**Configuration.** Each agent reads an optional JSON file named by `STUDENT_CONFIG`, `HUB_CONFIG`, `TUTOR_CONFIG`, `LIBRARY_CONFIG` or `PROFESSOR_CONFIG` over built-in localhost defaults; examples are in `config/*.example.json`. Configuration is validated at startup and a bad file stops the process with a clear message. Secrets never go in these files: the Hub's model key is named by `model.apiKeyEnv`.
+**Configuration.** Each agent reads an optional JSON file named by `STUDENT_CONFIG`, `HUB_CONFIG`, `TUTOR_CONFIG`, `LIBRARY_CONFIG`, `PROFESSOR_CONFIG` or `HR_CONFIG` over built-in localhost defaults; examples are in `config/*.example.json`. Configuration is validated at startup and a bad file stops the process with a clear message. Secrets never go in these files: the Hub's model key is named by `model.apiKeyEnv`.
 
 **Environment variables** (single-value overrides, mainly for tests):
 
@@ -104,18 +114,21 @@ Then open **http://127.0.0.1:4444**. Start order doesn't matter: specialists kee
 | --- | --- |
 | `UI_PORT`, `PORT` | The UI's port; an agent's port |
 | `HUB_URL` | Where the Student and the specialists find the Hub |
-| `TUTOR_URL`, `LIBRARY_URL`, `PROFESSOR_URL` | The Hub's trusted endpoint for each specialist |
+| `TUTOR_URL`, `LIBRARY_URL`, `PROFESSOR_URL`, `HR_URL` | The Hub's trusted endpoint for each specialist |
 | `STUDENT_URL` | Part 9: the Hub's trusted inbound endpoint for the (first) student's agent (default `http://127.0.0.1:4444`) |
 | `HUB_LESSON_FILE`, `STUDENT_INBOX_FILE`, `PROFESSOR_OUTBOX_FILE` | Part 9: where the Hub's lesson deliveries, the Student's inbox and the Professor's outbox are saved (defaults under the git-ignored `data/`; delete them to reset the classroom) |
 | `HUB_DELIVER_TIMEOUT_MS`, `HUB_DELIVER_RETRY_MS` | Part 9: how long the Hub waits for the Student to confirm a delivery (5000) and how often it retries queued or uncertain ones (3000) |
 | `HUB_TEST_STUDENTS_WITHOUT_ENDPOINT=1` | Tests only: lets a student with no configured endpoint register with the Hub (normally refused, because it can't be challenged) |
 | `PROFESSOR_MODE` | Part 9: the Professor's answers, `mock` (default, labelled) or `live` |
+| `HR_MODE` | Part 14: the HR Agent's reading of the professor's reason, `mock` (default, labelled heuristic) or `live` |
+| `HR_TEST_HOOKS=1` | Tests only: adds `GET /test/hr/requests` to the HR Agent (the sent requests it holds in memory) |
+| `HUB_FORM_TTL_MS` | How long a form or HR card stays usable (default 2 hours). The Hub and the Professor's staff desk both read it |
 | `HEARTBEAT_INTERVAL_MS`, `HEARTBEAT_EXPIRY_MS` | Specialist heartbeat period; how long the Hub waits before marking one stale |
 | `SPECIALIST_ENABLED=0` | Register a specialist as disabled (no requests are routed to it) |
 | `HUB_TELEMETRY_SHOW_CONTENT=1` | Stop redacting message text and form values in the Hub's telemetry (off by default) |
 | `ROUTER_MODE` | The Hub's router: `direct`, `mock` or `live` |
 | `STUDENT_MODE` | The Student's own model: `off` (default), `mock` or `live`. It clarifies unclear questions and picks the capability for non-obvious ones (`demo` uses mock, `demo:live` live) |
-| `STUDENT_MODEL`, `HUB_MODEL`, `TUTOR_MODEL`, `LIBRARY_MODEL`, `PROFESSOR_MODEL` | Each agent's own model (overrides `model.name` in its config file). Supported: `claude-haiku-5-5` (default), `claude-sonnet-5-5`, `claude-opus-5-5`; anything else stops that agent at startup. Example: `TUTOR_MODEL=claude-sonnet-5-5 npm run demo:live` |
+| `STUDENT_MODEL`, `HUB_MODEL`, `TUTOR_MODEL`, `LIBRARY_MODEL`, `PROFESSOR_MODEL`, `HR_MODEL` | Each agent's own model (overrides `model.name` in its config file). Supported: `claude-haiku-5-5` (default), `claude-sonnet-5-5`, `claude-opus-5-5`; anything else stops that agent at startup. Example: `TUTOR_MODEL=claude-sonnet-5-5 npm run demo:live` |
 
 In the browser, the **Conversation** tab is your chat with the university (and, since Part 9, your course inbox); **Agent activity** shows one console per agent; **Topology** is the live graph; **Professor view** is the Marketing 101 professor's console for posting lessons. **Send** asks a question, which the Hub routes to one service or none. There is no form button: ask for something in plain words — “I’d like to arrange in-person help with calculus” or “I want to reserve a group study room” — and the receiving agent sends its form (Part 6). The ⚙ button on the Tutor and Library consoles opens their skill settings (proxied through the Hub's developer endpoint), and **Refresh skills** makes the Hub re-fetch both cards.
 
@@ -179,7 +192,7 @@ The Topology window opens on its own, to the right of the app window (1120 + 800
 
 Everything is live, so the model may answer in words where the script hoped for a form, or ask a clarifying question. The walkthrough then shows what the app really did and carries on. A failed moment is listed in the returned `problems` and never faked on screen. Step 8 renews a loan for real. Step 5 adds a line to the Library's skill and removes it again on screen.
 
-**Editing it.** The script is built from `scripts/demo/walkthrough/frame.js` (windows, keys, typing helpers) and one `scene-N.js` per step. Edit those, then run `npm run demo:build`; don't edit `live-walkthrough.js` by hand. **Rehearse on a separate stack, never the running demo**: `node scripts/demo/rehearsal-stack.js --ui 5444 --base 52240` starts all five processes live on other ports with temporary copies of the data files (`--mock` for a free plumbing run), then open `http://127.0.0.1:5444/conversation?auto=4&shots=<dir>` and look at every screenshot.
+**Editing it.** The script is built from `scripts/demo/walkthrough/frame.js` (windows, keys, typing helpers) and one `scene-N.js` per step. Edit those, then run `npm run demo:build`; don't edit `live-walkthrough.js` by hand. **Rehearse on a separate stack, never the running demo**: `node scripts/demo/rehearsal-stack.js --ui 5444 --base 52240` starts all six processes live on other ports with temporary copies of the data files (`--mock` for a free plumbing run), then open `http://127.0.0.1:5444/conversation?auto=4&shots=<dir>` and look at every screenshot.
 
 ## Files
 
@@ -216,7 +229,9 @@ Everything is live, so the model may answer in words where the script hoped for 
 | `src/config.js`, `config/*.example.json` | Part 7: per-agent configuration with startup validation. |
 | `src/topology.js` | Part 7: labels each telemetry event with its connection, direction, category and phase for the topology view. |
 | `public/topology.js` | Part 7: the live topology graph (SVG), traces, details, event list. |
-| `scripts/start-all.js` | Part 7: starts all the processes — five since Part 9 (`npm run demo` / `demo:live`). |
+| `scripts/start-all.js` | Part 7: starts all the processes — six since Part 14 (`npm run demo` / `demo:live`). |
+| `src/hr-agent.js`, `src/hr-store.js`, `src/hr-intent.js`, `src/hr-model.js` | Part 14: the staff-only **HR Agent** — chat and card logic, the in-memory staff/balance/request store with the Forecast, the code that reads dates and partial days, and the absence-name choice (model proposes, code verifies). |
+| `src/staff.js`, `src/professor-staff.js` | Part 14: the Hub's signed staff path (media types, signed fields, reply shape) and the Professor's staff desk (spots a request for himself, asks when unsure, holds the open card, offers the class note). |
 | `scripts/demo/progression.js` | The audience demo: presents Steps 1–11 on the running app with slides, captions, highlights and pauses (run with playwright-cli). |
 | `scripts/live-eval.js` | Part 5's opt-in live spot check of routing and scope decisions. Paid; off unless `LIVE_EVAL_MAX_USD` is set. |
 | `scripts/live-smoke.js` | The paid live smoke test, off unless `LIVE_SMOKE_MAX_USD` is set. |
@@ -910,6 +925,48 @@ While a form is open, type its values in the chat instead of clicking into it: �
 - **Chat still works.** A question while a form is open is sent as usual and the form stays. “Make it 1 hour — and is there a printer in the library?” fills the duration, then asks the question.
 - A booking already in review isn't changed (press “Back to edit” first). With several loans on one screen, name the book or the loan ID.
 
+## Part 14: HR Agent — a professor files time off by chatting
+
+CSUF staff file absences in a system with many fields and steps. This part shows how short it can be. The professor just says it in the **Professor view** chat. A staff-only **HR Agent** (port **41245**) fills in what it can and shows one clean card.
+
+### The walkthrough
+
+1. Type “My grandmother passed away, I need this Thursday and Friday.” The Professor agent works out that this is a request for himself (not a message for the class) and sends it, signed, to the Hub. The Hub routes it to HR.
+2. HR picks the right **Absence name** from a fixed list (Bereavement/Funeral), reads the dates and works out the hours. It also runs the **Forecast** (is there enough leave?). It answers with one card: every field is editable in place, required fields have a red star, and a bar shows the balance (or says the request uses none of his vacation or sick hours).
+3. Anything HR couldn't work out is left **empty and highlighted**, and HR asks one short question in the chat. For “I need Friday off” it doesn't guess the reason. Answer in the chat (“it's a vacation day”) or in the card. Both work, and together: a chat answer sent while the card is open carries what you already changed on the card, so HR keeps those edits and adds what your words say. The Relationship row is always on the card; its star appears when the absence you pick needs one (bereavement or family care).
+4. **Submit request**. HR says “Sent to your manager for a decision.” and gives a request number. There is no manager agent, and nothing is deducted.
+5. If the app can't tell whether a message is for HR or the class, it asks: “Should I file this as time off with HR, tell the class, or both?” Nothing is posted or filed until you answer. “Both” files it, and then offers a neutral note for the class with no reason, such as “Professor Amir is out on Fri, Nov 6.” It is posted only after you say yes.
+
+### Who can say they're who
+
+- HR serves **staff only**. The Hub finds the staff member from its own configuration (`staff` in the Hub config: the Professor agent is Professor Amir) and the Professor agent's signature. The browser and the model can't say who is asking.
+- Every message and card action is signed. Card actions also sign the conversation, so one can't be replayed into another.
+- Students never reach HR. It is not on the Hub's public card, the student router doesn't know it, a student's request naming HR as the capability is ignored as a capability (the Hub logs `capability_rejected` and routes the request among the student services itself), and HR checks the signature again.
+- Those rules are in `src/staff.js` (media types and signed fields) and `src/hub-agent.js`.
+
+### The model proposes, code decides
+
+- The model (live) or a labelled keyword heuristic (mock) only suggests the absence name. Code accepts it only if the name is on the list **and** the quote it gives is really in the professor's words.
+- Dates and hours come from code only. If the code can't read a date with confidence it reads nothing, and HR asks.
+- The Forecast, holiday rules (an absence can't begin or end on a campus holiday), the 400-day limit and the balance check are code in `src/hr-store.js`.
+
+### Privacy
+
+- The professor's HR messages are private. The assistant model that helps with class posts sees only a marker where they were. Code also refuses a class post that reuses distinctive words from them, or short leave words such as “sick” or “died”.
+- HR keeps everything **in memory only**. A restart or **New conversation** reseeds it. The Professor chat saves the outcome text (not the card), like other messages.
+- Telemetry for the staff path carries IDs, statuses and counts, never staff words (unless `HUB_TELEMETRY_SHOW_CONTENT=1`). HR's server logs don't contain the chat text.
+
+### Limits, honestly
+
+- The absence names are a sample list from CSU CHRS. The staff, balances and holidays are fictional. This is not a real HR system.
+- The absence name is a row of chips, not a dropdown, because the A2UI v0.9 catalog has no dropdown.
+- The “when” line and the balance bar on the card come from HR when the card was made. If you change dates in the card they update when HR answers again, and Submit re-checks everything.
+- Mock mode proves the plumbing, not judgment. Live judgment is probabilistic. The mock staff check asks whenever a leave word appears without “I” or “my” (“Out sick tomorrow”) rather than posting it.
+
+### Tests
+
+`test/hr-form.test.js`, `hr-store.test.js`, `hr-intent.test.js`, `hr.test.js`, `hub-staff.test.js`, `professor-staff.test.js`, `hr-ui.test.js` (all with mock models or the fake Anthropic server). `scripts/browser-checks/hr-card.js` is a playwright-cli check of the card on a separate stack. See [Steps/14](Steps/14-hr-agent-time-off.md).
+
 ## Deliberately not included
 
-Token streaming, A2A push notifications (Part 9's lessons are new A2A messages, not task-status pushes), email/SMS/OS notifications, whole-class broadcasts, multi-agent fan-out (the Hub forwards each request to at most one specialist), real authentication or accounts (Part 9's per-process keys are a local demo measure), a database (Part 8's loan store and Part 9's lesson records are JSON files), actually sending email, model-generated code or HTML, and deployment. Model-generated UI exists only in Part 8, only from the validated catalog. Each chat goes to at most one service as one A2A request and one response. Each form is one A2A task, opened by the agent's reply to a chat message and acted on only by its own allowlisted actions.
+Token streaming, A2A push notifications (Part 9's lessons are new A2A messages, not task-status pushes), email/SMS/OS notifications, whole-class broadcasts, multi-agent fan-out (the Hub forwards each request to at most one specialist), real authentication or accounts (Part 9's per-process keys are a local demo measure), a database (only Part 9's lesson records, inbox and outbox are JSON files; Part 8 loans and Part 14 HR records are in memory only), actually sending email, model-generated code or HTML, and deployment. Model-generated UI exists only in Part 8, only from the validated catalog. Each chat goes to at most one service as one A2A request and one response. Each form is one A2A task, opened by the agent's reply to a chat message and acted on only by its own allowlisted actions. Part 14 adds no manager agent or approval, no real CHRS or portal, no attachments upload and no other HR services than time off.

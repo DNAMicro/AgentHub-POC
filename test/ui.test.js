@@ -102,16 +102,30 @@ test('events from separate runs are correlated by runId and never mixed', async 
 });
 
 test('a second submission while a run is in progress is rejected', async () => {
-  const stream = await openStream(uiUrl);
-  const [first, second] = await Promise.all([postRun(uiUrl, 'one'), postRun(uiUrl, 'two')]);
-  const statuses = [first.status, second.status].sort();
-  assert.deepEqual(statuses, [202, 409]);
-  const accepted = await (first.status === 202 ? first : second).json();
-  await waitFor(() => terminal(stream.events, accepted.runId), { what: 'accepted run' });
-  await waitFor(() => find(forRun(stream.events, accepted.runId), 'tutor', 'reply_published'), { what: 'tutor events' });
-  const started = stream.events.filter((e) => e.type === 'run_started' && ['one', 'two'].includes(e.data.text));
-  assert.equal(started.length, 1, 'only one run started');
-  stream.close();
+  // Its own stack with a mock Tutor that takes 2 s to answer, so the first run is certainly still in progress
+  // when the second POST lands (the shared fixed-mode Tutor answers at once, and under full-suite load the
+  // first run could finish before the second request arrived: both 202).
+  const slow = await startStack({ library: false, hubEnv: { HUB_TELEMETRY_SHOW_CONTENT: '1' }, tutorEnv: { TUTOR_MODE: 'mock', TUTOR_MOCK_DELAY_MS: '2000', TUTOR_SCOPE_ENFORCEMENT: 'off' } });
+  let stream;
+  try {
+    stream = await openStream(slow.ui.url);
+    // Both at once (the original race) …
+    const [first, second] = await Promise.all([postRun(slow.ui.url, 'one'), postRun(slow.ui.url, 'two')]);
+    const statuses = [first.status, second.status].sort();
+    assert.deepEqual(statuses, [202, 409]);
+    const accepted = await (first.status === 202 ? first : second).json();
+    // … and one more, sent only after the accepted run is known to be waiting on the Tutor.
+    await waitFor(() => find(forRun(stream.events, accepted.runId), 'tutor', 'message_received'), { what: 'the Tutor got the first run' });
+    assert.equal(terminal(stream.events, accepted.runId), undefined, 'the first run is still in progress');
+    assert.equal((await postRun(slow.ui.url, 'three')).status, 409, 'a submission during the run is rejected');
+    await waitFor(() => terminal(stream.events, accepted.runId), { what: 'accepted run', timeout: 10000 });
+    await waitFor(() => find(forRun(stream.events, accepted.runId), 'tutor', 'reply_published'), { what: 'tutor events' });
+    const started = stream.events.filter((e) => e.type === 'run_started' && ['one', 'two', 'three'].includes(e.data.text));
+    assert.equal(started.length, 1, 'only one run started');
+  } finally {
+    stream?.close();
+    slow.kill();
+  }
 });
 
 test('browser reconnect replays history but never resends the A2A request', async () => {

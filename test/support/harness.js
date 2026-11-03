@@ -120,6 +120,14 @@ export async function startLibrary(env = {}) {
   return library;
 }
 
+// HR (staff only): time-off requests; its records live in memory, so every test HR starts fresh.
+export const HR_READY = /\[HR Agent\] listening on (http:\/\/127\.0\.0\.1:\d+)/;
+export async function startHr(env = {}) {
+  const hr = startProcess('src/hr-agent.js', { PORT: '0', ...env }, HR_READY);
+  hr.url = await hr.ready;
+  return hr;
+}
+
 // Part 7: the whole stack — Hub, Tutor, Library and the Student UI. The specialists' ports are picked
 // first so the Hub's configuration (its trusted endpoints) can name them; the specialists then register
 // with the Hub. Pass tutorPort/libraryPort to restart a specialist on the same trusted endpoint.
@@ -127,23 +135,27 @@ export async function startLibrary(env = {}) {
 // readyAgents: which specialists must be 'ready' before returning (e.g. ['tutor'] when the Library is disabled).
 // Part 9: professor: true also starts the Marketing 101 Professor. The UI (Student) port is pre-picked
 // too, so the Hub's configuration names the Student's inbound endpoint before it starts.
-export async function startStack({ tutorEnv = {}, libraryEnv = {}, hubEnv = {}, uiEnv = {}, professorEnv = {}, library = true, professor = false, tutorPort, libraryPort, professorPort, uiPort, waitReady = true, readyAgents } = {}) {
+// HR: hr: true also starts the HR Agent (with HR_TEST_HOOKS=1). Its port is always pre-picked, so a test
+// Hub never follows a real HR on the default port.
+export async function startStack({ tutorEnv = {}, libraryEnv = {}, hubEnv = {}, uiEnv = {}, professorEnv = {}, hrEnv = {}, library = true, professor = false, hr = false, tutorPort, libraryPort, professorPort, hrPort, uiPort, waitReady = true, readyAgents } = {}) {
   const tPort = tutorPort ?? (await unusedPort());
   const lPort = libraryPort ?? (await unusedPort());
   const pPort = professorPort ?? (await unusedPort());
+  const hPort = hrPort ?? (await unusedPort());
   const uPort = uiPort ?? (await unusedPort());
-  const hub = await startHub({ TUTOR_URL: `http://127.0.0.1:${tPort}`, LIBRARY_URL: `http://127.0.0.1:${lPort}`, PROFESSOR_URL: `http://127.0.0.1:${pPort}`, STUDENT_URL: `http://127.0.0.1:${uPort}`, HEARTBEAT_EXPIRY_MS: '3000', HUB_DELIVER_RETRY_MS: '500', ...hubEnv });
+  const hub = await startHub({ TUTOR_URL: `http://127.0.0.1:${tPort}`, LIBRARY_URL: `http://127.0.0.1:${lPort}`, PROFESSOR_URL: `http://127.0.0.1:${pPort}`, HR_URL: `http://127.0.0.1:${hPort}`, STUDENT_URL: `http://127.0.0.1:${uPort}`, HEARTBEAT_EXPIRY_MS: '3000', HUB_DELIVER_RETRY_MS: '500', ...hubEnv });
   const specialistEnv = { HUB_URL: hub.url, HEARTBEAT_INTERVAL_MS: '500' };
   const tutor = await startTutor({ ...specialistEnv, PORT: String(tPort), ...tutorEnv });
   const lib = library ? await startLibrary({ ...specialistEnv, PORT: String(lPort), ...libraryEnv }) : null;
   const prof = professor ? await startProfessor({ ...specialistEnv, PORT: String(pPort), ...professorEnv }) : null;
+  const hrAgent = hr ? await startHr({ ...specialistEnv, PORT: String(hPort), HR_TEST_HOOKS: '1', ...hrEnv }) : null;
   const ui = await startUi(hub.url, { UI_PORT: String(uPort), ...uiEnv });
   const stack = {
-    hub, tutor, library: lib, professor: prof, ui, tutorPort: tPort, libraryPort: lPort, professorPort: pPort, uiPort: uPort, specialistEnv,
+    hub, tutor, library: lib, professor: prof, hr: hrAgent, ui, tutorPort: tPort, libraryPort: lPort, professorPort: pPort, hrPort: hPort, uiPort: uPort, specialistEnv,
     // Uses the stack's current processes, so a test that restarts one (stack.library = …) still cleans up.
-    kill() { [this.ui, this.tutor, this.library, this.professor, this.hub].filter(Boolean).forEach((p) => p.proc.kill()); },
+    kill() { [this.ui, this.tutor, this.library, this.professor, this.hr, this.hub].filter(Boolean).forEach((p) => p.proc.kill()); },
   };
-  const mustBeReady = readyAgents ?? [...(library ? ['tutor', 'library'] : ['tutor']), ...(professor ? ['professor'] : [])];
+  const mustBeReady = readyAgents ?? [...(library ? ['tutor', 'library'] : ['tutor']), ...(professor ? ['professor'] : []), ...(hr ? ['hr'] : [])];
   if (waitReady) {
     await waitFor(async () => {
       const s = await status(ui);
@@ -214,4 +226,33 @@ export async function signedStudent(hubUrl, studentId) {
   const r = await sendData(hubUrl, { mediaType: STUDENT_SESSION_MEDIA_TYPE, value: { type: 'student_session', studentId, instanceId: uuid(), endpoint: null, callKey } });
   if (r.value?.status !== 'registered') throw new Error(`test student ${studentId} not registered: ${JSON.stringify(r)}`);
   return { metadata: { studentId }, signer: ({ contextId, messageId }) => sign(callKey, [studentId, contextId, messageId]) };
+}
+
+// HR (staff path): a test stand-in for the Professor agent's Hub link. It serves a minimal valid card on
+// the Professor's trusted port (stack.professorPort, already in the Hub's configuration) and REGISTERS
+// with the Hub through the real createHubLink, so it legitimately owns the callKey the Hub verifies its
+// signed staff parts with — no key is faked and no production route is added. Use it with
+// startStack({ professor: false }) (the real Professor would hold that identity). The card has no
+// skills, so the Hub keeps it 'disabled' and never dispatches student questions or course notices to it.
+export async function professorStandIn(stack) {
+  const { default: express } = await import('express');
+  const { createHubLink } = await import('../../src/hub-link.js');
+  const base = `http://127.0.0.1:${stack.professorPort}`;
+  const app = express();
+  app.get('/.well-known/agent-card.json', (req, res) => res.json({
+    name: 'Marketing 101 Professor', description: 'Test stand-in (registers and signs staff requests only).', version: '0.0.0',
+    supportedInterfaces: [{ url: `${base}/a2a/jsonrpc`, protocolBinding: 'JSONRPC', protocolVersion: '1.0', tenant: '' }],
+    capabilities: { streaming: false, pushNotifications: false, extensions: [] }, securitySchemes: {}, securityRequirements: [],
+    defaultInputModes: ['text/plain'], defaultOutputModes: ['text/plain'], skills: [], signatures: [],
+  }));
+  const server = await new Promise((resolve, reject) => {
+    const s = app.listen(stack.professorPort, '127.0.0.1', (err) => (err ? reject(err) : resolve(s)));
+  });
+  const link = createHubLink({ agentId: 'professor', hubUrl: stack.hub.url, endpoint: `${base}/a2a/jsonrpc`, cardUrl: `${base}/.well-known/agent-card.json`, enabled: true, heartbeatIntervalMs: 500 });
+  await link.start();
+  if (!link.state.registered) {
+    server.close();
+    throw new Error(`professor stand-in not registered: ${link.state.lastError}`);
+  }
+  return { link, close: async () => { await link.stop(); server.closeAllConnections?.(); await new Promise((r) => server.close(r)); } };
 }
