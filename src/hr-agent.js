@@ -184,8 +184,8 @@ const formHost = createFormHost({
   agentId: 'hr',
   isEnabled: (workflowId) => (workflowId === WORKFLOW_ID ? workflowEnabled() : false),
   emitViz, log,
-  // Leave details are sensitive: the reason (it can be a relationship) and the note never reach the server log.
-  logValues: (v) => (v ? { ...v, absenceReason: '[redacted]', note: '[redacted]' } : v),
+  // Leave details are sensitive: the name (some are health details, e.g. Pregnancy Disability), the reason (it can be a relationship) and the note never reach the server log.
+  logValues: (v) => (v ? { ...v, absenceType: '[redacted]', absenceReason: '[redacted]', note: '[redacted]' } : v),
   workflows: {
     [WORKFLOW_ID]: {
       build: (surfaceId, { prefill, missing }) => buildTimeOffForm(surfaceId, { prefill, missing }),

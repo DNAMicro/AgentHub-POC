@@ -153,6 +153,9 @@ test('missing absence name: HR asks; the follow-up fills the card; Forecast refu
   assert.equal(again.status, 'ok');
   assert.equal(again.reply.receipt.requestId, ok.reply.receipt.requestId);
   assert.equal((await requests()).length, 1, 'the same operation is recorded once');
+  // The absence name is a leave detail too (some names are health details): the server log shows it redacted.
+  assert.match(stack.hr.output(), /received form action/);
+  assert.doesNotMatch(stack.hr.output(), /absenceType: (?!'\[redacted\]')/, 'the absence name is never logged');
   await post(`${stack.hr.url}/dev/hr/reset`, {});
 });
 
