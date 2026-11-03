@@ -633,7 +633,9 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
       }
     }
     if (pending) {
-      items.push(bubble({ dir: 'sent', speaker: 'student', label: pending.replyTo ? `You → ${nameOf(pending.replyTo)}` : 'You', at: new Date().toISOString(), text: pending.text }));
+      // The Professor saves his message (`<operationId>:p`) as soon as it starts; once the 3-second refresh brings
+      // that entry, it is drawn above — the local copy would show the same message twice until the reply.
+      if (!chat.some((m) => m.id === `${pending.operationId}:p`)) items.push(bubble({ dir: 'sent', speaker: 'student', label: pending.replyTo ? `You → ${nameOf(pending.replyTo)}` : 'You', at: new Date().toISOString(), text: pending.text }));
       items.push(el('li', { className: 'chat-pending' }, el('span', { className: 'spinner', ariaHidden: 'true' }), /@assistant\b/i.test(pending.text) ? 'The course assistant is working on it…' : 'Sending…'));
     }
     const waiting = [...handedOver.values()].filter((m) => !m.answeredAt).length;

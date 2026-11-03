@@ -113,6 +113,7 @@ Tasks B, C and D need A's exports and the contracts above. Each task writes agai
 
 ## Avoid these known problems
 
+- **Never draw the professor's message twice while it is sending.** The Professor saves it (`<operationId>:p`) as soon as it starts, and the 3-second refresh brings that entry while the page still shows its own “Sending…” copy (user report 2026-11-03: the message showed twice for 3 to 4 seconds). Draw the local copy only until the saved entry arrives; keep the spinner.
 - **Read “half a day” as 4 hours.** “half a day”, “a half day”, “half of the day” are the same cue as “half day”; reading only “half day” left “for half a day” at a full 8 hours (user report 2026-11-03: “take my kid to school next Tuesday for half a day” showed 8).
 - **Never pick a name for a school visit, and never leave him with only the empty dropdown.** No absence name covers it; California Labor Code 230.8 has school activities use vacation or personal time, otherwise unpaid, so HR offers Vacation, Personal Holiday and Dock as choices (only for his own child's school, not when the child is ill: that is Family Care).
 - **Don't shadow the shared `nameOf` in the browser.** `public/classroom.js` has its own `nameOf` for student names; import the absence one as `absenceName`, or every absence code looks like a real name.
