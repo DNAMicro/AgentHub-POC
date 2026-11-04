@@ -83,8 +83,8 @@ export function loadStudentConfig() {
 const SPECIALISTS = {
   tutor: { port: 41241, displayName: 'Tutor Agent', file: 'TUTOR_CONFIG', model: 'TUTOR_MODEL', label: 'Tutor' },
   library: { port: 41242, displayName: 'Library Agent', file: 'LIBRARY_CONFIG', model: 'LIBRARY_MODEL', label: 'Library' },
-  // Part 9: the Marketing 101 Faculty (a private specialist behind the Hub, like the others).
-  professor: { port: 41244, displayName: 'Marketing 101 Faculty', file: 'PROFESSOR_CONFIG', model: 'PROFESSOR_MODEL', label: 'Faculty' },
+  // Part 9: the Marketing 351 Faculty (a private specialist behind the Hub, like the others).
+  professor: { port: 41244, displayName: 'Marketing 351 Faculty', file: 'PROFESSOR_CONFIG', model: 'PROFESSOR_MODEL', label: 'Faculty' },
   // HR (staff only): time-off requests from university staff, reached only through the Hub's staff path.
   hr: { port: 41245, displayName: 'HR Agent', file: 'HR_CONFIG', model: 'HR_MODEL', label: 'HR' },
 };
@@ -126,7 +126,7 @@ export function loadHubConfig() {
     peers: [
       { agentId: 'tutor', expectedName: 'Tutor Agent', displayName: 'Tutor Agent', baseUrl: 'http://127.0.0.1:41241' },
       { agentId: 'library', expectedName: 'Library Agent', displayName: 'Library Agent', baseUrl: 'http://127.0.0.1:41242' },
-      { agentId: 'professor', expectedName: 'Marketing 101 Faculty', displayName: 'Marketing 101 Faculty', baseUrl: 'http://127.0.0.1:41244' },
+      { agentId: 'professor', expectedName: 'Marketing 351 Faculty', displayName: 'Marketing 351 Faculty', baseUrl: 'http://127.0.0.1:41244' },
       // HR (staff only): reached only through the Hub's signed staff path (destination audience 'staff').
       { agentId: 'hr', expectedName: 'HR Agent', displayName: 'HR Agent', baseUrl: 'http://127.0.0.1:41245' },
     ],
@@ -142,10 +142,10 @@ export function loadHubConfig() {
         tags: ['library', 'book', 'borrow', 'renew', 'return', 'loan', 'due', 'overdue', 'hours', 'study room', 'reserve'],
         examples: ['How do I renew a library book?', 'I want to reserve a group study room'],
       },
-      // Part 9: the Marketing 101 course (a fictional class) — questions go to its professor.
+      // Part 9: the Marketing 351 course (a fictional class) — questions go to its professor.
       marketing: {
-        worker: 'professor', name: 'Marketing 101', description: 'Marketing 101 (a fictional introductory course): marketing concepts, course lessons, worked examples, checking your understanding, and questions about the course itself (homework, assignments, the faculty member’s messages). Taught by Dr. Dabirian: questions for or about Dr. Dabirian go here.',
-        tags: ['marketing', 'marketing 101', 'segmentation', 'targeting', 'positioning', 'branding', 'pricing', 'promotion', 'customer value', 'lesson', 'dr. dabirian', 'dabirian'],
+        worker: 'professor', name: 'Marketing 351', description: 'Marketing 351 (a fictional introductory course): marketing concepts, course lessons, worked examples, checking your understanding, and questions about the course itself (homework, assignments, the faculty member’s messages). Taught by Dr. Dabirian: questions for or about Dr. Dabirian go here.',
+        tags: ['marketing', 'marketing 351', 'mktg 351', 'segmentation', 'targeting', 'positioning', 'branding', 'pricing', 'promotion', 'customer value', 'lesson', 'dr. dabirian', 'dabirian'],
         examples: ['What is the difference between segmentation and targeting?', 'Can you explain the lesson about customer value?', 'Can you ask Dr. Dabirian about the homework?'],
       },
       // HR (staff only): audience 'staff' keeps it off the Hub card, out of the student router and out of
@@ -162,7 +162,7 @@ export function loadHubConfig() {
     studentEndpoints: { 'student-alex': 'http://127.0.0.1:4444' },
     // Sam Student (fictional) is enrolled but has no Student agent in this demo: posts to "all" queue for them.
     // professorName is what students see and call the professor (fictional); the agent keeps its own name.
-    courses: { 'mkt-101': { title: 'Marketing 101', professor: 'professor', professorName: 'Dr. Dabirian', enrolled: ['student-alex', 'student-sam'] } },
+    courses: { 'mkt-351': { title: 'Marketing 351', professor: 'professor', professorName: 'Dr. Dabirian', enrolled: ['student-alex', 'student-sam'] } },
     heartbeatExpiryMs: 10000,
     // Budgets from src/timeouts.js (they nest: see there). staffActionMs is for HR (staff) form actions, which
     // wait on HR's tool choice and its PeopleSoft call; students keep the short formActionMs.

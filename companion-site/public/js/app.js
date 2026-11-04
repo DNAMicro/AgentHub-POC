@@ -151,7 +151,7 @@ function introPage(pg) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.id = `final-${++svgId}`;
   svg.setAttribute('role', 'img');
-  svg.setAttribute('aria-label', `Final architecture after Step ${LAST}: Browser, Student Agent, University Hub, Tutor, Library and Marketing 101 Faculty agents, the Anthropic API and data files.`);
+  svg.setAttribute('aria-label', `Final architecture after Step ${LAST}: Browser, Student Agent, University Hub, Tutor, Library and Marketing 351 Faculty agents, the Anthropic API and data files.`);
   renderDiagram(svg, plain(ARCH[LAST]));
   return h('article', { class: 'page intro' },
     h('header', { class: 'page-head' }, h('div', { class: 'head-text' }, h('p', { class: 'eyebrow', text: pg.eyebrow }), h('h1', { tabindex: '-1', text: pg.title }), p(pg.lead, 'lead')), sources(pg.sources)),

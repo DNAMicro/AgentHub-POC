@@ -123,7 +123,7 @@ Recommended models: **Sonnet 5.5 (`claude-sonnet-5-5`) for the lead session**, a
 | Tutor Agent | `src/tutor-agent.js` | 41241 | `PORT`, `TUTOR_URL` |
 | Library Agent | `src/library-agent.js` | 41242 | `PORT`, `LIBRARY_URL` |
 | University Hub | `src/hub-agent.js` | 41243 | `PORT`, `HUB_URL` |
-| Marketing 101 Faculty | `src/professor-agent.js` | 41244 | `PORT`, `PROFESSOR_URL` |
+| Marketing 351 Faculty | `src/professor-agent.js` | 41244 | `PORT`, `PROFESSOR_URL` |
 | Student UI server (browser at `http://127.0.0.1:4444`) | `src/ui-server.js` | 4444 | `UI_PORT`, `STUDENT_URL` |
 
 `PORT=0` / `UI_PORT=0` means "pick a free port". Tests use this.
@@ -137,7 +137,7 @@ Who reads the address overrides:
 - `[Tutor Agent] listening on …`
 - `[Library Agent] listening on …`
 - `[Hub] listening on …`
-- `[Marketing 101 Faculty] listening on …`
+- `[Marketing 351 Faculty] listening on …`
 - `[UI] listening on …`
 
 Never change these lines.
@@ -223,4 +223,5 @@ Examples online are mostly for protocol v0.3 and use different shapes. Use these
 
 ## Enhancements merged into this step
 
-- Renamed what the audience sees (2026-11-04): the agent is “Marketing 101 Faculty”, the tab is “Faculty view” (/faculty; /professor still opens it), and the person is “Dr. Dabirian” (was “Professor Amir”), because “Professor” confused the audience. Code names, files, settings and commands keep “professor”. Students may still type “professor”: keep accepting it (the Student agent treats a title word — professor, faculty, instructor, Dr. — as naming whoever the last reply named with a title).
+- Renamed what the audience sees (2026-11-04): the agent is “Marketing 351 Faculty”, the tab is “Faculty view” (/faculty; /professor still opens it), and the person is “Dr. Dabirian” (was “Professor Amir”), because “Professor” confused the audience. Code names, files, settings and commands keep “professor”. Students may still type “professor”: keep accepting it (the Student agent treats a title word — professor, faculty, instructor, Dr. — as naming whoever the last reply named with a title).
+- Renamed the course (2026-11-04): it is “Marketing 351” (course id `mkt-351`), not “Marketing 101” — CSU Fullerton has no Marketing 101; its marketing course is Marketing 351. Students may also type its catalog code “MKTG 351” (a capability tag). The step file names keep “101”.

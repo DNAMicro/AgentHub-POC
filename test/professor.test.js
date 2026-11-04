@@ -1,4 +1,4 @@
-// Part 9: Marketing 101 with professor-initiated lessons. The Professor is a private specialist behind
+// Part 9: Marketing 351 with professor-initiated lessons. The Professor is a private specialist behind
 // the Hub; questions go Student → Hub → Professor, and a posted lesson goes Professor → Hub → Student as
 // a NEW A2A interaction (typed, signed data parts), committed to the Student's persisted inbox.
 // Mock Professor model and mock router only (labelled "(Mock mode — no model.)"); no network, no cost.
@@ -91,7 +91,7 @@ test('course availability appears once, even after the Professor and the Student
   const { s, stream } = await classroom();
   await waitFor(async () => (await inbox(s)).notices.length === 1, { what: 'availability notice' });
   const [notice] = (await inbox(s)).notices;
-  assert.equal(notice.courseTitle, 'Marketing 101');
+  assert.equal(notice.courseTitle, 'Marketing 351');
   assert.equal(notice.professorName, 'Dr. Dabirian', 'students see the course’s professor by name');
   // Professor restart (new instance, new key) and Student restart: no second announcement.
   await stop(s.professor);
@@ -148,7 +148,7 @@ test('opening the notification opens that lesson; follow-ups keep its context an
 test('wrong professor, unknown course, unenrolled recipient and forged publishes are rejected', async () => {
   const cfgFile = join(dir(), 'hub.json');
   // An extra course taught by someone else, to try posting to as the Marketing professor.
-  writeFileSync(cfgFile, JSON.stringify({ courses: { 'mkt-101': { title: 'Marketing 101', professor: 'professor', enrolled: ['student-alex'] }, 'calc-150': { title: 'Calculus', professor: 'tutor', enrolled: ['student-alex'] } } }));
+  writeFileSync(cfgFile, JSON.stringify({ courses: { 'mkt-351': { title: 'Marketing 351', professor: 'professor', enrolled: ['student-alex'] }, 'calc-150': { title: 'Calculus', professor: 'tutor', enrolled: ['student-alex'] } } }));
   const { s, stream } = await classroom({ hubEnv: { HUB_CONFIG: cfgFile } });
   const reason = async (body) => {
     const res = await postLesson(s, body);
@@ -160,7 +160,7 @@ test('wrong professor, unknown course, unenrolled recipient and forged publishes
   // Someone who isn't the registered Professor instance (no key) claiming to be it.
   const forged = await sendData(s.hub.url, {
     mediaType: LESSON_PUBLISH_MEDIA_TYPE,
-    value: { type: 'lesson_publish', professorId: 'professor', instanceId: randomUUID(), signature: 'x'.repeat(43), operationId: `op-${randomUUID()}`, lessonId: 'ls-forged-1', revision: 1, courseId: 'mkt-101', kind: 'lesson', audience: 'student-alex', title: 'Forged', text: 'Click here.' },
+    value: { type: 'lesson_publish', professorId: 'professor', instanceId: randomUUID(), signature: 'x'.repeat(43), operationId: `op-${randomUUID()}`, lessonId: 'ls-forged-1', revision: 1, courseId: 'mkt-351', kind: 'lesson', audience: 'student-alex', title: 'Forged', text: 'Click here.' },
   });
   assert.equal(forged.value.status, 'rejected');
   assert.equal(forged.value.reason, 'unknown_professor');
@@ -668,7 +668,7 @@ test('conversation: a marketing question the course doesn’t cover goes to the 
   }
 });
 
-test('"ask the professor" after an answered Marketing 101 question hands that earlier question to the professor (mock)', async () => {
+test('"ask the professor" after an answered Marketing 351 question hands that earlier question to the professor (mock)', async () => {
   const { s, stream } = await classroom();
   const q = 'What is market segmentation?';
   const r1 = await chatVia(s.ui, stream, q);
@@ -684,7 +684,7 @@ test('"ask the professor" after an answered Marketing 101 question hands that ea
   assert.ok(!chat.some((m) => m.text === 'ask the professor'), 'not the words "ask the professor"');
   // Nothing earlier to hand over: asks what the question is (no entry in the chat).
   const fresh = await chatVia(s.ui, stream, 'Dabirian');
-  assert.equal(fresh.decision.agentId, 'professor', 'naming the professor identifies Marketing 101');
+  assert.equal(fresh.decision.agentId, 'professor', 'naming the professor identifies Marketing 351');
   assert.match(fresh.reply.text, /What would you like to ask Dr. Dabirian/);
 });
 
@@ -699,9 +699,9 @@ test('a mock Professor hands a course question no topic covers to the professor'
 
 test('the router never asks the same clarifying question twice in a row (it goes on to the service that last answered)', async () => {
   const { noRepeatClarify, sameQuestion } = await import('../src/router.js');
-  const services = [{ agentId: 'professor', name: 'Marketing 101 Faculty', publicName: 'Marketing 101', skills: [{ id: 'pricing' }] }];
-  const q2 = 'Which course would you like to ask Dr. Dabirian about: Marketing 101, or is it about something else? Please tell me your question too.';
-  const q3 = 'Is your question for Dr. Dabirian about Marketing 101, or about something else? Please also tell me what you want to ask.';
+  const services = [{ agentId: 'professor', name: 'Marketing 351 Faculty', publicName: 'Marketing 351', skills: [{ id: 'pricing' }] }];
+  const q2 = 'Which course would you like to ask Dr. Dabirian about: Marketing 351, or is it about something else? Please tell me your question too.';
+  const q3 = 'Is your question for Dr. Dabirian about Marketing 351, or about something else? Please also tell me what you want to ask.';
   assert.ok(sameQuestion(q2, q3));
   assert.ok(!sameQuestion(q2, 'Do you want tutoring or the library?'));
   const turns = [
@@ -716,9 +716,9 @@ test('the router never asks the same clarifying question twice in a row (it goes
   assert.equal(noRepeatClarify({ ...again, clarificationQuestion: 'Tutoring or library?' }, turns, services).decision, 'clarify', 'a different question is allowed');
 });
 
-// ---- Student side of the same bug: "Dabirian" right after the Marketing 101 reply was held by the Student agent
+// ---- Student side of the same bug: "Dabirian" right after the Marketing 351 reply was held by the Student agent
 // ("Did you want to ask Dr. Dabirian something?"). Scripted model = plumbing, not judgment.
-test('"Dabirian" after a Marketing 101 reply is not held or clarified by the Student agent — it reaches the Professor (Student model live, scripted to clarify)', async () => {
+test('"Dabirian" after a Marketing 351 reply is not held or clarified by the Student agent — it reaches the Professor (Student model live, scripted to clarify)', async () => {
   const profStub = await startFakeAnthropic();
   profStub.respondWith(() => messageReply(JSON.stringify({ kind: 'needs_professor', text: 'SWOT isn’t in my material.', topic_ids: [] })));
   const studentStub = await startFakeAnthropic();

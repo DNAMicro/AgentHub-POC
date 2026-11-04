@@ -1,4 +1,4 @@
-// Part 9: the Marketing 101 Faculty — one private specialist behind the University Hub that works in
+// Part 9: the Marketing 351 Faculty — one private specialist behind the University Hub that works in
 // both directions:
 //   * students ask questions:       Student → Hub → Professor → Hub → Student (normal chat over A2A)
 //   * the professor posts lessons:  Professor → Hub → Student (a NEW A2A interaction the professor starts)
@@ -36,7 +36,7 @@ let hubLink = null;
 let skillService = null;
 const RULES = { answer: { knowledge: 'required' } };
 
-const log = (...args) => console.log('[Marketing 101 Faculty]', ...args);
+const log = (...args) => console.log('[Marketing 351 Faculty]', ...args);
 const vizEvents = new EventEmitter();
 const emitViz = (type, runId, data) => vizEvents.emit('event', { source: 'professor', type, runId, at: new Date().toISOString(), data });
 const textOf = (message) => message.parts.filter((p) => p.content?.$case === 'text').map((p) => p.content.value).join('');
@@ -129,7 +129,7 @@ async function handleChat(ctx, bus, runId) {
     }
   } catch (err) {
     const failure = err instanceof LlmError ? err : new LlmError('internal_error');
-    text = `The Marketing 101 Faculty could not answer: ${failure.message}`;
+    text = `The Marketing 351 Faculty could not answer: ${failure.message}`;
     metadata.serviceError = { code: failure.code, message: failure.message, requestId: failure.requestId };
     // The professor still sees what the student wrote — and that nobody answered it.
     if (lesson) recordReply(incoming.messageId, { studentId: student, text: question, about, relayed: false }, { text: `Not answered: ${failure.message}`, model: null, needsProfessor: true, onBehalf, failed: true });
@@ -426,7 +426,7 @@ async function directPost({ operationId, said, roster, to = null }) {
   }
   // A tag starts the message or follows a space — the @ inside an email address (alex@example.com) isn't one.
   const unknownTag = [...said.matchAll(/(?:^|\s)@([\w-]+)/g)].map((m) => m[1].toLowerCase()).find((h) => !roster.some((x) => [x.studentId, x.name.split(' ')[0].toLowerCase()].includes(h)));
-  if (unknownTag && /^\s*@/.test(said)) return { action: 'error', reply: `There's no @${unknownTag} in Marketing 101, so nothing was sent.`, post: null };
+  if (unknownTag && /^\s*@/.test(said)) return { action: 'error', reply: `There's no @${unknownTag} in Marketing 351, so nothing was sent.`, post: null };
   const audience = tagged.length ? tagged.map((x) => x.studentId).join(',') : 'all';
   // Its model call belongs to this chat turn's run (`prof-<operationId>`), so Topology shows the hop.
   const named = await classifyPost({ text, emit: (type, data) => emitViz(type, `prof-${operationId}`, data) });
@@ -589,8 +589,8 @@ function authorRouter() {
 // ---- server ----------------------------------------------------------------------------------------------
 function buildAgentCard(port) {
   return {
-    name: 'Marketing 101 Faculty',
-    description: 'The faculty member who teaches Marketing 101, a fictional introductory course (not an official CSUF course): explains introductory marketing concepts, discusses course lessons, works through examples, and helps students check their understanding. Posts lessons and course messages to one enrolled student or the whole class through the university.',
+    name: 'Marketing 351 Faculty',
+    description: 'The faculty member who teaches Marketing 351, a fictional introductory course (not an official CSUF course): explains introductory marketing concepts, discusses course lessons, works through examples, and helps students check their understanding. Posts lessons and course messages to one enrolled student or the whole class through the university.',
     version: '0.1.0',
     supportedInterfaces: [{ url: `http://${HOST}:${port}${JSONRPC_PATH}`, protocolBinding: 'JSONRPC', protocolVersion: A2A_PROTOCOL_VERSION, tenant: '' }],
     provider: undefined,

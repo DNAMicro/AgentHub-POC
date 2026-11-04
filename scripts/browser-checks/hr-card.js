@@ -135,7 +135,7 @@ async (page) => {
   check('submit: no stale dropdown wording left in the chat', !/pick from the dropdown below/.test(await page.locator('#prof-log').textContent()));
   // He teaches every weekday: the assistant offers to cancel those classes (sent only on yes — see the end).
   const offer = ((await page.locator('#prof-log .msg[data-speaker="professor"]').last().textContent()) ?? '').replace(/\s+/g, ' ');
-  check('submit: the assistant offers a class cancellation for the filed days', new RegExp(`You have Marketing 101 on ${DAY} and ${DAY}\\. Would you like me to send a cancellation to your students\\?`).test(offer), offer);
+  check('submit: the assistant offers a class cancellation for the filed days', new RegExp(`You have Marketing 351 on ${DAY} and ${DAY}\\. Would you like me to send a cancellation to your students\\?`).test(offer), offer);
   await receipt.scrollIntoViewIfNeeded();
   await page.locator('#prof-log').screenshot({ path: `${SHOTS}/hr-6-submit-receipt.png` });
 
@@ -247,10 +247,10 @@ async (page) => {
   // “yes” sends them all, with dates only, to the students.
   await say('yes');
   const sent = ((await page.locator('#prof-log').textContent()) ?? '').replace(/\s+/g, ' ');
-  check('cancellation: “yes” sends it to the students', /Sent to your students: “Marketing 101 is cancelled on Thu, Nov 5, Fri, Nov 6, Thu, Nov 12 and Fri, Nov 13\.”/.test(sent), sent.slice(-300));
+  check('cancellation: “yes” sends it to the students', /Sent to your students: “Marketing 351 is cancelled on Thu, Nov 5, Fri, Nov 6, Thu, Nov 12 and Fri, Nov 13\.”/.test(sent), sent.slice(-300));
   await page.locator('#prof-log').screenshot({ path: `${SHOTS}/hr-14-cancellation-sent.png` });
   await page.goto(`${origin}/conversation`);
-  const studentSaw = await page.waitForFunction(() => /Marketing 101 is cancelled on Thu, Nov 5, Fri, Nov 6, Thu, Nov 12 and Fri, Nov 13\./.test(document.body.textContent), null, { timeout: 15000 }).then(() => true).catch(() => false);
+  const studentSaw = await page.waitForFunction(() => /Marketing 351 is cancelled on Thu, Nov 5, Fri, Nov 6, Thu, Nov 12 and Fri, Nov 13\./.test(document.body.textContent), null, { timeout: 15000 }).then(() => true).catch(() => false);
   const studentText = (await page.locator('#view-conversation').textContent()) ?? ''; // the student's own view (the page also holds the hidden Faculty view)
   check('cancellation: the student sees it, with no reason', studentSaw && !/uncle|bereave|funeral|sick|grandmother/i.test(studentText));
   await page.screenshot({ path: `${SHOTS}/hr-15-student-sees-cancellation.png` });

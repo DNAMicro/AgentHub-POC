@@ -1,6 +1,6 @@
 {
   "agentId": "professor",
-  "displayName": "Marketing 101 Faculty",
+  "displayName": "Marketing 351 Faculty",
   "hub": { "url": "http://127.0.0.1:41243" },
   "enabled": true,
   "heartbeatIntervalMs": 3000,

@@ -1,11 +1,11 @@
-# Step 9a — Marketing 101 Faculty behind the Hub
+# Step 9a — Marketing 351 Faculty behind the Hub
 
 Time: about 40 minutes. Cost: free (tests use mocks). Optional live check: PAID, a few cents.
 
 ## What you'll see when it works
 
-- A fifth process, the **Marketing 101 Faculty**, runs on port 41244 and registers with the Hub like the Tutor and Library.
-- The Hub's public card now lists a third capability, **Marketing 101**.
+- A fifth process, the **Marketing 351 Faculty**, runs on port 41244 and registers with the Hub like the Tutor and Library.
+- The Hub's public card now lists a third capability, **Marketing 351**.
 - "In marketing, what is the difference between segmentation and targeting?" goes Student → Hub → Faculty → Hub → Student. The answer comes from a small original course pack.
 - The topology shows a Faculty node (berry colour) connected only to the Hub, with its own model box. The Agent activity tab has a fifth console for it, with ⚙ skills.
 
@@ -26,8 +26,8 @@ This step adds no lessons, inbox or signing of Student requests. Those come in S
 ## Phase 1 — Contracts (lead writes these first)
 
 1. Add to `package.json` scripts: `"professor": "node src/professor-agent.js"` and `"professor:live": "PROFESSOR_MODE=live node src/professor-agent.js"`.
-2. Fix the identities. Agent id `professor`. Card name and display name `Marketing 101 Faculty`. Port 41244. Log prefix `[Marketing 101 Faculty]`. Ready line `[Marketing 101 Faculty] listening on http://127.0.0.1:<port>`.
-3. Fix the Hub destination id `marketing` (public name `Marketing 101`, worker `professor`).
+2. Fix the identities. Agent id `professor`. Card name and display name `Marketing 351 Faculty`. Port 41244. Log prefix `[Marketing 351 Faculty]`. Ready line `[Marketing 351 Faculty] listening on http://127.0.0.1:<port>`.
+3. Fix the Hub destination id `marketing` (public name `Marketing 351`, worker `professor`).
 4. Fix the Faculty agent reply metadata shape (the Hub relays it unchanged, like `tutor` and `library`):
    ```json
    { "agentId": "professor", "runId": "…",
@@ -44,7 +44,7 @@ This step adds no lessons, inbox or signing of Student requests. Those come in S
    ```
    A lesson reaches the model only as its `title` and `text`; `check` is optional and used only by the mock. A course lesson's objective, explanation and example are already written into its `text` (Step 9c), so the prompt never has separate "Objective:" or "Example:" lines, which would be empty for an ordinary post.
 6. Fix the course-pack exports in `src/course-pack.js`: `COURSE`, `TOPICS`, `SEED_LESSONS`, `PROFESSOR_DEFAULT_SKILLS`.
-7. Add the `professor` role to the specialist roles in `src/config.js` yourself, so Task B can load its config before Task C finishes: `professor: { port: 41244, displayName: 'Marketing 101 Faculty', file: 'PROFESSOR_CONFIG', model: 'PROFESSOR_MODEL', label: 'Faculty' }`.
+7. Add the `professor` role to the specialist roles in `src/config.js` yourself, so Task B can load its config before Task C finishes: `professor: { port: 41244, displayName: 'Marketing 351 Faculty', file: 'PROFESSOR_CONFIG', model: 'PROFESSOR_MODEL', label: 'Faculty' }`.
 
 ## Phase 2 — Build (parallel subagents)
 
@@ -58,7 +58,7 @@ This step adds no lessons, inbox or signing of Student requests. Those come in S
 ### Task A — Course pack and Faculty model
 
 1. `src/course-pack.js` is a small, **original** knowledge pack for a fictional course. Don't copy any textbook.
-2. `COURSE = { courseId: 'mkt-101', title: 'Marketing 101', professorName: 'Dr. Dabirian', note }`. Dr. Dabirian is the faculty member's fictional name: students see and use it; the agent keeps the name Marketing 101 Faculty. The `note` says it is a fictional demo course, not an official CSUF course or approved curriculum.
+2. `COURSE = { courseId: 'mkt-351', title: 'Marketing 351', professorName: 'Dr. Dabirian', note }`. Dr. Dabirian is the faculty member's fictional name: students see and use it; the agent keeps the name Marketing 351 Faculty. The `note` says it is a fictional demo course, not an official CSUF course or approved curriculum.
 3. `TOPICS`: eight entries, one per area, each `{ id, name, tags, explanation, example, sources }`. Give each topic at most 10 tags: the topics become the Faculty agent's skills, and Step 5's skill limit (10 tags) makes the Faculty agent refuse its own configuration at startup otherwise:
    - `value-and-needs` — marketing, customer needs and value;
    - `buying-behavior` — consumer and organizational buying behavior;
@@ -100,15 +100,15 @@ This step adds no lessons, inbox or signing of Student requests. Those come in S
 2. Config: `loadSpecialistConfig('professor')` (the lead adds the role in Phase 1) and `useModel(CONFIG.model)`.
 3. `createSkillService` with `defaults: PROFESSOR_DEFAULT_SKILLS` and `rules: { answer: { knowledge: 'required' } }`. Mount its router so ⚙ works through the Hub.
 4. `createHubLink` for registration, heartbeats, sign-out on SIGINT/SIGTERM and card-change notices.
-5. Agent Card: name `Marketing 101 Faculty`. The description states only real capabilities: explains introductory marketing concepts, discusses course lessons, works through examples, helps students check their understanding. Skills come from the skill configuration.
+5. Agent Card: name `Marketing 351 Faculty`. The description states only real capabilities: explains introductory marketing concepts, discusses course lessons, works through examples, helps students check their understanding. Skills come from the skill configuration.
 6. Mount routes inside the `listen()` callback: `hostGuard(port)`, the card, `/a2a/jsonrpc`, `/viz/events`, the skill router.
 7. Executor: read the question text (max 2000 chars). Emit `message_received`. Get the student with `hubLink.verifiedStudent(metadata, contextId)` (Step 8).
 8. Call `professorReply` with the enabled `answer` skills and the last 4 exchanges for this `contextId`.
 9. Reply with one A2A `Message` whose metadata is the Phase 1 shape. Emit `reply_published` with `professor` metadata.
-10. On a model failure, reply "The Marketing 101 Faculty could not answer: …" with `metadata.serviceError` (sanitized code and message).
+10. On a model failure, reply "The Marketing 351 Faculty could not answer: …" with `metadata.serviceError` (sanitized code and message).
 11. Startup lines: the ready line, `Agent Card: …`, and `mode: …`. In live mode also `API key (<VAR>): configured|NOT SET, API host: …`. Never print the key.
 12. `config/professor.example.json`: `{ agentId: "professor", displayName, hub.url, enabled, heartbeatIntervalMs: 3000, model: { name: "claude-haiku-5-5", apiKeyEnv: "ANTHROPIC_API_KEY" } }`.
-13. Harness: add `PROFESSOR_READY = /\[Marketing 101 Faculty\] listening on (http:\/\/127\.0\.0\.1:\d+)/` and `startProfessor(env)`.
+13. Harness: add `PROFESSOR_READY = /\[Marketing 351 Faculty\] listening on (http:\/\/127\.0\.0\.1:\d+)/` and `startProfessor(env)`.
 14. Add a `professor: false` option and a `professorPort` option to `startStack`. Pre-pick the Faculty agent's port, give the Hub `PROFESSOR_URL`, start it, and include `professor` in the agents that must be ready.
 15. `stack.kill()` also kills the Faculty agent.
 16. In `test/routing.test.js`, add a test: with `startStack({ professor: true })`, mock router, a marketing question reaches the Faculty agent. Assert the Faculty agent's own `message_received` event, `servedBy === 'professor'`, and an answer starting with `(Mock mode — no model.)`.
@@ -116,15 +116,15 @@ This step adds no lessons, inbox or signing of Student requests. Those come in S
 ### Task C — Hub, routing and the demo script
 
 1. `src/config.js`: the `professor` specialist role already exists (Phase 1, item 7). Don't add it again.
-2. Hub defaults: add peer `{ agentId: 'professor', expectedName: 'Marketing 101 Faculty', displayName: 'Marketing 101 Faculty', baseUrl: 'http://127.0.0.1:41244' }`. `PROFESSOR_URL` overrides it (the existing `<ID>_URL` rule).
+2. Hub defaults: add peer `{ agentId: 'professor', expectedName: 'Marketing 351 Faculty', displayName: 'Marketing 351 Faculty', baseUrl: 'http://127.0.0.1:41244' }`. `PROFESSOR_URL` overrides it (the existing `<ID>_URL` rule).
 3. Add destination `marketing`:
-   - `worker: 'professor'`, `name: 'Marketing 101'`;
-   - description: Marketing 101 (a fictional introductory course): marketing concepts, course lessons, worked examples, checking your understanding, and questions about the course itself (homework, assignments, the faculty member's messages);
-   - tags: marketing, marketing 101, segmentation, targeting, positioning, branding, pricing, promotion, customer value, lesson;
+   - `worker: 'professor'`, `name: 'Marketing 351'`;
+   - description: Marketing 351 (a fictional introductory course): marketing concepts, course lessons, worked examples, checking your understanding, and questions about the course itself (homework, assignments, the faculty member's messages);
+   - tags: marketing, marketing 351, segmentation, targeting, positioning, branding, pricing, promotion, customer value, lesson;
    - examples: "What is the difference between segmentation and targeting?", "Can you explain the lesson about customer value?".
 4. Remove `marketing` from the tutoring destination's tags if it is there.
 5. Update `config/hub.example.json` to match (peer and `marketing` destination).
-6. `publicWords`, `publicName` and the router's "use the public name" rule already exist from Step 7a. Don't re-create them. Check that the `marketing` destination's `name` reaches the router as the Faculty agent's `publicName`, so "Marketing 101 Faculty" becomes "Marketing 101" in student-facing text.
+6. `publicWords`, `publicName` and the router's "use the public name" rule already exist from Step 7a. Don't re-create them. Check that the `marketing` destination's `name` reaches the router as the Faculty agent's `publicName`, so "Marketing 351 Faculty" becomes "Marketing 351" in student-facing text.
 7. `src/router.js` live prompt: add that a question about a course a service teaches (its homework, assignments, deadlines, lessons or announcements) goes to that course's service, even though it isn't a subject topic.
 8. Add to the same rule: words like return, late or due mean library only for library items.
 9. Keep the prompt's examples generic enough to cover marketing (for example "market segmentation within marketing").
@@ -133,20 +133,20 @@ This step adds no lessons, inbox or signing of Student requests. Those come in S
 12. `src/ui-server.js`: when the Student declines, join the capability names with `Intl.ListFormat('en', { type: 'conjunction' })`.
 13. `scripts/start-all.js` starts five processes: hub, tutor, library, `prof` (`src/professor-agent.js`, `PROFESSOR_MODE` live under `DEMO_MODE=live`, else mock), ui.
 14. Its banner names all five and the address `http://127.0.0.1:4444`.
-15. `src/topology.js`: add `professor` to the specialist set (edge `hub-professor`) and to node names ("Marketing 101 Faculty"). Its model calls map to the `professor-model` hop, as for the others.
-16. Tests: extend Step 7a's test `words the student reads name services publicly, never by agent` in `test/skills.test.js`. Add the service `{ agentId: 'professor', name: 'Marketing 101 Faculty', publicName: 'Marketing 101', skills: [] }`. A clarify decision with `clarification_question: 'Which course is the homework for: Calculus (Tutor Agent) or Marketing 101 (Marketing 101 Faculty)?'` must become `'Which course is the homework for: Calculus or Marketing 101?'`, and `reason: 'Could be Tutor Agent or Marketing 101 Faculty.'` must become `'Could be Tutoring or Marketing 101.'`. `'Ask the tutor at the library.'` stays unchanged. In `test/student-model.test.js` the Hub card's capability ids are `['tutoring', 'library', 'marketing']`, and the Student model's capability enum is `['tutoring', 'library', 'marketing', 'none']`.
+15. `src/topology.js`: add `professor` to the specialist set (edge `hub-professor`) and to node names ("Marketing 351 Faculty"). Its model calls map to the `professor-model` hop, as for the others.
+16. Tests: extend Step 7a's test `words the student reads name services publicly, never by agent` in `test/skills.test.js`. Add the service `{ agentId: 'professor', name: 'Marketing 351 Faculty', publicName: 'Marketing 351', skills: [] }`. A clarify decision with `clarification_question: 'Which course is the homework for: Calculus (Tutor Agent) or Marketing 351 (Marketing 351 Faculty)?'` must become `'Which course is the homework for: Calculus or Marketing 351?'`, and `reason: 'Could be Tutor Agent or Marketing 351 Faculty.'` must become `'Could be Tutoring or Marketing 351.'`. `'Ask the tutor at the library.'` stays unchanged. In `test/student-model.test.js` the Hub card's capability ids are `['tutoring', 'library', 'marketing']`, and the Student model's capability enum is `['tutoring', 'library', 'marketing', 'none']`.
 
 ### Task D — Browser
 
-1. `public/topology.js`: add the Faculty agent node at x 770, y 330, r 60, name "Faculty", role "Marketing 101". This is the empty slot Step 7b left between Tutor (y 110) and Library (y 550). Don't move any other node or box.
+1. `public/topology.js`: add the Faculty agent node at x 770, y 330, r 60, name "Faculty", role "Marketing 351". This is the empty slot Step 7b left between Tutor (y 110) and Library (y 550). Don't move any other node or box.
 2. Add model box `llm-professor` at x 985, y 330, w 184, h 74, owner `professor`, name "Faculty’s model". Add edges `hub-professor` and `professor-model`. Add `professor` to the specialist ID list.
 3. The `<svg id="topo">` in `public/index.html` already has `viewBox="0 0 1100 660"` from Step 7b. Don't change it; only add the Faculty agent to its `aria-label`. There is no Faculty↔Student edge.
 4. Colour token `--professor`: berry `#a3315a` in light mode, `#f08aae` in dark mode. Use it for the node, console and messages.
-5. `public/index.html` + `public/app.js`: a fifth console "Marketing 101 Faculty" in Agent activity with a ⚙ button (`data-agent="professor"`), a skills box and a log.
+5. `public/index.html` + `public/app.js`: a fifth console "Marketing 351 Faculty" in Agent activity with a ⚙ button (`data-agent="professor"`), a skills box and a log.
 6. Log `message_received`, `reply_published` and the model events there. Scroll it with `followBottom`.
-7. Its role line shows the mode: "Marketing 101 · answers from the course pack (live, <model>)" or "(mock, no model)".
-8. Add `professor` to the agent-name and colour maps, so the hop-by-hop strip and the timeline name "Marketing 101 Faculty" when the Hub routes there.
-9. Update the page subtitle to mention the Marketing 101 service.
+7. Its role line shows the mode: "Marketing 351 · answers from the course pack (live, <model>)" or "(mock, no model)".
+8. Add `professor` to the agent-name and colour maps, so the hop-by-hop strip and the timeline name "Marketing 351 Faculty" when the Hub routes there.
+9. Update the page subtitle to mention the Marketing 351 service.
 10. Any new element styled with `display` also needs a `[hidden] { display: none }` rule.
 
 ## Phase 3 — Join and check (lead)
@@ -163,7 +163,7 @@ This step adds no lessons, inbox or signing of Student requests. Those come in S
 2. The Faculty agent's endpoint comes only from the Hub configuration (`PROFESSOR_URL` overrides).
 3. Readiness rules from Step 7a apply unchanged: only a `ready` Faculty gets dispatches.
 4. Never claim this is an official CSUF course. Use fictional people and examples only.
-5. Student-facing text names services by public name ("Marketing 101"), never by agent name.
+5. Student-facing text names services by public name ("Marketing 351"), never by agent name.
 6. Mock answers are labelled `(Mock mode — no model.)`. They prove plumbing, not teaching quality.
 7. Never log, print or emit the API key or `callKey`.
 
@@ -173,12 +173,12 @@ This step adds no lessons, inbox or signing of Student requests. Those come in S
 - The Student agent must not hold "Dabirian" / "Dr. Dabirian" / "ask the professor" right after a reply that named the professor: in code, a message of at most four words whose meaningful words all appear in the last service reply goes on as-is, with no model call and no clarification.
 
 - A marketing question the course pack doesn't cover (for example "what is SWOT in marketing") must not be a refusal with a topic list. In the live prompt, `out_of_scope` is only for things unrelated to marketing and the course; an uncovered marketing concept is `needs_professor` (the question goes to the faculty member's chat and the student gets the fixed "passed this on" words). The mock does the same: no topic match plus marketing or course words gives `needs_professor`.
-- "ask the professor", "ask Dr. Dabirian" or just "Dabirian" means the student's earlier question. Handle it in code, not in the model: copy the last question of that conversation into the faculty member's chat; if it was already handed over, say so and add nothing; with no earlier question, ask what it is. Mark the hand-over requests themselves ("ask the professor", "Dabirian") as `handoverRequest` in the conversation memory and skip them when looking back for the earlier question, or a later "Dabirian" passes on "ask the professor" as the question. Also give the Hub router the teacher's name (`instructor` on the service view) so it routes these words to Marketing 101, and never let it ask the same clarifying question twice in a row.
+- "ask the professor", "ask Dr. Dabirian" or just "Dabirian" means the student's earlier question. Handle it in code, not in the model: copy the last question of that conversation into the faculty member's chat; if it was already handed over, say so and add nothing; with no earlier question, ask what it is. Mark the hand-over requests themselves ("ask the professor", "Dabirian") as `handoverRequest` in the conversation memory and skip them when looking back for the earlier question, or a later "Dabirian" passes on "ask the professor" as the question. Also give the Hub router the teacher's name (`instructor` on the service view) so it routes these words to Marketing 351, and never let it ask the same clarifying question twice in a row.
 
 - Keep the end of earlier replies in the Faculty agent's `recent_conversation`: `briefReply(t.answer)` (Step 7b), not a 300-character head cut.
-- Don't let a course question fall through: "Can I return my homework late for marketing class" must reach Marketing 101, not the Library. Give the Faculty agent the `course-questions` skill and add the named-course rule to both the router and the Student's prompt.
-- Don't let agent names reach the student's chat. The router once asked "Calculus (Tutor Agent) or Marketing 101 (Marketing 101 Faculty)?". Pass `publicName` and run `publicWords` in code.
-- Join capability names with `Intl.ListFormat`, not string concatenation ("Tutoring and Library services and Marketing 101" reads badly).
+- Don't let a course question fall through: "Can I return my homework late for marketing class" must reach Marketing 351, not the Library. Give the Faculty agent the `course-questions` skill and add the named-course rule to both the router and the Student's prompt.
+- Don't let agent names reach the student's chat. The router once asked "Calculus (Tutor Agent) or Marketing 351 (Marketing 351 Faculty)?". Pass `publicName` and run `publicWords` in code.
+- Join capability names with `Intl.ListFormat`, not string concatenation ("Tutoring and Library services and Marketing 351" reads badly).
 - Don't tell the model "the active lesson says…". Name data blocks the way the faculty member speaks, and tell it to speak in the first person.
 - Fetch the WSU chapters with a browser user agent; plain fetchers get 403.
 - A `display` rule overrides `hidden`. Add `[hidden] { display: none }` for new elements.
@@ -190,18 +190,18 @@ This step adds no lessons, inbox or signing of Student requests. Those come in S
 - `node --test test/routing.test.js` passes, including the marketing test.
 - `npm run demo` → the Hub log shows the Faculty agent `ready`. `curl -s http://127.0.0.1:41243/.well-known/agent-card.json` lists skills `tutoring`, `library`, `marketing`.
 - Browser at `http://127.0.0.1:4444` (optional — needs a browser; if none is available, say so):
-  - "In marketing, what is the difference between segmentation and targeting?" is answered by the Marketing 101 Faculty (mock label);
+  - "In marketing, what is the difference between segmentation and targeting?" is answered by the Marketing 351 Faculty (mock label);
   - the Topology tab shows the Faculty agent node linked only to the Hub, and the pulses run Hub ↔ Faculty;
   - Agent activity shows the fifth console, and its ⚙ opens the nine skills.
 
-Then append the "CLAUDE.md notes" below to `CLAUDE.md` and commit `Step 9a: Marketing 101 Faculty behind the Hub`.
+Then append the "CLAUDE.md notes" below to `CLAUDE.md` and commit `Step 9a: Marketing 351 Faculty behind the Hub`.
 
 ## CLAUDE.md notes
 
 ```markdown
-## Step 9a (Marketing 101 Faculty)
-- src/professor-agent.js, port 41244, ready line `[Marketing 101 Faculty] listening on …`. Specialist pattern: createSkillService (rules answer.knowledge required), createHubLink, /viz/events, hostGuard.
-- Hub destination `marketing` (worker professor, public name "Marketing 101"); endpoint only from Hub config (PROFESSOR_URL).
+## Step 9a (Marketing 351 Faculty)
+- src/professor-agent.js, port 41244, ready line `[Marketing 351 Faculty] listening on …`. Specialist pattern: createSkillService (rules answer.knowledge required), createHubLink, /viz/events, hostGuard.
+- Hub destination `marketing` (worker professor, public name "Marketing 351"); endpoint only from Hub config (PROFESSOR_URL).
 - src/course-pack.js: original text, fictional examples, WSU chapter links only. Nine answer skills incl. `course-questions`.
 - PROFESSOR_MODE (mock default | live) is read at import. Mock replies start "(Mock mode — no model.)".
 - Live answers: any date not in the lesson/question → one repair, then refusal. Never invent deadlines, grades or policies.
@@ -216,4 +216,5 @@ Then append the "CLAUDE.md notes" below to `CLAUDE.md` and commit `Step 9a: Mark
 
 ## Enhancements merged into this step
 
-- Renamed what the audience sees (2026-11-04): the agent is “Marketing 101 Faculty”, the tab is “Faculty view” (/faculty; /professor still opens it), and the person is “Dr. Dabirian” (was “Professor Amir”), because “Professor” confused the audience. Code names, files, settings and commands keep “professor”. Students may still type “professor”: keep accepting it (the Student agent treats a title word — professor, faculty, instructor, Dr. — as naming whoever the last reply named with a title).
+- Renamed what the audience sees (2026-11-04): the agent is “Marketing 351 Faculty”, the tab is “Faculty view” (/faculty; /professor still opens it), and the person is “Dr. Dabirian” (was “Professor Amir”), because “Professor” confused the audience. Code names, files, settings and commands keep “professor”. Students may still type “professor”: keep accepting it (the Student agent treats a title word — professor, faculty, instructor, Dr. — as naming whoever the last reply named with a title).
+- Renamed the course (2026-11-04): it is “Marketing 351” (course id `mkt-351`), not “Marketing 101” — CSU Fullerton has no Marketing 101; its marketing course is Marketing 351. Students may also type its catalog code “MKTG 351” (a capability tag). The step file names keep “101”.

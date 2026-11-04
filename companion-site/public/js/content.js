@@ -111,7 +111,7 @@ export const PAGES = [
     lead: 'A learning spike, built one prompted step at a time: each step explained, implemented, tested, then stopped so the next could build on it. Eleven steps took two Node.js processes exchanging one fixed message to five agents behind a university front door, a standard AG-UI link to the screen, and forms you can fill from the chat.',
     blocks: [
       { h: 'The problem', text: 'Show — with real protocols, not mock transcripts — how independent AI agents discover each other, exchange messages, hand a person structured UI, get routed by an intermediary, and start conversations from either side.' },
-      { h: 'Who it is for', text: 'Developers learning agent-to-agent systems. Inside the demo the people are fictional: *Alex Student* (`student-alex`), *Sam Student* (enrolled, no agent running) and a Marketing 101 faculty member.' },
+      { h: 'Who it is for', text: 'Developers learning agent-to-agent systems. Inside the demo the people are fictional: *Alex Student* (`student-alex`), *Sam Student* (enrolled, no agent running) and a Marketing 351 faculty member.' },
       { h: 'By the end of Step 11 you can explain', list: [
         'A2A v1.0 over JSON-RPC between separate processes: Agent Cards, Messages, Tasks, typed data parts',
         'A2UI v0.9 interfaces travelling inside A2A, rendered by the official renderer — including UI a model composes, checked by code',
@@ -437,7 +437,7 @@ export const PAGES = [
       { name: 'HMAC signatures (node:crypto)', kind: 'runtime', role: 'the Hub signs `studentId|contextId|hubOperationId` with a key each specialist gave it at registration' },
       { name: 'In-memory loan store', kind: 'runtime', role: 'loans and renewals live only in the Library’s memory; every start (and New conversation) brings back the sample loans — saving them to a file broke testing' },
     ],
-    shot: S('s8-generated-ui.png', 'A renewal interface composed by the model: a heading, the current due date, a date picker and a Renew button', 'A screen nobody designed: the model picked these components from the catalog; code checked them, including the date picker’s permitted range. Test stack, synthetic loans.'),
+    shot: S('s8-generated-ui.png', 'A renewal interface composed by the model: a heading, the current due date, a date picker and a renewal button', 'A screen nobody designed: the model picked these components from the catalog; code checked them, including the date picker’s permitted range. Test stack, synthetic loans.'),
     sources: ['`Steps/08-model-generated-ui-loans.md`', '`src/loan-model.js`, `src/a2ui-catalog.js`, `src/loan-store.js`', '`test/loans.test.js` — 16 tests', 'Commits 48b2fa6, 7347f41'],
   },
   {
@@ -475,7 +475,7 @@ export const PAGES = [
     id: '9a', step: 9, type: 'A', title: 'The faculty member can start the conversation',
     before: 'Every exchange began with the student; the Student’s identity at the Hub was self-declared; the inspector relayed full model text.',
     goal: '“Demonstrate that communication can begin on either side… a faculty member can also introduce a lesson while the student is idle.”',
-    capability: 'A Marketing 101 Faculty agent joins behind the Hub. A post travels Faculty → Hub → Student as a *new*, signed A2A message into the Student agent’s persisted inbox — queued, delivered, opened, reconciled if an acknowledgement is lost. The Faculty view is a chat: plain messages go to tagged students or the class; `@assistant` asks the course assistant. Later in the step: messages arrive in the student’s chat with Reply, replies reach whoever sent them, and the assistant schedules meetings from times the faculty member gives.',
+    capability: 'A Marketing 351 Faculty agent joins behind the Hub. A post travels Faculty → Hub → Student as a *new*, signed A2A message into the Student agent’s persisted inbox — queued, delivered, opened, reconciled if an acknowledgement is lost. The Faculty view is a chat: plain messages go to tagged students or the class; `@assistant` asks the course assistant. Later in the step: messages arrive in the student’s chat with Reply, replies reach whoever sent them, and the assistant schedules meetings from times the faculty member gives.',
     tech: [
       { name: 'No new package', kind: 'runtime', role: 'the reverse route is a normal `message/send` with typed data parts — not A2A push notifications' },
       { name: 'Signed sessions for every Hub caller', kind: 'standard', role: 'per-process HMAC keys: specialists, the Faculty agent’s posts, and the Student (challenge to its configured endpoint, then a signature on every request)' },

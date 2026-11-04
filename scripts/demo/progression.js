@@ -496,7 +496,7 @@ async (page) => {
     },
     {
       n: 9, title: 'The faculty member can start the conversation',
-      lead: 'A Marketing 101 Faculty agent joins behind the Hub. Now conversations can start on either side: the faculty member posts, and the post travels Faculty → Hub → Student as a new, signed A2A message into the student agent’s inbox.',
+      lead: 'A Marketing 351 Faculty agent joins behind the Hub. Now conversations can start on either side: the faculty member posts, and the post travels Faculty → Hub → Student as a new, signed A2A message into the student agent’s inbox.',
       bullets: ['Without @assistant, the faculty member’s words go as written to tagged students or the whole class', '@assistant asks the course assistant (Haiku) to write and post a lesson', 'Honest delivery states — queued, delivered, opened; follow-ups are routed by the Hub’s own delivery record'],
       arch: 'Faculty ──A2A──▶ University Hub ──signed A2A──▶ Student agent inbox\nStudent ──A2A──▶ Hub ──(lesson record)──▶ Faculty',
       async run(k) {

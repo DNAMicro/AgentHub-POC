@@ -129,11 +129,11 @@ test('the Hub rejects fetched specialist cards that change identity, endpoint, p
 test('words the student reads name services publicly, never by agent', () => {
   const services = [
     { agentId: 'tutor', name: 'Tutor Agent', publicName: 'Tutoring', skills: [] },
-    { agentId: 'professor', name: 'Marketing 101 Faculty', publicName: 'Marketing 101', skills: [] },
+    { agentId: 'professor', name: 'Marketing 351 Faculty', publicName: 'Marketing 351', skills: [] },
   ];
-  const d = validateDecision({ decision: 'clarify', agent_id: '', skill_id: '', reason: 'Could be Tutor Agent or Marketing 101 Faculty.', clarification_question: 'Which course is the homework for: Calculus (Tutor Agent) or Marketing 101 (Marketing 101 Faculty)?' }, services);
-  assert.equal(d.clarificationQuestion, 'Which course is the homework for: Calculus or Marketing 101?');
-  assert.equal(d.reason, 'Could be Tutoring or Marketing 101.');
+  const d = validateDecision({ decision: 'clarify', agent_id: '', skill_id: '', reason: 'Could be Tutor Agent or Marketing 351 Faculty.', clarification_question: 'Which course is the homework for: Calculus (Tutor Agent) or Marketing 351 (Marketing 351 Faculty)?' }, services);
+  assert.equal(d.clarificationQuestion, 'Which course is the homework for: Calculus or Marketing 351?');
+  assert.equal(d.reason, 'Could be Tutoring or Marketing 351.');
   // Ordinary words are left alone.
   assert.equal(validateDecision({ decision: 'unsupported', agent_id: '', skill_id: '', reason: 'Ask the tutor at the library.', clarification_question: '' }, services).reason, 'Ask the tutor at the library.');
 });

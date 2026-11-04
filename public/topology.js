@@ -1,5 +1,5 @@
 // Part 7: the live topology — a switchboard of the agents. Student on the left, the university
-// Hub in the centre, the Tutor, the Library, the Marketing 101 Faculty (Part 9) and the HR Agent (staff
+// Hub in the centre, the Tutor, the Library, the Marketing 351 Faculty (Part 9) and the HR Agent (staff
 // only — the Professor agent reaches it for the professor himself, never a student) behind it. Each agent has its own small model box: the agent
 // picks its own mode and model and calls the provider from its own process with its own key, so these
 // are separate connections, not one shared service. Those lines are HTTPS calls, drawn dashed, not A2A.
@@ -21,7 +21,7 @@ const NODES = {
   hub: { x: 450, y: 378, r: 76, name: 'University Hub', role: 'Front door and router' },
   tutor: { x: 770, y: 100, r: 56, name: 'Tutor Agent', role: 'Tutoring specialist' },
   library: { x: 770, y: 285, r: 56, name: 'Library Agent', role: 'Library specialist' },
-  professor: { x: 770, y: 470, r: 56, name: 'Faculty', role: 'Marketing 101' },
+  professor: { x: 770, y: 470, r: 56, name: 'Faculty', role: 'Marketing 351' },
   hr: { x: 770, y: 655, r: 56, name: 'HR Agent', role: 'Staff only' },
   // Part 15: a system, not an agent (design F: tile + database icon + sparkle + sweep).
   peoplesoft: { x: 770, y: 890, w: 176, h: 80, kind: 'system', name: 'PeopleSoft', role: 'MCP server' },

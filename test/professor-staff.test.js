@@ -138,14 +138,14 @@ test('“both”: HR first; after Submit a class cancellation is offered for the
   assert.equal(done.status, 'accepted', JSON.stringify(done));
   st = await state();
   assert.match(lastOf(st.chat, 'hr').text, /^Sent to your manager for a decision\. Request TO-\w+: Sick Leave \(Sick Personal\), Fri, Nov 6, 8 hours\.$/);
-  assert.equal(lastOf(st.chat, 'assistant').text, 'You have Marketing 101 on Fri, Nov 6. Would you like me to send a cancellation to your students?');
+  assert.equal(lastOf(st.chat, 'assistant').text, 'You have Marketing 351 on Fri, Nov 6. Would you like me to send a cancellation to your students?');
   assert.equal(st.lessons.length, 0, 'not posted before the professor says yes');
 
   const yes = await say('yes');
   assert.equal(yes.action, 'post');
   st = await state();
   assert.equal(st.lessons.length, 1, 'one class post');
-  assert.equal(st.lessons[0].text, 'Marketing 101 is cancelled on Fri, Nov 6.');
+  assert.equal(st.lessons[0].text, 'Marketing 351 is cancelled on Fri, Nov 6.');
   assert.equal(st.lessons[0].audience, 'all');
   assert.equal((await requests()).length, 1);
 });
@@ -190,7 +190,7 @@ test('hr-action input checks: malformed operation, unknown card', async () => {
 });
 
 // ---- fix round 1 ----------------------------------------------------------------------------------------
-const NOTE_OFFER = 'You have Marketing 101 on Fri, Nov 6. Would you like me to send a cancellation to your students?';
+const NOTE_OFFER = 'You have Marketing 351 on Fri, Nov 6. Would you like me to send a cancellation to your students?';
 // unsure → both → Submit: the neutral note is now on offer.
 async function noteOffer() {
   await post(`${s.hub.url}/dev/classroom/reset`, {}); // HR refuses a second request for the same day (PeopleSoft overlap rule)
@@ -532,7 +532,7 @@ test('“both please” after the unsure question still files the held message a
   const done = await hrAction({ operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: submitAction(st.hrCard, { absenceType: ['SCK'], absenceReason: ['SCK'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8' }) });
   assert.equal(done.status, 'accepted', JSON.stringify(done));
   st = await state();
-  assert.equal(lastOf(st.chat, 'assistant').text, 'You have Marketing 101 on Fri, Nov 6. Would you like me to send a cancellation to your students?');
+  assert.equal(lastOf(st.chat, 'assistant').text, 'You have Marketing 351 on Fri, Nov 6. Would you like me to send a cancellation to your students?');
   assert.equal(st.lessons.length, 0);
 });
 
@@ -740,7 +740,7 @@ test('R3 cancellation offer: act on yes / no / HR and say the new content was no
   assert.ok(told(yes), JSON.stringify(yes));
   assert.ok(await chatHasNotice(), 'the notice is in the chat');
   let st = await state();
-  assert.deepEqual(st.lessons.map((l) => l.text), ['Marketing 101 is cancelled on Fri, Nov 6.'], 'only the note — never the new words');
+  assert.deepEqual(st.lessons.map((l) => l.text), ['Marketing 351 is cancelled on Fri, Nov 6.'], 'only the note — never the new words');
   await post(`${s.hub.url}/dev/classroom/reset`, {});
   await noteOffer();
   const no = await say('No thanks. I also need next Monday off');
@@ -1065,30 +1065,30 @@ async function fileCard(text, values) {
 
 test('cancellation: any filed weekday (no “both” needed) offers it; “yes” sends only dates, never the reason', async () => {
   const st = await fileCard('I want to file for time off. My grandmother passed away, I need this Thursday and Friday', { absenceType: ['BRV'], absenceReason: ['GGP'], beginDate: '2026-11-05', endDate: '2026-11-06', hours: '16' });
-  assert.equal(lastOf(st.chat, 'assistant').text, 'You have Marketing 101 on Thu, Nov 5 and Fri, Nov 6. Would you like me to send a cancellation to your students?');
+  assert.equal(lastOf(st.chat, 'assistant').text, 'You have Marketing 351 on Thu, Nov 5 and Fri, Nov 6. Would you like me to send a cancellation to your students?');
   assert.equal(st.lessons.length, 0, 'nothing sent before yes');
   const yes = await say('yes');
   assert.equal(yes.action, 'post', JSON.stringify(yes));
   const after = await state();
   assert.equal(after.lessons.length, 1);
   const [p] = after.lessons;
-  assert.equal(p.text, 'Marketing 101 is cancelled on Thu, Nov 5 and Fri, Nov 6.');
+  assert.equal(p.text, 'Marketing 351 is cancelled on Thu, Nov 5 and Fri, Nov 6.');
   assert.equal(p.title, 'Class cancelled');
   assert.equal(p.kind, 'message');
   assert.equal(p.audience, 'all');
   assert.doesNotMatch(`${p.title} ${p.text}`, /grand|passed|funeral|bereave|sick|leave|vacation/i, 'never why');
-  assert.equal(lastOf(after.chat, 'assistant').text, 'Sent to your students: “Marketing 101 is cancelled on Thu, Nov 5 and Fri, Nov 6.”');
+  assert.equal(lastOf(after.chat, 'assistant').text, 'Sent to your students: “Marketing 351 is cancelled on Thu, Nov 5 and Fri, Nov 6.”');
 });
 
 test('cancellation: a part day counts; campus holidays and weekends are not class days', async () => {
   let st = await fileCard("I want to file for time off. I'm not feeling well, I'm leaving at noon on Friday", { absenceType: ['SCK'], absenceReason: ['SCK'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '3' });
-  assert.equal(lastOf(st.chat, 'assistant').text, 'You have Marketing 101 on Fri, Nov 6. Would you like me to send a cancellation to your students?');
+  assert.equal(lastOf(st.chat, 'assistant').text, 'You have Marketing 351 on Fri, Nov 6. Would you like me to send a cancellation to your students?');
   assert.equal((await say('no')).reply, CANCEL_NO);
   // Tue Nov 10 – Mon Nov 16: Wed Nov 11 is a campus holiday, Sat/Sun are weekend.
   st = await fileCard('I need vacation from Tuesday Nov 10 to Monday Nov 16', { absenceType: ['VAC'], absenceReason: ['VAC'], beginDate: '2026-11-10', endDate: '2026-11-16', hours: '32' });
-  assert.equal(lastOf(st.chat, 'assistant').text, 'You have Marketing 101 on Tue, Nov 10, Thu, Nov 12, Fri, Nov 13 and Mon, Nov 16. Would you like me to send a cancellation to your students?');
+  assert.equal(lastOf(st.chat, 'assistant').text, 'You have Marketing 351 on Tue, Nov 10, Thu, Nov 12, Fri, Nov 13 and Mon, Nov 16. Would you like me to send a cancellation to your students?');
   assert.equal((await say('sure, send the cancellation')).action, 'post');
-  assert.deepEqual((await state()).lessons.map((l) => l.text), ['Marketing 101 is cancelled on Tue, Nov 10, Thu, Nov 12, Fri, Nov 13 and Mon, Nov 16.']);
+  assert.deepEqual((await state()).lessons.map((l) => l.text), ['Marketing 351 is cancelled on Tue, Nov 10, Thu, Nov 12, Fri, Nov 13 and Mon, Nov 16.']);
 });
 
 test('cancellation: “yes, cancel it” is a yes (cancel is the offer’s own word); “don’t cancel” is a no; unclear is asked once', async () => {
@@ -1136,15 +1136,15 @@ test('cancellation: a new request right after filing is handled as usual; the of
   assert.equal(cls.action, 'post', JSON.stringify(cls));
   assert.equal((await say('yes')).action, 'post');
   st = await state();
-  assert.deepEqual(st.lessons.map((l) => l.text).sort(), ['Marketing 101 is cancelled on Fri, Nov 6.', 'Please read chapter 5 before next class']);
+  assert.deepEqual(st.lessons.map((l) => l.text).sort(), ['Marketing 351 is cancelled on Fri, Nov 6.', 'Please read chapter 5 before next class']);
 });
 
 test('cancellation: a second filing while the offer waits adds its days to the same offer (none lost)', async () => {
   await fileCard("I need Friday off, it's a vacation day", { absenceType: ['VAC'], absenceReason: ['VAC'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8' });
   const st = await fileCard("I also need next Monday off, it's a vacation day", { absenceType: ['VAC'], absenceReason: ['VAC'], beginDate: '2026-11-09', endDate: '2026-11-09', hours: '8' });
-  assert.equal(lastOf(st.chat, 'assistant').text, 'You have Marketing 101 on Fri, Nov 6 and Mon, Nov 9. Would you like me to send a cancellation to your students?');
+  assert.equal(lastOf(st.chat, 'assistant').text, 'You have Marketing 351 on Fri, Nov 6 and Mon, Nov 9. Would you like me to send a cancellation to your students?');
   assert.equal((await say('yes')).action, 'post');
-  assert.deepEqual((await state()).lessons.map((l) => l.text), ['Marketing 101 is cancelled on Fri, Nov 6 and Mon, Nov 9.']);
+  assert.deepEqual((await state()).lessons.map((l) => l.text), ['Marketing 351 is cancelled on Fri, Nov 6 and Mon, Nov 9.']);
 });
 
 test('cancellation: an @assistant question in between keeps the offer; a later “yes” sends it', async () => {
@@ -1152,6 +1152,6 @@ test('cancellation: an @assistant question in between keeps the offer; a later �
   await say('@assistant what does chapter 5 cover?'); // the mock assistant may post it; live answers it
   assert.equal((await say('yes')).action, 'post');
   const texts = (await state()).lessons.map((l) => l.text);
-  assert.ok(texts.includes('Marketing 101 is cancelled on Fri, Nov 6.'), JSON.stringify(texts));
+  assert.ok(texts.includes('Marketing 351 is cancelled on Fri, Nov 6.'), JSON.stringify(texts));
   assert.ok(!texts.includes('yes'), 'the yes answered the offer');
 });

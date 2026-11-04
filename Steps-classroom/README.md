@@ -34,7 +34,7 @@ The original build record, in the user's own wording with every enhancement merg
 | 7a | [07a-university-hub.md](07a-university-hub.md) | The University Hub in the middle: registry, readiness, routing, forwarding, form references | 4 |
 | 7b | [07b-student-model-and-topology.md](07b-student-model-and-topology.md) | The Student's own model, three browser tabs, the live animated topology, telemetry redaction | 4 |
 | 8 | [08-model-generated-ui-loans.md](08-model-generated-ui-loans.md) | The Library's model composes loan-renewal screens from the A2UI catalog, with deterministic validation | 4 |
-| 9a | [09a-professor-agent.md](09a-professor-agent.md) | Marketing 101 Faculty behind the Hub; students ask it course questions | 4 |
+| 9a | [09a-professor-agent.md](09a-professor-agent.md) | Marketing 351 Faculty behind the Hub; students ask it course questions | 4 |
 | 9b | [09b-lessons-reverse-route.md](09b-lessons-reverse-route.md) | Faculty → Hub → Student lessons as new signed A2A messages, the Student's inbox, signed Student requests | 4 |
 | 9c | [09c-professor-chat-and-meetings.md](09c-professor-chat-and-meetings.md) | Faculty chat tab, messages as chat with replies, `@assistant`, meeting times | 3 |
 | 10 | [10-ag-ui.md](10-ag-ui.md) | AG-UI 1.0 between the agents and the screen: one connection per page, AG-UI runs, shared form state; nothing visible changes | 3 |

@@ -518,7 +518,7 @@ const errorText = (errors) => Object.entries(errors ?? {}).map(([field, msg]) =>
 
 // ---- Part 5: advertised skills, Student's cached view, propagation ---------
 
-const AGENT_NAMES = { tutor: 'Tutor Agent', library: 'Library Agent', professor: 'Marketing 101 Faculty', hr: 'HR Agent', hub: 'University Hub', student: 'Student agent' };
+const AGENT_NAMES = { tutor: 'Tutor Agent', library: 'Library Agent', professor: 'Marketing 351 Faculty', hr: 'HR Agent', hub: 'University Hub', student: 'Student agent' };
 let universityName = 'California State University Fullerton';
 // Replies come from the university; the specialist that produced one is shown as attribution.
 const viaUniversity = (id) => (id && id !== 'hub' ? `${universityName} · ${AGENT_NAMES[id] ?? id}` : universityName);
@@ -898,7 +898,7 @@ function handle(event, { live = true } = {}) {
     } else if (type === 'agent_status') {
       if (data.agentId === 'tutor') renderMode(data);
       if (data.agentId === 'professor') {
-        document.getElementById('professor-role').textContent = `Marketing 101 · answers from the course pack (${data.mode === 'live' ? `live, ${data.model}` : 'mock, no model'})`;
+        document.getElementById('professor-role').textContent = `Marketing 351 · answers from the course pack (${data.mode === 'live' ? `live, ${data.model}` : 'mock, no model'})`;
       }
       if (data.agentId === 'library') {
         document.getElementById('library-role').textContent = `Specialist behind the Hub · answers from saved content (${data.mode === 'live' ? `live, ${data.model}` : 'mock, no model'})`;
@@ -1118,7 +1118,7 @@ function handle(event, { live = true } = {}) {
         formAgentEvent(library, type, data, run);
     }
   } else if (source === 'professor') {
-    // Part 9: the Marketing 101 Faculty — student questions in, answers out, and lessons it posted.
+    // Part 9: the Marketing 351 Faculty — student questions in, answers out, and lessons it posted.
     switch (type) {
       case 'message_received':
         professor({ dir: 'received', label: 'Received', text: data.text, ids: { messageId: data.messageId, contextId: data.contextId, run } });

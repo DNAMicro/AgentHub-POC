@@ -5,7 +5,7 @@
 //   * class_message → null: the chat continues exactly as today (direct post).
 // Nothing is filed or posted on a guess. After HR files a request, the assistant checks the filed dates for
 // class days (the professor teaches every weekday: Mon–Fri minus campus holidays, part days included) and
-// offers a cancellation; only on “yes” do students get a code-built message (“Marketing 101 is cancelled on …”,
+// offers a cancellation; only on “yes” do students get a code-built message (“Marketing 351 is cancelled on …”,
 // dates from HR's receipt, never a reason — privacy).
 //
 // State here is memory only (owner rule): the open card (formRef, its A2UI messages, the hrCard summary),

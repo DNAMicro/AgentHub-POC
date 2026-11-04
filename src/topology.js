@@ -11,7 +11,7 @@
 
 const SPECIALISTS = new Set(['tutor', 'library', 'professor', 'hr']); // hr: staff only (reached only by the Hub's staff path)
 const edgeFor = (agentId) => (SPECIALISTS.has(agentId) ? `hub-${agentId}` : null);
-const NODE_NAMES = { student: 'Student', hub: 'University Hub', tutor: 'Tutor', library: 'Library', professor: 'Marketing 101 Faculty', hr: 'HR Agent', peoplesoft: 'PeopleSoft (demo stand-in)', model: 'Model provider' };
+const NODE_NAMES = { student: 'Student', hub: 'University Hub', tutor: 'Tutor', library: 'Library', professor: 'Marketing 351 Faculty', hr: 'HR Agent', peoplesoft: 'PeopleSoft (demo stand-in)', model: 'Model provider' };
 
 function hop(from, to, category, phase, label) {
   const edge = from === 'model' || to === 'model' ? `${from === 'model' ? to : from}-model`

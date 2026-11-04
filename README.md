@@ -1,6 +1,6 @@
 # AgentHub-POC
 
-A proof of concept for agents that work together over the real **Agent-to-Agent (A2A) protocol**. A Student agent talks to one University Hub, which routes each request to a Tutor, a Library or a Marketing 101 Faculty agent and relays the answer. A staff-only **HR Agent** handles the faculty member's own time off. Agents can also send the student real interfaces (**A2UI**), use **Claude Haiku 5.5** to answer and decide, and the faculty member can start a conversation on their own.
+A proof of concept for agents that work together over the real **Agent-to-Agent (A2A) protocol**. A Student agent talks to one University Hub, which routes each request to a Tutor, a Library or a Marketing 351 Faculty agent and relays the answer. A staff-only **HR Agent** handles the faculty member's own time off. Agents can also send the student real interfaces (**A2UI**), use **Claude Haiku 5.5** to answer and decide, and the faculty member can start a conversation on their own.
 
 Everything runs on your own machine (127.0.0.1 only) and uses fictional people, books and courses.
 
@@ -38,7 +38,7 @@ Tests (no paid calls): `npm test`.
 
 ---
 
-## The full story: Student Agent ↔ University Hub ↔ Tutor, Library & Marketing 101 Faculty
+## The full story: Student Agent ↔ University Hub ↔ Tutor, Library & Marketing 351 Faculty
 
 A localhost spike built in parts:
 
@@ -50,7 +50,7 @@ A localhost spike built in parts:
 6. The agents send **forms when asked in chat** (in-person tutoring requests, group study-room bookings).
 7. A **University Hub** (“California State University Fullerton”, fictional local demo) sits between the Student and the specialists: the Student talks only to the Hub, which keeps a private registry, routes, forwards and relays over A2A. A **live topology** view animates the real traffic. See [Part 7](#part-7-the-university-hub-and-the-live-topology).
 8. The Library's model **composes an interface** from the A2UI catalog for your own book loans and renewals. See [Part 8](#part-8-model-generated-ui-for-your-book-loans).
-9. A **Marketing 101 Faculty** answers your questions and can **start the conversation**: it posts lessons that travel Faculty → Hub → your Student agent's inbox. See [Part 9](#part-9-marketing-101--a-faculty-member-who-can-start-the-conversation).
+9. A **Marketing 351 Faculty** answers your questions and can **start the conversation**: it posts lessons that travel Faculty → Hub → your Student agent's inbox. See [Part 9](#part-9-marketing-101--a-faculty-member-who-can-start-the-conversation).
 
 - SDK: [`@a2a-js/sdk`](https://www.npmjs.com/package/@a2a-js/sdk) **1.3.0** (pinned exactly)
 - Protocol: **A2A v1.0** ([spec](https://a2a-protocol.org/v1.0.0/specification/)), JSON-RPC binding
@@ -88,7 +88,7 @@ npm run demo          # the same with mock models and the mock router (no networ
 npm run hub:live      # University Hub on 127.0.0.1:41243 (live router; or hub = mock router, hub:direct = everything to tutoring)
 npm run tutor:live    # Tutor Agent on 127.0.0.1:41241 (or tutor:mock / tutor) — registers with the Hub
 npm run library:live  # Library Agent on 127.0.0.1:41242 (or library = mock) — registers with the Hub
-npm run professor:live  # Marketing 101 Faculty on 127.0.0.1:41244 (or professor = mock) — registers with the Hub
+npm run professor:live  # Marketing 351 Faculty on 127.0.0.1:41244 (or professor = mock) — registers with the Hub
 npm run hr:live         # HR Agent (staff only) on 127.0.0.1:41245 (or hr = mock) — registers with the Hub
 npm run ui            # UI + Student Agent on 127.0.0.1:4444 — connects only to the Hub
 ```
@@ -98,7 +98,7 @@ npm run ui            # UI + Student Agent on 127.0.0.1:4444 — connects only t
 | Tutor Agent | 41241 | `npm run tutor` |
 | Library Agent | 41242 | `npm run library` |
 | University Hub | 41243 | `npm run hub` |
-| Marketing 101 Faculty | 41244 | `npm run professor` |
+| Marketing 351 Faculty | 41244 | `npm run professor` |
 | HR Agent (staff only, Part 14) | 41245 | `npm run hr` (`hr:live` = Haiku) |
 | PeopleSoft stand-in (MCP server, Part 15) | 41246 | `npm run peoplesoft` (`peoplesoft:live` = Haiku). Needs `PEOPLESOFT_TOKEN`; `npm run demo` makes one for you |
 | UI + Student Agent | 4444 | `npm run ui` |
@@ -134,7 +134,7 @@ Then open **http://127.0.0.1:4444**. Start order doesn't matter: specialists kee
 | `STUDENT_MODE` | The Student's own model: `off` (default), `mock` or `live`. It clarifies unclear questions and picks the capability for non-obvious ones (`demo` uses mock, `demo:live` live) |
 | `STUDENT_MODEL`, `HUB_MODEL`, `TUTOR_MODEL`, `LIBRARY_MODEL`, `PROFESSOR_MODEL`, `HR_MODEL` | Each agent's own model (overrides `model.name` in its config file). Supported: `claude-haiku-5-5` (default), `claude-sonnet-5-5`, `claude-opus-5-5`; anything else stops that agent at startup. Example: `TUTOR_MODEL=claude-sonnet-5-5 npm run demo:live` |
 
-In the browser, the **Conversation** tab is your chat with the university (and, since Part 9, your course inbox); **Agent activity** shows one console per agent; **Topology** is the live graph; **Faculty view** is the Marketing 101 faculty member's console for posting lessons. **Send** asks a question, which the Hub routes to one service or none. There is no form button: ask for something in plain words — “I’d like to arrange in-person help with calculus” or “I want to reserve a group study room” — and the receiving agent sends its form (Part 6). The ⚙ button on the Tutor and Library consoles opens their skill settings (proxied through the Hub's developer endpoint), and **Refresh skills** makes the Hub re-fetch both cards.
+In the browser, the **Conversation** tab is your chat with the university (and, since Part 9, your course inbox); **Agent activity** shows one console per agent; **Topology** is the live graph; **Faculty view** is the Marketing 351 faculty member's console for posting lessons. **Send** asks a question, which the Hub routes to one service or none. There is no form button: ask for something in plain words — “I’d like to arrange in-person help with calculus” or “I want to reserve a group study room” — and the receiving agent sends its form (Part 6). The ⚙ button on the Tutor and Library consoles opens their skill settings (proxied through the Hub's developer endpoint), and **Refresh skills** makes the Hub re-fetch both cards.
 
 ```bash
 npm test   # starts the Tutor (and UI server) as child processes, runs all checks, stops them
@@ -219,7 +219,7 @@ Everything is live, so the model may answer in words where the script hoped for 
 | `src/loan-store.js` | Part 8: the synthetic loan service — authoritative loans, eligibility, the permitted return-date range, and idempotent renewals, kept in memory only (a restart starts from the sample loans). |
 | `src/a2ui-catalog.js` | Part 8: the model-visible catalog (built from the installed renderer's official schemas) and the validation every generated surface must pass. |
 | `src/loan-model.js` | Part 8: the Library's model call for loan questions — answer, clarify or compose UI — with bounded repair and a truthful fallback; labelled mock mode. |
-| `src/professor-agent.js`, `src/professor-model.js`, `src/course-pack.js` | Part 9: the **Marketing 101 Faculty** — answers from its original course pack (eight topics with WSU chapter references, a skill for questions about the course itself, three seeded lessons) and the lesson being asked about (mock: labelled extraction; live: the configured model, no invented dates), and its authoring API and persisted outbox for posting lessons. |
+| `src/professor-agent.js`, `src/professor-model.js`, `src/course-pack.js` | Part 9: the **Marketing 351 Faculty** — answers from its original course pack (eight topics with WSU chapter references, a skill for questions about the course itself, three seeded lessons) and the lesson being asked about (mock: labelled extraction; live: the configured model, no invented dates), and its authoring API and persisted outbox for posting lessons. |
 | `src/hub-lessons.js` | Part 9: the Hub's lesson service — Student sessions (challenge at the configured endpoint), verified publishes (faculty member, course, enrollment), persisted deliveries with queueing, reconciliation and receipts, the once-per-course availability notice, and the trusted lesson association for follow-ups. |
 | `src/student-inbox.js` | Part 9: the Student agent's inbound A2A side (signed Hub messages only) and its persisted course inbox. |
 | `src/lessons.js`, `src/a2a-data.js`, `src/json-store.js` | Part 9: the typed lesson messages and HMAC signing; sending one typed data part over `message/send` with honest delivery outcomes; an atomic JSON-file store. |
@@ -849,19 +849,19 @@ Up to **2 renewals** per loan. A renewal moves the due date to a date **you choo
 - **Values typed into a replaced surface aren't carried over:** the Library doesn't see unsent input, so a new revision starts from what the model knows.
 - **Mock mode** (`LIBRARY_MODE=mock`) answers loan questions with a labelled text overview and never generates UI.
 
-## Part 9: Marketing 101 — a faculty member who can start the conversation
+## Part 9: Marketing 351 — a faculty member who can start the conversation
 
-Until now every exchange started with you. Part 9 adds one **Marketing 101 Faculty** (a fictional introductory course, not an official CSUF course) behind the Hub, and it works both ways:
+Until now every exchange started with you. Part 9 adds one **Marketing 351 Faculty** (a fictional introductory course, not an official CSUF course) behind the Hub, and it works both ways:
 
-- **You ask:** Student → Hub → Faculty → Hub → Student, like the Tutor and Library. The Hub's public card now offers a “Marketing 101” capability.
+- **You ask:** Student → Hub → Faculty → Hub → Student, like the Tutor and Library. The Hub's public card now offers a “Marketing 351” capability.
 - **The faculty member posts a lesson or a message** (“Homework is late”) **to one student or the whole class:** Faculty → Hub → Student. This is a **new A2A interaction that the Faculty agent starts**, delivered to an inbound endpoint the Student agent now has. It is not a task-status push for some earlier task.
 
 ### The walkthrough
 
-1. Start everything (`npm run demo:live`) and open the **Conversation** tab. “**Marketing 101 is now available.**” appears once, with *Ask a question* and *Got it*.
+1. Start everything (`npm run demo:live`) and open the **Conversation** tab. “**Marketing 351 is now available.**” appears once, with *Ask a question* and *Got it*.
 2. Ask “In marketing, what is the difference between segmentation and targeting?”. The Hub routes it to the Faculty agent, which answers from its course pack.
 3. Open **Faculty view** — a chat, like yours. What you write goes straight to students, as you wrote it: to the whole class, or to the students you tag (“@alex your homework is late”, “@alex @sam bring your drafts”). Your message shows who got it and each student's state; the system only names it (lesson or message, and a title). To get help, address the course assistant: “@assistant write a short lesson on price signals and send it to everyone”, “@assistant send the one product, different needs lesson to the class”, “@assistant who has opened the homework message?”. Code checks what the assistant does before anything is sent (your tags win, a named student must be tagged or named by you, no dates you didn't give, rewritten text is labelled). the demo class has Alex (your Student agent) and **Sam**, who has no Student agent running, so a post to everyone shows Alex **Delivered** and Sam **Queued at Hub**. If it's unclear (“tell him…”), it asks you instead of guessing.
-4. Back on **Conversation** (you haven't said anything since): a small notice “New Marketing 101 lesson” appears top-right without taking your focus, and the **Lessons** button shows an unread count.
+4. Back on **Conversation** (you haven't said anything since): a small notice “New Marketing 351 lesson” appears top-right without taking your focus, and the **Lessons** button shows an unread count.
 5. **View lesson** opens that exact lesson (course, faculty member, time, title, your faculty member's original text). The Faculty view now shows **Opened by the student**.
 6. **Ask about this lesson**, then type a follow-up.
 6a. **Messages are chat.** A message (“@alex your homework is late”) doesn't go to the inbox: it appears in your chat as a bubble from the faculty member with **↩ Reply**. Reply to it and your answer goes to the faculty member **in person**: no model answers it, you see “Sent to your faculty member”, and it shows up in the Faculty view as “Alex Student → you”, with its own **↩ Reply**, so the faculty member can answer you alone. A message the course assistant sent for the faculty member (“@assistant tell @alex his homework is late”) is marked “course assistant”. Replies to it are answered by the assistant on the faculty member's behalf, except anything only the faculty member can decide (an extension, an exception, a grade), which it passes on. The faculty member sees every one of these exchanges, and the ones handed over are marked “Needs your answer”.
@@ -941,7 +941,7 @@ CSUF staff file absences in a system with many fields and steps. This part shows
 2. HR picks the **absence name** from the university's real list (34 names, 51 name + reason pairs; a name repeats because it has several reasons). For a death it picks the reason from the relative in his words (“my grandmother” gives Grandparent/Great Grandparent), by code. It reads the dates, works out the hours and runs the **Forecast** (is there enough leave?). The card opens with a shaded summary he can read in 3 seconds: the name and reason, the dates and length in words, and what is left (“13 days of sick leave left after this”, or “This doesn't use your vacation or sick leave.”). Below it: **Absence name** and **Reason** (two autocomplete dropdowns; the reason list shows only that name's reasons), dates and hours, an optional note, and Submit. Every field is editable in place, required fields have a red star, and privacy or proof notices are small ⓘ icons.
 3. Anything HR couldn't work out is left **empty and highlighted**, and HR asks one short question in the chat. For “I need Friday off” it doesn't guess the reason. Answer in the chat (“it's a vacation day”) or in the card. Both work, and together: a chat answer sent while the card is open carries what you already changed on the card, so HR keeps those edits and adds what your words say. There is no field for a part day: type the hours. For three days, 20 hours means “first day partial, rest full” and 6 means “6 hours each day”; if both fit and your words don't say, HR asks in the chat. Ask “what's my sick balance?” or “show my time off requests” and the answer comes in the chat.
 4. **Submit request**. HR says “Sent to your manager for a decision.” and gives a request number. There is no manager agent, and nothing is deducted.
-5. If the app can't tell whether a message is for HR or the class, it asks: “Should I file this as time off with HR, tell the class, or both?” Nothing is posted or filed until you answer. “Both” files it. After HR files any request, the assistant checks whether you have class on those days (Marketing 101 meets every weekday; weekends and campus holidays are skipped, part days count) and asks “You have Marketing 101 on Fri, Nov 6. Would you like me to send a cancellation to your students?” Only after you say yes do the students get “Marketing 101 is cancelled on Fri, Nov 6.” — the dates only, never the reason.
+5. If the app can't tell whether a message is for HR or the class, it asks: “Should I file this as time off with HR, tell the class, or both?” Nothing is posted or filed until you answer. “Both” files it. After HR files any request, the assistant checks whether you have class on those days (Marketing 351 meets every weekday; weekends and campus holidays are skipped, part days count) and asks “You have Marketing 351 on Fri, Nov 6. Would you like me to send a cancellation to your students?” Only after you say yes do the students get “Marketing 351 is cancelled on Fri, Nov 6.” — the dates only, never the reason.
 
 ### Who can say they're who
 

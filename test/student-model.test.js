@@ -252,7 +252,7 @@ test('live mode: clearly not a university service → the Student answers itself
     stub.respondWith(() => messageReply(JSON.stringify({ action: 'decline', capability: 'none', reason: 'Home plumbing repair isn’t something the university offers.', clarification_question: '' })));
     const d = await chatVia(live.ui, stream, 'How do I fix my toilet plumbing?');
     const declined = find(d.events, 'student', 'request_declined').data;
-    assert.equal(declined.text, 'Home plumbing repair isn’t something the university offers. The university can help with: Tutoring, Library services, and Marketing 101.');
+    assert.equal(declined.text, 'Home plumbing repair isn’t something the university offers. The university can help with: Tutoring, Library services, and Marketing 351.');
     assert.ok(!find(d.events, 'student', 'request_sent'), 'nothing sent');
     assert.ok(!find(d.events, 'hub', 'message_received'));
     assert.equal(stateOf(stream.events, d.runId), 'completed');

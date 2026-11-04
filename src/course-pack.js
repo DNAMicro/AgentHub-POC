@@ -1,4 +1,4 @@
-// Part 9: the Marketing 101 course pack — a small, ORIGINAL knowledge pack for a fictional introductory
+// Part 9: the Marketing 351 course pack — a small, ORIGINAL knowledge pack for a fictional introductory
 // course. Short explanations and fictional examples written for this demo; each topic cites the chapter
 // of Washington State University's open textbook “Core Principles of Marketing” (CC BY-NC-SA,
 // https://wsu.pressbooks.pub/marketing/) that sets its scope. Nothing here is copied from that book.
@@ -7,8 +7,8 @@
 const WSU = 'https://wsu.pressbooks.pub/marketing/chapter/';
 
 export const COURSE = {
-  courseId: 'mkt-101',
-  title: 'Marketing 101',
+  courseId: 'mkt-351',
+  title: 'Marketing 351',
   professorName: 'Dr. Dabirian',
   note: 'A fictional introductory course for this demo — not an official CSUF course or approved curriculum.',
 };
@@ -102,16 +102,16 @@ export const SEED_LESSONS = [
 export const PROFESSOR_DEFAULT_SKILLS = {
   skills: TOPICS.map((t) => ({
     id: t.id, kind: 'answer', enabled: true, name: t.name,
-    description: `Marketing 101: ${t.name.toLowerCase()} — explanations, examples and checking your understanding.`,
+    description: `Marketing 351: ${t.name.toLowerCase()} — explanations, examples and checking your understanding.`,
     tags: t.tags.slice(0, 8), examples: [], scope: { allowed: [t.name], excluded: ['real course deadlines, grades or policies'] },
     knowledge: `${t.explanation}\nExample: ${t.example}\nSources: ${t.sources.join(' ')}`,
   })).concat({
     // Questions about the course itself (late homework, an assignment, one of my messages) are the
     // professor's too. Advertised so the Hub's router has a real skill to name for them.
     id: 'course-questions', kind: 'answer', enabled: true, name: 'Questions about the course',
-    description: 'Marketing 101: questions about the course itself — homework, assignments, late work, and the lessons and messages I posted. Answered only from what I posted; I never invent deadlines, grades or policies.',
+    description: 'Marketing 351: questions about the course itself — homework, assignments, late work, and the lessons and messages I posted. Answered only from what I posted; I never invent deadlines, grades or policies.',
     tags: ['homework', 'assignment', 'late work', 'course', 'class'], examples: ['Can I hand in my marketing homework late?'],
-    scope: { allowed: ['Questions about Marketing 101 itself'], excluded: ['real course deadlines, grades or policies not stated in my posts'] },
+    scope: { allowed: ['Questions about Marketing 351 itself'], excluded: ['real course deadlines, grades or policies not stated in my posts'] },
     knowledge: 'For questions about the course itself I answer from the lessons and messages I posted to you. Deadlines, grades, late-work rules and other course policies are not in my course material; unless one of my messages states them, I say plainly that I don\'t have that information instead of guessing.',
   }),
 };

@@ -5,8 +5,8 @@ Time: about 60 minutes. Cost: free (tests use mocks). Optional live check: PAID,
 ## What you'll see when it works
 
 - A lesson posted through the Faculty agent's API travels Faculty → Hub → Student as a **new** signed A2A `message/send` and lands in the idle student's persisted inbox.
-- The student sees a toast "New Marketing 101 lesson", an unread badge on **Inbox**, and a lesson dialog. Follow-ups go to that lesson's faculty member.
-- "Marketing 101 is now available." appears once. A post to `all` reaches Alex (Delivered) and queues for Sam (no Student agent).
+- The student sees a toast "New Marketing 351 lesson", an unread badge on **Inbox**, and a lesson dialog. Follow-ups go to that lesson's faculty member.
+- "Marketing 351 is now available." appears once. A post to `all` reaches Alex (Delivered) and queues for Sam (no Student agent).
 - Every Student → Hub request is signed. Unsigned requests are refused.
 
 ## Starting point
@@ -65,7 +65,7 @@ The Faculty agent chat tab, `@assistant`, replies to messages and meetings come 
 
 1. Add `student-sam` to the Step 7a allowlist: `students: ['student-alex', 'student-sam']`. `studentNames: { 'student-alex': 'Alex Student', 'student-sam': 'Sam Student' }`.
 2. `studentEndpoints: { 'student-alex': 'http://127.0.0.1:4444' }`. `STUDENT_URL` overrides the first student's endpoint. Each key must be a configured student; each URL must be localhost.
-3. `courses: { 'mkt-101': { title: 'Marketing 101', professor: 'professor', professorName: 'Dr. Dabirian', enrolled: ['student-alex', 'student-sam'] } }`. `professorName` (optional, non-empty) is what students see on deliveries and notices — fall back to the peer's display name. Add “Taught by Dr. Dabirian” to the `marketing` destination's description, tags “dr. dabirian” and “dabirian”, and the example “Can you ask Dr. Dabirian about the homework?”, so a question that names him routes to Marketing 101. The faculty member must be a peer; enrolled ids must be configured students. Mirror all of this in `config/hub.example.json`.
+3. `courses: { 'mkt-351': { title: 'Marketing 351', professor: 'professor', professorName: 'Dr. Dabirian', enrolled: ['student-alex', 'student-sam'] } }`. `professorName` (optional, non-empty) is what students see on deliveries and notices — fall back to the peer's display name. Add “Taught by Dr. Dabirian” to the `marketing` destination's description, tags “dr. dabirian” and “dabirian”, and the example “Can you ask Dr. Dabirian about the homework?”, so a question that names him routes to Marketing 351. The faculty member must be a peer; enrolled ids must be configured students. Mirror all of this in `config/hub.example.json`.
 
 **`src/hub-lessons.js`** — `createLessonService({ cfg, registry, emit, file = HUB_LESSON_FILE ?? 'data/hub-lessons.json', deliverTimeoutMs = HUB_DELIVER_TIMEOUT_MS ?? 5000, retryMs = HUB_DELIVER_RETRY_MS ?? 3000 })`:
 
@@ -112,7 +112,7 @@ The Faculty agent chat tab, `@assistant`, replies to messages and meetings come 
 **`src/professor-agent.js`**:
 
 37. Outbox: `createJsonStore(PROFESSOR_OUTBOX_FILE ?? 'data/professor-outbox.json', { lessons: {}, operations: {} })`. Key posts by `lessonId#revision`.
-38. `createPost({ operationId, kind = 'lesson', title = '', text, audience, courseId = 'mkt-101', lessonId = null, source = 'api', verbatim = true, seedId = null, author = 'professor', meeting = null })`:
+38. `createPost({ operationId, kind = 'lesson', title = '', text, audience, courseId = 'mkt-351', lessonId = null, source = 'api', verbatim = true, seedId = null, author = 'professor', meeting = null })`:
     - malformed id → 400; bad audience → 400; `validateLesson` errors → 400;
     - a known `operationId` with the same content → 200 `{ lesson, duplicate: true }`; different content → 409;
     - a `lessonId` makes a new revision (unknown → 404); otherwise a new `ls-<12 chars>` id, revision 1.
@@ -161,15 +161,15 @@ The Faculty agent chat tab, `@assistant`, replies to messages and meetings come 
 2. Lesson text is content: set it with `textContent` only. Nothing in it is ever acted on.
 3. **Inbox button** in the chat header with the unread **lesson** count. The Conversation tab gets a dot (`data-unread`) counting lessons and messages.
 4. A collapsible inbox lists **lessons only**: New / Opened marker, title, course, time, "saved for later", and **View lesson**.
-5. **Notice banner** "Marketing 101 is now available." with **Ask a question** and **Got it**. Ask sets the chip "About: Marketing 101" (capability `marketing`) and focuses the composer. Both mark the notice seen.
-6. **Toast** for a new lesson: top-right, `role="status"`, never focused, "New Marketing 101 lesson", **View lesson** / **Dismiss**. It leaves after 15 s unless hovered or focused. Only live events, never replayed history.
+5. **Notice banner** "Marketing 351 is now available." with **Ask a question** and **Got it**. Ask sets the chip "About: Marketing 351" (capability `marketing`) and focuses the composer. Both mark the notice seen.
+6. **Toast** for a new lesson: top-right, `role="status"`, never focused, "New Marketing 351 lesson", **View lesson** / **Dismiss**. It leaves after 15 s unless hovered or focused. Only live events, never replayed history.
 7. **Lesson dialog** (`<dialog>`): "course · from faculty member · posted time", the title, the original text. Buttons:
    - **Start lesson** — sends "I'm starting the lesson "<title>"." with `lessonDeliveryId`;
    - **Ask about this lesson** — closes, sets the chip "About: <title>", focuses an empty composer;
    - **Save for later**; **Close**. Escape closes it.
 8. Opening the dialog calls `POST /api/inbox/:id/open`. Toasts, deliveries and Save never mark anything opened.
 9. While the chip is set, each message carries `lessonDeliveryId` (or `capability`). × or New conversation clears it.
-10. A delivered **message** appears in the student's chat as its own bubble: "Marketing 101 Faculty → you", or "→ the whole class" when `toAll`.
+10. A delivered **message** appears in the student's chat as its own bubble: "Marketing 351 Faculty → you", or "→ the whole class" when `toAll`.
 11. The composer has **no default text**, only the placeholder "Ask anything…".
 12. Show New conversation whenever the inbox has anything. On `classroom_reset`, close the dialog and remove toasts and the chip. Explain only a partial reset in the chat; a clean reset shows nothing.
 13. Student console lines for lesson events; Hub console lines for delivery events. The timeline marks a lesson route "(from your inbox)".
@@ -186,7 +186,7 @@ The Faculty agent chat tab, `@assistant`, replies to messages and meetings come 
 6. `test/professor.test.js` (mock Faculty and router; labelled plumbing, not judgment) checks:
    - a marketing question reaches the Faculty agent through the Hub;
    - a lesson reaches an idle student who never chatted;
-   - the notice appears once, also after restarts (`av-mkt-101`);
+   - the notice appears once, also after restarts (`av-mkt-351`);
    - opening marks opened; a follow-up with `lessonDeliveryId` goes to its faculty member (`decidedBy: 'lesson'`); another student's delivery id is refused;
    - wrong course faculty member, unknown course, unenrolled recipient and a forged publish are rejected;
    - double post, restarts, reconnects and replay give one delivery;
@@ -232,7 +232,7 @@ The Faculty agent chat tab, `@assistant`, replies to messages and meetings come 
 - `npm test` → all tests pass, 0 failed.
 - `node --test test/professor.test.js` passes.
 - `npm run demo`, browser at `http://127.0.0.1:4444` (optional — needs a browser; if none is available, say so):
-  - the banner "Marketing 101 is now available." appears once; Got it hides it, and a reload doesn't bring it back;
+  - the banner "Marketing 351 is now available." appears once; Got it hides it, and a reload doesn't bring it back;
   - `curl -s -X POST localhost:4444/api/professor/lessons -H 'Content-Type: application/json' -d '{"operationId":"op-demo-0001","audience":"all","title":"Customer value","text":"Customer value is what you get minus what it costs."}'` → Alex delivered, Sam queued; a toast appears without stealing focus;
   - View lesson → the dialog; Ask about this lesson → empty, focused composer with the chip; a follow-up is answered by the Faculty agent;
   - repeating the same curl creates no second lesson;
@@ -262,4 +262,5 @@ Then append the "CLAUDE.md notes" below to `CLAUDE.md` and commit `Step 9b: Less
 
 ## Enhancements merged into this step
 
-- Renamed what the audience sees (2026-11-04): the agent is “Marketing 101 Faculty”, the tab is “Faculty view” (/faculty; /professor still opens it), and the person is “Dr. Dabirian” (was “Professor Amir”), because “Professor” confused the audience. Code names, files, settings and commands keep “professor”. Students may still type “professor”: keep accepting it (the Student agent treats a title word — professor, faculty, instructor, Dr. — as naming whoever the last reply named with a title).
+- Renamed what the audience sees (2026-11-04): the agent is “Marketing 351 Faculty”, the tab is “Faculty view” (/faculty; /professor still opens it), and the person is “Dr. Dabirian” (was “Professor Amir”), because “Professor” confused the audience. Code names, files, settings and commands keep “professor”. Students may still type “professor”: keep accepting it (the Student agent treats a title word — professor, faculty, instructor, Dr. — as naming whoever the last reply named with a title).
+- Renamed the course (2026-11-04): it is “Marketing 351” (course id `mkt-351`), not “Marketing 101” — CSU Fullerton has no Marketing 101; its marketing course is Marketing 351. Students may also type its catalog code “MKTG 351” (a capability tag). The step file names keep “101”.
