@@ -136,10 +136,13 @@ test('topology labels: HR is a node behind the Hub with its own model box', () =
   assert.equal(topologyLabel({ source: 'hub', type: 'relay_sent', data: { kind: 'answer' } }).edge, 'student-hub');
 });
 
-test('npm run demo starts six processes, HR among them; the Hub snapshot labels HR as a staff service', async () => {
+test('npm run demo starts seven processes, HR and PeopleSoft among them (the token goes to those two only); the Hub snapshot labels HR as a staff service', async () => {
   const src = readFileSync(new URL('../scripts/start-all.js', import.meta.url), 'utf8');
-  assert.match(src, /\['hr', 'src\/hr-agent\.js', \{ HR_MODE: live \? 'live' : 'mock' \}\]/);
-  assert.match(src, /six/i);
+  assert.match(src, /\['hr', 'src\/hr-agent\.js', \{ HR_MODE: live \? 'live' : 'mock', PEOPLESOFT_TOKEN: peoplesoftToken \}\]/);
+  assert.match(src, /\['psoft', 'src\/peoplesoft-mcp\.js', \{ PEOPLESOFT_MODE: live \? 'live' : 'mock', PEOPLESOFT_TOKEN: peoplesoftToken \}\]/);
+  assert.equal((src.match(/PEOPLESOFT_TOKEN: peoplesoftToken/g) ?? []).length, 2, 'only HR and PeopleSoft get the token');
+  assert.match(src, /randomBytes\(24\)\.toString\('hex'\)/);
+  assert.match(src, /seven/i);
   const topo = await (await fetch(`${s.hub.url}/viz/topology`)).json();
   assert.equal(topo.hub.destinations.find((d) => d.destination === 'hr').audience, 'staff');
   const hr = topo.specialists.find((x) => x.agentId === 'hr');

@@ -10,7 +10,7 @@ Requirements: **Node.js 20+** (verified on 26.11.1). An Anthropic API key only f
 
 ```bash
 npm install
-npm run demo          # all six processes with mock models: free, no network
+npm run demo          # all seven processes with mock models: free, no network
 # open http://127.0.0.1:4444
 ```
 
@@ -78,11 +78,11 @@ Use `PORT=...` to change the Tutor's port and `TUTOR_URL=http://127.0.0.1:...` t
 ### Browser monitor: all agents (Parts 7–9)
 
 ```bash
-npm run demo:live     # all six processes, Hub router + Tutor + Library + Professor + HR on Claude Haiku 5.5 (paid; key from env or .env)
+npm run demo:live     # all seven processes, Hub router + Tutor + Library + Professor + HR + PeopleSoft's planner on Claude Haiku 5.5 (paid; key from env or .env)
 npm run demo          # the same with mock models and the mock router (no network, no cost)
 ```
 
-`demo` runs `scripts/start-all.js`, which starts the six processes and prefixes their output; Ctrl+C stops them all (each specialist signs out from the Hub). To run them separately instead:
+`demo` runs `scripts/start-all.js`, which starts the seven processes and prefixes their output; Ctrl+C stops them all (each specialist signs out from the Hub). To run them separately instead:
 
 ```bash
 npm run hub:live      # University Hub on 127.0.0.1:41243 (live router; or hub = mock router, hub:direct = everything to tutoring)
@@ -100,6 +100,7 @@ npm run ui            # UI + Student Agent on 127.0.0.1:4444 — connects only t
 | University Hub | 41243 | `npm run hub` |
 | Marketing 101 Professor | 41244 | `npm run professor` |
 | HR Agent (staff only, Part 14) | 41245 | `npm run hr` (`hr:live` = Haiku) |
+| PeopleSoft stand-in (MCP server, Part 15) | 41246 | `npm run peoplesoft` (`peoplesoft:live` = Haiku). Needs `PEOPLESOFT_TOKEN`; `npm run demo` makes one for you |
 | UI + Student Agent | 4444 | `npm run ui` |
 
 Then open **http://127.0.0.1:4444**. Start order doesn't matter: specialists keep retrying registration, and the Student re-reads the Hub's card when the Hub appears.
@@ -121,6 +122,9 @@ Then open **http://127.0.0.1:4444**. Start order doesn't matter: specialists kee
 | `HUB_TEST_STUDENTS_WITHOUT_ENDPOINT=1` | Tests only: lets a student with no configured endpoint register with the Hub (normally refused, because it can't be challenged) |
 | `PROFESSOR_MODE` | Part 9: the Professor's answers, `mock` (default, labelled) or `live` |
 | `HR_MODE` | Part 14: the HR Agent's reading of the professor's reason, `mock` (default, labelled heuristic) or `live` |
+| `PEOPLESOFT_MODE` | Part 15: the PeopleSoft stand-in's step planner, `mock` (default, labelled heuristic) or `live` |
+| `PEOPLESOFT_URL`, `PEOPLESOFT_TOKEN` | Part 15: where HR finds the PeopleSoft stand-in (default `http://127.0.0.1:41246`) and the secret it must send. Never printed |
+| `HR_TOOL_CHOICE_TIMEOUT_MS`, `PEOPLESOFT_TIMEOUT_MS`, `PEOPLESOFT_MODEL_TIMEOUT_MS` | Part 15: the time limits for HR's tool choice (8 s), HR's PeopleSoft call (12 s) and PeopleSoft's planner (8 s); see `src/timeouts.js` |
 | `HR_TEST_HOOKS=1` | Tests only: adds `GET /test/hr/requests` to the HR Agent (the sent requests it holds in memory) |
 | `HUB_FORM_TTL_MS` | How long a form or HR card stays usable (default 2 hours). The Hub and the Professor's staff desk both read it |
 | `HEARTBEAT_INTERVAL_MS`, `HEARTBEAT_EXPIRY_MS` | Specialist heartbeat period; how long the Hub waits before marking one stale |
@@ -229,8 +233,10 @@ Everything is live, so the model may answer in words where the script hoped for 
 | `src/config.js`, `config/*.example.json` | Part 7: per-agent configuration with startup validation. |
 | `src/topology.js` | Part 7: labels each telemetry event with its connection, direction, category and phase for the topology view. |
 | `public/topology.js` | Part 7: the live topology graph (SVG), traces, details, event list. |
-| `scripts/start-all.js` | Part 7: starts all the processes — six since Part 14 (`npm run demo` / `demo:live`). |
+| `scripts/start-all.js` | Part 7: starts all the processes — six since Part 14, seven since Part 15 (`npm run demo` / `demo:live`). |
 | `src/hr-agent.js`, `src/hr-store.js`, `src/hr-intent.js`, `src/hr-model.js`, `src/absence-types.js` | Part 14: the staff-only **HR Agent** — chat and card logic, the in-memory staff/balance/request store with the Forecast, the code that reads dates and partial days, and the shared absence list (also served to the browser at `/shared/absence-types.js`), and the absence-type choice (model proposes, code verifies; the reason comes from code). |
+| `src/peoplesoft-mcp.js`, `src/peoplesoft-store.js`, `src/peoplesoft-model.js`, `src/leave-rules.js` | Part 15: the PeopleSoft stand-in MCP server (three tools, bearer token), its in-memory records and the code-run leave rules, and its step planner. |
+| `src/hr-peoplesoft.js`, `src/timeouts.js` | Part 15: HR's MCP client (tool choice checked by code, one shared time budget) and the nested time limits for the staff path. |
 | `src/staff.js`, `src/professor-staff.js` | Part 14: the Hub's signed staff path (media types, signed fields, reply shape) and the Professor's staff desk (spots a request for himself, asks when unsure, holds the open card, offers the class note). |
 | `scripts/demo/progression.js` | The audience demo: presents Steps 1–11 on the running app with slides, captions, highlights and pauses (run with playwright-cli). |
 | `scripts/live-eval.js` | Part 5's opt-in live spot check of routing and scope decisions. Paid; off unless `LIVE_EVAL_MAX_USD` is set. |
@@ -966,6 +972,33 @@ CSUF staff file absences in a system with many fields and steps. This part shows
 ### Tests
 
 `test/absence-types.test.js`, `test/hr-form.test.js`, `hr-store.test.js`, `hr-intent.test.js`, `hr.test.js`, `hub-staff.test.js`, `professor-staff.test.js`, `hr-ui.test.js` (all with mock models or the fake Anthropic server). `scripts/browser-checks/hr-card.js` is a playwright-cli check of the card on a separate stack. See [Steps/14](Steps/14-hr-agent-time-off.md).
+
+## Part 15: PeopleSoft over MCP — where the time-off request is really stored
+
+The HR Agent no longer keeps the staff records. They live in a seventh process, a **PeopleSoft stand-in** (`src/peoplesoft-mcp.js`, port **41246**). It is a fictional demo, not Oracle's PeopleSoft, and it says so in its startup line, its tool descriptions and its Topology details. HR talks to it over **MCP** (Model Context Protocol), a standard way for an AI to call tools on another system.
+
+### What happens, and when
+
+- Two moments go through MCP: when the card opens (or is re-issued), HR asks for the staff member's **balances**, and when the professor presses **Submit**, HR asks PeopleSoft to **create the absence request**. Questions like “what's my sick balance?” and “what are my requests?” use it too.
+- **HR's AI picks the tool at both moments.** It sees the tool list from MCP and names one tool. Code checks the name against the moment (balances when the card opens, create at Submit). A wrong pick makes no call and says so.
+- **PeopleSoft has its own AI.** On a new request its planner (Haiku in live mode, a labelled heuristic in mock) chooses steps from a fixed menu. Code always adds the required ones (balance, dates and holidays, overlap, store the record) and runs every step itself.
+- **The AI never decides a fact.** Dates, hours, balances, pass or fail, and the tool's arguments come from code.
+- Topology draws PeopleSoft as a rounded tile below HR (a database icon, “PeopleSoft”, “MCP SERVER”) with a sparkle and a sweeping light while a call is worked on, and a dash-dot line labelled MCP. It has no circle and no model box, so it can't be mistaken for an agent. The wrapper's step names are never shown on screen.
+
+### If PeopleSoft doesn't answer
+
+- Submit says: “PeopleSoft didn't answer. Nothing is filed until it confirms — press Submit again; it won't file twice.” The same operation ID is used, so a second press files once. Nothing retries by itself, except one reconnect when PeopleSoft was restarted and HR's session is unknown (the tool provably never ran).
+- A chat question says: “PeopleSoft didn't answer, so I can't show your leave right now. Nothing changed — ask again in a moment.”
+- Refusals come as one of nine fixed codes (`not_enough`, `holiday_boundary`, `no_workdays`, `too_long`, `overlap`, `bad_reason`, `operation_reused`, `unknown_staff`, `bad_hours`) and one plain sentence. Only the code goes into telemetry.
+
+### Safety
+
+- Only HR can call PeopleSoft: a random token made on every start, given to those two processes only. It is never printed or logged. Everything binds to `127.0.0.1`.
+- Records are in memory only and reseed on start and on New conversation.
+
+### Tests
+
+`test/peoplesoft-store.test.js`, `peoplesoft-model.test.js`, `peoplesoft-mcp.test.js`, `hr-peoplesoft.test.js`, `hr-peoplesoft-budget.test.js`, `topology-peoplesoft.test.js`, `timeouts.test.js`. `scripts/browser-checks/peoplesoft.js` (36 checks) runs on a separate rehearsal stack, never on the running demo.
 
 ## Deliberately not included
 

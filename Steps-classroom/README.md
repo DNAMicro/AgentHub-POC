@@ -40,6 +40,7 @@ The original build record, in the user's own wording with every enhancement merg
 | 10 | [10-ag-ui.md](10-ag-ui.md) | AG-UI 1.0 between the agents and the screen: one connection per page, AG-UI runs, shared form state; nothing visible changes | 3 |
 | 11 | [11-fill-forms-from-chat.md](11-fill-forms-from-chat.md) | Fill out an open form from the chat: values read by code, checked by the form's rules, names/emails hidden from the model, nothing sent until you press the button | 3 |
 | 14 | [14-hr-agent-time-off.md](14-hr-agent-time-off.md) | Staff-only HR Agent: a professor files time off from the Professor chat; the Hub's signed staff path; one clean card; asks when unsure; leave details never reach students (numbered 14: 12 and 13 are reserved) | 4 |
+| 15 | [15-peoplesoft-mcp.md](15-peoplesoft-mcp.md) | PeopleSoft over MCP: a seventh process (a fictional MCP server, port 41246) holds the time-off records; HR's AI picks the tool; PeopleSoft's own AI plans the steps while code decides the facts; Topology design F; honest "didn't answer" handling (numbered 15: 12 and 13 are reserved) | 4 |
 
 ## What changed from the original steps, and why
 
