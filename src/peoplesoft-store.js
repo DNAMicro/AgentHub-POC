@@ -11,6 +11,7 @@ import { workdays, isPair, nameOf, reasonsOf } from './absence-types.js';
 import { planAbsence } from './leave-rules.js';
 
 const seedStaff = () => [{ staffId: 'staff-amir', name: 'Professor Amir', standardHours: 8, balances: { vacation: 96, sick: 120, personalHoliday: 8 }, role: 'Department chair', appointment: '12-month', synthetic: true }];
+export const REFUSAL_CODES = ['not_enough', 'holiday_boundary', 'no_workdays', 'too_long', 'overlap', 'bad_reason', 'operation_reused', 'unknown_staff', 'bad_hours'];
 const recordNumber = (n) => `ABS-${String(n).padStart(6, '0')}`;
 
 export function createPeopleSoftStore({ now = () => new Date() } = {}) {
@@ -52,6 +53,8 @@ export function createPeopleSoftStore({ now = () => new Date() } = {}) {
       state.operations.set(operationId, { request, result });
       return result;
     },
+    // Read-only look at an operation's stored result (null if unknown), so a caller can skip slow work on a repeat.
+    stored: (operationId) => state.operations.get(operationId)?.result ?? null,
     balances: (staffId) => { const s = find(staffId); return s ? { ...s.balances } : null; },
     // Receipts for one person, newest first.
     requests: (staffId) => state.requests.filter((r) => r.staffId === staffId).map((r) => ({

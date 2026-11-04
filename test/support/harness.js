@@ -128,6 +128,14 @@ export async function startHr(env = {}) {
   return hr;
 }
 
+// PeopleSoft stand-in MCP server (Part 15): token required; records in memory.
+export const PEOPLESOFT_READY = /PeopleSoft MCP server \(demo stand-in\) listening on (http:\/\/127\.0\.0\.1:\d+)/;
+export async function startPeopleSoft(env = {}) {
+  const ps = startProcess('src/peoplesoft-mcp.js', { PORT: '0', ...env }, PEOPLESOFT_READY);
+  ps.url = await ps.ready;
+  return ps;
+}
+
 // Part 7: the whole stack — Hub, Tutor, Library and the Student UI. The specialists' ports are picked
 // first so the Hub's configuration (its trusted endpoints) can name them; the specialists then register
 // with the Hub. Pass tutorPort/libraryPort to restart a specialist on the same trusted endpoint.

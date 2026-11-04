@@ -143,3 +143,29 @@ test('receipt carries a PeopleSoft record id and the steps run', () => {
 test('planAbsence is the same rule HR uses', () => {
   assert.deepEqual(planAbsence({ standardHours: 8, balances: { vacation: 96, sick: 120, personalHoliday: 8 } }, { absenceType: 'VAC', beginDate: '2026-11-06', endDate: '2026-11-06' }), { ok: true, hours: 8, days: 1, credit: { type: 'vacation', now: 96, after: 88 } });
 });
+
+test('record ids, reset, other staff, weekend adjacency, stored()', () => {
+  const s = fresh();
+  const v = (b, e) => ({ absenceType: 'VAC', absenceReason: 'VAC', beginDate: b, endDate: e, partial: null });
+  assert.equal(s.stored('op-1'), null);
+  const a = s.file('staff-amir', v('2026-11-10', '2026-11-10'), 'aaaa1111', ['store_record']);
+  assert.equal(a.ok, true, JSON.stringify(a));
+  assert.equal(a.receipt.recordId, 'ABS-000101');
+  assert.deepEqual(s.stored('aaaa1111'), a);
+  const b = s.file('staff-amir', v('2026-11-16', '2026-11-16'), 'bbbb2222', []);
+  assert.equal(b.receipt.recordId, 'ABS-000102');
+  // Fri Nov 6 filed; a Sat-Sun-adjacent request on Mon Nov 9 is not an overlap
+  assert.equal(s.file('staff-amir', v('2026-11-06', '2026-11-06'), 'cccc3333', []).ok, true);
+  assert.equal(s.file('staff-amir', v('2026-11-09', '2026-11-09'), 'dddd4444', []).ok, true);
+  assert.equal(s.file('staff-amir', v('2026-11-10', '2026-11-10'), 'eeee5555', []).code, 'overlap');
+  s.reset();
+  assert.equal(s.stored('aaaa1111'), null);
+  assert.equal(s.file('staff-amir', v('2026-11-10', '2026-11-10'), 'ffff6666', []).receipt.recordId, 'ABS-000101');
+  // The seed has one staff member, so "a different staff member on the same day" cannot be tested.
+});
+
+test('REFUSAL_CODES is the fixed set of nine', async () => {
+  const { REFUSAL_CODES } = await import('../src/peoplesoft-store.js');
+  assert.equal(REFUSAL_CODES.length, 9);
+  assert.ok(REFUSAL_CODES.includes('bad_hours'));
+});
