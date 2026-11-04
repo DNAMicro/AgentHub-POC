@@ -3,6 +3,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
+import { z } from 'zod';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createCanvasLink } from '../src/professor-canvas.js';
 import { unusedPort, stopProcess, startCanvas } from './support/harness.js';
 import { canvasEnv, newToken, validQuiz, canvasRecords, startTestCanvas, recorder } from './support/canvas-fixtures.js';
@@ -60,12 +65,52 @@ test('a Canvas refusal keeps its code only if it is in the fixed set', async (t)
   assert.deepEqual([missing.outcome, missing.code], ['refused', 'unknown_quiz']);
 });
 
-test('a schema failure at Canvas is a refusal without a code', async (t) => {
+test('a schema failure at Canvas (error without structured content) is uncertain, not refused', async (t) => {
   const { link } = await setup(t);
   const r = await link.publishQuiz({ quizId: -5, operationId: randomUUID() });
-  assert.equal(r.ok, false);
-  assert.equal(r.outcome, 'refused');
-  assert.equal(r.code, null);
+  assert.deepEqual(r, { ok: false, outcome: 'uncertain' });
+});
+
+// A tiny scripted MCP server (stateless): the tool throws, or the HTTP answer is a 5xx, or the answer has no receipt.
+async function scriptedCanvas(t, mode) {
+  const server = createServer(async (req, res) => {
+    let raw = '';
+    for await (const c of req) raw += c;
+    const body = raw ? JSON.parse(raw) : undefined;
+    if (mode === '503' && body?.method === 'tools/call') { res.writeHead(503).end('busy'); return; }
+    const mcp = new McpServer({ name: 'scripted', version: '1.0.0' });
+    const handler = async () => {
+      if (mode === 'throw') throw new Error('boom');
+      if (mode === 'empty') return { content: [{ type: 'text', text: '{}' }], structuredContent: {} };
+      return { content: [{ type: 'text', text: 'ok' }] };
+    };
+    mcp.registerTool('create_quiz', { description: 'x', inputSchema: { courseId: z.string(), quiz: z.any(), operationId: z.string() } }, handler);
+    mcp.registerTool('publish_quiz', { description: 'x', inputSchema: { courseId: z.string(), quizId: z.number(), operationId: z.string() } }, handler);
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    res.on('close', () => { transport.close(); mcp.close(); });
+    await mcp.connect(transport);
+    await transport.handleRequest(req, res, body);
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const link = createCanvasLink({ url: `http://127.0.0.1:${server.address().port}`, token: 'tok' });
+  t.after(async () => { await link.close(); server.close(); server.closeAllConnections(); });
+  return link;
+}
+
+test('a thrown tool error at Canvas is uncertain (it may have stored the quiz)', async (t) => {
+  const link = await scriptedCanvas(t, 'throw');
+  assert.deepEqual(await link.createQuiz({ quiz: validQuiz(), operationId: randomUUID() }), { ok: false, outcome: 'uncertain' });
+});
+
+test('a success-shaped answer with no receipt is uncertain', async (t) => {
+  const link = await scriptedCanvas(t, 'empty');
+  assert.deepEqual(await link.createQuiz({ quiz: validQuiz(), operationId: randomUUID() }), { ok: false, outcome: 'uncertain' });
+});
+
+test('an HTTP 5xx during tools/call is uncertain, not unavailable', async (t) => {
+  const link = await scriptedCanvas(t, '503');
+  assert.deepEqual(await link.createQuiz({ quiz: validQuiz(), operationId: randomUUID() }), { ok: false, outcome: 'uncertain' });
 });
 
 test('no token: not_configured, no network, no mcp_call_started', async () => {

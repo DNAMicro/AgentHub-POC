@@ -37,9 +37,6 @@ export const withoutSteps = (receipt) => {
   return rest;
 };
 const REFUSED_TEXT = 'Canvas could not complete that request.';
-// Canvas's own words for "something unexpected broke inside": not a refusal, the outcome is unknown.
-const UNEXPECTED = /could not complete the call/i;
-const textOf = (result) => (Array.isArray(result?.content) ? result.content.map((c) => c?.text ?? '').join(' ') : '');
 
 // The call's own minimum: Canvas's planner plus 2 s, so a slow connect can't leave the call less time than the planner
 // may take. The connect gets the rest of the shared budget, so the total stays timeoutMs.
@@ -136,19 +133,23 @@ export function createCanvasLink({ url, token, emit = () => {}, timeoutMs = TIME
           if (!s.tools.includes(expected)) return done({ ok: false, outcome: 'unavailable' });
           continue;
         }
+        // Intentionally differs from hr-peoplesoft.js: a 5xx during tools/call means Canvas may have run the tool, so it is
+        // uncertain (the caller retries with the same operationId). 401, no session and a refused connection are unavailable.
+        if (err instanceof StreamableHTTPError && err.code >= 500) return done({ ok: false, outcome: 'uncertain' });
         if (err instanceof StreamableHTTPError || errCode(err) === 'ECONNREFUSED') return done({ ok: false, outcome: 'unavailable' });
         return done({ ok: false, outcome: 'uncertain' });
       }
     }
     const value = result?.structuredContent ?? null;
+    // Structural rule (never Canvas's wording): an error WITH structured content is a refusal (code kept only if in the
+    // fixed set); an error or a success-shaped answer WITHOUT usable content is unknown: Canvas may have stored it.
     if (result?.isError) {
-      // Canvas's unexpected error: we can't know what happened.
-      if (!value && UNEXPECTED.test(textOf(result))) return done({ ok: false, outcome: 'uncertain' });
-      const code = CANVAS_REFUSAL_CODES.includes(value?.code) ? value.code : null;
-      const reason = typeof value?.reason === 'string' ? value.reason : REFUSED_TEXT;
+      if (!value || typeof value !== 'object') return done({ ok: false, outcome: 'uncertain' });
+      const code = CANVAS_REFUSAL_CODES.includes(value.code) ? value.code : null;
+      const reason = typeof value.reason === 'string' ? value.reason : REFUSED_TEXT;
       return done({ ok: false, outcome: 'refused', code, reason });
     }
-    if (!value || typeof value !== 'object' || !value.receipt || typeof value.receipt !== 'object') return done({ ok: false, outcome: 'refused', code: null, reason: REFUSED_TEXT });
+    if (!value || typeof value !== 'object' || !value.receipt || typeof value.receipt !== 'object') return done({ ok: false, outcome: 'uncertain' });
     const receipt = value.receipt;
     return done({ ok: true, value: { receipt: withoutSteps(receipt) } }, { quizId: receipt.quizId ?? null, stepCount: receipt.stepCount ?? (Array.isArray(receipt.steps) ? receipt.steps.length : null) });
   }
