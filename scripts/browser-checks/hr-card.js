@@ -128,6 +128,11 @@ async (page) => {
   const receipt = page.locator('#prof-log .msg.hr-receipt').last();
   const receiptText = (await receipt.locator('.msg-text').textContent())?.trim();
   check('submit: receipt names what was picked on the card', new RegExp(`^Sent to your manager for a decision\\. Request TO-\\w+: Sick Leave \\(Family Care\\), ${DAY} to ${DAY}, 16 hours\\.$`).test(receiptText), receiptText);
+  // The closed card: HR's question stays, answered with what was filed; no stale "pick from the dropdown".
+  const record = page.locator('#prof-log .msg.hr-closed').last();
+  const recordText = ((await record.textContent()) ?? '').replace(/\s+/g, ' ');
+  check('submit: the card becomes a record of what was filed', /You submitted\s*Sick Leave\s*Family Care/.test(recordText) && new RegExp(`${DAY} to ${DAY} · 16 hours`).test(recordText), recordText);
+  check('submit: no stale dropdown wording left in the chat', !/pick from the dropdown below/.test(await page.locator('#prof-log').textContent()));
   await receipt.scrollIntoViewIfNeeded();
   await page.locator('#prof-log').screenshot({ path: `${SHOTS}/hr-6-submit-receipt.png` });
 
@@ -147,6 +152,7 @@ async (page) => {
   check('noon: edited hours drop the time from the words', !/12:00/.test(await text('.hr-slip .hr-when')) && /12 hours/.test(await text('.hr-slip .hr-when')), await text('.hr-slip .hr-when'));
   await press('Cancel');
   check('cancel: HR says nothing was sent', /Cancelled\. Nothing was sent to your manager\./.test(await page.locator('#prof-log .msg[data-speaker="hr"]').last().textContent()));
+  check('cancel: the card becomes "You cancelled this card"', /You cancelled this card\. Nothing was filed\./.test(await page.locator('#prof-log .msg.hr-closed').last().textContent()));
 
   // 5. “I need Friday off” — no reason: amber “Choose the kind of leave”, empty name dropdown highlighted.
   //    Meanwhile a second tab watches Topology for the Hub → HR hop of this staff request.

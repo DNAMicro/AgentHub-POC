@@ -841,3 +841,12 @@ body:has(#view-conversation:not([hidden]), #view-professor:not([hidden])) { heig
 .prof-log .msg[data-speaker="hr"]:not(.hr-card) { border-left: 4px solid var(--hr); }
 .prof-log .msg[data-speaker="hr"] .msg-dir { color: var(--hr); font-weight: 700; }
 .prof-log .msg.hr-receipt .msg-text::before { content: "✓ "; color: var(--ok); font-weight: 700; }
+
+/* A closed HR card: HR's question, answered with what was filed (src: hrRecord in classroom.js). */
+.hr-record { margin-top: 8px; border-radius: 10px; background: var(--hr-tint); padding: 10px 14px; display: grid; gap: 2px; }
+.hr-record p { margin: 0; }
+.hr-record-label { color: var(--muted); font-size: 0.8rem; font-weight: 600; }
+.hr-record-what { font-size: 1.1rem; font-weight: 800; color: var(--hr); }
+.hr-record-why { font-size: 0.9rem; }
+.hr-record-when { font-size: 0.95rem; }
+.hr-record-none { margin: 6px 0 0; color: var(--muted); font-size: 0.9rem; }

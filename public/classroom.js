@@ -563,6 +563,29 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     drawLead(hrNow());
     return hr.li;
   }
+  // A closed card: HR's question stays, answered with what was filed (or that nothing was), so the chat
+  // never points at a dropdown that is gone.
+  function hrRecord(m, closing) {
+    const r = closing?.record;
+    const question = NO_NAME_LEAD.test(m.text) ? m.text.match(NO_NAME_LEAD)[0] : m.text;
+    const body = [];
+    if (r && absenceName(r.absenceType)) {
+      const { title, subtitle } = titleOf(r.absenceType, r.absenceReason);
+      const range = r.beginDate === r.endDate ? shortDate(r.beginDate) : `${shortDate(r.beginDate)} to ${shortDate(r.endDate)}`;
+      body.push(el('div', { className: 'hr-record' },
+        el('p', { className: 'hr-record-label', textContent: 'You submitted' }),
+        el('p', { className: 'hr-record-what', textContent: title }),
+        subtitle ? el('p', { className: 'hr-record-why', textContent: subtitle }) : null,
+        el('p', { className: 'hr-record-when', textContent: `${range} · ${Number(r.hours)} ${Number(r.hours) === 1 ? 'hour' : 'hours'}` })));
+    } else {
+      // A receipt saved before records existed: it was filed, HR's receipt says what.
+      const filed = /^Sent to your manager/.test(closing?.text ?? '');
+      body.push(el('p', { className: 'hr-record-none', textContent: filed ? 'You submitted this card. HR’s receipt is below.' : closing ? 'You cancelled this card. Nothing was filed.' : 'This card closed before it was submitted. Nothing was filed.' }));
+    }
+    return el('li', { className: 'msg hr-closed', dataset: { dir: 'received', speaker: 'hr', formRef: m.formRef } },
+      el('div', { className: 'msg-head' }, el('span', { className: 'msg-dir', textContent: HR_LABEL }), el('time', { dateTime: m.at ?? '', textContent: m.at ? new Date(m.at).toLocaleTimeString([], { hour12: false }) : '' })),
+      el('p', { className: 'msg-text', textContent: question }), ...body);
+  }
   // The open card's current values (what the professor sees and may have edited), or null.
   function hrValues() {
     if (!hr?.surface) return null;
@@ -614,6 +637,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
         // HR (staff only): the open card where HR sent it; every other HR reply (a receipt, a question,
         // a refusal) as HR's own bubble.
         if (m.formRef && hrCard?.formRef === m.formRef && !m.closed && !m.failed) items.push(hrCardItem(m, hrCard));
+        else if (m.formRef && !m.closed && !m.failed) items.push(hrRecord(m, chat.find((x) => x.role === 'hr' && x.formRef === m.formRef && x.closed)));
         else {
           const li = bubble({ dir: m.failed ? 'error' : 'received', speaker: 'hr', label: HR_LABEL, at: m.at, text: m.text });
           if (m.closed && /^Sent to your manager/.test(m.text)) li.classList.add('hr-receipt');

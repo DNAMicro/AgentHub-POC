@@ -94,6 +94,8 @@ test('a staff request opens HR’s card (bereavement); Submit files it and the c
   st = await state();
   assert.equal(lastOf(st.chat, 'hr').text, `Sent to your manager for a decision. Request ${id}: Bereavement (Grandparent/Great Grandparent), Thu, Nov 5 to Fri, Nov 6, 16 hours.`);
   assert.equal(lastOf(st.chat, 'hr').closed, true);
+  // What was filed, so the Professor view can answer the card's question once the card is gone; never the note.
+  assert.deepEqual(lastOf(st.chat, 'hr').record, { requestId: id, absenceType: 'BRV', absenceReason: 'GGP', beginDate: '2026-11-05', endDate: '2026-11-06', hours: 16 });
   assert.equal(st.hrCard, null, 'the card is closed');
   assert.equal((await requests()).length, 1);
   // The same operation again: the stored outcome, never a second request.

@@ -314,7 +314,10 @@ export async function staffAction({ operationId, formRef, action, hubLink, emit 
     let status = 'cancelled';
     if (reply.receipt) {
       status = 'accepted';
-      entries.push({ role: 'hr', text: receiptText(reply.receipt), formRef, closed: true });
+      // `record` = what was filed (the receipt's own fields, never the note), so the card's question can show
+      // the answer the professor picked once the card is gone.
+      const { requestId, absenceType, absenceReason, beginDate, endDate, hours } = reply.receipt;
+      entries.push({ role: 'hr', text: receiptText(reply.receipt), formRef, closed: true, record: { requestId, absenceType, absenceReason, beginDate, endDate, hours } });
       const note = card.alsoTellClass ? neutralNote(reply.receipt) : null;
       if (note && current) {
         pendingNote = { text: note, at: Date.now() };
