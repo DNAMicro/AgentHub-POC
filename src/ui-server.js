@@ -47,7 +47,7 @@ const SHARED_FORM_MODULE = fileURLToPath(new URL('./forms.js', import.meta.url))
 const SHARED_ABSENCE_MODULE = fileURLToPath(new URL('./absence-types.js', import.meta.url));
 const ACTION_KEYS = ['name', 'surfaceId', 'sourceComponentId', 'timestamp', 'context'];
 const CONTEXT_ID_PATTERN = /^[\w-]{8,100}$/;
-const CONFIG_EVENTS = new Set(['skills_saved', 'card_notification', 'hub_registration', 'lesson_posted', 'lesson_publish_result', 'lessons_reset', 'staff_decision']); // + Part 9: the Professor's own lesson events; + HR: the Professor's staff-desk decision (no words) // specialist events not tied to a run
+const CONFIG_EVENTS = new Set(['skills_saved', 'card_notification', 'hub_registration', 'lesson_posted', 'lesson_publish_result', 'lessons_reset', 'staff_decision', 'peoplesoft_session']); // + Part 9: the Professor's own lesson events; + HR: the Professor's staff-desk decision (no words) // specialist events not tied to a run
 // The Professor view's own runs, started by the professor through this UI, so shown like this UI's runs on the
 // monitor (never in the student's AG-UI stream). The suffix is the professor's operation ID (src/lessons.js ID).
 //   staff-<operationId>: an HR staff request/action — emitted by the Professor, the Hub and HR only.

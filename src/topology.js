@@ -11,10 +11,11 @@
 
 const SPECIALISTS = new Set(['tutor', 'library', 'professor', 'hr']); // hr: staff only (reached only by the Hub's staff path)
 const edgeFor = (agentId) => (SPECIALISTS.has(agentId) ? `hub-${agentId}` : null);
-const NODE_NAMES = { student: 'Student', hub: 'University Hub', tutor: 'Tutor', library: 'Library', professor: 'Marketing 101 Professor', hr: 'HR Agent', model: 'Model provider' };
+const NODE_NAMES = { student: 'Student', hub: 'University Hub', tutor: 'Tutor', library: 'Library', professor: 'Marketing 101 Professor', hr: 'HR Agent', peoplesoft: 'PeopleSoft (demo stand-in)', model: 'Model provider' };
 
 function hop(from, to, category, phase, label) {
   const edge = from === 'model' || to === 'model' ? `${from === 'model' ? to : from}-model`
+    : from === 'peoplesoft' || to === 'peoplesoft' ? 'hr-peoplesoft'
     : from === 'student' || to === 'student' ? 'student-hub' : edgeFor(from === 'hub' ? to : from);
   return { edge, from, to, category, phase, label };
 }
@@ -131,6 +132,12 @@ const SPECIALIST = {
   // HR (staff only): what HR read from the request (outcome only), and the Professor's staff desk.
   request_read: (a, d) => inside(a, 'form', d.outcome === 'forecast_failed' ? 'failed' : 'processing', d.outcome === 'missing' ? 'Read the request — something is missing, asking' : d.outcome === 'forecast_failed' ? 'Read the request — the balance check failed' : 'Read the request — card ready'),
   staff_decision: (a, d) => inside(a, 'routing', 'processing', d.kind === 'staff_request' ? 'A staff request — sent to HR' : d.kind === 'unsure' ? 'Staff or class? Asking the professor' : 'A class message — not for HR'),
+  // Part 15: HR → PeopleSoft over MCP (tool names, codes and record ids only — never the arguments).
+  mcp_call_started: (a, d) => hop('hr', 'peoplesoft', 'tool', 'attempted', `tools/call ${d.tool}`),
+  mcp_call_result: (a, d) => hop('peoplesoft', 'hr', 'tool', d.ok ? 'completed' : d.outcome === 'uncertain' ? 'unknown' : 'failed',
+    d.ok ? (d.recordId ? `Saved as ${d.recordId}` : 'PeopleSoft answered') : d.outcome === 'refused' ? `PeopleSoft refused (${d.code})` : "PeopleSoft didn't answer"),
+  mcp_tool_refused: () => inside('hr', 'tool', 'failed', 'HR’s AI picked a tool not allowed here — no call'),
+  peoplesoft_session: (a, d) => hop('hr', 'peoplesoft', 'registration', d.status === 'connected' ? 'completed' : 'failed', d.status === 'connected' ? 'MCP session open' : 'PeopleSoft unreachable'),
   card_notification: (a, d) => hop(a, 'hub', 'card', d.outcome === 'delivered' ? 'completed' : d.outcome === 'pending' ? 'unknown' : 'failed', `Card-change notice ${d.outcome}`),
 };
 

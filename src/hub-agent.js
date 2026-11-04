@@ -81,6 +81,7 @@ const SAFE_FIELDS = new Set([
   'taskState', 'resumedTask', 'violates', 'handler', 'reviewer', 'latencyMs', 'earlierMessages', 'chars', 'fallback', 'operation', 'loanId', 'ok', 'generated', 'revision',
   'lessonId', 'deliveryId', 'inboxId', 'noticeId', 'courseId', 'attempt', 'found', 'kind', 'audience', 'recipients',
   'usage', 'inputTokens', 'outputTokens', 'cacheReadInputTokens', 'cacheCreationInputTokens', 'tutor', 'library',
+  'tool', 'moment', 'recordId', 'stepCount', 'expected', // Part 15: PeopleSoft tool name (fixed list, schema-enum constrained), moment, record id, count
   'hrOutcome', // HR: card / refused / workflow_disabled … (an outcome code, never the staff member's words)
 ]);
 // Lists of field NAMES (never values) that may pass, e.g. which fields a form prefilled.
