@@ -138,7 +138,7 @@ export function readDates(text, now = new Date()) {
 }
 
 const WORKDAY_END = 17 * 60;
-const STANDARD_HOURS = 8; // the sample staff member's standard day (hr-store seed)
+const STANDARD_HOURS = 8; // the sample staff member's standard day (peoplesoft-store seed)
 // A number of hours: "4 hours", "4 hrs", "3 hr", "6h", "2.5 hours", ".5 hours", "a 4-hour absence". Never part of
 // a word or identifier ("B4h"), never the tail of a decimal or a clock ("2.5", "9:30").
 const DURATION = /(?<![\w.:/])(\d+(?:\.\d+)?|\.\d+|an|one)\s*-?\s*(?:hours?|hrs?|h)\b/gi; // "an hour" / "one hour" = 1

@@ -193,6 +193,7 @@ test('hr-action input checks: malformed operation, unknown card', async () => {
 const NOTE_OFFER = 'You have Marketing 101 on Fri, Nov 6. Would you like me to send a cancellation to your students?';
 // unsure → both → Submit: the neutral note is now on offer.
 async function noteOffer() {
+  await post(`${s.hub.url}/dev/classroom/reset`, {}); // HR refuses a second request for the same day (PeopleSoft overlap rule)
   assert.equal((await say("I'm sick, cancel Friday's class")).reply, UNSURE);
   await say('both');
   const st = await state();
@@ -1094,7 +1095,7 @@ test('cancellation: “yes, cancel it” is a yes (cancel is the offer’s own w
   const values = { absenceType: ['VAC'], absenceReason: ['VAC'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8' };
   await fileCard("I need Friday off, it's a vacation day", values);
   assert.equal((await say('yes, cancel it')).action, 'post');
-  await fileCard("I need Friday off, it's a vacation day", values);
+  await fileCard("I need Friday off, it's a vacation day", { ...values, beginDate: "2026-11-09", endDate: "2026-11-09" });
   assert.equal((await say('please cancel the class for me')).action, 'post', 'a longer yes that talks about cancelling');
   assert.equal((await state()).lessons.length, 2);
   await post(`${s.hub.url}/dev/classroom/reset`, {});
@@ -1104,7 +1105,7 @@ test('cancellation: “yes, cancel it” is a yes (cancel is the offer’s own w
   await post(`${s.hub.url}/dev/classroom/reset`, {});
   await fileCard("I need Friday off, it's a vacation day", values);
   assert.equal((await say("don't cancel the class")).reply, CANCEL_NO);
-  await fileCard("I need Friday off, it's a vacation day", values);
+  await fileCard("I need Friday off, it's a vacation day", { ...values, beginDate: "2026-11-09", endDate: "2026-11-09" });
   assert.equal((await say('hmm?')).reply, 'Should I send the cancellation to your students? Reply yes or no.');
   assert.equal((await say('what?')).reply, CANCEL_NO);
   assert.equal((await state()).lessons.length, 0);

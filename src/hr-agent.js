@@ -1,7 +1,7 @@
 // HR Agent — a separate A2A service for university STAFF (a DEMO with synthetic records, not a real HR
 // system). One skill: a time-off request. From the staff member's words it fills the card it can
 // (absence name proposed by the model or the labelled mock heuristic and checked by code; dates, partial
-// days and hours by code only), runs the Forecast (src/hr-store.js) and sends ONE editable A2UI card
+// days and hours by code only), runs the Forecast (src/leave-rules.js) and sends ONE editable A2UI card
 // inside an A2A task. Submit records the request in memory and says it was sent to the manager — there
 // is no manager simulation and nothing is deducted.
 //
@@ -24,7 +24,7 @@ import { createHubLink } from './hub-link.js';
 import { apiHost, keyEnvName, useModel } from './llm.js';
 import { A2UI_EXTENSION_URI, A2UI_MIME_TYPE, BASIC_CATALOG_ID, WORKFLOWS, buildTimeOffForm, checkTimeOffValues, hhmm, isA2uiPart, validateFinal } from './forms.js';
 import { createFormHost } from './form-host.js';
-import { createHrStore } from './hr-store.js';
+import { createPeopleSoftStore } from './peoplesoft-store.js'; // TEMPORARY in-process use until HR calls the PeopleSoft MCP server
 import { CREDIT_LABEL, PROOF, STANDARD_DAY, daysText, defaultReason, isPair, nameOf, shortDate, spreadOf, titleOf, whenText, workdays } from './absence-types.js';
 import { asksBalance, asksRequests, dayReferences, mentionedDays, mentionsDay, mentionsHours, readPartial, readRequest } from './hr-intent.js';
 import { familyCare, hrStatus, reasonForRelative, selfSick } from './hr-model.js';
@@ -82,7 +82,7 @@ const QUESTIONS = {
 const REASON_QUESTION = { BRV: 'Who in your family is it for?' };
 const WORKDAY_START = 8 * 60; // an arrival partial: the day starts at 08:00 (hr-intent.js)
 
-const store = createHrStore();
+const store = createPeopleSoftStore();
 let skillService = null;
 const workflowEnabled = () => skillService.policy().skills.some((s) => s.id === WORKFLOWS[WORKFLOW_ID].skillId);
 
@@ -191,7 +191,7 @@ const formHost = createFormHost({
       build: (surfaceId, { prefill, missing }) => buildTimeOffForm(surfaceId, { prefill, missing }),
       actions: {
         // Final: the staff member is re-checked against the Hub's signature on THIS request, then the code
-        // checks, the spread, the Forecast and the record (store.submit is synchronous and idempotent by operation ID).
+        // checks, the spread, the Forecast and the record (store.file is synchronous and idempotent by operation ID).
         async submitTimeOff(form, context, { operationId, trusted, emit }) {
           if (hubLink.verifiedStaff(trusted, form.contextId) !== form.data.staffId) return { status: 'rejected', message: 'This request belongs to another staff member.', errors: { _form: 'This request belongs to another staff member.' } };
           const v = validateFinal(WORKFLOW_ID, context);
@@ -212,7 +212,7 @@ const formHost = createFormHost({
           }
           if (spread.mode === 'invalid') return { status: 'rejected', message: TEXT.badHours, errors: { hours: TEXT.badHours } };
           const staffId = form.data.staffId;
-          const r = store.submit(staffId, { absenceType: values.absenceType, absenceReason: values.absenceReason, beginDate: values.beginDate, endDate: values.endDate, partial }, operationId);
+          const r = store.file(staffId, { absenceType: values.absenceType, absenceReason: values.absenceReason, beginDate: values.beginDate, endDate: values.endDate, partial }, operationId, ['store_record']);
           emit('hr_operation', { operation: 'submitTimeOff', ok: r.ok, code: r.ok ? 'sent_to_manager' : r.code });
           if (!r.ok) return { status: 'rejected', message: r.reason, errors: { _form: r.reason } };
           log('recorded time-off request', { requestId: r.receipt.requestId, hours: r.receipt.hours, status: r.receipt.status });

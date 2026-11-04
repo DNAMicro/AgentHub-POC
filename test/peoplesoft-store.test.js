@@ -1,10 +1,12 @@
-// HR store: in-memory staff, holidays, hours and Forecast. Nothing is saved.
+// PeopleSoft store: in-memory staff, holidays, hours and Forecast. Nothing is saved.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createHrStore, HOLIDAYS } from '../src/hr-store.js';
+import { createPeopleSoftStore } from '../src/peoplesoft-store.js';
+import { planAbsence } from '../src/leave-rules.js';
+import { HOLIDAYS } from '../src/absence-types.js';
 
-const fresh = () => createHrStore({ now: () => new Date('2026-11-02T18:00:00Z') });
+const fresh = () => createPeopleSoftStore({ now: () => new Date('2026-11-02T18:00:00Z') });
 
 test('staff fixture and holidays', () => {
   const s = fresh();
@@ -49,20 +51,20 @@ test('plan: holiday boundary, counts, not enough, no credits, partial', () => {
 test('submit is idempotent by operationId, refuses reuse, reset clears', () => {
   const s = fresh();
   const v = { absenceType: 'VAC', absenceReason: 'VAC', beginDate: '2026-11-10', endDate: '2026-11-12', partial: null };
-  const a = s.submit('staff-amir', v, 'abcdef0123456789');
+  const a = s.file('staff-amir', v, 'abcdef0123456789', ['store_record']);
   assert.equal(a.ok, true);
-  assert.deepEqual(a.receipt, { requestId: 'TO-ABCDEF01', absenceType: 'VAC', absenceReason: 'VAC', absenceName: 'Vacation', reasonText: 'Vacation', beginDate: '2026-11-10', endDate: '2026-11-12', hours: 16, status: 'sent_to_manager' });
-  assert.deepEqual(s.submit('staff-amir', v, 'abcdef0123456789').receipt, a.receipt);
+  assert.deepEqual(a.receipt, { requestId: 'TO-ABCDEF01', recordId: 'ABS-000101', absenceType: 'VAC', absenceReason: 'VAC', absenceName: 'Vacation', reasonText: 'Vacation', beginDate: '2026-11-10', endDate: '2026-11-12', hours: 16, status: 'sent_to_manager', steps: ['store_record'] });
+  assert.deepEqual(s.file('staff-amir', v, 'abcdef0123456789', ['store_record']).receipt, a.receipt);
   assert.equal(s._records().length, 1);
-  assert.equal(s.submit('staff-amir', { ...v, endDate: '2026-11-10' }, 'abcdef0123456789').code, 'operation_reused');
-  assert.equal(s.submit('staff-amir', { ...v, beginDate: '2026-11-11' }, 'ffffffff00000000').code, 'holiday_boundary');
+  assert.equal(s.file('staff-amir', { ...v, endDate: '2026-11-10' }, 'abcdef0123456789', ['store_record']).code, 'operation_reused');
+  assert.equal(s.file('staff-amir', { ...v, beginDate: '2026-11-11' }, 'ffffffff00000000', ['store_record']).code, 'holiday_boundary');
   assert.equal(s.staff('staff-amir').balances.vacation, 96); // deducts nothing
   s.reset();
   assert.equal(s._records().length, 0);
 });
 
 test('nothing is written to disk', () => {
-  assert.doesNotMatch(readFileSync('src/hr-store.js', 'utf8'), /node:fs|writeFile/);
+  assert.doesNotMatch(readFileSync('src/peoplesoft-store.js', 'utf8'), /node:fs|writeFile/);
 });
 
 test('plan refuses bad partial hours and over-long ranges; submit refuses the same way', () => {
@@ -75,23 +77,24 @@ test('plan refuses bad partial hours and over-long ranges; submit refuses the sa
   }
   assert.equal(s.plan('staff-amir', { ...base, partial: { mode: 'start_day_only', hours: 8 } }).code, 'bad_hours');
   assert.equal(s.plan('staff-amir', { ...base, partial: { mode: 'all_days', hours: 7.5 } }).hours, 7.5);
-  assert.equal(s.submit('staff-amir', { ...base, partial: { mode: 'start_day_only', hours: -50 } }, 'aaaaaaaa11111111').code, 'bad_hours');
+  assert.equal(s.file('staff-amir', { ...base, partial: { mode: 'start_day_only', hours: -50 } }, 'aaaaaaaa11111111', ['store_record']).code, 'bad_hours');
   const long = s.plan('staff-amir', { absenceType: 'DCK', beginDate: '2026-11-10', endDate: '2027-12-20', partial: null });
   assert.equal(long.ok, false); assert.equal(long.code, 'too_long');
   assert.equal(long.reason, 'An absence request can cover at most 400 days.');
   assert.equal(s.plan('staff-amir', { absenceType: 'DCK', beginDate: '2026-11-10', endDate: '2027-12-14', partial: null }).ok, true); // exactly 400 days
-  assert.equal(s.submit('staff-amir', { absenceType: 'DCK', absenceReason: 'DCK', beginDate: '2026-11-10', endDate: '2027-12-20', partial: null }, 'bbbbbbbb22222222').code, 'too_long');
+  assert.equal(s.file('staff-amir', { absenceType: 'DCK', absenceReason: 'DCK', beginDate: '2026-11-10', endDate: '2027-12-20', partial: null }, 'bbbbbbbb22222222', ['store_record']).code, 'too_long');
   assert.equal(s._records().length, 0);
 });
 
 test('final fix 5: operation ids like __proto__ and constructor behave like any other id', () => {
   const s = fresh();
-  const v = { absenceType: 'VAC', absenceReason: 'VAC', beginDate: '2026-11-06', endDate: '2026-11-06', partial: null };
-  for (const id of ['__proto__', 'constructor', 'toString']) {
-    const r = s.submit('staff-amir', v, id);
+  for (const [i, id] of ['__proto__', 'constructor', 'toString'].entries()) {
+    const d = ['2026-11-02', '2026-11-03', '2026-11-04'][i]; // distinct days: a shared workday would be an overlap
+    const v = { absenceType: 'VAC', absenceReason: 'VAC', beginDate: d, endDate: d, partial: null };
+    const r = s.file('staff-amir', v, id, ['store_record']);
     assert.equal(r.ok, true, id);
-    assert.deepEqual(s.submit('staff-amir', v, id), r, `${id}: a repeat returns the stored receipt`);
-    assert.equal(s.submit('staff-amir', { ...v, beginDate: '2026-11-09', endDate: '2026-11-09' }, id).code, 'operation_reused', id);
+    assert.deepEqual(s.file('staff-amir', v, id, ['store_record']), r, `${id}: a repeat returns the stored receipt`);
+    assert.equal(s.file('staff-amir', { ...v, beginDate: '2026-11-09', endDate: '2026-11-09' }, id, ['store_record']).code, 'operation_reused', id);
   }
   assert.equal(s._records().length, 3);
 });
@@ -107,7 +110,7 @@ test('reasons, balances and requests', () => {
   const s = fresh();
   const r = s.plan('staff-amir', { absenceType: 'SCK', beginDate: '2026-11-09', endDate: '2026-11-10', partial: { mode: 'all_days', hours: 4 } });
   assert.equal(r.hours, 8);
-  assert.equal(s.submit('staff-amir', { absenceType: 'VAC', absenceReason: 'GGP', beginDate: '2026-11-06', endDate: '2026-11-06' }, 'op1').code, 'bad_reason'); // reason from another type is refused
+  assert.equal(s.file('staff-amir', { absenceType: 'VAC', absenceReason: 'GGP', beginDate: '2026-11-06', endDate: '2026-11-06' }, 'op1', ['store_record']).code, 'bad_reason'); // reason from another type is refused
   assert.equal(s.plan('staff-amir', { absenceType: 'SCK', beginDate: '2026-11-09', endDate: '2026-11-10', partial: { mode: 'all_days', hours: 8 } }).code, 'bad_hours');
   assert.equal(s.plan('staff-amir', { absenceType: 'SCK', beginDate: '2026-11-09', endDate: '2026-11-10', partial: { mode: 'bogus', hours: 4 } }).code, 'bad_hours');
   const sick = s.plan('staff-amir', { absenceType: 'SCK', beginDate: '2026-11-09', endDate: '2026-12-10', partial: null });
@@ -115,11 +118,28 @@ test('reasons, balances and requests', () => {
   assert.deepEqual(s.balances('staff-amir'), { vacation: 96, sick: 120, personalHoliday: 8 });
   assert.equal(s.balances('nobody'), null);
   const v = { absenceType: 'BRV', absenceReason: 'GGP', beginDate: '2026-11-06', endDate: '2026-11-06' };
-  const a = s.submit('staff-amir', v, 'aaaaaaaa11111111');
+  const a = s.file('staff-amir', v, 'aaaaaaaa11111111', ['store_record']);
   assert.equal(a.receipt.absenceName, 'Bereavement'); assert.equal(a.receipt.reasonText, 'Grandparent/Great Grandparent');
-  assert.equal(s.submit('staff-amir', { ...v, absenceReason: 'OTH' }, 'aaaaaaaa11111111').code, 'operation_reused');
-  const b = s.submit('staff-amir', { absenceType: 'VAC', absenceReason: 'VAC', beginDate: '2026-11-09', endDate: '2026-11-09' }, 'bbbbbbbb22222222');
+  assert.equal(s.file('staff-amir', { ...v, absenceReason: 'OTH' }, 'aaaaaaaa11111111', ['store_record']).code, 'operation_reused');
+  const b = s.file('staff-amir', { absenceType: 'VAC', absenceReason: 'VAC', beginDate: '2026-11-09', endDate: '2026-11-09' }, 'bbbbbbbb22222222', ['store_record']);
   assert.deepEqual(s.requests('staff-amir').map((x) => x.requestId), [b.receipt.requestId, a.receipt.requestId]);
   assert.equal('operationId' in s.requests('staff-amir')[0], false);
   assert.deepEqual(s.requests('nobody'), []);
+});
+
+test('overlap: a request sharing a workday with a filed one is refused', () => {
+  const s = createPeopleSoftStore();
+  const v = { absenceType: 'VAC', absenceReason: 'VAC', beginDate: '2026-11-05', endDate: '2026-11-06', partial: null };
+  assert.equal(s.file('staff-amir', v, 'op-1', ['store_record']).ok, true);
+  const r = s.file('staff-amir', { ...v, beginDate: '2026-11-06', endDate: '2026-11-09' }, 'op-2', ['store_record']);
+  assert.deepEqual([r.ok, r.code], [false, 'overlap']);
+});
+test('receipt carries a PeopleSoft record id and the steps run', () => {
+  const r = createPeopleSoftStore().file('staff-amir', { absenceType: 'VAC', absenceReason: 'VAC', beginDate: '2026-11-06', endDate: '2026-11-06', partial: null }, 'op-1', ['check_balance', 'store_record']);
+  assert.match(r.receipt.recordId, /^ABS-\d{6}$/);
+  assert.deepEqual(r.receipt.steps, ['check_balance', 'store_record']);
+  assert.equal(r.receipt.status, 'sent_to_manager');
+});
+test('planAbsence is the same rule HR uses', () => {
+  assert.deepEqual(planAbsence({ standardHours: 8, balances: { vacation: 96, sick: 120, personalHoliday: 8 } }, { absenceType: 'VAC', beginDate: '2026-11-06', endDate: '2026-11-06' }), { ok: true, hours: 8, days: 1, credit: { type: 'vacation', now: 96, after: 88 } });
 });
