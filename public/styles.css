@@ -106,6 +106,14 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 h1 { margin: 0; font-size: 1.2rem; font-weight: 700; letter-spacing: -0.01em; }
 .subtitle { margin: 0; color: var(--muted); font-size: 0.87rem; max-width: 68ch; }
+/* The description under the university name opens and closes (app.js remembers the choice per browser). */
+.brand-row { display: flex; align-items: center; gap: 6px; }
+.about-toggle { display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
+.about-toggle::before { content: ""; width: 7px; height: 7px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: translateY(-2px) rotate(45deg); transition: transform 0.15s; }
+.about-toggle[aria-expanded="false"]::before { transform: translateX(-2px) rotate(-45deg); }
+.about-toggle:hover { border-color: var(--border); color: inherit; }
+.about-toggle:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: 1px; }
+.subtitle[hidden] { display: none; }
 .badges { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .badge, .state {
   font-size: 0.8rem; padding: 2px 10px; border-radius: 999px; white-space: nowrap;

@@ -12,6 +12,26 @@ import { createClassroom } from './classroom.js';
 import { WORKFLOWS, prettyDate } from '/shared/forms.js';
 
 const $ = (id) => document.getElementById(id);
+
+// The description under the university name opens and closes; the choice is a per-browser convenience
+// (storage may be unavailable: then it starts closed). Closed by default (owner's choice).
+{
+  const toggle = $('about-toggle');
+  const text = $('about-text');
+  const show = (open) => {
+    text.hidden = !open;
+    toggle.setAttribute('aria-expanded', String(open));
+    toggle.title = open ? 'Hide the description' : 'Show the description';
+  };
+  let saved = null;
+  try { saved = localStorage.getItem('aboutOpen'); } catch { /* no storage */ }
+  show(saved === 'true');
+  toggle.addEventListener('click', () => {
+    const open = toggle.getAttribute('aria-expanded') !== 'true';
+    show(open);
+    try { localStorage.setItem('aboutOpen', String(open)); } catch { /* no storage */ }
+  });
+}
 const els = {
   browserFeed: $('browser-feed'),
   hubFeed: $('hub-feed'),
