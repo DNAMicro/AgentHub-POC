@@ -25,6 +25,7 @@ const refusal = (code, reason) => asResult(REFUSAL_CODES.includes(code) ? { code
 function buildServer(store) {
   const server = new McpServer({ name: 'peoplesoft-demo-standin', version: '1.0.0' });
   const staffId = z.string().min(1).max(64);
+  const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((d) => new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d, 'not a real date');
 
   server.registerTool('get_leave_balances', {
     description: `${DEMO} the leave balances (hours) for one staff member: vacation, sick, personal holiday.`,
@@ -49,9 +50,9 @@ function buildServer(store) {
       staffId,
       absenceType: z.string().min(1).max(16),
       absenceReason: z.string().min(1).max(32),
-      beginDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-      endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-      partial: z.object({ mode: z.enum(['start_day_only', 'all_days']), hours: z.number() }).nullable(),
+      beginDate: date,
+      endDate: date,
+      partial: z.object({ mode: z.enum(['start_day_only', 'all_days']), hours: z.number().positive().max(24) }).nullable(),
       operationId: z.string().min(1).max(128),
     },
   }, async ({ staffId: id, absenceType, absenceReason, beginDate, endDate, partial, operationId }) => {
@@ -59,9 +60,12 @@ function buildServer(store) {
       const values = { absenceType, absenceReason, beginDate, endDate, partial };
       // A repeat returns the stored result without asking the model again. Two concurrent calls with the same NEW
       // operationId could both reach the model; file() is synchronous and still records only once.
+      // A known operationId goes straight to file(): same values give the stored receipt, different values give
+      // operation_reused.
       const again = store.stored(operationId);
-      let result = again;
-      if (!result) {
+      let result;
+      if (again) result = store.file(id, values, operationId, []);
+      else {
         // Plan from the code's own view of the request (hours from the store's plan, when it can compute them).
         const p = store.plan(id, values);
         const { steps } = await planSteps({ request: { absenceType, beginDate, endDate, hours: p.hours ?? null } });
@@ -126,6 +130,9 @@ export function startPeopleSoftServer({ port = 41246, token = process.env.PEOPLE
       };
       app.get('/mcp', needToken, session);
       app.delete('/mcp', needToken, session);
+
+      // Malformed JSON (or any other late error) gets a plain JSON answer, never HTML or a stack trace.
+      app.use((err, req, res, next) => (res.headersSent ? next(err) : res.status(err?.status === 413 ? 413 : 400).json({ error: 'bad_request' })));
 
       app.post('/dev/reset', sameOriginGuard(actualPort), needToken, (req, res) => { store.reset(); log('reset'); res.json({ status: 'reset' }); });
       if (process.env.PEOPLESOFT_TEST_HOOKS === '1') app.get('/test/records', (req, res) => res.json({ records: store._records() }));

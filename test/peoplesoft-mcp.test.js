@@ -89,3 +89,55 @@ test('refusal comes back as a tool error with a fixed code', async () => {
   assert.match(r.structuredContent.reason, /campus holiday/);
   await c.close();
 });
+
+test('same operationId with different dates is refused as operation_reused', async () => {
+  await fetch(`${ps.url}/dev/reset`, { method: 'POST', headers: { Authorization: 'Bearer t' } });
+  const c = await connect();
+  const a = await c.callTool({ name: 'create_absence_request', arguments: request({ operationId: 'feed0001' }) });
+  assert.notEqual(a.isError, true);
+  const b = await c.callTool({ name: 'create_absence_request', arguments: request({ operationId: 'feed0001', beginDate: '2026-11-12', endDate: '2026-11-12' }) });
+  assert.equal(b.isError, true);
+  assert.equal(b.structuredContent.code, 'operation_reused');
+  assert.equal((await records()).length, 1);
+  await c.close();
+});
+
+test('access boundary: GET/DELETE and a session id without the token are 401', async () => {
+  const c = await connect();
+  const sid = c.transport.sessionId;
+  assert.ok(sid);
+  for (const method of ['GET', 'DELETE']) {
+    const res = await fetch(`${ps.url}/mcp`, { method, headers: { 'mcp-session-id': sid } });
+    assert.equal(res.status, 401);
+  }
+  const res = await fetch(`${ps.url}/mcp`, { method: 'POST', headers: { 'mcp-session-id': sid, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }, body: '{}' });
+  assert.equal(res.status, 401);
+  await c.close();
+});
+
+test('starting without PEOPLESOFT_TOKEN exits 1 and prints no token', async () => {
+  const { spawn } = await import('node:child_process');
+  const env = { ...process.env, PORT: '0' };
+  delete env.PEOPLESOFT_TOKEN;
+  const p = spawn(process.execPath, ['src/peoplesoft-mcp.js'], { env });
+  let out = '';
+  p.stdout.on('data', (d) => (out += d)); p.stderr.on('data', (d) => (out += d));
+  const code = await new Promise((r) => p.on('exit', r));
+  assert.equal(code, 1);
+  assert.match(out, /PEOPLESOFT_TOKEN is required/);
+});
+
+test('malformed JSON gets a JSON 400 with no HTML or stack', async () => {
+  const res = await fetch(`${ps.url}/mcp`, { method: 'POST', headers: { Authorization: 'Bearer t', 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }, body: '{not json' });
+  assert.equal(res.status, 400);
+  assert.deepEqual(await res.json(), { error: 'bad_request' });
+});
+
+test('impossible dates and bad hours are refused', async () => {
+  const c = await connect();
+  const bad = async (over) => { try { const r = await c.callTool({ name: 'create_absence_request', arguments: request({ operationId: 'bad' + Math.random().toString(16).slice(2, 10), ...over }) }); return r.isError === true; } catch { return true; } };
+  assert.equal(await bad({ beginDate: '2026-02-30', endDate: '2026-02-30' }), true);
+  assert.equal(await bad({ partial: { mode: 'all_days', hours: -1 } }), true);
+  assert.equal(await bad({ partial: { mode: 'all_days', hours: 1000 } }), true);
+  await c.close();
+});
