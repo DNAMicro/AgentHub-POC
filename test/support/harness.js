@@ -137,6 +137,14 @@ export async function startPeopleSoft(env = {}) {
   return ps;
 }
 
+// Canvas LMS stand-in MCP server (Part 16): token required; quizzes in memory.
+export const CANVAS_READY = /Canvas LMS MCP server \(demo stand-in\) listening on (http:\/\/127\.0\.0\.1:\d+)/;
+export async function startCanvas(env = {}) {
+  const canvas = startProcess('src/canvas-mcp.js', { PORT: '0', ...env }, CANVAS_READY);
+  canvas.url = await canvas.ready;
+  return canvas;
+}
+
 // Stop a test process and wait until it is gone. A process that already exited (or was killed by a
 // signal: exitCode stays null, signalCode is set) is not awaited again.
 export async function stopProcess(p) {
