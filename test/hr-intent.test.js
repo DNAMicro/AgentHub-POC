@@ -829,6 +829,11 @@ test('asksBalance / asksRequests: only the professor’s own leave questions fir
     'I need Friday off', 'file time off for my vacation', 'show my requests', 'what have I filed', 'how much vacation do I have left before Friday'];
   for (const t of no) { assert.equal(asksBalance(t), null, t); assert.equal(asksRequests(t), false, t); }
 });
+test('asksBalance: “sick balance” is a sick-leave question; “I’m sick” alone still is not (live run 2026-11-03)', async () => {
+  const { asksBalance } = await import('../src/hr-intent.js');
+  for (const t of ["What's my sick balance?", 'What’s my sick balance?', 'my sick leave balance', 'how much sick balance do I have left']) assert.equal(asksBalance(t), 'sick', t);
+  for (const t of ["I'm sick, what's my balance?", 'I feel sick, how much balance do I have'] ) assert.equal(asksBalance(t), null, t);
+});
 
 // ---- final review fixes ------------------------------------------------------------------------------------
 test('final: taking my relative to the doctor is Family Care; an unconfirmed FAM proposal is empty, never SCK', async () => {

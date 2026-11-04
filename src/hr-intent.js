@@ -542,7 +542,7 @@ const VETO = [
 ];
 const OWN = /\b(?:my|do\s+i\s+have|have\s+i\s+got)\b/i;
 const OWN_LEFT = /\bi\s+have\b[^?]*\bleft\b/i;
-const LEAVE_WORD = /\b(?:vacation|sick\s+(?:leave|days?|hours?|time)|personal\s+holidays?|pto|leave\s+balances?|time[- ]off|leave)\b/i;
+const LEAVE_WORD = /\b(?:vacation|sick\s+(?:leave|days?|hours?|time|balances?)|personal\s+holidays?|pto|leave\s+balances?|time[- ]off|leave)\b/i;
 const QUANTITY = /\b(?:balances?|how\s+much|how\s+many|remaining|left|do\s+i\s+have)\b/i;
 const vetoed = (s) => VETO.some((re) => re.test(s)) || mentionsDay(s);
 
@@ -550,7 +550,7 @@ export function asksBalance(text) {
   const s = String(text ?? '');
   if (vetoed(s) || !(OWN.test(s) || OWN_LEFT.test(s)) || !LEAVE_WORD.test(s) || !QUANTITY.test(s)) return null;
   if (/\bpto\b/i.test(s)) return 'all';
-  const named = [['sick', /\bsick\s+(?:leave|days?|hours?|time)\b/i], ['vacation', /\bvacation\b/i], ['personalHoliday', /\bpersonal\s+holidays?\b/i]].filter(([, re]) => re.test(s)).map(([k]) => k);
+  const named = [['sick', /\bsick\s+(?:leave|days?|hours?|time|balances?)\b/i], ['vacation', /\bvacation\b/i], ['personalHoliday', /\bpersonal\s+holidays?\b/i]].filter(([, re]) => re.test(s)).map(([k]) => k);
   return named.length === 1 ? named[0] : 'all';
 }
 
