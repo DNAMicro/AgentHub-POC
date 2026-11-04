@@ -25,7 +25,10 @@ const refusal = (code, reason) => asResult(REFUSAL_CODES.includes(code) ? { code
 function buildServer(store) {
   const server = new McpServer({ name: 'peoplesoft-demo-standin', version: '1.0.0' });
   const staffId = z.string().min(1).max(64);
-  const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((d) => new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d, 'not a real date');
+  const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((d) => !Number.isNaN(Date.parse(`${d}T00:00:00Z`)) && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d, 'not a real date');
+  // Test hook only: answer a NEW filing this many ms late (after the record is written), so a caller's
+  // timeout leaves an outcome it can't know; a repeat of the same operationId answers at once.
+  const lateMs = process.env.PEOPLESOFT_TEST_HOOKS === '1' ? Number(process.env.PEOPLESOFT_TEST_DELAY_MS ?? 0) : 0;
 
   server.registerTool('get_leave_balances', {
     description: `${DEMO} the leave balances (hours) for one staff member: vacation, sick, personal holiday.`,
@@ -76,6 +79,7 @@ function buildServer(store) {
         return refusal(result.code, result.reason);
       }
       log(`filed operationId=${operationId} recordId=${result.receipt.recordId} staffId=${id} steps=${result.receipt.steps.length}${again ? ' (repeat)' : ''}`);
+      if (!again && lateMs > 0) await new Promise((r) => setTimeout(r, lateMs));
       return asResult({ receipt: result.receipt });
     } catch {
       log(`error operationId=${operationId}`);

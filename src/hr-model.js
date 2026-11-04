@@ -216,3 +216,44 @@ export async function chooseAbsence({ text, emit = () => {} }) {
   const v = result.parsed ?? {};
   return { ...verify(words, { pair: v.pair, quote: v.quote, note: v.note, choices: v.choices }), model: result.model };
 }
+
+// ---- Part 15: which PeopleSoft tool fits this moment ------------------------------------------------------
+// HR's AI chooses the tool (owner's decision: “ask the AI at both moments”). The model returns a tool NAME only;
+// code accepts it only if it is in PeopleSoft's tools/list and is the moment's own tool, and builds every
+// argument itself. Mock: the labelled heuristic picks the moment's tool. A failed call picks nothing (no
+// fallback, no guessed tool): the caller then makes no PeopleSoft call.
+export const MOMENT_TOOL = { balances: 'get_leave_balances', submit: 'create_absence_request', requests: 'list_absence_requests' };
+// The moment in plain words (the system prompt's last line; the test fake reads it back).
+const MOMENT_WORDS = {
+  balances: 'look up the staff member’s current leave balances (vacation, sick, personal holiday).',
+  submit: 'file the time-off request the staff member just submitted on the card.',
+  requests: 'list the time-off requests the staff member has already filed.',
+};
+const TOOL_PURPOSE = 'choose PeopleSoft tool';
+const toolSystem = (moment) => `You are the HR Agent of a university. You reach PeopleSoft (a demo stand-in for the university's HR records) through MCP tools. Pick the ONE tool that does what HR needs right now, from the tools listed. Return only its name; code builds the arguments.
+HR needs to: ${MOMENT_WORDS[moment]}`;
+
+export async function chooseTool({ moment, tools = [], emit = () => {} }) {
+  if (!MOMENT_WORDS[moment]) return { tool: null, by: 'model_failed', model: HR_MODE === 'live' ? modelName() : MOCK_LABEL };
+  if (HR_MODE === 'mock') return { tool: tools.includes(MOMENT_TOOL[moment]) ? MOMENT_TOOL[moment] : null, by: 'mock', model: MOCK_LABEL };
+  const failed = (model = modelName()) => ({ tool: null, by: 'model_failed', model });
+  if (!keyConfigured() || !tools.length) return failed();
+  emit('model_call_started', { model: modelName(), mode: 'live', purpose: TOOL_PURPOSE, earlierMessages: 0 });
+  const started = Date.now();
+  let result;
+  try {
+    result = await callModel({
+      system: toolSystem(moment),
+      messages: [{ role: 'user', content: `PeopleSoft tools (from tools/list): ${tools.join(', ')}` }],
+      maxTokens: LIMITS.maxOutputTokens, timeoutMs: LIMITS.timeoutMs,
+      schema: { type: 'object', properties: { tool: { type: 'string', enum: tools } }, required: ['tool'], additionalProperties: false },
+    });
+  } catch (err) {
+    const mapped = toLlmError(err);
+    emit('model_call_failed', { purpose: TOOL_PURPOSE, mode: 'live', model: modelName(), code: mapped.code, message: mapped.message, latencyMs: Date.now() - started, requestId: mapped.requestId });
+    return failed();
+  }
+  emit('model_response_received', { purpose: TOOL_PURPOSE, mode: 'live', model: result.model, latencyMs: Date.now() - started, usage: result.usage, stopReason: result.stopReason, requestId: result.requestId });
+  const tool = result.parsed?.tool;
+  return { tool: typeof tool === 'string' && tools.includes(tool) ? tool : null, by: 'model', model: result.model };
+}

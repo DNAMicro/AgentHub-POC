@@ -59,3 +59,22 @@ function defaultReply(body) {
   const lastUser = body.messages.filter((m) => m.role === 'user').at(-1).content;
   return messageReply(`Fake answer to: ${lastUser}`);
 }
+
+// Part 15: HR's tool choice ("which PeopleSoft tool fits this moment?"). Recognised by its structured-output
+// schema (a single `tool` enum); the moment is read from the plain words in the system prompt. Answers the
+// tool that moment expects, or the one `picks` names for it ({ submit: 'list_absence_requests' } scripts a
+// wrong pick). Not a tool-choice request → null, so a handler can fall through to its own answer.
+// Plumbing only: this proves what code does with a pick, not how a real model picks.
+const MOMENT_PHRASES = [
+  ['requests', /already filed/i, 'list_absence_requests'],
+  ['balances', /leave balances/i, 'get_leave_balances'],
+  ['submit', /file the time-off request/i, 'create_absence_request'],
+];
+export function toolChoiceReply(body, picks = {}) {
+  if (!body?.output_config?.format?.schema?.properties?.tool) return null;
+  const needs = /HR needs to: (.*)/.exec(String(body.system ?? ''))?.[1] ?? '';
+  const found = MOMENT_PHRASES.find(([, re]) => re.test(needs));
+  if (!found) return messageReply(JSON.stringify({ tool: '' }));
+  const [moment, , tool] = found;
+  return messageReply(JSON.stringify({ tool: picks[moment] ?? tool }));
+}

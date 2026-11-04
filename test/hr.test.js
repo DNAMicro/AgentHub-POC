@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { Role } from '@a2a-js/sdk';
 import { ClientFactory } from '@a2a-js/sdk/client';
 import { signStaff, signStudent, verifyStaffSignature } from '../src/hub-link.js';
-import { startHr, startStack, hubEntry, waitFor, post } from './support/harness.js';
+import { startHr, startPeopleSoft, startStack, hubEntry, waitFor, post } from './support/harness.js';
 
 // ---- the staff signature (unit) ----------------------------------------------------------------
 
@@ -38,7 +38,11 @@ async function rawChat(baseUrl, text, metadata = {}) {
 const textOf = (m) => m.parts.filter((p) => p.content?.$case === 'text').map((p) => p.content.value).join('');
 
 test('HR alone: refuses callers the Hub did not sign as staff; dev reset and test hooks answer', async (t) => {
-  const hr = await startHr({ HR_TEST_HOOKS: '1' });
+  // Part 15: HR's records live in PeopleSoft (the demo stand-in), so HR alone still gets its own PeopleSoft.
+  const token = randomUUID();
+  const ps = await startPeopleSoft({ PEOPLESOFT_TOKEN: token, PEOPLESOFT_TEST_HOOKS: '1' });
+  t.after(() => ps.proc.kill());
+  const hr = await startHr({ HR_TEST_HOOKS: '1', PEOPLESOFT_URL: ps.url, PEOPLESOFT_TOKEN: token });
   t.after(() => hr.proc.kill());
 
   const unsigned = await rawChat(hr.url, 'My grandmother passed away, I need this Thursday and Friday');
@@ -58,6 +62,14 @@ test('HR alone: refuses callers the Hub did not sign as staff; dev reset and tes
   const crossSite = await post(`${hr.url}/dev/hr/reset`, {}, { Origin: 'http://evil.example' });
   assert.equal(crossSite.status, 403, 'a cross-site browser POST is refused');
   assert.deepEqual(await (await fetch(`${hr.url}/test/hr/requests`)).json(), { requests: [] });
+  assert.ok(!hr.output().includes(token), 'the PeopleSoft token is never logged');
+
+  // PeopleSoft gone: the reset still closes HR's cards but says PeopleSoft wasn't reset.
+  ps.proc.kill();
+  await waitFor(() => ps.proc.exitCode !== null || ps.proc.signalCode !== null, { what: 'PeopleSoft stopped' });
+  const failed = await post(`${hr.url}/dev/hr/reset`, {});
+  assert.equal(failed.status, 502);
+  assert.deepEqual(await failed.json(), { status: 'failed', peoplesoft: 'unavailable' });
 });
 
 test('HR in the stack: registers with the Hub and becomes ready with its time-off form skill', async (t) => {

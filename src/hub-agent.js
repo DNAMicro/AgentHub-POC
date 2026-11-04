@@ -371,6 +371,8 @@ export function startHubServer({ port } = {}) {
       if (closed) m.state = 'closed';
       emit('form_result_relayed', runId, { formRef: m.formRef, operationId, agentId: m.issuer, status: b.status, receipt: b.receipt ? { id: b.receipt.requestId } : null });
       const reply = { text: b.message ?? '', servedBy: m.issuer, formRef: m.formRef, closed, ...(result.a2uiUpdate.length ? { a2ui: result.a2uiUpdate } : {}), ...(b.receipt ? { receipt: b.receipt } : {}), ...(b.errors ? { errors: b.errors } : {}) };
+      // retryable (HR's backend didn't confirm): not kept here either, and the sender is told it may resend the same operation.
+      if (b.retryable) return { ...staffReply('refused', { reply: { ...reply, retryable: true }, reason: b.errors?._form ?? b.message ?? 'Not accepted.' }), retryable: true };
       if (['rejected', 'conflict'].includes(b.status)) return staffReply('refused', { reply, reason: b.errors?._form ?? b.message ?? 'Not accepted.' });
       return staffReply('ok', { reply });
     } catch (err) {

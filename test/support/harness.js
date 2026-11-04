@@ -122,8 +122,9 @@ export async function startLibrary(env = {}) {
 
 // HR (staff only): time-off requests; its records live in memory, so every test HR starts fresh.
 export const HR_READY = /\[HR Agent\] listening on (http:\/\/127\.0\.0\.1:\d+)/;
+// PEOPLESOFT_URL defaults to a closed port, so a test HR never reaches a real PeopleSoft on 41246.
 export async function startHr(env = {}) {
-  const hr = startProcess('src/hr-agent.js', { PORT: '0', ...env }, HR_READY);
+  const hr = startProcess('src/hr-agent.js', { PORT: '0', PEOPLESOFT_URL: 'http://127.0.0.1:9', ...env }, HR_READY);
   hr.url = await hr.ready;
   return hr;
 }
@@ -136,6 +137,15 @@ export async function startPeopleSoft(env = {}) {
   return ps;
 }
 
+// Stop a test process and wait until it is gone. A process that already exited (or was killed by a
+// signal: exitCode stays null, signalCode is set) is not awaited again.
+export async function stopProcess(p) {
+  if (!p || p.proc.exitCode !== null || p.proc.signalCode !== null) return;
+  const gone = once(p.proc, 'exit');
+  p.proc.kill();
+  await gone;
+}
+
 // Part 7: the whole stack — Hub, Tutor, Library and the Student UI. The specialists' ports are picked
 // first so the Hub's configuration (its trusted endpoints) can name them; the specialists then register
 // with the Hub. Pass tutorPort/libraryPort to restart a specialist on the same trusted endpoint.
@@ -145,7 +155,9 @@ export async function startPeopleSoft(env = {}) {
 // too, so the Hub's configuration names the Student's inbound endpoint before it starts.
 // HR: hr: true also starts the HR Agent (with HR_TEST_HOOKS=1). Its port is always pre-picked, so a test
 // Hub never follows a real HR on the default port.
-export async function startStack({ tutorEnv = {}, libraryEnv = {}, hubEnv = {}, uiEnv = {}, professorEnv = {}, hrEnv = {}, library = true, professor = false, hr = false, tutorPort, libraryPort, professorPort, hrPort, uiPort, waitReady = true, readyAgents } = {}) {
+// Part 15: hr: true also starts the PeopleSoft stand-in first, on its own pre-picked port with a random token
+// given to both PeopleSoft and HR (HR never points at the real 41246). It is killed with the stack.
+export async function startStack({ tutorEnv = {}, libraryEnv = {}, hubEnv = {}, uiEnv = {}, professorEnv = {}, hrEnv = {}, peoplesoftEnv = {}, library = true, professor = false, hr = false, tutorPort, libraryPort, professorPort, hrPort, uiPort, waitReady = true, readyAgents } = {}) {
   const tPort = tutorPort ?? (await unusedPort());
   const lPort = libraryPort ?? (await unusedPort());
   const pPort = professorPort ?? (await unusedPort());
@@ -156,12 +168,15 @@ export async function startStack({ tutorEnv = {}, libraryEnv = {}, hubEnv = {}, 
   const tutor = await startTutor({ ...specialistEnv, PORT: String(tPort), ...tutorEnv });
   const lib = library ? await startLibrary({ ...specialistEnv, PORT: String(lPort), ...libraryEnv }) : null;
   const prof = professor ? await startProfessor({ ...specialistEnv, PORT: String(pPort), ...professorEnv }) : null;
-  const hrAgent = hr ? await startHr({ ...specialistEnv, PORT: String(hPort), HR_TEST_HOOKS: '1', ...hrEnv }) : null;
+  const psToken = hr ? (await import('node:crypto')).randomBytes(24).toString('base64url') : null;
+  const ps = hr ? await startPeopleSoft({ PORT: String(await unusedPort()), PEOPLESOFT_TOKEN: psToken, PEOPLESOFT_TEST_HOOKS: '1', ...peoplesoftEnv }) : null;
+  const hrAgent = hr ? await startHr({ ...specialistEnv, PORT: String(hPort), HR_TEST_HOOKS: '1', PEOPLESOFT_URL: ps.url, PEOPLESOFT_TOKEN: psToken, ...hrEnv }) : null;
   const ui = await startUi(hub.url, { UI_PORT: String(uPort), ...uiEnv });
   const stack = {
-    hub, tutor, library: lib, professor: prof, hr: hrAgent, ui, tutorPort: tPort, libraryPort: lPort, professorPort: pPort, hrPort: hPort, uiPort: uPort, specialistEnv,
+    hub, tutor, library: lib, professor: prof, hr: hrAgent, peoplesoft: ps, peoplesoftToken: psToken, ui, tutorPort: tPort, libraryPort: lPort, professorPort: pPort, hrPort: hPort, uiPort: uPort, specialistEnv,
     // Uses the stack's current processes, so a test that restarts one (stack.library = …) still cleans up.
-    kill() { [this.ui, this.tutor, this.library, this.professor, this.hr, this.hub].filter(Boolean).forEach((p) => p.proc.kill()); },
+    // kill() on a process that already exited (e.g. PeopleSoft stopped by a test) does nothing.
+    kill() { [this.ui, this.tutor, this.library, this.professor, this.hr, this.peoplesoft, this.hub].filter(Boolean).forEach((p) => p.proc.kill()); },
   };
   const mustBeReady = readyAgents ?? [...(library ? ['tutor', 'library'] : ['tutor']), ...(professor ? ['professor'] : []), ...(hr ? ['hr'] : [])];
   if (waitReady) {

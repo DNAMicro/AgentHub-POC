@@ -139,5 +139,7 @@ test('impossible dates and bad hours are refused', async () => {
   assert.equal(await bad({ beginDate: '2026-02-30', endDate: '2026-02-30' }), true);
   assert.equal(await bad({ partial: { mode: 'all_days', hours: -1 } }), true);
   assert.equal(await bad({ partial: { mode: 'all_days', hours: 1000 } }), true);
+  const r = await c.callTool({ name: 'create_absence_request', arguments: request({ operationId: 'bad-month-13', beginDate: '2026-13-45', endDate: '2026-13-45' }) });
+  assert.ok(r.isError && /Input validation error/.test(r.content[0].text) && !/RangeError|Invalid time value/.test(r.content[0].text), `2026-13-45 is a validation error: ${r.content[0].text}`);
   await c.close();
 });

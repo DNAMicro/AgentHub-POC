@@ -2,15 +2,21 @@
 // system). One skill: a time-off request. From the staff member's words it fills the card it can
 // (absence name proposed by the model or the labelled mock heuristic and checked by code; dates, partial
 // days and hours by code only), runs the Forecast (src/leave-rules.js) and sends ONE editable A2UI card
-// inside an A2A task. Submit records the request in memory and says it was sent to the manager — there
+// inside an A2A task. Submit files the request in PeopleSoft and says it was sent to the manager — there
 // is no manager simulation and nothing is deducted.
+//
+// Part 15: the records live in PeopleSoft (a DEMO STAND-IN reached over MCP, src/hr-peoplesoft.js). HR keeps
+// no copy: it fetches the balances when it issues a card (and for a balance question), lists filed requests
+// through PeopleSoft, and files on Submit. HR's AI chooses the PeopleSoft tool at each moment; code accepts
+// only the moment's own tool and builds the arguments. HR keeps the leave rules (src/leave-rules.js) so the
+// card's Forecast needs no call per edit; PeopleSoft re-checks everything when it files.
 //
 // Staff only: the caller must be a staff member the Hub signed for this request (hubLink.verifiedStaff).
 // Never from the model, the words, or a bare metadata field. Students never reach HR through the Hub;
 // anything unsigned is refused here as well.
 //
-// In memory only: staff, balances, requests and open cards reset when the process restarts (and on
-// POST /dev/hr/reset, the classroom reset: records back to the sample, every open card closed).
+// Open cards are in memory only; POST /dev/hr/reset (the classroom reset) resets PeopleSoft's records to the
+// sample and closes every open card.
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import express from 'express';
@@ -24,7 +30,8 @@ import { createHubLink } from './hub-link.js';
 import { apiHost, keyEnvName, useModel } from './llm.js';
 import { A2UI_EXTENSION_URI, A2UI_MIME_TYPE, BASIC_CATALOG_ID, WORKFLOWS, buildTimeOffForm, checkTimeOffValues, hhmm, isA2uiPart, validateFinal } from './forms.js';
 import { createFormHost } from './form-host.js';
-import { createPeopleSoftStore } from './peoplesoft-store.js'; // TEMPORARY in-process use until HR calls the PeopleSoft MCP server
+import { createPeopleSoftLink } from './hr-peoplesoft.js';
+import { planAbsence } from './leave-rules.js';
 import { CREDIT_LABEL, PROOF, STANDARD_DAY, daysText, defaultReason, isPair, nameOf, shortDate, spreadOf, titleOf, whenText, workdays } from './absence-types.js';
 import { asksBalance, asksRequests, dayReferences, mentionedDays, mentionsDay, mentionsHours, readPartial, readRequest } from './hr-intent.js';
 import { familyCare, hrStatus, reasonForRelative, selfSick } from './hr-model.js';
@@ -82,7 +89,15 @@ const QUESTIONS = {
 const REASON_QUESTION = { BRV: 'Who in your family is it for?' };
 const WORKDAY_START = 8 * 60; // an arrival partial: the day starts at 08:00 (hr-intent.js)
 
-const store = createPeopleSoftStore();
+// PeopleSoft (demo stand-in): its URL and the per-start token that only HR and PeopleSoft hold (never logged).
+const PEOPLESOFT_URL = process.env.PEOPLESOFT_URL ?? 'http://127.0.0.1:41246';
+const peoplesoft = createPeopleSoftLink({ url: PEOPLESOFT_URL, token: process.env.PEOPLESOFT_TOKEN, emit: emitViz, timeoutMs: Number(process.env.PEOPLESOFT_TIMEOUT_MS ?? 20000) });
+// Fixed wording (Part 15 global constraints): PeopleSoft down or not confirming.
+export const PEOPLESOFT_UNAVAILABLE = 'PeopleSoft didn\'t answer. Nothing is filed until it confirms — press Submit again; it won\'t file twice.';
+const NO_BALANCES = 'PeopleSoft didn\'t answer, so the balance isn\'t shown.';
+const TOOL_REFUSED = 'HR couldn\'t file this: its AI picked the wrong PeopleSoft tool, so nothing was filed. Press Submit again.';
+// The person the leave rules need, from PeopleSoft's balances (null balances: no credit is checked here).
+const personOf = (balances) => ({ standardHours: STANDARD_DAY, balances: balances ?? {} });
 let skillService = null;
 const workflowEnabled = () => skillService.policy().skills.some((s) => s.id === WORKFLOWS[WORKFLOW_ID].skillId);
 
@@ -123,15 +138,16 @@ function spreadFor(state) {
   return { total, spread, partial: spread.mode === 'ask' || spread.mode === 'invalid' ? null : storePartial(spread), days };
 }
 
-// A problem with the dates themselves (the store's own checks with full days), or null. A balance shortfall is not
-// one: it depends on the hours.
-function datesProblem(staffId, type, values) {
-  const p = store.plan(staffId, { absenceType: type, beginDate: values.beginDate, endDate: values.endDate, partial: null });
-  return !p.ok && p.code !== 'not_enough' ? p.reason : null;
+// A problem with the dates themselves (the leave rules' own checks with full days), or null. A balance shortfall
+// is not one: it depends on the hours (no type → no balance is checked).
+function datesProblem(values) {
+  const p = planAbsence(personOf(null), { absenceType: '', beginDate: values.beginDate, endDate: values.endDate, partial: null });
+  return p.ok ? null : p.reason;
 }
 
-// Everything the card shows, worked out by code from the values (and the store's Forecast).
-function cardFor(staffId, state) {
+// Everything the card shows, worked out by code from the values, the leave rules' Forecast and the balances
+// PeopleSoft gave for this card (state.balances; null when PeopleSoft didn't answer). Synchronous.
+function cardFor(state) {
   const { values } = state;
   const type = validType(values.absenceType);
   const missing = missingOf(values);
@@ -140,17 +156,19 @@ function cardFor(staffId, state) {
   let problem = null;
   let plan = null;
   // Holiday boundaries, no workdays, too long: shown before any spread question (the hours can't fix those).
-  const blocked = spread?.mode === 'ask' ? datesProblem(staffId, type, values) : null;
+  const blocked = spread?.mode === 'ask' ? datesProblem(values) : null;
   if (blocked) problem = blocked;
   else if (spread?.mode === 'ask') {
     missing.push('spread');
     const first = total - STANDARD_DAY * (days.length - 1);
     question = `Is that ${hoursWord(first)} on ${shortDate(days[0])} and the rest in full, or ${hoursWord(total / days.length)} each day?`;
   } else if (spread) {
-    plan = store.plan(staffId, { absenceType: type, beginDate: values.beginDate, endDate: values.endDate, partial });
+    // Without balances the rules still check dates and hours; the balance is left to PeopleSoft at Submit.
+    plan = planAbsence(personOf(state.balances), { absenceType: state.balances ? type : '', beginDate: values.beginDate, endDate: values.endDate, partial });
     if (!plan.ok) problem = plan.reason;
     else if (spread.mode === 'invalid') problem = TEXT.badHours;
   }
+  if (!problem && !state.balances) problem = NO_BALANCES;
   // The clock is shown only while the first day is still the one the words described.
   const wordsFirst = state.partial?.mode === 'start_day_only' && ['one_day', 'start_day_only'].includes(spread?.mode) && spread.first === state.partial.hours;
   const startAt = wordsFirst ? state.startAt ?? null : null;
@@ -169,7 +187,7 @@ function cardFor(staffId, state) {
     // No name: the names he can pick from (pills under the lead) — the words' choices, else his three leave balances.
     choices: type ? [] : (state.choices?.length ? state.choices : DEFAULT_CHOICES).map((t) => ({ type: t, name: nameOf(t) })),
     proof: PROOF[type] ?? null,
-    balances: store.balances(staffId),
+    balances: state.balances ? { ...state.balances } : null,
     spread: spread ?? null,
     startAt, side,
   };
@@ -191,8 +209,8 @@ const formHost = createFormHost({
       build: (surfaceId, { prefill, missing }) => buildTimeOffForm(surfaceId, { prefill, missing }),
       actions: {
         // Final: the staff member is re-checked against the Hub's signature on THIS request, then the code
-        // checks, the spread, the Forecast and the record (store.file is synchronous and idempotent by operation ID).
-        async submitTimeOff(form, context, { operationId, trusted, emit }) {
+        // checks, the spread and the Forecast; PeopleSoft files the record (idempotent by operation ID).
+        async submitTimeOff(form, context, { operationId, runId, trusted, emit }) {
           if (hubLink.verifiedStaff(trusted, form.contextId) !== form.data.staffId) return { status: 'rejected', message: 'This request belongs to another staff member.', errors: { _form: 'This request belongs to another staff member.' } };
           const v = validateFinal(WORKFLOW_ID, context);
           if (!v.ok) return { status: 'rejected', message: 'Please correct the highlighted fields.', errors: v.errors };
@@ -203,7 +221,7 @@ const formHost = createFormHost({
           const decided = form.data.spread;
           const mode = sameSpread(decided, { ...values, hours }) ? decided.mode : null;
           const { spread, partial } = spreadFor({ values, cardHours: hours, partial: null, mode });
-          const blocked = spread.mode === 'ask' ? datesProblem(form.data.staffId, values.absenceType, values) : null;
+          const blocked = spread.mode === 'ask' ? datesProblem(values) : null;
           if (blocked) return { status: 'rejected', message: blocked, errors: { _form: blocked } };
           if (spread.mode === 'ask') {
             const days = workdays(values.beginDate, values.endDate);
@@ -212,11 +230,19 @@ const formHost = createFormHost({
           }
           if (spread.mode === 'invalid') return { status: 'rejected', message: TEXT.badHours, errors: { hours: TEXT.badHours } };
           const staffId = form.data.staffId;
-          const r = store.file(staffId, { absenceType: values.absenceType, absenceReason: values.absenceReason, beginDate: values.beginDate, endDate: values.endDate, partial }, operationId, ['store_record']);
-          emit('hr_operation', { operation: 'submitTimeOff', ok: r.ok, code: r.ok ? 'sent_to_manager' : r.code });
-          if (!r.ok) return { status: 'rejected', message: r.reason, errors: { _form: r.reason } };
-          log('recorded time-off request', { requestId: r.receipt.requestId, hours: r.receipt.hours, status: r.receipt.status });
-          return { status: 'accepted', message: TEXT.receipt, receipt: { ...r.receipt, demo: true, note: 'Demo request — synthetic HR records.' } };
+          // PeopleSoft files it (idempotent by operationId). Its steps are already stripped by the link.
+          const r = await peoplesoft.file(staffId, { absenceType: values.absenceType, absenceReason: values.absenceReason, beginDate: values.beginDate, endDate: values.endDate, partial }, operationId, { runId });
+          emit('hr_operation', { operation: 'submitTimeOff', ok: r.ok, code: r.ok ? 'sent_to_manager' : r.code ?? r.outcome });
+          if (r.outcome === 'refused') return { status: 'rejected', message: r.reason, errors: { _form: r.reason } };
+          // Not filed, or not known to be filed: the card stays open and the same operationId may be sent again
+          // (retryable: no layer keeps this answer, so a second Submit reaches PeopleSoft, which files once).
+          if (!r.ok) {
+            const message = r.outcome === 'tool_refused' ? TOOL_REFUSED : PEOPLESOFT_UNAVAILABLE;
+            return { status: 'rejected', message, errors: { _form: message }, retryable: true };
+          }
+          const { receipt } = r.value;
+          log('recorded time-off request', { requestId: receipt.requestId, recordId: receipt.recordId, hours: receipt.hours, status: receipt.status });
+          return { status: 'accepted', message: TEXT.receipt, receipt: { ...receipt, demo: true, note: 'Demo request — synthetic HR records.' } };
         },
         async cancelForm(form, context, { trusted }) {
           if (hubLink.verifiedStaff(trusted, form.contextId) !== form.data.staffId) return { status: 'rejected', message: 'This request belongs to another staff member.', errors: { _form: 'This request belongs to another staff member.' } };
@@ -233,7 +259,8 @@ const reply = (ctx, text, metadata) => ({
   metadata, extensions: [], referenceTaskIds: [],
 });
 
-// Balance and request questions are answered as plain text from the store: no card, nothing filed, no model.
+// Balance and request questions are answered as plain text from PeopleSoft: no card, nothing filed, no model
+// call about the words (HR's AI only chooses the PeopleSoft tool).
 const BALANCE_WORDS = { sick: 'sick leave', vacation: 'vacation', personalHoliday: 'personal holiday' };
 const hoursText = (h) => `${h} ${h === 1 ? 'hour' : 'hours'}`;
 export function balanceText(balances, which) {
@@ -364,15 +391,24 @@ const hrExecutor = {
 
     // The Hub's signature on THIS request says who the staff member is. Nothing else does.
     const staffId = hubLink.verifiedStaff(incoming.metadata, ctx.contextId);
-    if (!staffId || !store.staff(staffId)) return send(TEXT.refused, 'refused');
+    if (!staffId) return send(TEXT.refused, 'refused');
+    // PeopleSoft knows the staff: one balances call per message, used for the check, a balance answer and the card.
+    const bal = await peoplesoft.balances(staffId, { runId });
+    if (bal.outcome === 'refused' && bal.code === 'unknown_staff') return send(TEXT.refused, 'refused');
+    const balances = bal.ok ? { vacation: bal.value.vacation, sick: bal.value.sick, personalHoliday: bal.value.personalHoliday } : null;
     if (!workflowEnabled()) return send(TEXT.disabled, 'workflow_disabled');
     // A question about balances or filed requests: text only. An open card stays open and unchanged.
     const whichBalance = asksBalance(text);
     const wantsRequests = asksRequests(text);
     if (whichBalance || wantsRequests) {
+      if (!balances) return send(PEOPLESOFT_UNAVAILABLE, 'peoplesoft_unavailable');
       const parts = [];
-      if (whichBalance) parts.push(balanceText(store.balances(staffId), whichBalance));
-      if (wantsRequests) parts.push(requestsText(store.requests(staffId)));
+      if (whichBalance) parts.push(balanceText(balances, whichBalance));
+      if (wantsRequests) {
+        const filed = await peoplesoft.requests(staffId, { runId });
+        if (!filed.ok) return send(PEOPLESOFT_UNAVAILABLE, 'peoplesoft_unavailable');
+        parts.push(requestsText(filed.value.requests));
+      }
       return send(parts.join('\n'), whichBalance && wantsRequests ? 'info' : whichBalance ? 'balance' : 'requests');
     }
     if (!formHost.clientSupportsForms(incoming)) return send(TEXT.noClient, 'workflow_unsupported_client');
@@ -394,7 +430,8 @@ const hrExecutor = {
     // Choices when no single name fits: this message's, else the ones the open card already offered.
     state.choices = read.choices?.length ? read.choices : followUp ? open.data.choices ?? [] : [];
     if (!isPair(state.values.absenceType, state.values.absenceReason)) state.values.absenceReason = state.values.absenceType ? defaultReason(state.values.absenceType) ?? '' : '';
-    const { hrCard, hours } = cardFor(staffId, state);
+    state.balances = balances;
+    const { hrCard, hours } = cardFor(state);
     const prefill = Object.fromEntries(Object.entries({ ...state.values, hours }).filter(([, v]) => v !== '' && v != null));
     emitViz('request_read', runId, { followUp: Boolean(followUp), cardValues: Boolean(cardValues?.ok), prefilled: Object.keys(prefill), missing: hrCard.missing, outcome: hrCard.problem ? 'forecast_failed' : hrCard.missing.length ? 'missing' : 'ready', code: read.error ?? null });
     // The spread the words decided, kept with the card for the dates and hours it was decided for (Submit, follow-ups).
@@ -462,18 +499,28 @@ export function startHrServer({ port = 41245 } = {}) {
       app.use(JSONRPC_PATH, jsonRpcHandler({ requestHandler, userBuilder: UserBuilder.noAuthentication }));
       app.get(VIZ_PATH, serveVizEvents);
       app.use(skillService.router());
-      // Demo reset (the classroom reset, asked by the Hub): staff, balances and requests back to the sample.
-      // Server callers only — a cross-site browser POST is refused.
-      app.post('/dev/hr/reset', sameOriginGuard(actualPort), (req, res) => {
-        store.reset();
+      // Demo reset (the classroom reset, asked by the Hub): PeopleSoft's staff, balances and requests back to the
+      // sample. Server callers only — a cross-site browser POST is refused.
+      app.post('/dev/hr/reset', sameOriginGuard(actualPort), async (req, res) => {
         ledger.clear();
-        // A card opened before the reset can't be submitted into the fresh records.
+        // A card opened before the reset can't be submitted into the fresh records (closed even if PeopleSoft
+        // didn't answer, so no old card files later).
         const closed = formHost.closeAll('This card was closed when the HR records were reset. Ask again for a new card.');
-        log('HR records reset to the starting sample', { closedCards: closed });
+        const r = await peoplesoft.reset();
+        log('HR records reset to the starting sample', { closedCards: closed, peoplesoft: r.ok ? 'reset' : 'unavailable' });
+        if (!r.ok) return res.status(502).json({ status: 'failed', peoplesoft: 'unavailable' });
         res.json({ status: 'reset' });
       });
-      // Test hook only: read the in-memory requests.
-      if (process.env.HR_TEST_HOOKS === '1') app.get('/test/hr/requests', (req, res) => res.json({ requests: store._records() }));
+      // Test hook only: PeopleSoft's records (its own test hook), in today's shape.
+      if (process.env.HR_TEST_HOOKS === '1') {
+        app.get('/test/hr/requests', async (req, res) => {
+          try {
+            res.json({ requests: await peoplesoft.records() });
+          } catch {
+            res.status(502).json({ error: 'peoplesoft_unavailable' });
+          }
+        });
+      }
       skillService.started(actualPort, `${baseUrl}/${AGENT_CARD_PATH}`);
       hubLink.start(); // retries until the Hub accepts the registration
       resolve({ server, baseUrl, hubLink });
@@ -496,4 +543,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   log(`Agent Card: ${baseUrl}/${AGENT_CARD_PATH}`);
   const s = hrStatus();
   log(`mode: ${s.mode} (${s.model})${s.mode === 'live' ? `, API key (${keyEnvName()}): ${s.keyConfigured ? 'configured' : 'NOT SET'}, API host: ${apiHost()}` : ''}, staff only, synthetic records`);
+  log(`PeopleSoft (demo stand-in, MCP): ${PEOPLESOFT_URL}/mcp, token (PEOPLESOFT_TOKEN): ${process.env.PEOPLESOFT_TOKEN ? 'configured' : 'NOT SET'}`);
 }

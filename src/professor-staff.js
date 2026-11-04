@@ -359,6 +359,12 @@ export async function staffAction({ operationId, formRef, action, hubLink, emit 
     }
     return { http: 200, definite: true, entries, body: { status, reply: entries[0].text, closed: true, ...(reply.receipt ? { receipt: reply.receipt } : {}) } };
   }
+  // HR's backend (PeopleSoft) didn't confirm: the outcome is unknown, HR's words say so. Not kept, so the same
+  // operation can be sent again (the browser keeps its operation ID for outcome_unknown) — it won't file twice.
+  if (r.status === 'refused' && reply?.retryable) {
+    const text = r.reason ?? reply.text ?? 'Not confirmed.';
+    return { http: 200, definite: false, entries: [{ role: 'hr', text, formRef, failed: true }], body: { status: 'outcome_unknown', reply: text, closed: false } };
+  }
   if (r.status === 'ok' || r.status === 'refused') {
     // HR (or the Hub) refused it: the card stays open with HR's errors, unless the Hub says (typed code,
     // never its wording) that the card itself can't be acted on any more.

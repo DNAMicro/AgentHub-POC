@@ -21,7 +21,7 @@ const a2uiPart = (messages) => ({ content: { $case: 'data', value: messages }, m
 const status = (state, message) => ({ state, message, timestamp: new Date().toISOString() });
 
 // workflows: { [workflowId]: { build(surfaceId, { prefill, now }), offerText, actions: { [name]: async (form, context, tools) => result } } }
-// result: { status: 'accepted' | 'updated' | 'rejected' | 'conflict' | 'cancelled', message, errors?, receipt?, a2ui?, values? }
+// result: { status: 'accepted' | 'updated' | 'rejected' | 'conflict' | 'cancelled', message, errors?, receipt?, a2ui?, values?, retryable? }
 export function createFormHost({ agentId, workflows, isEnabled, emitViz, log, logValues = () => '[values not logged]' }) {
   const forms = new Map(); // formId (= A2UI surfaceId) → { workflowId, version, taskId, contextId, state, stage, data }
   const operations = new Map(); // operationId → { formId, name, raw, result }
@@ -156,10 +156,14 @@ export function createFormHost({ agentId, workflows, isEnabled, emitViz, log, lo
       if (checked.spec.final && result.status === 'accepted') form.state = 'accepted';
       if (checked.spec.cancel) form.state = 'cancelled';
       const closed = form.state !== 'awaiting_input';
-      const body = { status: result.status, formId, operationId, workflowId: form.workflowId, message: result.message, ...(result.errors ? { errors: result.errors } : {}), ...(result.flags ? { flags: result.flags } : {}), ...(result.receipt ? { receipt: result.receipt } : {}) };
+      const body = { status: result.status, formId, operationId, workflowId: form.workflowId, message: result.message, ...(result.errors ? { errors: result.errors } : {}), ...(result.flags ? { flags: result.flags } : {}), ...(result.receipt ? { receipt: result.receipt } : {}), ...(result.retryable ? { retryable: true } : {}) };
       const a2ui = [...(result.a2ui ?? []), ...(closed ? buildDelete(formId) : [])];
-      operations.set(operationId, { formId, name: checked.name, raw: JSON.stringify(checked.context), result: { body, a2ui, closed } });
-      trim(operations);
+      // retryable: the handler doesn't know the outcome (e.g. its backend didn't confirm). Not kept, so the
+      // same operation ID can be sent again and reach the handler (the backend dedupes it).
+      if (!result.retryable) {
+        operations.set(operationId, { formId, name: checked.name, raw: JSON.stringify(checked.context), result: { body, a2ui, closed } });
+        trim(operations);
+      }
       log('form action result', { ...ids, status: result.status, receiptId: result.receipt?.requestId ?? result.receipt?.bookingId ?? null });
       // The handler's outcome first, then the reply that carries it back over A2A.
       emitViz('form_action_result', runId, { ...ids, workflowId: form.workflowId, status: result.status, errors: result.errors ?? null, flags: result.flags ?? null, receipt: result.receipt ?? null, values: result.values ?? null });
