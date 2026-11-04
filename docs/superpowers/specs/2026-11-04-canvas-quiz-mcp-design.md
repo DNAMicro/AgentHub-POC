@@ -265,10 +265,7 @@ call only. The interpret path (45 s, `professor-model.js:21`) only lists topics,
 4. **The draft card is a native card**, not an A2UI form: it is the Faculty agent's own screen, and add/remove/
    undo over a list is beyond the pinned A2UI basic catalog without model-generated UI.
 5. **Edits stay in the page until Approve** (a reload shows the AI's draft again); the draft is in memory only.
-6. **Untaught topics:** a chip is disabled; typing one (“a quiz on pricing” on Nov 4) gets “Pricing concepts
-   (Topic 19) is taught on Thu, Nov 19 — it hasn't been covered yet. Pick a covered topic.” — open question
-   below.
-7. **Keep as draft keeps the Publish button** on the card until published or reset.
+6. **Keep as draft keeps the Publish button** on the card until published or reset.
 
 ## Changes from the builder check (2026-11-04)
 
@@ -281,10 +278,17 @@ viewBox `1100 990` and PeopleSoft's position) and the Topology `aria-label` in `
 the new layout. Screen 1's mockup caption “Faculty's model only reads the request” becomes: on a request code
 recognizes, no model call is needed until the draft.
 
-## Open question for the owner
+## Owner's decision (2026-11-04): only topics already taught
 
-Should Dr. Dabirian be able to make a quiz on a topic that **hasn't been taught yet** (preparing ahead), or only on
-topics already covered?
+Asked whether Dr. Dabirian may make a quiz ahead of time on a topic not yet taught, the owner answered: “only
+topics already taught”. So:
+- In the topic list, later topics are shown with their date but are disabled (as on screen 1).
+- Typing one (“a quiz on pricing” on Nov 4) gets the fixed reply “Pricing concepts (Topic 19) is taught on
+  Thu, Nov 19 — it hasn't been covered yet. Pick a covered topic.” followed by the list; no draft, no model call.
+- Code enforces it at every hop, not only in the page: the Faculty agent refuses to draft, add “one more”, or
+  approve a quiz whose topic is not taught by today (Pacific), and Canvas's `check_course` step does the same.
+- Before the first class (Tue, Aug 25) the reply is “No Marketing 351 topics have been taught yet this term —
+  the first class is Tue, Aug 25.”
 
 ## Left to the builder
 
