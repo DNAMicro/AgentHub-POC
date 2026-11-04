@@ -195,7 +195,7 @@ each. `publish_quiz` runs `check_quiz_exists`, `set_published`. Steps never leav
 A failed plan still runs the required steps. `maxRetries: 0`, no fallback, errors through `toLlmError`.
 
 **Refusal codes** (fixed set, only the code passes telemetry): `bad_question`, `bad_settings`, `due_in_past`,
-`unknown_course`, `unknown_quiz`, `operation_reused`, `reset_during_call`.
+`unknown_course`, `unknown_quiz`, `operation_reused`, `reset_during_call`, `not_taught` (owner's decision below).
 
 ### Failures (honest, never retried by itself)
 | What happened | Approve shows | Publish shows |
