@@ -133,6 +133,12 @@ test('overlap: a request sharing a workday with a filed one is refused', () => {
   assert.equal(s.file('staff-amir', v, 'op-1', ['store_record']).ok, true);
   const r = s.file('staff-amir', { ...v, beginDate: '2026-11-06', endDate: '2026-11-09' }, 'op-2', ['store_record']);
   assert.deepEqual([r.ok, r.code], [false, 'overlap']);
+  // The professor reads this sentence on the card: plain dates, never ISO (live run 2026-11-03 showed “2026-11-06 to 2026-11-06”).
+  assert.equal(r.reason, 'That overlaps time off already filed for Thu, Nov 5 to Fri, Nov 6.');
+  const one = s.file('staff-amir', { ...v, beginDate: '2026-11-05', endDate: '2026-11-05' }, 'op-3', ['store_record']);
+  assert.equal(one.reason, 'That overlaps time off already filed for Thu, Nov 5 to Fri, Nov 6.');
+  assert.equal(s.file('staff-amir', { ...v, beginDate: '2026-11-13', endDate: '2026-11-13' }, 'op-4', ['store_record']).ok, true);
+  assert.equal(s.file('staff-amir', { ...v, beginDate: '2026-11-13', endDate: '2026-11-13' }, 'op-5', ['store_record']).reason, 'That overlaps time off already filed for Fri, Nov 13.');
 });
 test('receipt carries a PeopleSoft record id and the steps run', () => {
   const r = createPeopleSoftStore().file('staff-amir', { absenceType: 'VAC', absenceReason: 'VAC', beginDate: '2026-11-06', endDate: '2026-11-06', partial: null }, 'op-1', ['check_balance', 'store_record']);

@@ -7,7 +7,7 @@
 // In memory only — nothing is written to disk. Every new store seeds the same staff; a retried
 // operation ID can't file twice while the process runs, and a restart forgets requests.
 // Filing records the request as sent to the manager; it deducts nothing.
-import { workdays, isPair, nameOf, reasonsOf } from './absence-types.js';
+import { workdays, isPair, nameOf, reasonsOf, shortDate } from './absence-types.js';
 import { planAbsence } from './leave-rules.js';
 
 const seedStaff = () => [{ staffId: 'staff-amir', name: 'Professor Amir', standardHours: 8, balances: { vacation: 96, sick: 120, personalHoliday: 8 }, role: 'Department chair', appointment: '12-month', synthetic: true }];
@@ -41,7 +41,7 @@ export function createPeopleSoftStore({ now = () => new Date() } = {}) {
       if (!p.ok) return fail(p.code, p.reason);
       const mine = new Set(workdays(values.beginDate, values.endDate));
       const clash = state.requests.find((r) => r.staffId === staffId && workdays(r.beginDate, r.endDate).some((d) => mine.has(d)));
-      if (clash) return fail('overlap', `That overlaps time off already filed (${clash.beginDate} to ${clash.endDate}).`);
+      if (clash) return fail('overlap', `That overlaps time off already filed for ${clash.beginDate === clash.endDate ? shortDate(clash.beginDate) : `${shortDate(clash.beginDate)} to ${shortDate(clash.endDate)}`}.`);
       const receipt = {
         requestId: `TO-${String(operationId).replace(/[^0-9a-f]/gi, '').slice(0, 8).toUpperCase()}`, recordId: recordNumber(state.counter++),
         absenceType: values.absenceType, absenceReason: values.absenceReason, absenceName: nameOf(values.absenceType),
