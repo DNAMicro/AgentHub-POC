@@ -264,3 +264,30 @@ test('through the real Professor: an unconfirmed Submit is outcome_unknown with 
   assert.equal('steps' in again.receipt, false);
   assert.equal((await (await fetch(`${stack.hr.url}/test/hr/requests`)).json()).requests.length, 1, 'filed once');
 });
+
+test('connect and call share one MCP budget: a slow PeopleSoft cannot hold HR past it', async (t) => {
+  const { createServer, request } = await import('node:http');
+  const { createPeopleSoftLink } = await import('../src/hr-peoplesoft.js');
+  const token = `tok-${randomUUID()}`;
+  const ps = await startPeopleSoft({ PEOPLESOFT_TOKEN: token });
+  t.after(() => stopProcess(ps));
+  // A proxy that delays every request by 350 ms: each step alone fits 600 ms, the three together do not.
+  const slow = createServer((req, res) => setTimeout(() => {
+    const up = request(`${ps.url}${req.url}`, { method: req.method, headers: { ...req.headers, host: new URL(ps.url).host } }, (r) => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });
+    up.on('error', () => res.destroy());
+    req.on('error', () => up.destroy());
+    res.on('close', () => up.destroy());
+    req.pipe(up);
+  }, 350));
+  await new Promise((r) => slow.listen(0, '127.0.0.1', r));
+  t.after(() => { slow.closeAllConnections(); slow.close(); });
+  const link = createPeopleSoftLink({ url: `http://127.0.0.1:${slow.address().port}`, token, timeoutMs: 600 });
+  const t0 = Date.now();
+  const r = await link.balances('staff-amir');
+  assert.equal(r.ok, false, 'one budget for connect + list + call');
+  assert.ok(['unavailable', 'uncertain'].includes(r.outcome), r.outcome);
+  const took = Date.now() - t0;
+  await link.close();
+  await new Promise((r) => setTimeout(r, 500)); // let the SDK's stream settle before the proxy goes away
+  assert.ok(took < 1000, `took ${took} ms`);
+});

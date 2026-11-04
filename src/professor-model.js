@@ -11,11 +11,13 @@
 import { PEOPLE_RULE, briefReply, callModel, keyConfigured, LlmError, loadDotenvOnce, modelName, toLlmError } from './llm.js';
 import { datesIn } from './a2ui-catalog.js';
 import { tokenize, near } from './router.js';
+import { TIMEOUTS } from './timeouts.js';
 import { COURSE } from './course-pack.js';
 
 export const PROFESSOR_MODE = process.env.PROFESSOR_MODE ?? 'mock';
 if (!['mock', 'live'].includes(PROFESSOR_MODE)) throw new Error(`Unknown PROFESSOR_MODE "${PROFESSOR_MODE}" (use mock or live).`);
 if (PROFESSOR_MODE === 'live') loadDotenvOnce();
+const STAFF_CLASSIFIER_TIMEOUT_MS = Number(process.env.PROFESSOR_STAFF_CLASSIFIER_TIMEOUT_MS ?? TIMEOUTS.professorStaffClassifierMs); // src/timeouts.js
 const LIMITS = { maxOutputTokens: 900, timeoutMs: Number(process.env.PROFESSOR_MODEL_TIMEOUT_MS ?? 45000), answer: 2000 };
 export const professorStatus = () => ({ mode: PROFESSOR_MODE, model: PROFESSOR_MODE === 'live' ? modelName() : 'mock extraction', keyConfigured: PROFESSOR_MODE === 'live' ? keyConfigured() : null });
 
@@ -282,7 +284,7 @@ export async function classifyStaff({ text, emit = () => {} }) {
   const started = Date.now();
   emit('model_call_started', { model: modelName(), mode: 'live', purpose: 'staff or class', earlierMessages: 0 });
   try {
-    const r = await callModel({ system: STAFF_SYSTEM, messages: [{ role: 'user', content: quote('professor_message', text) }], maxTokens: 300, timeoutMs: LIMITS.timeoutMs, schema: STAFF_SCHEMA });
+    const r = await callModel({ system: STAFF_SYSTEM, messages: [{ role: 'user', content: quote('professor_message', text) }], maxTokens: 300, timeoutMs: STAFF_CLASSIFIER_TIMEOUT_MS, schema: STAFF_SCHEMA });
     emit('model_response_received', { model: r.model, purpose: 'staff or class', latencyMs: Date.now() - started, usage: r.usage, stopReason: r.stopReason, requestId: r.requestId });
     const kind = r.parsed?.kind;
     return { kind: ['staff_request', 'class_message', 'unsure'].includes(kind) ? kind : 'unsure', model: r.model, usage: r.usage };

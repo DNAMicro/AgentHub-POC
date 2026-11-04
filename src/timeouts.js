@@ -9,11 +9,12 @@ export const TIMEOUTS = Object.freeze({
   peoplesoftPlannerMs: 8000, // PeopleSoft's own model, inside one create_absence_request (PEOPLESOFT_MODEL_TIMEOUT_MS)
   hrToolChoiceMs: 8000, // HR's AI choosing the PeopleSoft tool (HR_TOOL_CHOICE_TIMEOUT_MS)
   hrAbsenceModelMs: 30000, // HR's AI proposing the absence name on a card issue (HR_MODEL_TIMEOUT_MS)
-  hrPeopleSoftCallMs: 12000, // one MCP call to PeopleSoft, > its planner (PEOPLESOFT_TIMEOUT_MS)
+  hrPeopleSoftCallMs: 12000, // one MCP call to PeopleSoft INCLUDING its connect (one shared deadline), > its planner (PEOPLESOFT_TIMEOUT_MS)
   hubStaffActionMs: 25000, // Hub → HR staff form action, > tool choice + MCP call (HUB_STAFF_ACTION_TIMEOUT_MS)
   hubFormActionMs: 8000, // Hub → specialist STUDENT form action, unchanged (HUB_FORM_TIMEOUT_MS)
   hubDispatchMs: 60000, // Hub → specialist chat / staff request, > absence name + tool choice + balances call (HUB_DISPATCH_TIMEOUT_MS)
+  professorStaffClassifierMs: 10000, // Professor's own staff-or-class model call, before it asks the Hub (PROFESSOR_STAFF_CLASSIFIER_TIMEOUT_MS)
   professorStaffMs: 65000, // Professor → Hub staff request or action, > both Hub waits above
-  hubAuthorProxyMs: 70000, // Hub dev proxy → Professor /author/*, > the Professor's staff wait
-  uiProfessorCallMs: 75000, // UI server → Hub dev proxy, > the proxy's wait
+  hubAuthorProxyMs: 80000, // Hub dev proxy → Professor /author/*, > the classifier + the Professor's staff wait
+  uiProfessorCallMs: 85000, // UI server → Hub dev proxy, > the proxy's wait
 });

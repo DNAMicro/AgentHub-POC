@@ -41,14 +41,17 @@ export function createPeopleSoftLink({ url, token, emit = () => {}, timeoutMs = 
     s?.client.close().catch(() => {});
   };
 
-  function connect() {
+  // `deadline` (ms since epoch) is the call's single budget: connect, tools/list and the tool call all fit inside it.
+  const left = (deadline) => Math.max(1, deadline - Date.now());
+
+  function connect(deadline = Date.now() + timeoutMs) {
     if (session) return Promise.resolve(session);
     connecting ??= (async () => {
       const client = new Client({ name: 'hr-agent', version: '1.0.0' });
       const transport = new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${token ?? ''}` } } });
       try {
-        await client.connect(transport, { timeout: timeoutMs });
-        const listed = await client.listTools({}, { timeout: timeoutMs });
+        await client.connect(transport, { timeout: left(deadline) });
+        const listed = await client.listTools({}, { timeout: left(deadline) });
         const s = { client, transport, tools: listed.tools.map((t) => t.name) };
         client.onclose = () => { if (session === s) session = null; };
         session = s;
@@ -64,9 +67,10 @@ export function createPeopleSoftLink({ url, token, emit = () => {}, timeoutMs = 
   }
 
   async function call(moment, args, { runId = null, operationId = null } = {}) {
+    const deadline = Date.now() + timeoutMs; // connect + call together stay inside HR's MCP budget
     let s;
     try {
-      s = await connect();
+      s = await connect(deadline);
     } catch {
       return { ok: false, outcome: 'unavailable' };
     }
@@ -85,7 +89,7 @@ export function createPeopleSoftLink({ url, token, emit = () => {}, timeoutMs = 
     let result;
     for (let attempt = 0; ; attempt += 1) {
       try {
-        result = await s.client.callTool({ name: expected, arguments: args }, undefined, { timeout: timeoutMs });
+        result = await s.client.callTool({ name: expected, arguments: args }, undefined, { timeout: left(deadline) });
         break;
       } catch (err) {
         if (err instanceof McpError && err.code === ErrorCode.RequestTimeout) return done({ ok: false, outcome: 'uncertain' });
@@ -93,7 +97,7 @@ export function createPeopleSoftLink({ url, token, emit = () => {}, timeoutMs = 
         if (attempt === 0 && sessionUnknown(err)) {
           // The tool never ran: a fresh session, and the same call exactly once more.
           try {
-            s = await connect();
+            s = await connect(deadline);
           } catch {
             return done({ ok: false, outcome: 'unavailable' });
           }

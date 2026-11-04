@@ -52,3 +52,14 @@ test('each site reads its budget from the shared defaults', async () => {
   assert.match(await src('hr-agent.js'), /PEOPLESOFT_TIMEOUT_MS \?\? TIMEOUTS\.hrPeopleSoftCallMs/);
   assert.match(await src('peoplesoft-model.js'), /PEOPLESOFT_MODEL_TIMEOUT_MS \?\? TIMEOUTS\.peoplesoftPlannerMs/);
 });
+
+test('Part 15 Task 5: the Professor staff classifier fits inside the proxy budget', async () => {
+  const { readFile } = await import('node:fs/promises');
+  assert.equal(T.professorStaffClassifierMs, 10000);
+  // The classifier runs, then the Hub staff wait: both inside the Professor → Hub proxy wait, which is inside the UI's.
+  assert.ok(T.professorStaffClassifierMs + T.professorStaffMs < T.hubAuthorProxyMs);
+  assert.ok(T.hubAuthorProxyMs < T.uiProfessorCallMs);
+  assert.equal(T.hubAuthorProxyMs, 80000);
+  assert.match(await readFile(new URL('../src/professor-model.js', import.meta.url), 'utf8'), /maxTokens: 300, timeoutMs: STAFF_CLASSIFIER_TIMEOUT_MS, schema: STAFF_SCHEMA/);
+  assert.equal(T.uiProfessorCallMs, 85000);
+});
