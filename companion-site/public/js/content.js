@@ -393,7 +393,7 @@ export const PAGES = [
       { name: 'A2A typed data parts: register / heartbeat / deregister / card-changed', kind: 'format', role: 'this app’s control messages to the Hub, as normal A2A messages' },
       { name: 'Per-agent model choice', kind: 'product', role: 'each agent names its model (Haiku 5.5 default; Sonnet 5.5 and Opus 5.5 allowed); unknown names stop startup' },
     ],
-    shot: S('s7-topology.png', 'The live Topology tab: Student, University Hub, Tutor, Faculty and Library nodes with model boxes and the event list', 'The Topology tab (added in Step 7), shown today with the Faculty agent from Step 9. Pulses appear only for events the agents reported. Test stack.'),
+    shot: S('s7-topology.png', 'The live Topology tab: Student, University Hub, Tutor, Library, Faculty and HR Agent nodes with model boxes, PeopleSoft below HR, and the event list', 'The Topology tab (added in Step 7), shown today with the Faculty agent from Step 9 and the HR Agent and PeopleSoft from Steps 14 and 15. Pulses appear only for events the agents reported. Test stack.'),
     sources: ['`Steps/07-university-hub-topology.md`', '`src/hub-agent.js`, `src/hub-registry.js`, `src/hub-link.js`, `src/student-assistant.js`, `src/topology.js`', '`test/hub.test.js`, `test/student-model.test.js`', 'Commits cfb7040, ecb79af, 520b83a, 283c4fb'],
   },
   {
