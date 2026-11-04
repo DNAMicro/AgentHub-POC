@@ -20,6 +20,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport, StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import { chooseTool, MOMENT_TOOL } from './hr-model.js';
+import { REFUSAL_CODES } from './peoplesoft-store.js';
 
 const errCode = (err) => err?.cause?.code ?? err?.code;
 // PeopleSoft doesn't know this session (it restarted, or dropped it): the request was refused before any tool ran.
@@ -67,19 +68,25 @@ export function createPeopleSoftLink({ url, token, emit = () => {}, timeoutMs = 
   }
 
   async function call(moment, args, { runId = null, operationId = null } = {}) {
-    const deadline = Date.now() + timeoutMs; // connect + call together stay inside HR's MCP budget
+    // Budget (src/timeouts.js): the tool choice has its own limit; connect + the tool call share ONE (timeoutMs), which
+    // starts when connecting starts but is re-based after the tool choice so a slow choice never shortens the call.
+    const connectStart = Date.now();
     let s;
     try {
-      s = await connect(deadline);
+      s = await connect(connectStart + timeoutMs);
     } catch {
       return { ok: false, outcome: 'unavailable' };
     }
+    const choiceStart = Date.now();
     const choice = await chooseTool({ moment, tools: s.tools, emit: (type, data) => emit(type, runId, data) });
+    const choiceMs = Date.now() - choiceStart;
     const expected = MOMENT_TOOL[moment];
     if (choice.tool !== expected || !s.tools.includes(expected)) {
       emit('mcp_tool_refused', runId, { tool: choice.tool, moment, expected, by: choice.by });
       return { ok: false, outcome: 'tool_refused' };
     }
+    // What the connect left of the budget (at least 1 s), counted from now.
+    const deadline = Date.now() + Math.max(1000, timeoutMs - (Date.now() - connectStart - choiceMs));
     emit('mcp_call_started', runId, { tool: expected, moment, operationId });
     const started = Date.now();
     const done = (r, extra = {}) => {
@@ -111,11 +118,12 @@ export function createPeopleSoftLink({ url, token, emit = () => {}, timeoutMs = 
     }
     const value = result?.structuredContent ?? null;
     if (result?.isError) {
-      const code = typeof value?.code === 'string' ? value.code : 'tool_error';
+      // Only PeopleSoft's fixed refusal codes pass; anything else is reported without a code (the reason text stays).
+      const code = REFUSAL_CODES.includes(value?.code) ? value.code : null;
       const reason = typeof value?.reason === 'string' ? value.reason : 'PeopleSoft could not complete that request.';
       return done({ ok: false, outcome: 'refused', code, reason });
     }
-    if (!value || typeof value !== 'object') return done({ ok: false, outcome: 'refused', code: 'tool_error', reason: 'PeopleSoft could not complete that request.' });
+    if (!value || typeof value !== 'object') return done({ ok: false, outcome: 'refused', code: null, reason: 'PeopleSoft could not complete that request.' });
     if (moment === 'submit') {
       const receipt = value.receipt ?? {};
       return done({ ok: true, value: { receipt: withoutSteps(receipt) } }, { recordId: receipt.recordId ?? null, stepCount: Array.isArray(receipt.steps) ? receipt.steps.length : null });

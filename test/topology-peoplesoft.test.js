@@ -22,9 +22,11 @@ test('mcp_call_result labels: ok, saved record, refused, uncertain, unavailable,
   assert.equal(ok.label, 'PeopleSoft answered');
   const saved = hr('mcp_call_result', { tool: 'create_absence_request', ok: true, outcome: 'ok', recordId: 'ABS-000001' });
   assert.equal(saved.label, 'Saved as ABS-000001');
-  const refused = hr('mcp_call_result', { ok: false, outcome: 'refused', code: 'insufficient_balance' });
+  const refused = hr('mcp_call_result', { ok: false, outcome: 'refused', code: 'not_enough' });
   assert.deepEqual(shape(refused), { ...back, phase: 'failed' });
-  assert.equal(refused.label, 'PeopleSoft refused (insufficient_balance)');
+  assert.equal(refused.label, 'PeopleSoft refused (not_enough)');
+  const noCode = hr('mcp_call_result', { ok: false, outcome: 'refused', code: null });
+  assert.equal(noCode.label, 'PeopleSoft refused');
   const uncertain = hr('mcp_call_result', { ok: false, outcome: 'uncertain', code: null });
   assert.deepEqual(shape(uncertain), { ...back, phase: 'unknown' });
   assert.equal(uncertain.label, "PeopleSoft didn't answer");

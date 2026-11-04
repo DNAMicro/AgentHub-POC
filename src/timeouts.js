@@ -9,7 +9,7 @@ export const TIMEOUTS = Object.freeze({
   peoplesoftPlannerMs: 8000, // PeopleSoft's own model, inside one create_absence_request (PEOPLESOFT_MODEL_TIMEOUT_MS)
   hrToolChoiceMs: 8000, // HR's AI choosing the PeopleSoft tool (HR_TOOL_CHOICE_TIMEOUT_MS)
   hrAbsenceModelMs: 30000, // HR's AI proposing the absence name on a card issue (HR_MODEL_TIMEOUT_MS)
-  hrPeopleSoftCallMs: 12000, // one MCP call to PeopleSoft INCLUDING its connect (one shared deadline), > its planner (PEOPLESOFT_TIMEOUT_MS)
+  hrPeopleSoftCallMs: 12000, // PeopleSoft connect + one MCP call share this; the tool choice (8 s) is outside it, so 8 + 12 = 20 s, > its planner (PEOPLESOFT_TIMEOUT_MS)
   hubStaffActionMs: 25000, // Hub → HR staff form action, > tool choice + MCP call (HUB_STAFF_ACTION_TIMEOUT_MS)
   hubFormActionMs: 8000, // Hub → specialist STUDENT form action, unchanged (HUB_FORM_TIMEOUT_MS)
   hubDispatchMs: 60000, // Hub → specialist chat / staff request, > absence name + tool choice + balances call (HUB_DISPATCH_TIMEOUT_MS)

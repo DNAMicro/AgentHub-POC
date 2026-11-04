@@ -135,7 +135,7 @@ const SPECIALIST = {
   // Part 15: HR → PeopleSoft over MCP (tool names, codes and record ids only — never the arguments).
   mcp_call_started: (a, d) => hop('hr', 'peoplesoft', 'tool', 'attempted', `tools/call ${d.tool}`),
   mcp_call_result: (a, d) => hop('peoplesoft', 'hr', 'tool', d.ok ? 'completed' : d.outcome === 'uncertain' ? 'unknown' : 'failed',
-    d.ok ? (d.recordId ? `Saved as ${d.recordId}` : 'PeopleSoft answered') : d.outcome === 'refused' ? `PeopleSoft refused (${d.code})` : "PeopleSoft didn't answer"),
+    d.ok ? (d.recordId ? `Saved as ${d.recordId}` : 'PeopleSoft answered') : d.outcome === 'refused' ? (d.code ? `PeopleSoft refused (${d.code})` : 'PeopleSoft refused') : "PeopleSoft didn't answer"),
   mcp_tool_refused: () => inside('hr', 'tool', 'failed', 'HR’s AI picked a tool not allowed here — no call'),
   peoplesoft_session: (a, d) => hop('hr', 'peoplesoft', 'registration', d.status === 'connected' ? 'completed' : 'failed', d.status === 'connected' ? 'MCP session open' : 'PeopleSoft unreachable'),
   card_notification: (a, d) => hop(a, 'hub', 'card', d.outcome === 'delivered' ? 'completed' : d.outcome === 'pending' ? 'unknown' : 'failed', `Card-change notice ${d.outcome}`),
