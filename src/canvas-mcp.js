@@ -55,9 +55,9 @@ function buildServer(store, stepsByOp) {
       log(`created operationId=${op} quizId=${result.quiz.quizId} steps=${steps.length}${again ? ' (repeat)' : ''}`);
       if (!again && lateMs > 0) await new Promise((r) => setTimeout(r, lateMs));
       return asResult({ receipt: { ...result.quiz, steps, stepCount: steps.length } });
-    } catch (err) {
+    } catch {
       log(`error operationId=${op}`);
-      throw err;
+      throw new Error('Canvas could not complete the call');
     }
   });
 
@@ -73,9 +73,9 @@ function buildServer(store, stepsByOp) {
       }
       log(`published operationId=${op} quizId=${result.quiz.quizId}`);
       return asResult({ receipt: { ...result.quiz, steps: PUBLISH_STEPS, stepCount: PUBLISH_STEPS.length } });
-    } catch (err) {
+    } catch {
       log(`error operationId=${op}`);
-      throw err;
+      throw new Error('Canvas could not complete the call');
     }
   });
   return server;
@@ -87,7 +87,8 @@ export function startCanvasServer({ port = 41247, token = process.env.CANVAS_TOK
   // Production (no CANVAS_TEST_HOOKS) ignores it.
   let clock = null;
   if (process.env.CANVAS_TEST_HOOKS === '1' && process.env.CANVAS_NOW) {
-    clock = Date.parse(process.env.CANVAS_NOW);
+    const raw = process.env.CANVAS_NOW;
+    clock = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(raw) ? Date.parse(raw) : NaN;
     if (Number.isNaN(clock)) return Promise.reject(new Error('CANVAS_NOW must be an ISO date-time such as 2026-11-04T18:00:00Z.'));
   }
   const want = Buffer.from(`Bearer ${token}`);

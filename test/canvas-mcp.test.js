@@ -9,7 +9,7 @@ import { defaultSettings } from '../src/quiz-rules.js';
 const NOW = '2026-11-04T18:00:00Z';
 const TOKEN = 'canvas-test-token-xyz';
 let cv;
-before(async () => { cv = await startCanvas({ CANVAS_TOKEN: TOKEN, CANVAS_TEST_HOOKS: '1', CANVAS_MODE: 'mock' }); });
+before(async () => { cv = await startCanvas({ CANVAS_TOKEN: TOKEN, CANVAS_TEST_HOOKS: '1', CANVAS_MODE: 'mock', CANVAS_NOW: NOW }); });
 after(() => { cv?.proc.kill(); });
 
 async function connect(token = TOKEN) {
@@ -131,7 +131,7 @@ test('starting without CANVAS_TOKEN exits 1 and prints no token', async () => {
 });
 
 test('stdout never contains the token or a question text', async () => {
-  const own = await startCanvas({ CANVAS_TOKEN: 'secret-log-token-777', CANVAS_MODE: 'mock' });
+  const own = await startCanvas({ CANVAS_TOKEN: 'secret-log-token-777', CANVAS_TEST_HOOKS: '1', CANVAS_NOW: NOW, CANVAS_MODE: 'mock' });
   const lines = [];
   own.proc.stdout.on('data', (d) => lines.push(String(d)));
   own.proc.stderr.on('data', (d) => lines.push(String(d)));
@@ -160,7 +160,7 @@ test('New conversation while the planner thinks: the old save is refused and the
   const fake = await startFakeAnthropic();
   t.after(() => fake.close());
   fake.respondWith(() => ({ ...messageReply('{"steps":["set_unpublished"]}'), delayMs: 1500 }));
-  const own = await startCanvas({ CANVAS_TOKEN: 't', CANVAS_TEST_HOOKS: '1', CANVAS_MODE: 'live', ANTHROPIC_API_KEY: `sk-ant-test-${randomUUID()}`, ANTHROPIC_BASE_URL: fake.url, TUTOR_LOAD_DOTENV: '0' });
+  const own = await startCanvas({ CANVAS_TOKEN: 't', CANVAS_TEST_HOOKS: '1', CANVAS_NOW: NOW, CANVAS_MODE: 'live', ANTHROPIC_API_KEY: `sk-ant-test-${randomUUID()}`, ANTHROPIC_BASE_URL: fake.url, TUTOR_LOAD_DOTENV: '0' });
   t.after(() => own.proc.kill());
   const client = new Client({ name: 'test', version: '1.0.0' });
   await client.connect(new StreamableHTTPClientTransport(new URL(`${own.url}/mcp`), { requestInit: { headers: { Authorization: 'Bearer t' } } }));
