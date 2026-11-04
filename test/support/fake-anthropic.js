@@ -78,3 +78,20 @@ export function toolChoiceReply(body, picks = {}) {
   const [moment, , tool] = found;
   return messageReply(JSON.stringify({ tool: picks[moment] ?? tool }));
 }
+
+// Part 16: the Faculty agent's Canvas tool choice. Recognised by the single-`tool` enum schema and the plain words
+// "The Faculty agent needs to: ..." in the system prompt. `picks` ({ approve: 'publish_quiz' }) scripts a wrong pick.
+// Not a Canvas tool choice -> null. Plumbing only.
+const CANVAS_PHRASES = [
+  ['approve', /approved as an unpublished draft/i, 'create_quiz'],
+  ['publish', /publish the saved quiz/i, 'publish_quiz'],
+];
+export function canvasToolReply(body, picks = {}) {
+  if (!body?.output_config?.format?.schema?.properties?.tool) return null;
+  const needs = /The Faculty agent needs to: (.*)/.exec(String(body.system ?? ''))?.[1];
+  if (needs === undefined) return null;
+  const found = CANVAS_PHRASES.find(([, re]) => re.test(needs));
+  if (!found) return messageReply(JSON.stringify({ tool: '' }));
+  const [moment, , tool] = found;
+  return messageReply(JSON.stringify({ tool: picks[moment] ?? tool }));
+}

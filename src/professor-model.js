@@ -294,3 +294,42 @@ export async function classifyStaff({ text, emit = () => {} }) {
     return { kind: 'unsure', model: null, error: mapped.code };
   }
 }
+
+// ---- Part 16: which Canvas tool fits this moment ------------------------------------------------------------
+// Same contract as HR's chooseTool (src/hr-model.js): the Faculty AI returns a tool NAME only; code accepts it only
+// if it is in Canvas's tools/list and is the moment's own tool, and builds every argument itself. Mock: the
+// labelled heuristic picks the moment's tool. A failed call picks nothing (no fallback, no guessed tool).
+export const CANVAS_MOMENT_TOOL = { approve: 'create_quiz', publish: 'publish_quiz' };
+const CANVAS_MOMENT_WORDS = {
+  approve: 'save the quiz the faculty member just approved as an unpublished draft in Canvas.',
+  publish: 'publish the saved quiz so students can see it in Canvas.',
+};
+const CANVAS_TOOL_TIMEOUT_MS = Number(process.env.PROFESSOR_CANVAS_TOOL_CHOICE_TIMEOUT_MS ?? TIMEOUTS.professorCanvasToolChoiceMs);
+const CANVAS_TOOL_PURPOSE = 'choose Canvas tool';
+const canvasToolSystem = (moment) => `You are the Marketing 351 Faculty agent of a university. You reach Canvas LMS (a demo stand-in for the university's course site) through MCP tools. Pick the ONE tool that does what the Faculty agent needs right now, from the tools listed. Return only its name; code builds the arguments.
+The Faculty agent needs to: ${CANVAS_MOMENT_WORDS[moment]}`;
+
+export async function chooseCanvasTool({ moment, tools = [], emit = () => {} }) {
+  const model = PROFESSOR_MODE === 'live' ? modelName() : 'mock heuristic';
+  if (!CANVAS_MOMENT_WORDS[moment]) return { tool: null, by: 'model_failed', model };
+  if (PROFESSOR_MODE === 'mock') return { tool: tools.includes(CANVAS_MOMENT_TOOL[moment]) ? CANVAS_MOMENT_TOOL[moment] : null, by: 'mock', model };
+  if (!keyConfigured() || !tools.length) return { tool: null, by: 'model_failed', model };
+  emit('model_call_started', { model, mode: 'live', purpose: CANVAS_TOOL_PURPOSE, earlierMessages: 0 });
+  const started = Date.now();
+  let result;
+  try {
+    result = await callModel({
+      system: canvasToolSystem(moment),
+      messages: [{ role: 'user', content: `Canvas tools (from tools/list): ${tools.join(', ')}` }],
+      maxTokens: 400, timeoutMs: CANVAS_TOOL_TIMEOUT_MS,
+      schema: { type: 'object', properties: { tool: { type: 'string', enum: tools } }, required: ['tool'], additionalProperties: false },
+    });
+  } catch (err) {
+    const mapped = toLlmError(err);
+    emit('model_call_failed', { purpose: CANVAS_TOOL_PURPOSE, mode: 'live', model, code: mapped.code, message: mapped.message, latencyMs: Date.now() - started, requestId: mapped.requestId });
+    return { tool: null, by: 'model_failed', model };
+  }
+  emit('model_response_received', { purpose: CANVAS_TOOL_PURPOSE, mode: 'live', model: result.model, latencyMs: Date.now() - started, usage: result.usage, stopReason: result.stopReason, requestId: result.requestId });
+  const tool = result.parsed?.tool;
+  return { tool: typeof tool === 'string' && tools.includes(tool) ? tool : null, by: 'model', model: result.model };
+}

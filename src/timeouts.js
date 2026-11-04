@@ -8,6 +8,11 @@
 export const TIMEOUTS = Object.freeze({
   peoplesoftPlannerMs: 8000, // PeopleSoft's own model, inside one create_absence_request (PEOPLESOFT_MODEL_TIMEOUT_MS)
   canvasPlannerMs: 8000, // Canvas's own model, inside one create_quiz (CANVAS_MODEL_TIMEOUT_MS)
+  professorCanvasToolChoiceMs: 8000, // Faculty's AI choosing the Canvas tool (PROFESSOR_CANVAS_TOOL_CHOICE_TIMEOUT_MS)
+  professorCanvasCallMs: 12000, // Canvas connect + one MCP call share this (CANVAS_TIMEOUT_MS); the call keeps at least canvasPlannerMs + 2 s (src/professor-canvas.js CALL_FLOOR_MS)
+  professorQuizDraftMs: 30000, // Faculty's AI drafting a quiz (PROFESSOR_QUIZ_DRAFT_TIMEOUT_MS)
+  professorQuizRepairMs: 20000, // one repair of a draft that failed the checks
+  professorQuizOneMoreMs: 15000, // one more question / one replaced question
   hrToolChoiceMs: 8000, // HR's AI choosing the PeopleSoft tool (HR_TOOL_CHOICE_TIMEOUT_MS)
   hrAbsenceModelMs: 30000, // HR's AI proposing the absence name on a card issue (HR_MODEL_TIMEOUT_MS)
   hrPeopleSoftCallMs: 12000, // PeopleSoft connect + one MCP call share this (PEOPLESOFT_TIMEOUT_MS). The call always keeps at least the planner + 2 s (10 s; src/hr-peoplesoft.js CALL_FLOOR_MS), so the connect gets at most 2 s; the tool choice (8 s) is outside it: 8 + 12 = 20 s < the Hub's staff wait

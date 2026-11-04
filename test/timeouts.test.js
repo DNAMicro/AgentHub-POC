@@ -65,3 +65,26 @@ test('Part 15 Task 5: the Professor staff classifier fits inside the proxy budge
   assert.match(await readFile(new URL('../src/professor-model.js', import.meta.url), 'utf8'), /maxTokens: 300, timeoutMs: STAFF_CLASSIFIER_TIMEOUT_MS, schema: STAFF_SCHEMA/);
   assert.equal(T.uiProfessorCallMs, 85000);
 });
+
+test('Part 16 Task 4: the Canvas budget nests inside the Faculty author route', () => {
+  assert.equal(T.canvasPlannerMs, 8000);
+  assert.equal(T.professorCanvasToolChoiceMs, 8000);
+  assert.equal(T.professorCanvasCallMs, 12000);
+  assert.equal(T.professorQuizDraftMs, 30000);
+  assert.equal(T.professorQuizRepairMs, 20000);
+  assert.equal(T.professorQuizOneMoreMs, 15000);
+  assert.ok(T.canvasPlannerMs < T.professorCanvasCallMs);
+  // The call keeps planner + 2 s and at least 1 s is left for the connect (src/professor-canvas.js CALL_FLOOR_MS).
+  assert.ok(T.professorCanvasCallMs >= T.canvasPlannerMs + 2000 + 1000);
+  assert.ok(T.professorCanvasToolChoiceMs + T.professorCanvasCallMs < T.hubAuthorProxyMs);
+  assert.ok(T.professorQuizDraftMs + T.professorQuizRepairMs < T.hubAuthorProxyMs);
+  assert.ok(T.professorQuizOneMoreMs < T.hubAuthorProxyMs);
+});
+
+test('Part 16 Task 4: Faculty reads its Canvas budgets from the shared defaults', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const src = async (f) => readFile(new URL(`../src/${f}`, import.meta.url), 'utf8');
+  assert.match(await src('professor-model.js'), /PROFESSOR_CANVAS_TOOL_CHOICE_TIMEOUT_MS \?\? TIMEOUTS\.professorCanvasToolChoiceMs/);
+  assert.match(await src('professor-canvas.js'), /timeoutMs = TIMEOUTS\.professorCanvasCallMs/);
+  assert.match(await src('professor-canvas.js'), /CALL_FLOOR_MS = TIMEOUTS\.canvasPlannerMs \+ 2000/);
+});
