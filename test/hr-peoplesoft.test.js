@@ -8,10 +8,13 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { STAFF_ACTION_MEDIA_TYPE, STAFF_REQUEST_MEDIA_TYPE } from '../src/staff.js';
-import { startStack, professorStandIn, waitFor, post, stopProcess } from './support/harness.js';
+import { startStack, startPeopleSoft, professorStandIn, waitFor, post, stopProcess } from './support/harness.js';
 import { startFakeAnthropic, messageReply, toolChoiceReply } from './support/fake-anthropic.js';
 
 const UNAVAILABLE = 'PeopleSoft didn\'t answer. Nothing is filed until it confirms — press Submit again; it won\'t file twice.';
+const UNAVAILABLE_CHAT = 'PeopleSoft didn\'t answer, so I can\'t show your leave right now. Nothing changed — ask again in a moment.';
+const WRONG_PICK_SUBMIT = 'Nothing was filed — HR\'s AI chose the wrong PeopleSoft tool. Press Submit again.';
+const WRONG_PICK_BALANCES = 'HR\'s AI didn\'t choose the balance tool, so the balance isn\'t shown.';
 
 // HR's own telemetry (its /viz/events feed), unredacted: the test reads what HR really emitted.
 function follow(url) {
@@ -128,8 +131,27 @@ test('card opens without balances when PeopleSoft is down', async (t) => {
   assert.equal(r.reply.hrCard.balances, null);
   assert.equal(r.reply.hrCard.problem, 'PeopleSoft didn\'t answer, so the balance isn\'t shown.');
   assert.ok(ofType(own.feed.events, 'peoplesoft_session').some((e) => e.data.status === 'unreachable'));
+  const read = own.feed.events.filter((e) => e.type === 'request_read').at(-1);
+  assert.equal(read.data.outcome, 'no_balances', 'the only problem is the balances');
   const chat = await own.ask('how much sick leave do I have?');
-  assert.equal(chat.reply.text, UNAVAILABLE);
+  assert.equal(chat.reply.text, UNAVAILABLE_CHAT, 'chat gets its own words (the Submit sentence is for Submit)');
+  assert.equal((await own.ask('show my time off requests')).reply.text, UNAVAILABLE_CHAT);
+});
+
+test('a PeopleSoft restart under a running HR: the next balances call reconnects once and succeeds', async (t) => {
+  const own = await hrStack();
+  t.after(() => own.close());
+  assert.deepEqual((await own.ask("I need Friday off, it's a vacation day")).reply.hrCard.balances, { vacation: 96, sick: 120, personalHoliday: 8 });
+  const port = new URL(own.stack.peoplesoft.url).port;
+  await stopProcess(own.stack.peoplesoft);
+  own.stack.peoplesoft = await startPeopleSoft({ PORT: port, PEOPLESOFT_TOKEN: own.stack.peoplesoftToken, PEOPLESOFT_TEST_HOOKS: '1' });
+  const from = own.feed.events.length;
+  const r = await own.ask("I need Friday off, it's a vacation day");
+  assert.deepEqual(r.reply.hrCard.balances, { vacation: 96, sick: 120, personalHoliday: 8 }, 'balances after the restart');
+  assert.equal(r.reply.hrCard.problem, null);
+  const results = own.feed.events.slice(from).filter((e) => e.type === 'mcp_call_result' && e.data.tool === 'get_leave_balances');
+  assert.equal(results.length, 1);
+  assert.equal(results[0].data.ok, true);
 });
 
 test('uncertain submit then retry files once', async (t) => {
@@ -168,8 +190,55 @@ test('a wrong tool pick makes no call', async (t) => {
   assert.equal(refused.data.tool, 'list_absence_requests');
   assert.equal(refused.data.moment, 'submit');
   assert.equal(events.filter((e) => e.type === 'mcp_call_started').length, 0, 'no MCP call');
+  assert.equal(done.reason, WRONG_PICK_SUBMIT);
+  assert.equal(done.reply.unknownOutcome, undefined, 'a definite answer: nothing was filed');
   assert.deepEqual(await own.requests(), [], 'nothing filed');
   assert.ok(stub.requests.some((r) => r.body.output_config?.format?.schema?.properties?.tool), 'HR asked its model which tool');
+  // Not kept under the operation ID: the same operation reaches HR again (and its AI chooses again).
+  const op = randomUUID();
+  const first = await own.act(card.reply.formRef, submit(card.reply, VACATION), op);
+  const second = await own.act(card.reply.formRef, submit(card.reply, VACATION), op);
+  assert.equal(first.reason, WRONG_PICK_SUBMIT);
+  assert.equal(second.reason, WRONG_PICK_SUBMIT);
+  assert.equal(own.feed.events.filter((e) => e.type === 'mcp_tool_refused' && e.data.moment === 'submit').length, 3, 'asked every time, nothing stored');
+});
+
+test('a wrong tool pick at the balances moment: the card says so, PeopleSoft is not blamed', async (t) => {
+  const stub = await startFakeAnthropic();
+  t.after(() => stub.close());
+  stub.respondWith((body) => toolChoiceReply(body, { balances: 'list_absence_requests' }) ?? messageReply(JSON.stringify({ pair: 'VAC:VAC', quote: 'vacation', note: '', choices: [] })));
+  const own = await hrStack({ hrEnv: { HR_MODE: 'live', ANTHROPIC_API_KEY: `sk-ant-test-${randomUUID()}`, ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0' } });
+  t.after(() => own.close());
+  const card = await own.ask("I need Friday off, it's a vacation day");
+  assert.equal(card.reply.hrCard.balances, null);
+  assert.equal(card.reply.hrCard.problem, WRONG_PICK_BALANCES);
+  assert.equal(own.feed.events.filter((e) => e.type === 'request_read').at(-1).data.outcome, 'no_balances');
+  assert.equal(own.feed.events.filter((e) => e.type === 'mcp_call_started').length, 0, 'no MCP call');
+});
+
+test('through the real Professor: a wrong tool pick at Submit is a definite rejection, not kept; the card stays open', async (t) => {
+  const stub = await startFakeAnthropic();
+  t.after(() => stub.close());
+  stub.respondWith((body) => toolChoiceReply(body, { submit: 'get_leave_balances' }) ?? messageReply(JSON.stringify({ pair: 'VAC:VAC', quote: 'vacation', note: '', choices: [] })));
+  const stack = await startStack({
+    library: false, professor: true, hr: true,
+    hrEnv: { HR_MODE: 'live', ANTHROPIC_API_KEY: `sk-ant-test-${randomUUID()}`, ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0' },
+    hubEnv: { ROUTER_MODE: 'mock' }, tutorEnv: { TUTOR_MODE: 'mock', TUTOR_SCOPE_ENFORCEMENT: 'off' },
+  });
+  t.after(() => stack.kill());
+  await post(`${stack.ui.url}/api/professor/chat`, { operationId: `op-${randomUUID()}`, text: 'I want to file for time off. I need Friday Nov 20 off, it is a vacation day' });
+  const st = await (await fetch(`${stack.ui.url}/api/professor/state`)).json();
+  assert.ok(st.hrCard, 'the card is open');
+  const body = { operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: submit(st.hrCard, VACATION) };
+  const hrAction = async () => { const res = await post(`${stack.professor.url}/author/hr-action`, body); return { http: res.status, ...(await res.json()) }; };
+  const first = await hrAction();
+  assert.equal(first.status, 'rejected', JSON.stringify(first));
+  assert.equal(first.reply, WRONG_PICK_SUBMIT);
+  assert.equal(first.closed, false);
+  const again = await hrAction();
+  assert.equal(again.duplicate, undefined, 'not a stored answer');
+  assert.ok((await (await fetch(`${stack.ui.url}/api/professor/state`)).json()).hrCard, 'the card stays open');
+  assert.deepEqual((await (await fetch(`${stack.hr.url}/test/hr/requests`)).json()).requests, []);
 });
 
 test('through the real Professor: an unconfirmed Submit is outcome_unknown with the exact sentence; the same operation files once', async (t) => {

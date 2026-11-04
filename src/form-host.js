@@ -21,7 +21,9 @@ const a2uiPart = (messages) => ({ content: { $case: 'data', value: messages }, m
 const status = (state, message) => ({ state, message, timestamp: new Date().toISOString() });
 
 // workflows: { [workflowId]: { build(surfaceId, { prefill, now }), offerText, actions: { [name]: async (form, context, tools) => result } } }
-// result: { status: 'accepted' | 'updated' | 'rejected' | 'conflict' | 'cancelled', message, errors?, receipt?, a2ui?, values?, retryable? }
+// result: { status: 'accepted' | 'updated' | 'rejected' | 'conflict' | 'cancelled', message, errors?, receipt?, a2ui?, values?, retryable?, unknownOutcome? }
+// retryable: not kept under the operation ID (sending it again runs the handler again). unknownOutcome: the handler
+// doesn't know whether its backend acted (a retryable answer that is not a definite rejection).
 export function createFormHost({ agentId, workflows, isEnabled, emitViz, log, logValues = () => '[values not logged]' }) {
   const forms = new Map(); // formId (= A2UI surfaceId) → { workflowId, version, taskId, contextId, state, stage, data }
   const operations = new Map(); // operationId → { formId, name, raw, result }
@@ -156,10 +158,10 @@ export function createFormHost({ agentId, workflows, isEnabled, emitViz, log, lo
       if (checked.spec.final && result.status === 'accepted') form.state = 'accepted';
       if (checked.spec.cancel) form.state = 'cancelled';
       const closed = form.state !== 'awaiting_input';
-      const body = { status: result.status, formId, operationId, workflowId: form.workflowId, message: result.message, ...(result.errors ? { errors: result.errors } : {}), ...(result.flags ? { flags: result.flags } : {}), ...(result.receipt ? { receipt: result.receipt } : {}), ...(result.retryable ? { retryable: true } : {}) };
+      const body = { status: result.status, formId, operationId, workflowId: form.workflowId, message: result.message, ...(result.errors ? { errors: result.errors } : {}), ...(result.flags ? { flags: result.flags } : {}), ...(result.receipt ? { receipt: result.receipt } : {}), ...(result.retryable ? { retryable: true } : {}), ...(result.unknownOutcome ? { unknownOutcome: true } : {}) };
       const a2ui = [...(result.a2ui ?? []), ...(closed ? buildDelete(formId) : [])];
-      // retryable: the handler doesn't know the outcome (e.g. its backend didn't confirm). Not kept, so the
-      // same operation ID can be sent again and reach the handler (the backend dedupes it).
+      // retryable: not kept, so the same operation ID can be sent again and reach the handler (e.g. its backend
+      // didn't confirm and dedupes a resend, or nothing was done and a resend may succeed).
       if (!result.retryable) {
         operations.set(operationId, { formId, name: checked.name, raw: JSON.stringify(checked.context), result: { body, a2ui, closed } });
         trim(operations);

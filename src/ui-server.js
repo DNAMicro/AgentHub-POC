@@ -16,6 +16,7 @@
 //                    → this server → browser /api/events (SSE). Reports real events only; each is
 //                    labelled for the topology graph (src/topology.js). Never carries agent messages.
 //   * Settings:      local developer controls proxied through the Hub's /dev endpoints (HTTP, not A2A).
+import { TIMEOUTS } from './timeouts.js';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
@@ -98,7 +99,7 @@ export async function startUiServer({ port = 4444 } = {}) {
   const professorCall = async (path, body) => {
     const r = await fetch(`${hub.devUrl}/agents/professor/author${path}`, {
       method: body ? 'POST' : 'GET', headers: body ? { 'Content-Type': 'application/json' } : {},
-      body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(65000),
+      body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(TIMEOUTS.uiProfessorCallMs), // > the Hub dev proxy's wait (src/timeouts.js)
     });
     return { ok: r.ok, status: r.status, json: await r.json() };
   };

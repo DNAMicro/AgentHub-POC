@@ -32,6 +32,7 @@ import { A2UI_EXTENSION_URI, A2UI_MIME_TYPE, BASIC_CATALOG_ID, WORKFLOWS, buildT
 import { createFormHost } from './form-host.js';
 import { createPeopleSoftLink } from './hr-peoplesoft.js';
 import { planAbsence } from './leave-rules.js';
+import { TIMEOUTS } from './timeouts.js';
 import { CREDIT_LABEL, PROOF, STANDARD_DAY, daysText, defaultReason, isPair, nameOf, shortDate, spreadOf, titleOf, whenText, workdays } from './absence-types.js';
 import { asksBalance, asksRequests, dayReferences, mentionedDays, mentionsDay, mentionsHours, readPartial, readRequest } from './hr-intent.js';
 import { familyCare, hrStatus, reasonForRelative, selfSick } from './hr-model.js';
@@ -91,11 +92,18 @@ const WORKDAY_START = 8 * 60; // an arrival partial: the day starts at 08:00 (hr
 
 // PeopleSoft (demo stand-in): its URL and the per-start token that only HR and PeopleSoft hold (never logged).
 const PEOPLESOFT_URL = process.env.PEOPLESOFT_URL ?? 'http://127.0.0.1:41246';
-const peoplesoft = createPeopleSoftLink({ url: PEOPLESOFT_URL, token: process.env.PEOPLESOFT_TOKEN, emit: emitViz, timeoutMs: Number(process.env.PEOPLESOFT_TIMEOUT_MS ?? 20000) });
-// Fixed wording (Part 15 global constraints): PeopleSoft down or not confirming.
+// One MCP call: > PeopleSoft's planner inside it; tool choice + this call < the Hub's staff-action wait (src/timeouts.js).
+const peoplesoft = createPeopleSoftLink({ url: PEOPLESOFT_URL, token: process.env.PEOPLESOFT_TOKEN, emit: emitViz, timeoutMs: Number(process.env.PEOPLESOFT_TIMEOUT_MS ?? TIMEOUTS.hrPeopleSoftCallMs) });
+// Fixed wording. Submit, PeopleSoft down or not confirming (Part 15 global constraints):
 export const PEOPLESOFT_UNAVAILABLE = 'PeopleSoft didn\'t answer. Nothing is filed until it confirms — press Submit again; it won\'t file twice.';
+// Balance / requests questions in the chat:
+export const PEOPLESOFT_UNAVAILABLE_CHAT = 'PeopleSoft didn\'t answer, so I can\'t show your leave right now. Nothing changed — ask again in a moment.';
+const TOOL_REFUSED_CHAT = 'HR\'s AI didn\'t choose the right PeopleSoft tool, so I can\'t show your leave right now. Nothing changed — ask again in a moment.';
+// The card's notice when it has no balances, by why:
 const NO_BALANCES = 'PeopleSoft didn\'t answer, so the balance isn\'t shown.';
-const TOOL_REFUSED = 'HR couldn\'t file this: its AI picked the wrong PeopleSoft tool, so nothing was filed. Press Submit again.';
+const TOOL_REFUSED_BALANCES = 'HR\'s AI didn\'t choose the balance tool, so the balance isn\'t shown.';
+// Submit when HR's AI chose another tool: nothing was called, so nothing was filed (definite, not stored).
+const TOOL_REFUSED_SUBMIT = 'Nothing was filed — HR\'s AI chose the wrong PeopleSoft tool. Press Submit again.';
 // The person the leave rules need, from PeopleSoft's balances (null balances: no credit is checked here).
 const personOf = (balances) => ({ standardHours: STANDARD_DAY, balances: balances ?? {} });
 let skillService = null;
@@ -168,7 +176,7 @@ function cardFor(state) {
     if (!plan.ok) problem = plan.reason;
     else if (spread.mode === 'invalid') problem = TEXT.badHours;
   }
-  if (!problem && !state.balances) problem = NO_BALANCES;
+  if (!problem && !state.balances) problem = state.noBalances ?? NO_BALANCES;
   // The clock is shown only while the first day is still the one the words described.
   const wordsFirst = state.partial?.mode === 'start_day_only' && ['one_day', 'start_day_only'].includes(spread?.mode) && spread.first === state.partial.hours;
   const startAt = wordsFirst ? state.startAt ?? null : null;
@@ -236,10 +244,9 @@ const formHost = createFormHost({
           if (r.outcome === 'refused') return { status: 'rejected', message: r.reason, errors: { _form: r.reason } };
           // Not filed, or not known to be filed: the card stays open and the same operationId may be sent again
           // (retryable: no layer keeps this answer, so a second Submit reaches PeopleSoft, which files once).
-          if (!r.ok) {
-            const message = r.outcome === 'tool_refused' ? TOOL_REFUSED : PEOPLESOFT_UNAVAILABLE;
-            return { status: 'rejected', message, errors: { _form: message }, retryable: true };
-          }
+          // HR's AI chose another tool: nothing was called — a definite rejection, still not stored.
+          if (r.outcome === 'tool_refused') return { status: 'rejected', message: TOOL_REFUSED_SUBMIT, errors: { _form: TOOL_REFUSED_SUBMIT }, retryable: true };
+          if (!r.ok) return { status: 'rejected', message: PEOPLESOFT_UNAVAILABLE, errors: { _form: PEOPLESOFT_UNAVAILABLE }, retryable: true, unknownOutcome: true };
           const { receipt } = r.value;
           log('recorded time-off request', { requestId: receipt.requestId, recordId: receipt.recordId, hours: receipt.hours, status: receipt.status });
           return { status: 'accepted', message: TEXT.receipt, receipt: { ...receipt, demo: true, note: 'Demo request — synthetic HR records.' } };
@@ -396,17 +403,18 @@ const hrExecutor = {
     const bal = await peoplesoft.balances(staffId, { runId });
     if (bal.outcome === 'refused' && bal.code === 'unknown_staff') return send(TEXT.refused, 'refused');
     const balances = bal.ok ? { vacation: bal.value.vacation, sick: bal.value.sick, personalHoliday: bal.value.personalHoliday } : null;
+    const pickedWrong = bal.outcome === 'tool_refused'; // HR's AI, not PeopleSoft, is why there are no balances
     if (!workflowEnabled()) return send(TEXT.disabled, 'workflow_disabled');
     // A question about balances or filed requests: text only. An open card stays open and unchanged.
     const whichBalance = asksBalance(text);
     const wantsRequests = asksRequests(text);
     if (whichBalance || wantsRequests) {
-      if (!balances) return send(PEOPLESOFT_UNAVAILABLE, 'peoplesoft_unavailable');
+      if (!balances) return send(pickedWrong ? TOOL_REFUSED_CHAT : PEOPLESOFT_UNAVAILABLE_CHAT, pickedWrong ? 'tool_refused' : 'peoplesoft_unavailable');
       const parts = [];
       if (whichBalance) parts.push(balanceText(balances, whichBalance));
       if (wantsRequests) {
         const filed = await peoplesoft.requests(staffId, { runId });
-        if (!filed.ok) return send(PEOPLESOFT_UNAVAILABLE, 'peoplesoft_unavailable');
+        if (!filed.ok) return send(filed.outcome === 'tool_refused' ? TOOL_REFUSED_CHAT : PEOPLESOFT_UNAVAILABLE_CHAT, filed.outcome === 'tool_refused' ? 'tool_refused' : 'peoplesoft_unavailable');
         parts.push(requestsText(filed.value.requests));
       }
       return send(parts.join('\n'), whichBalance && wantsRequests ? 'info' : whichBalance ? 'balance' : 'requests');
@@ -431,9 +439,10 @@ const hrExecutor = {
     state.choices = read.choices?.length ? read.choices : followUp ? open.data.choices ?? [] : [];
     if (!isPair(state.values.absenceType, state.values.absenceReason)) state.values.absenceReason = state.values.absenceType ? defaultReason(state.values.absenceType) ?? '' : '';
     state.balances = balances;
+    state.noBalances = pickedWrong ? TOOL_REFUSED_BALANCES : NO_BALANCES;
     const { hrCard, hours } = cardFor(state);
     const prefill = Object.fromEntries(Object.entries({ ...state.values, hours }).filter(([, v]) => v !== '' && v != null));
-    emitViz('request_read', runId, { followUp: Boolean(followUp), cardValues: Boolean(cardValues?.ok), prefilled: Object.keys(prefill), missing: hrCard.missing, outcome: hrCard.problem ? 'forecast_failed' : hrCard.missing.length ? 'missing' : 'ready', code: read.error ?? null });
+    emitViz('request_read', runId, { followUp: Boolean(followUp), cardValues: Boolean(cardValues?.ok), prefilled: Object.keys(prefill), missing: hrCard.missing, outcome: hrCard.problem === state.noBalances && !balances ? 'no_balances' : hrCard.problem ? 'forecast_failed' : hrCard.missing.length ? 'missing' : 'ready', code: read.error ?? null });
     // The spread the words decided, kept with the card for the dates and hours it was decided for (Submit, follow-ups).
     const decided = state.mode && hours != null ? { beginDate: state.values.beginDate, endDate: state.values.endDate, hours, mode: state.mode } : null;
     formHost.issue(ctx, bus, {
@@ -535,7 +544,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   // Sign out from the Hub on shutdown (best effort; the Hub's heartbeat expiry covers a crash).
   for (const signal of ['SIGINT', 'SIGTERM']) {
     process.once(signal, async () => {
-      await Promise.race([hubLink?.stop(), new Promise((r) => setTimeout(r, 800))]);
+      // Best effort, bounded: sign out from the Hub and end the PeopleSoft MCP session (terminate, then close).
+      await Promise.race([Promise.allSettled([hubLink?.stop(), peoplesoft.close()]), new Promise((r) => setTimeout(r, 800))]);
       process.exit(0);
     });
   }

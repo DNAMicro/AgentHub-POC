@@ -7,6 +7,7 @@
 //
 // Secrets never live here: model credentials are named by environment variable (apiKeyEnv) and read
 // only by the server process that needs them.
+import { TIMEOUTS } from './timeouts.js';
 import { readFileSync } from 'node:fs';
 import { DEFAULT_KEY_ENV, DEFAULT_MODEL, MODELS } from './models.js';
 
@@ -163,7 +164,9 @@ export function loadHubConfig() {
     // professorName is what students see and call the professor (fictional); the agent keeps its own name.
     courses: { 'mkt-101': { title: 'Marketing 101', professor: 'professor', professorName: 'Professor Amir', enrolled: ['student-alex', 'student-sam'] } },
     heartbeatExpiryMs: 10000,
-    timeouts: { dispatchMs: 60000, formActionMs: 8000, cardFetchMs: 3000 },
+    // Budgets from src/timeouts.js (they nest: see there). staffActionMs is for HR (staff) form actions, which
+    // wait on HR's tool choice and its PeopleSoft call; students keep the short formActionMs.
+    timeouts: { dispatchMs: TIMEOUTS.hubDispatchMs, formActionMs: TIMEOUTS.hubFormActionMs, staffActionMs: TIMEOUTS.hubStaffActionMs, cardFetchMs: 3000 },
     model: DEFAULT_MODEL_CFG,
   };
   const cfg = merge(defaults, readFile('HUB_CONFIG'));
@@ -174,6 +177,7 @@ export function loadHubConfig() {
   if (env('HEARTBEAT_EXPIRY_MS')) cfg.heartbeatExpiryMs = num(env('HEARTBEAT_EXPIRY_MS'));
   if (env('HUB_DISPATCH_TIMEOUT_MS')) cfg.timeouts.dispatchMs = num(env('HUB_DISPATCH_TIMEOUT_MS'));
   if (env('HUB_FORM_TIMEOUT_MS')) cfg.timeouts.formActionMs = num(env('HUB_FORM_TIMEOUT_MS'));
+  if (env('HUB_STAFF_ACTION_TIMEOUT_MS')) cfg.timeouts.staffActionMs = num(env('HUB_STAFF_ACTION_TIMEOUT_MS'));
   if (env('HUB_STUDENTS')) cfg.students = env('HUB_STUDENTS').split(',');
   if (env('STUDENT_URL')) cfg.studentEndpoints = { ...cfg.studentEndpoints, [cfg.students[0]]: env('STUDENT_URL') };
   const p = [];
@@ -215,7 +219,7 @@ export function loadHubConfig() {
     check(p, Array.isArray(c?.enrolled) && c.enrolled.every((s) => cfg.students.includes(s)), `course ${courseId}: enrolled must list configured students.`);
   }
   check(p, positive(cfg.heartbeatExpiryMs) && cfg.heartbeatExpiryMs >= 500, 'heartbeatExpiryMs must be an integer ≥ 500.');
-  for (const k of ['dispatchMs', 'formActionMs', 'cardFetchMs']) check(p, positive(cfg.timeouts?.[k]), `timeouts.${k} must be a positive integer (ms).`);
+  for (const k of ['dispatchMs', 'formActionMs', 'staffActionMs', 'cardFetchMs']) check(p, positive(cfg.timeouts?.[k]), `timeouts.${k} must be a positive integer (ms).`);
   modelProblems(p, cfg, 'HUB_MODEL');
   if (p.length) throw new ConfigError('Hub', p);
   // Derived trusted endpoints (never taken from a card, message, or model output).

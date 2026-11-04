@@ -8,6 +8,7 @@
 //   mock (default) — a labelled keyword heuristic. No network. It proves plumbing, not judgment.
 //   live           — one structured Claude call. A failure returns an empty name and a sanitized
 //                    error code; the name is never guessed.
+import { TIMEOUTS } from './timeouts.js';
 import { PEOPLE_RULE, LlmError, modelName, callModel, keyConfigured, loadDotenvOnce, toLlmError } from './llm.js';
 import { ABSENCE_TYPES, defaultReason, isPair, nameOf } from './absence-types.js';
 
@@ -15,7 +16,9 @@ export const HR_MODE = process.env.HR_MODE ?? 'mock';
 if (!['mock', 'live'].includes(HR_MODE)) throw new Error(`Unknown HR_MODE "${HR_MODE}" (use mock or live).`);
 if (HR_MODE === 'live') loadDotenvOnce();
 
-const LIMITS = { maxOutputTokens: 400, timeoutMs: Number(process.env.HR_MODEL_TIMEOUT_MS ?? 30000), maxNote: 300, maxText: 2000 };
+// The absence-name call (card issue; inside the Hub's dispatch wait) and the tool choice (card issue and Submit; at
+// Submit inside the Hub's staff-action wait together with the MCP call). See src/timeouts.js.
+const LIMITS = { maxOutputTokens: 400, timeoutMs: Number(process.env.HR_MODEL_TIMEOUT_MS ?? TIMEOUTS.hrAbsenceModelMs), toolTimeoutMs: Number(process.env.HR_TOOL_CHOICE_TIMEOUT_MS ?? TIMEOUTS.hrToolChoiceMs), maxNote: 300, maxText: 2000 };
 const MOCK_LABEL = 'mock heuristic';
 export const hrStatus = () => ({ mode: HR_MODE, model: HR_MODE === 'live' ? modelName() : MOCK_LABEL, keyConfigured: HR_MODE === 'live' ? keyConfigured() : null });
 
@@ -245,7 +248,7 @@ export async function chooseTool({ moment, tools = [], emit = () => {} }) {
     result = await callModel({
       system: toolSystem(moment),
       messages: [{ role: 'user', content: `PeopleSoft tools (from tools/list): ${tools.join(', ')}` }],
-      maxTokens: LIMITS.maxOutputTokens, timeoutMs: LIMITS.timeoutMs,
+      maxTokens: LIMITS.maxOutputTokens, timeoutMs: LIMITS.toolTimeoutMs,
       schema: { type: 'object', properties: { tool: { type: 'string', enum: tools } }, required: ['tool'], additionalProperties: false },
     });
   } catch (err) {

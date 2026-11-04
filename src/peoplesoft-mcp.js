@@ -152,8 +152,11 @@ export function startPeopleSoftServer({ port = 41246, token = process.env.PEOPLE
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  startPeopleSoftServer({ port: Number(process.env.PORT ?? 41246) }).then(({ server }) => {
-    process.on('SIGTERM', () => server.close(() => process.exit(0)));
-    process.on('SIGINT', () => server.close(() => process.exit(0)));
+  startPeopleSoftServer({ port: Number(process.env.PORT ?? 41246) }).then(({ close }) => {
+    // close() ends every MCP session and open connection (a client's SSE stream would otherwise keep
+    // server.close() waiting forever); bounded, then exit.
+    const stop = () => Promise.race([close(), new Promise((r) => setTimeout(r, 1000))]).then(() => process.exit(0));
+    process.once('SIGTERM', stop);
+    process.once('SIGINT', stop);
   }).catch((e) => { console.error(`PeopleSoft stand-in could not start: ${e.message}`); process.exit(1); });
 }

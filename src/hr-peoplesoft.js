@@ -9,7 +9,9 @@
 //   { ok: false, outcome: 'tool_refused' }           HR's AI picked another tool: nothing was called
 //   { ok: false, outcome: 'unavailable' }            nothing reached the tool (connection refused, 401, no session)
 //   { ok: false, outcome: 'uncertain' }              the call went out but no answer came (timeout, reset)
-// Never an automatic retry: the caller retries with the same operationId and PeopleSoft dedupes it.
+// Never an automatic retry, with one exception: PeopleSoft said the session is unknown (HTTP 404, or 400 about the
+// session — e.g. it restarted), so the tool provably never ran; the link reconnects and sends that call once more.
+// Anything else is the caller's to retry (with the same operationId; PeopleSoft dedupes it).
 //
 // Telemetry (emit(type, runId, data)): peoplesoft_session (run-less), mcp_tool_refused, mcp_call_started,
 // mcp_call_result. Tool names, codes, record ids, counts and timings only — never the token, the arguments
@@ -20,6 +22,8 @@ import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import { chooseTool, MOMENT_TOOL } from './hr-model.js';
 
 const errCode = (err) => err?.cause?.code ?? err?.code;
+// PeopleSoft doesn't know this session (it restarted, or dropped it): the request was refused before any tool ran.
+const sessionUnknown = (err) => err instanceof StreamableHTTPError && (err.code === 404 || (err.code === 400 && /session/i.test(err.message)));
 // The receipt without the wrapper's steps: they never reach the card, the chat, the Professor or telemetry.
 export const withoutSteps = (receipt) => {
   if (!receipt || typeof receipt !== 'object') return receipt;
@@ -45,7 +49,7 @@ export function createPeopleSoftLink({ url, token, emit = () => {}, timeoutMs = 
       try {
         await client.connect(transport, { timeout: timeoutMs });
         const listed = await client.listTools({}, { timeout: timeoutMs });
-        const s = { client, tools: listed.tools.map((t) => t.name) };
+        const s = { client, transport, tools: listed.tools.map((t) => t.name) };
         client.onclose = () => { if (session === s) session = null; };
         session = s;
         emit('peoplesoft_session', null, { status: 'connected', tools: s.tools.length });
@@ -79,14 +83,27 @@ export function createPeopleSoftLink({ url, token, emit = () => {}, timeoutMs = 
       return r;
     };
     let result;
-    try {
-      result = await s.client.callTool({ name: expected, arguments: args }, undefined, { timeout: timeoutMs });
-    } catch (err) {
-      if (err instanceof McpError && err.code === ErrorCode.RequestTimeout) return done({ ok: false, outcome: 'uncertain' });
-      drop(s); // the next call opens a fresh session
-      // An HTTP error status (401, no session) or a refused connection: the tool never ran.
-      if (err instanceof StreamableHTTPError || errCode(err) === 'ECONNREFUSED') return done({ ok: false, outcome: 'unavailable' });
-      return done({ ok: false, outcome: 'uncertain' });
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        result = await s.client.callTool({ name: expected, arguments: args }, undefined, { timeout: timeoutMs });
+        break;
+      } catch (err) {
+        if (err instanceof McpError && err.code === ErrorCode.RequestTimeout) return done({ ok: false, outcome: 'uncertain' });
+        drop(s); // the next call opens a fresh session
+        if (attempt === 0 && sessionUnknown(err)) {
+          // The tool never ran: a fresh session, and the same call exactly once more.
+          try {
+            s = await connect();
+          } catch {
+            return done({ ok: false, outcome: 'unavailable' });
+          }
+          if (!s.tools.includes(expected)) return done({ ok: false, outcome: 'unavailable' });
+          continue;
+        }
+        // An HTTP error status (401, no session) or a refused connection: the tool never ran.
+        if (err instanceof StreamableHTTPError || errCode(err) === 'ECONNREFUSED') return done({ ok: false, outcome: 'unavailable' });
+        return done({ ok: false, outcome: 'uncertain' });
+      }
     }
     const value = result?.structuredContent ?? null;
     if (result?.isError) {
@@ -126,6 +143,13 @@ export function createPeopleSoftLink({ url, token, emit = () => {}, timeoutMs = 
       if (!r.ok) throw new Error(`PeopleSoft test records: HTTP ${r.status}`);
       return (await r.json()).records;
     },
-    close: () => drop(session),
+    // Shutdown: end the MCP session at PeopleSoft (DELETE), then close the client. Best effort and bounded.
+    async close() {
+      const s = session;
+      session = null;
+      if (!s) return;
+      await Promise.race([s.transport.terminateSession().catch(() => {}), new Promise((r) => setTimeout(r, 500))]);
+      await s.client.close().catch(() => {});
+    },
   };
 }

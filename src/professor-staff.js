@@ -12,6 +12,7 @@
 // the held message awaiting an answer, and the note awaiting “yes”. The chat itself (in the outbox) keeps
 // the text of every HR exchange, never the card. A classroom reset (resetStaff) clears it all and starts a
 // new HR conversation.
+import { TIMEOUTS } from './timeouts.js';
 import { randomUUID } from 'node:crypto';
 import { CARD_CLOSED, STAFF_ACTION_MEDIA_TYPE, STAFF_REQUEST_MEDIA_TYPE, staffActionFields, staffRequestFields } from './staff.js';
 import { shortDate, titleOf, workdays } from './absence-types.js';
@@ -34,7 +35,8 @@ const hasNewContent = (pendingText, reply) => {
 };
 // Words that make a reply new content of its own: days, dates, months and leave words.
 const NEW_CONTENT = /\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|today|tomorrow|yesterday|week|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|\d{1,2}(?:st|nd|rd|th)?|off|sick|ill|leave|vacation|holiday|doctor|dentist|appointment|funeral|surgery|out)\b/g;
-const STAFF_TIMEOUT_MS = 60000; // the Hub waits for HR, which may make a model call (live)
+// > the Hub's staff waits (dispatch for a request, staffActionMs for an action), so the Hub's answer arrives first (src/timeouts.js).
+const STAFF_TIMEOUT_MS = TIMEOUTS.professorStaffMs;
 const HELD_FOR_MS = 15 * 60_000; // an unanswered question or note offer is forgotten after this
 // The Hub's card lifetime (same variable and default as src/hub-agent.js): after it, the Hub refuses the
 // card, so the Professor stops sending messages to HR as follow-ups and the chat is back to normal.
@@ -361,7 +363,7 @@ export async function staffAction({ operationId, formRef, action, hubLink, emit 
   }
   // HR's backend (PeopleSoft) didn't confirm: the outcome is unknown, HR's words say so. Not kept, so the same
   // operation can be sent again (the browser keeps its operation ID for outcome_unknown) — it won't file twice.
-  if (r.status === 'refused' && reply?.retryable) {
+  if (r.status === 'refused' && reply?.retryable && reply?.unknownOutcome) {
     const text = r.reason ?? reply.text ?? 'Not confirmed.';
     return { http: 200, definite: false, entries: [{ role: 'hr', text, formRef, failed: true }], body: { status: 'outcome_unknown', reply: text, closed: false } };
   }
@@ -372,7 +374,9 @@ export async function staffAction({ operationId, formRef, action, hubLink, emit 
     if (current && gone) openCard = null;
     if (current && !gone && reply?.a2ui?.length) openCard = { ...openCard, a2ui: [...openCard.a2ui, ...reply.a2ui] };
     const text = r.reason ?? reply?.text ?? 'Not accepted.';
-    return { http: 200, definite: true, entries: [{ role: 'hr', text, formRef, failed: true }], body: { status: 'rejected', reply: text, closed: gone, ...(reply?.errors ? { errors: reply.errors } : {}) } };
+    // A retryable rejection (e.g. HR's AI chose the wrong PeopleSoft tool, nothing filed) is definite but not stored,
+    // so the same operation can run again; the browser starts a new operation after a rejection anyway.
+    return { http: 200, definite: !reply?.retryable, entries: [{ role: 'hr', text, formRef, failed: true }], body: { status: 'rejected', reply: text, closed: gone, ...(reply?.errors ? { errors: reply.errors } : {}) } };
   }
   const text = r.status === 'not_delivered' ? `Nothing was submitted: ${r.reason ?? 'HR is unreachable.'}` : `HR didn’t confirm in time, so the outcome is unknown. Press the button again — it won’t file twice.`;
   return { http: 200, definite: false, entries: [{ role: 'hr', text, formRef, failed: true }], body: { status: r.status === 'not_delivered' ? 'not_delivered' : 'outcome_unknown', reply: text, closed: false } };

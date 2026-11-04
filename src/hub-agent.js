@@ -9,6 +9,7 @@
 // carried as A2A messages (see src/hub-link.js), not built-in A2A features. Identity on localhost is
 // self-declared; the Hub checks it against its allowlist and trusted endpoints, but it is not
 // authentication. State is in memory: a restart forgets registrations, forms and dedupe records.
+import { TIMEOUTS } from './timeouts.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import express from 'express';
@@ -362,7 +363,8 @@ export function startHubServer({ port } = {}) {
     emit('form_forwarded', runId, { formRef: m.formRef, operationId, agentId: m.issuer, actionName: action.name, downstreamTaskId: m.downstream.taskId });
     try {
       const result = await sendFormAction(peer.baseUrl, {
-        form: m.downstream, action, operationId, runId, card: registry.entry(m.issuer)?.card ?? undefined, timeoutMs: cfg.timeouts.formActionMs,
+        // staffActionMs (src/timeouts.js) > HR's tool choice + its PeopleSoft call, so HR's own answer arrives first.
+        form: m.downstream, action, operationId, runId, card: registry.entry(m.issuer)?.card ?? undefined, timeoutMs: cfg.timeouts.staffActionMs,
         metadata: { hubOperationId: operationId, via: cfg.agentId, staffId: m.staffId, callerKind: 'staff', hubSignature: registry.signStaffFor(m.issuer, { staffId: m.staffId, contextId: m.downstream.contextId, operationId }) },
       });
       registry.markReachable(m.issuer, true);
@@ -371,8 +373,9 @@ export function startHubServer({ port } = {}) {
       if (closed) m.state = 'closed';
       emit('form_result_relayed', runId, { formRef: m.formRef, operationId, agentId: m.issuer, status: b.status, receipt: b.receipt ? { id: b.receipt.requestId } : null });
       const reply = { text: b.message ?? '', servedBy: m.issuer, formRef: m.formRef, closed, ...(result.a2uiUpdate.length ? { a2ui: result.a2uiUpdate } : {}), ...(b.receipt ? { receipt: b.receipt } : {}), ...(b.errors ? { errors: b.errors } : {}) };
-      // retryable (HR's backend didn't confirm): not kept here either, and the sender is told it may resend the same operation.
-      if (b.retryable) return { ...staffReply('refused', { reply: { ...reply, retryable: true }, reason: b.errors?._form ?? b.message ?? 'Not accepted.' }), retryable: true };
+      // retryable (HR's answer must not be kept): not kept here either. unknownOutcome tells the sender whether HR's
+      // backend may have acted (resend the same operation) or certainly didn't (a definite rejection, not stored).
+      if (b.retryable) return { ...staffReply('refused', { reply: { ...reply, retryable: true, ...(b.unknownOutcome ? { unknownOutcome: true } : {}) }, reason: b.errors?._form ?? b.message ?? 'Not accepted.' }), retryable: true };
       if (['rejected', 'conflict'].includes(b.status)) return staffReply('refused', { reply, reason: b.errors?._form ?? b.message ?? 'Not accepted.' });
       return staffReply('ok', { reply });
     } catch (err) {
@@ -711,7 +714,7 @@ export function startHubServer({ port } = {}) {
         const peer = registry.peer(req.params.agentId);
         if (!peer) return res.status(404).json({ error: 'Unknown agent.' });
         try {
-          const upstream = await fetch(`${peer.baseUrl}/author${path}`, { method, headers: method === 'GET' ? {} : { 'Content-Type': 'application/json' }, body: method === 'GET' ? undefined : JSON.stringify(req.body ?? {}), signal: AbortSignal.timeout(60000) }); // a chat turn includes a model call
+          const upstream = await fetch(`${peer.baseUrl}/author${path}`, { method, headers: method === 'GET' ? {} : { 'Content-Type': 'application/json' }, body: method === 'GET' ? undefined : JSON.stringify(req.body ?? {}), signal: AbortSignal.timeout(TIMEOUTS.hubAuthorProxyMs) }); // > the Professor's staff wait (src/timeouts.js); a chat turn includes a model call
           res.status(upstream.status).json(await upstream.json());
         } catch {
           res.status(502).json({ error: `${peer.displayName} is not reachable.` });

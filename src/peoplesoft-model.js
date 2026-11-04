@@ -5,6 +5,7 @@
 // PEOPLESOFT_MODE (read at import, like HR_MODE):
 //   mock  (default)  a labelled heuristic, no network
 //   live             one Claude call (maxRetries 0, no fallback model, no canned answers except the failure plan below)
+import { TIMEOUTS } from './timeouts.js';
 import { modelName, callModel, keyConfigured, loadDotenvOnce, toLlmError } from './llm.js';
 
 export const PEOPLESOFT_MODE = process.env.PEOPLESOFT_MODE ?? 'mock';
@@ -15,7 +16,8 @@ export const STEP_MENU = ['check_balance', 'check_dates_and_holidays', 'check_ov
 export const REQUIRED_STEPS = ['check_balance', 'check_dates_and_holidays', 'check_overlap', 'store_record'];
 
 const MOCK_LABEL = 'mock heuristic';
-const LIMITS = { maxOutputTokens: 400, timeoutMs: Number(process.env.PEOPLESOFT_MODEL_TIMEOUT_MS ?? 30000) };
+// < HR's MCP call timeout, which waits on this inside create_absence_request (src/timeouts.js).
+const LIMITS = { maxOutputTokens: 400, timeoutMs: Number(process.env.PEOPLESOFT_MODEL_TIMEOUT_MS ?? TIMEOUTS.peoplesoftPlannerMs) };
 const PURPOSE = 'plan PeopleSoft steps';
 const SCHEMA = {
   type: 'object',
