@@ -15,6 +15,7 @@
 - The rule that settled the look: *“oh no its not right it cant be mistaken with an agent and it cant have a model tied to it. Create 5 design varations for me to select from”*, then *“add a database icon inside the E and call it variation F”*, then *“F is the right design implement it”*.
 - Who asks the AI: *“ask the AI at both moments”* (HR's AI chooses the PeopleSoft tool when the card opens and again at Submit).
 - Verification: *“After you are done run at least 20 difference scenarios to make sure they all work if you find an issue fix it”*.
+- Balances: *“no we dont want to keep track of any data similar to how we are doing it for library loans”* — filing a request deducts nothing from the balance, and nothing is kept beyond memory.
 - Builder's own calls (you approved the design): the number is 15; PeopleSoft is a fictional demo stand-in; HR keeps no copy of the data; only HR can call PeopleSoft.
 
 ## What you get
