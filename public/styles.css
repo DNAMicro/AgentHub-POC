@@ -32,6 +32,8 @@
   --model: #5b6472;       /* slate — the model provider (outside the university) */
   --hr: #1f6f8b;          /* petrol — the HR Agent (staff only) */
   --hr-tint: #e3f0f5;
+  --ps: #c2410c;          /* burnt orange — PeopleSoft (demo stand-in, MCP server; Part 15) */
+  --ps-tint: #fff1e8;
   --amber: #b7791f;       /* the HR card: missing, and what this request uses */
   --amber-tint: #fdf3e1;
   --amber-ink: #7a4f0e;
@@ -68,6 +70,8 @@
     --model: #aab4c2;
     --hr: #6cc0dd;
     --hr-tint: #16303a;
+    --ps: #fb8a4c;
+    --ps-tint: #3a2216;
     --amber: #e0a23a;
     --amber-tint: #3a2c12;
     --amber-ink: #f3c879;
@@ -463,6 +467,25 @@ h2 { margin: 0; font-size: 1.07rem; font-weight: 700; color: var(--agent, var(--
 .topo .node.service[data-busy="true"] .orbit { animation: march 0.9s linear infinite; }
 @keyframes march { to { stroke-dashoffset: -16; } }
 .topo .edge[data-unused="true"] { opacity: 0.35; }
+/* Part 15: HR → PeopleSoft over MCP — dash-dot lanes, label in PeopleSoft's colour */
+.topo .edge[data-kind="mcp"] .lane { stroke-dasharray: 14 4 2 4; }
+.topo .edge[data-kind="mcp"] .edge-label { fill: var(--ps); }
+/* PeopleSoft, design F: a system tile (not an agent). Its AI shows only as the sparkle and the light sweep while
+   a tool call runs; reduced motion (OS setting or the Reduce motion box → .still) keeps both still. */
+.topo .node.system .tile { fill: var(--surface); stroke: var(--ps); stroke-width: 3; transition: fill 0.3s; }
+.topo .node.system.flash .tile { fill: color-mix(in srgb, var(--ps) 10%, var(--surface)); }
+.topo .node.system .db { fill: var(--ps-tint); stroke: var(--ps); stroke-width: 2; }
+.topo .node.system .db-line { fill: none; stroke: var(--ps); stroke-width: 2; }
+.topo .node.system .node-sub { font: 600 10.5px var(--mono); fill: var(--muted); letter-spacing: 0.02em; }
+.topo .node.system .spark { fill: var(--ps); transform-box: fill-box; transform-origin: center; opacity: 0.55; }
+.topo .node.system .sweep { opacity: 0; }
+.topo .node.system.busy .spark { opacity: 1; animation: twinkle 0.9s ease-in-out infinite; }
+.topo .node.system.busy .sweep { opacity: 1; animation: sweep 1.3s linear infinite; }
+.topo .node.system.still .spark, .topo .node.system.still .sweep { animation: none; }
+.topo .node.system .node-status[data-tone="busy"] .status-pill { fill: var(--ps-tint); }
+.topo .node.system[data-status="unreachable"] .tile { stroke-dasharray: 6 5; }
+@keyframes twinkle { 50% { transform: scale(1.35) rotate(45deg); } }
+@keyframes sweep { from { transform: translateX(-120px); } to { transform: translateX(120px); } }
 .topo .node-name { font: 700 15px var(--font); fill: var(--node); }
 .topo .node[data-node="hub"] .node-name { font-size: 16px; }
 .topo .node-sub { font: 12px var(--font); fill: var(--muted); }
@@ -497,6 +520,7 @@ h2 { margin: 0; font-size: 1.07rem; font-weight: 700; color: var(--agent, var(--
 .glyph[data-shape="heartbeat"] { width: 7px; height: 7px; }
 .glyph[data-shape="lesson"] { border-radius: 0; clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 72%, 0 100%); }
 .glyph[data-shape="model"] { width: 15px; height: 15px; border-radius: 0; clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%); }
+.glyph[data-shape="tool"] { width: 15px; height: 13px; border-radius: 0; clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%); }
 .glyph[data-shape="routing"], .glyph[data-shape="model"] { background: none; border: 2px solid var(--c); }
 .glyph.phase { --c: var(--muted); }
 .glyph[data-phase="attempted"] { background: none; border: 2px solid var(--c); }
