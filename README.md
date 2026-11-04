@@ -196,7 +196,7 @@ The Topology window opens on its own, to the right of the app window (1120 + 800
 
 Everything is live, so the model may answer in words where the script hoped for a form, or ask a clarifying question. The walkthrough then shows what the app really did and carries on. A failed moment is listed in the returned `problems` and never faked on screen. Step 8 renews a loan for real. Step 5 adds a line to the Library's skill and removes it again on screen.
 
-**Editing it.** The script is built from `scripts/demo/walkthrough/frame.js` (windows, keys, typing helpers) and one `scene-N.js` per step. Edit those, then run `npm run demo:build`; don't edit `live-walkthrough.js` by hand. **Rehearse on a separate stack, never the running demo**: `node scripts/demo/rehearsal-stack.js --ui 5444 --base 52240` starts all six processes live on other ports with temporary copies of the data files (`--mock` for a free plumbing run), then open `http://127.0.0.1:5444/conversation?auto=4&shots=<dir>` and look at every screenshot.
+**Editing it.** The script is built from `scripts/demo/walkthrough/frame.js` (windows, keys, typing helpers) and one `scene-N.js` per step. Edit those, then run `npm run demo:build`; don't edit `live-walkthrough.js` by hand. **Rehearse on a separate stack, never the running demo**: `node scripts/demo/rehearsal-stack.js --ui 5444 --base 52240` starts all seven processes live on other ports with temporary copies of the data files (`--mock` for a free plumbing run), then open `http://127.0.0.1:5444/conversation?auto=4&shots=<dir>` and look at every screenshot.
 
 ## Files
 
@@ -234,7 +234,7 @@ Everything is live, so the model may answer in words where the script hoped for 
 | `src/topology.js` | Part 7: labels each telemetry event with its connection, direction, category and phase for the topology view. |
 | `public/topology.js` | Part 7: the live topology graph (SVG), traces, details, event list. |
 | `scripts/start-all.js` | Part 7: starts all the processes — six since Part 14, seven since Part 15 (`npm run demo` / `demo:live`). |
-| `src/hr-agent.js`, `src/hr-store.js`, `src/hr-intent.js`, `src/hr-model.js`, `src/absence-types.js` | Part 14: the staff-only **HR Agent** — chat and card logic, the in-memory staff/balance/request store with the Forecast, the code that reads dates and partial days, and the shared absence list (also served to the browser at `/shared/absence-types.js`), and the absence-type choice (model proposes, code verifies; the reason comes from code). |
+| `src/hr-agent.js`, `src/hr-intent.js`, `src/hr-model.js`, `src/absence-types.js` | Part 14: the staff-only **HR Agent** — chat and card logic (since Part 15 the staff, balances and requests live in PeopleSoft: `src/peoplesoft-store.js`, with the Forecast rules in `src/leave-rules.js`), the code that reads dates and partial days, and the shared absence list (also served to the browser at `/shared/absence-types.js`), and the absence-type choice (model proposes, code verifies; the reason comes from code). |
 | `src/peoplesoft-mcp.js`, `src/peoplesoft-store.js`, `src/peoplesoft-model.js`, `src/leave-rules.js` | Part 15: the PeopleSoft stand-in MCP server (three tools, bearer token), its in-memory records and the code-run leave rules, and its step planner. |
 | `src/hr-peoplesoft.js`, `src/timeouts.js` | Part 15: HR's MCP client (tool choice checked by code, one shared time budget) and the nested time limits for the staff path. |
 | `src/staff.js`, `src/professor-staff.js` | Part 14: the Hub's signed staff path (media types, signed fields, reply shape) and the Professor's staff desk (spots a request for himself, asks when unsure, holds the open card, offers the class note). |
@@ -954,7 +954,7 @@ CSUF staff file absences in a system with many fields and steps. This part shows
 
 - The model (live) or a labelled keyword heuristic (mock) only suggests the absence name. Code accepts it only if the name is on the list **and** the quote it gives is really in the professor's words.
 - Dates and hours come from code only. If the code can't read a date with confidence it reads nothing, and HR asks.
-- The Forecast, holiday rules (an absence can't begin or end on a campus holiday), the 400-day limit and the balance check are code in `src/hr-store.js`.
+- The Forecast, holiday rules (an absence can't begin or end on a campus holiday), the 400-day limit and the balance check are code in `src/leave-rules.js` (used by HR for the card and by PeopleSoft's store, `src/peoplesoft-store.js`, when it files; Part 15).
 
 ### Privacy
 
@@ -971,7 +971,7 @@ CSUF staff file absences in a system with many fields and steps. This part shows
 
 ### Tests
 
-`test/absence-types.test.js`, `test/hr-form.test.js`, `hr-store.test.js`, `hr-intent.test.js`, `hr.test.js`, `hub-staff.test.js`, `professor-staff.test.js`, `hr-ui.test.js` (all with mock models or the fake Anthropic server). `scripts/browser-checks/hr-card.js` is a playwright-cli check of the card on a separate stack. See [Steps/14](Steps/14-hr-agent-time-off.md).
+`test/absence-types.test.js`, `test/hr-form.test.js`, `hr-intent.test.js` (the store's tests moved to `peoplesoft-store.test.js` in Part 15), `hr.test.js`, `hub-staff.test.js`, `professor-staff.test.js`, `hr-ui.test.js` (all with mock models or the fake Anthropic server). `scripts/browser-checks/hr-card.js` is a playwright-cli check of the card on a separate stack. See [Steps/14](Steps/14-hr-agent-time-off.md).
 
 ## Part 15: PeopleSoft over MCP — where the time-off request is really stored
 
@@ -989,7 +989,13 @@ The HR Agent no longer keeps the staff records. They live in a seventh process, 
 
 - Submit says: “PeopleSoft didn't answer. Nothing is filed until it confirms — press Submit again; it won't file twice.” The same operation ID is used, so a second press files once. Nothing retries by itself, except one reconnect when PeopleSoft was restarted and HR's session is unknown (the tool provably never ran).
 - A chat question says: “PeopleSoft didn't answer, so I can't show your leave right now. Nothing changed — ask again in a moment.”
-- Refusals come as one of nine fixed codes (`not_enough`, `holiday_boundary`, `no_workdays`, `too_long`, `overlap`, `bad_reason`, `operation_reused`, `unknown_staff`, `bad_hours`) and one plain sentence. Only the code goes into telemetry.
+- Topology shows an unconfirmed Submit as **unknown** (amber) on every hop — PeopleSoft → HR, HR → Hub and Hub → Professor — not as “rejected”. The PeopleSoft pill says “✕ Unreachable” after a call that couldn't reach it and “✓ Connected” again after the next one that did.
+- Refusals come as one of ten fixed codes (`not_enough`, `holiday_boundary`, `no_workdays`, `too_long`, `overlap`, `bad_reason`, `operation_reused`, `unknown_staff`, `bad_hours`, `reset_during_call`) and one plain sentence. Only the code goes into telemetry.
+
+### If HR's AI doesn't answer, or New conversation is pressed during Submit
+
+- If HR's AI doesn't answer the tool choice (slow, rate-limited, provider error), nothing is called and the words say so: Submit — “HR's AI couldn't choose a PeopleSoft tool just now, so nothing was filed. Press Submit again.”; the card — “HR's AI couldn't choose a PeopleSoft tool just now, so the balance isn't shown.”; the chat — “HR's AI couldn't reach PeopleSoft just now, so I can't show your leave. Nothing changed — ask again in a moment.” Topology says “HR's AI didn't answer — no call”.
+- New conversation while a Submit is still running can't file the old card into the fresh records: HR skips the call when the card was closed meanwhile, PeopleSoft refuses a filing whose planning started before its reset (`reset_during_call`), and the closed card stays closed (it never turns into “accepted”).
 
 ### Safety
 
@@ -998,7 +1004,7 @@ The HR Agent no longer keeps the staff records. They live in a seventh process, 
 
 ### Tests
 
-`test/peoplesoft-store.test.js`, `peoplesoft-model.test.js`, `peoplesoft-mcp.test.js`, `hr-peoplesoft.test.js`, `hr-peoplesoft-budget.test.js`, `topology-peoplesoft.test.js`, `timeouts.test.js`. `scripts/browser-checks/peoplesoft.js` (36 checks) runs on a separate rehearsal stack, never on the running demo.
+`test/peoplesoft-store.test.js`, `peoplesoft-model.test.js`, `peoplesoft-mcp.test.js`, `hr-peoplesoft.test.js`, `hr-peoplesoft-budget.test.js`, `topology-peoplesoft.test.js`, `timeouts.test.js`. `scripts/browser-checks/peoplesoft.js` (37 checks) runs on a separate rehearsal stack, never on the running demo.
 
 ## Deliberately not included
 

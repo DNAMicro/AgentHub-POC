@@ -13,6 +13,8 @@ test('the default budgets nest: each outer timeout is longer than the sum of wha
   assert.equal(T.hubStaffActionMs, 25000);
   // Inside one PeopleSoft call: the planner model.
   assert.ok(T.hrPeopleSoftCallMs > T.peoplesoftPlannerMs);
+  // The call's floor (planner + 2 s, src/hr-peoplesoft.js) fits inside the shared budget with at least 1 s left for the connect.
+  assert.ok(T.hrPeopleSoftCallMs >= T.peoplesoftPlannerMs + 2000 + 1000);
   // A Submit at HR: the tool choice, then the PeopleSoft call — inside the Hub's staff-action wait.
   assert.ok(T.hubStaffActionMs > T.hrToolChoiceMs + T.hrPeopleSoftCallMs);
   // A card issue at HR: the absence name, the tool choice, the balances call — inside the Hub's dispatch wait.

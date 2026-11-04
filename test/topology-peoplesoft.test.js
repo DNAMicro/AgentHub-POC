@@ -51,6 +51,38 @@ test('mcp_tool_refused stays inside HR; peoplesoft_session is HR ↔ PeopleSoft 
   assert.equal(down.label, 'PeopleSoft unreachable');
 });
 
+test('final-review I2: a failed tool choice is "HR’s AI didn’t answer — no call", not a wrong pick', () => {
+  const failed = hr('mcp_tool_refused', { tool: null, moment: 'submit', expected: 'create_absence_request', by: 'model_failed' });
+  assert.equal(failed.edge, null);
+  assert.deepEqual([failed.node, failed.category, failed.phase], ['hr', 'tool', 'failed']);
+  assert.equal(failed.label, 'HR’s AI didn’t answer — no call');
+  assert.match(hr('mcp_tool_refused', { tool: 'get_leave_balances', moment: 'submit', by: 'model' }).label, /not allowed here — no call/);
+});
+
+test('final-review M1: an unknown outcome is amber (unknown) on the HR and Hub hops, not red', () => {
+  const hub = (type, data) => topologyLabel({ source: 'hub', type, data });
+  const handler = hr('form_action_result', { status: 'rejected', unknownOutcome: true });
+  assert.equal(handler.phase, 'unknown');
+  assert.equal(handler.label, 'Handler result: outcome unknown');
+  assert.equal(hr('form_action_result', { status: 'rejected' }).phase, 'failed', 'a definite rejection stays red');
+  const relayed = hub('form_result_relayed', { agentId: 'hr', status: 'rejected', unknownOutcome: true });
+  assert.deepEqual(shape(relayed), { edge: 'hub-hr', from: 'hr', to: 'hub', category: 'form', phase: 'unknown' });
+  assert.equal(relayed.label, 'Issuer replied: outcome unknown');
+  assert.equal(hub('form_result_relayed', { agentId: 'hr', status: 'rejected' }).phase, 'failed');
+  const sent = hub('relay_sent', { to: 'professor', kind: 'staff_action_result', status: 'refused', unknownOutcome: true });
+  assert.equal(sent.phase, 'unknown');
+  assert.equal(sent.label, 'Hub relayed HR’s card result (outcome unknown)');
+  assert.equal(hub('relay_sent', { to: 'professor', kind: 'staff_action_result', status: 'refused' }).phase, 'failed');
+});
+
+test('final-review M1: the Hub allowlist keeps unknownOutcome (a boolean) and by', async () => {
+  const { redactTelemetry } = await import('../src/hub-agent.js');
+  const out = redactTelemetry({ type: 'form_action_result', data: { status: 'rejected', unknownOutcome: true, by: 'model_failed', note: 'grandmother' } });
+  assert.equal(out.unknownOutcome, true);
+  assert.equal(out.by, 'model_failed');
+  assert.notEqual(out.note, 'grandmother');
+});
+
 test('labels never carry staff words', () => {
   const text = JSON.stringify([
     hr('mcp_call_started', { tool: 'create_absence_request', absenceType: 'Bereavement', note: 'grandmother' }),

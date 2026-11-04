@@ -291,3 +291,160 @@ test('connect and call share one MCP budget: a slow PeopleSoft cannot hold HR pa
   await new Promise((r) => setTimeout(r, 500)); // let the SDK's stream settle before the proxy goes away
   assert.ok(took < 1000, `took ${took} ms`);
 });
+
+// ---- Part 15 final-review fixes ----------------------------------------------------------------------------
+const CHOICE_FAILED_SUBMIT = 'HR\'s AI couldn\'t choose a PeopleSoft tool just now, so nothing was filed. Press Submit again.';
+const CHOICE_FAILED_BALANCES = 'HR\'s AI couldn\'t choose a PeopleSoft tool just now, so the balance isn\'t shown.';
+const CHOICE_FAILED_CHAT = 'HR\'s AI couldn\'t reach PeopleSoft just now, so I can\'t show your leave. Nothing changed — ask again in a moment.';
+const RESET_CLOSED = /closed when the HR records were reset/;
+const liveHr = (stub) => ({ HR_MODE: 'live', ANTHROPIC_API_KEY: `sk-ant-test-${randomUUID()}`, ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0' });
+const isChoice = (body, moment) => Boolean(body?.output_config?.format?.schema?.properties?.tool) && { submit: /file the time-off request/, balances: /leave balances/ }[moment].test(String(body.system ?? ''));
+const VAC_PAIR = () => messageReply(JSON.stringify({ pair: 'VAC:VAC', quote: 'vacation', note: '', choices: [] }));
+// The card is closed at HR: a fresh Submit on it is refused with the reset words.
+async function assertClosedByReset(own, card) {
+  const again = await own.act(card.reply.formRef, submit(card.reply, VACATION));
+  assert.equal(again.status, 'refused', JSON.stringify(again));
+  assert.match(again.reason, RESET_CLOSED);
+}
+
+test('I1: New conversation during HR\'s tool choice — no PeopleSoft call, nothing filed, the card stays closed', async (t) => {
+  const stub = await startFakeAnthropic();
+  t.after(() => stub.close());
+  stub.respondWith((body) => (isChoice(body, 'submit') ? { ...toolChoiceReply(body), delayMs: 1500 } : toolChoiceReply(body) ?? VAC_PAIR()));
+  const own = await hrStack({ hrEnv: liveHr(stub) });
+  t.after(() => own.close());
+  const card = await own.ask("I need Friday off, it's a vacation day");
+  const from = own.feed.events.length;
+  const pending = own.act(card.reply.formRef, submit(card.reply, VACATION));
+  await waitFor(() => stub.requests.some((r) => isChoice(r.body, 'submit')), { what: 'HR asked its AI for the Submit tool' });
+  assert.equal((await post(`${own.stack.hr.url}/dev/hr/reset`, {})).status, 200);
+  const late = await pending;
+  assert.notEqual(late.status, 'ok', JSON.stringify(late));
+  assert.equal(late.reply?.receipt, undefined, 'no receipt');
+  assert.match(late.reason, RESET_CLOSED);
+  assert.equal(own.feed.events.slice(from).filter((e) => e.type === 'mcp_call_started').length, 0, 'the call was skipped');
+  assert.deepEqual(await own.requests(), [], 'nothing filed');
+  await assertClosedByReset(own, card);
+});
+
+test('I1: New conversation while PeopleSoft\'s planner thinks — refused at PeopleSoft, nothing filed, the card stays closed', async (t) => {
+  const stub = await startFakeAnthropic();
+  t.after(() => stub.close());
+  // PeopleSoft live against the fake API; its planner answers after 1.5 s. HR stays in mock mode.
+  stub.respondWith(() => ({ ...messageReply('{"steps":["route_to_manager"]}'), delayMs: 1500 }));
+  const own = await hrStack({ peoplesoftEnv: { PEOPLESOFT_MODE: 'live', ANTHROPIC_API_KEY: `sk-ant-test-${randomUUID()}`, ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0' } });
+  t.after(() => own.close());
+  const card = await own.ask("I need Friday off, it's a vacation day");
+  const pending = own.act(card.reply.formRef, submit(card.reply, VACATION));
+  await waitFor(() => stub.requests.length > 0, { what: 'PeopleSoft asked its planner' });
+  assert.equal((await post(`${own.stack.hr.url}/dev/hr/reset`, {})).status, 200);
+  const late = await pending;
+  assert.notEqual(late.status, 'ok', JSON.stringify(late));
+  assert.equal(late.reply?.receipt, undefined);
+  assert.match(late.reason, RESET_CLOSED);
+  const result = own.feed.events.find((e) => e.type === 'mcp_call_result' && e.data.tool === 'create_absence_request');
+  assert.equal(result.data.code, 'reset_during_call', 'PeopleSoft refused the stale filing');
+  assert.deepEqual(await own.requests(), [], 'the fresh records stay empty');
+  await assertClosedByReset(own, card);
+});
+
+test('I1: New conversation after PeopleSoft filed but before HR heard back — the closed card is not turned into accepted', async (t) => {
+  // PeopleSoft writes, then answers 1.5 s late (its test hook); the reset lands in between and wipes the record.
+  const own = await hrStack({ peoplesoftEnv: { PEOPLESOFT_TEST_DELAY_MS: '1500' } });
+  t.after(() => own.close());
+  const card = await own.ask("I need Friday off, it's a vacation day");
+  const pending = own.act(card.reply.formRef, submit(card.reply, VACATION));
+  await waitFor(async () => (await own.requests()).length === 1, { what: 'PeopleSoft wrote it' });
+  assert.equal((await post(`${own.stack.hr.url}/dev/hr/reset`, {})).status, 200);
+  const late = await pending;
+  assert.notEqual(late.status, 'ok', JSON.stringify(late));
+  assert.equal(late.reply?.receipt, undefined, 'no receipt for a card the reset closed');
+  assert.match(late.reason, RESET_CLOSED);
+  assert.deepEqual(await own.requests(), []);
+  await assertClosedByReset(own, card);
+});
+
+test('I2: HR\'s AI failing at the Submit tool choice is said plainly; definite, not stored, retryable', async (t) => {
+  const stub = await startFakeAnthropic();
+  t.after(() => stub.close());
+  stub.respondWith((body) => (isChoice(body, 'submit') ? { status: 500 } : toolChoiceReply(body) ?? VAC_PAIR()));
+  const own = await hrStack({ hrEnv: liveHr(stub) });
+  t.after(() => own.close());
+  const card = await own.ask("I need Friday off, it's a vacation day");
+  assert.deepEqual(card.reply.hrCard.balances, { vacation: 96, sick: 120, personalHoliday: 8 });
+  const from = own.feed.events.length;
+  const op = randomUUID();
+  const done = await own.act(card.reply.formRef, submit(card.reply, VACATION), op);
+  assert.equal(done.status, 'refused', JSON.stringify(done));
+  assert.equal(done.reason, CHOICE_FAILED_SUBMIT);
+  assert.equal(done.reply.retryable, true);
+  assert.equal(done.reply.unknownOutcome, undefined, 'definite: nothing was called');
+  const events = own.feed.events.slice(from);
+  const refused = events.find((e) => e.type === 'mcp_tool_refused');
+  assert.equal(refused.data.by, 'model_failed');
+  assert.equal(refused.data.moment, 'submit');
+  assert.equal(events.filter((e) => e.type === 'mcp_call_started').length, 0, 'no MCP call');
+  assert.deepEqual(await own.requests(), []);
+  const again = await own.act(card.reply.formRef, submit(card.reply, VACATION), op);
+  assert.equal(again.reason, CHOICE_FAILED_SUBMIT, 'not a stored answer: HR asked its AI again');
+  assert.equal(own.feed.events.filter((e) => e.type === 'mcp_tool_refused' && e.data.by === 'model_failed').length, 2);
+});
+
+test('I2: HR\'s AI failing at the balances moment — the card and the chat say so, PeopleSoft is not blamed', async (t) => {
+  const stub = await startFakeAnthropic();
+  t.after(() => stub.close());
+  stub.respondWith((body) => (isChoice(body, 'balances') ? { status: 500 } : toolChoiceReply(body) ?? VAC_PAIR()));
+  const own = await hrStack({ hrEnv: liveHr(stub) });
+  t.after(() => own.close());
+  const card = await own.ask("I need Friday off, it's a vacation day");
+  assert.equal(card.reply.hrCard.balances, null);
+  assert.equal(card.reply.hrCard.problem, CHOICE_FAILED_BALANCES);
+  const chat = await own.ask('how much sick leave do I have?');
+  assert.equal(chat.reply.text, CHOICE_FAILED_CHAT);
+  assert.equal(own.feed.events.filter((e) => e.type === 'mcp_call_started').length, 0, 'no MCP call');
+  assert.ok(own.feed.events.some((e) => e.type === 'mcp_tool_refused' && e.data.by === 'model_failed' && e.data.moment === 'balances'));
+});
+
+test('M3: the session status follows the calls — unreachable when a call ends unavailable, connected again on the next success, only on a change', async (t) => {
+  const own = await hrStack();
+  t.after(() => own.close());
+  await own.ask("I need Friday off, it's a vacation day");
+  const sessions = (from) => ofType(own.feed.events.slice(from), 'peoplesoft_session').map((e) => e.data.status);
+  assert.deepEqual(sessions(0), ['connected']);
+  const port = new URL(own.stack.peoplesoft.url).port;
+  await stopProcess(own.stack.peoplesoft);
+  let from = own.feed.events.length;
+  assert.equal((await own.ask("I need Friday off, it's a vacation day")).reply.hrCard.balances, null);
+  assert.deepEqual(sessions(from), ['unreachable'], 'the open session failed: the pill must not keep saying connected');
+  from = own.feed.events.length;
+  await own.ask("I need Friday off, it's a vacation day");
+  assert.deepEqual(sessions(from), [], 'still down: no repeat');
+  own.stack.peoplesoft = await startPeopleSoft({ PORT: port, PEOPLESOFT_TOKEN: own.stack.peoplesoftToken, PEOPLESOFT_TEST_HOOKS: '1' });
+  from = own.feed.events.length;
+  assert.deepEqual((await own.ask("I need Friday off, it's a vacation day")).reply.hrCard.balances, { vacation: 96, sick: 120, personalHoliday: 8 });
+  assert.deepEqual(sessions(from), ['connected']);
+  from = own.feed.events.length;
+  await own.ask("I need Friday off, it's a vacation day");
+  assert.deepEqual(sessions(from), [], 'no change, no event');
+});
+
+test('M1: an unconfirmed Submit is "unknown" on the HR and Hub hops too (unknownOutcome passes the Hub allowlist)', async (t) => {
+  const { topologyLabel } = await import('../src/topology.js');
+  const own = await hrStack({ peoplesoftEnv: { PEOPLESOFT_TEST_DELAY_MS: '1500' }, hrEnv: { PEOPLESOFT_TIMEOUT_MS: '300' } });
+  t.after(() => own.close());
+  const hubFeed = follow(own.stack.hub.url);
+  t.after(() => hubFeed.close());
+  const card = await own.ask("I need Friday off, it's a vacation day");
+  const first = await own.act(card.reply.formRef, submit(card.reply, VACATION));
+  assert.equal(first.reply?.unknownOutcome, true, JSON.stringify(first));
+  await waitFor(() => hubFeed.events.some((e) => e.source === 'hub' && e.type === 'form_result_relayed'), { what: 'Hub relayed the card result' });
+  const relayed = hubFeed.events.find((e) => e.source === 'hub' && e.type === 'form_result_relayed');
+  assert.equal(relayed.data.unknownOutcome, true);
+  assert.equal(topologyLabel(relayed).phase, 'unknown');
+  const result = hubFeed.events.find((e) => e.source === 'hr' && e.type === 'form_action_result' && e.data.status === 'rejected');
+  assert.equal(result.data.unknownOutcome, true, 'kept by the Hub’s allowlist');
+  assert.equal(topologyLabel(result).phase, 'unknown');
+  await waitFor(() => hubFeed.events.some((e) => e.source === 'hub' && e.type === 'relay_sent' && e.data.kind === 'staff_action_result'), { what: 'Hub replied to the Professor' });
+  const sent = hubFeed.events.find((e) => e.source === 'hub' && e.type === 'relay_sent' && e.data.kind === 'staff_action_result');
+  assert.equal(topologyLabel(sent).phase, 'unknown');
+});

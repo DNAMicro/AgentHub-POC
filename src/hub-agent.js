@@ -83,6 +83,7 @@ const SAFE_FIELDS = new Set([
   'usage', 'inputTokens', 'outputTokens', 'cacheReadInputTokens', 'cacheCreationInputTokens', 'tutor', 'library',
   'tool', 'moment', 'recordId', 'stepCount', 'expected', // Part 15: PeopleSoft tool name (fixed list, schema-enum constrained), moment, record id, count
   'hrOutcome', // HR: card / refused / workflow_disabled … (an outcome code, never the staff member's words)
+  'unknownOutcome', // a boolean: the issuer doesn't know whether its backend acted (Topology draws it as unknown, not rejected)
 ]);
 // Lists of field NAMES (never values) that may pass, e.g. which fields a form prefilled.
 const NAME_LIST_FIELDS = new Set(['prefilled']);
@@ -237,7 +238,7 @@ export function startHubServer({ port } = {}) {
     const answer = (body) => {
       bus.publish(AgentEvent.message({ messageId: randomUUID(), contextId: ctx.contextId, taskId: '', role: Role.ROLE_AGENT, parts: [jsonPart(body)], metadata: undefined, extensions: [], referenceTaskIds: [] }));
       bus.finished();
-      emit('relay_sent', runId, { operationId, to: sender ?? 'unverified', kind: isAction ? 'staff_action_result' : 'staff_reply', status: body.status, servedBy: body.reply?.servedBy ?? null, hrOutcome: body.reply?.hrOutcome ?? null });
+      emit('relay_sent', runId, { operationId, to: sender ?? 'unverified', kind: isAction ? 'staff_action_result' : 'staff_reply', status: body.status, servedBy: body.reply?.servedBy ?? null, hrOutcome: body.reply?.hrOutcome ?? null, ...(body.reply?.unknownOutcome ? { unknownOutcome: true } : {}) });
     };
     const refuse = (code, reason) => {
       emit('staff_refused', runId, { operationId, code, kind: isAction ? 'action' : 'request' });
@@ -372,7 +373,7 @@ export function startHubServer({ port } = {}) {
       const b = result.body;
       const closed = ['accepted', 'cancelled'].includes(b.status);
       if (closed) m.state = 'closed';
-      emit('form_result_relayed', runId, { formRef: m.formRef, operationId, agentId: m.issuer, status: b.status, receipt: b.receipt ? { id: b.receipt.requestId } : null });
+      emit('form_result_relayed', runId, { formRef: m.formRef, operationId, agentId: m.issuer, status: b.status, receipt: b.receipt ? { id: b.receipt.requestId } : null, ...(b.unknownOutcome ? { unknownOutcome: true } : {}) });
       const reply = { text: b.message ?? '', servedBy: m.issuer, formRef: m.formRef, closed, ...(result.a2uiUpdate.length ? { a2ui: result.a2uiUpdate } : {}), ...(b.receipt ? { receipt: b.receipt } : {}), ...(b.errors ? { errors: b.errors } : {}) };
       // retryable (HR's answer must not be kept): not kept here either. unknownOutcome tells the sender whether HR's
       // backend may have acted (resend the same operation) or certainly didn't (a definite rejection, not stored).

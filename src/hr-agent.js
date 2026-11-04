@@ -104,6 +104,12 @@ const NO_BALANCES = 'PeopleSoft didn\'t answer, so the balance isn\'t shown.';
 const TOOL_REFUSED_BALANCES = 'HR\'s AI didn\'t choose the balance tool, so the balance isn\'t shown.';
 // Submit when HR's AI chose another tool: nothing was called, so nothing was filed (definite, not stored).
 const TOOL_REFUSED_SUBMIT = 'Nothing was filed — HR\'s AI chose the wrong PeopleSoft tool. Press Submit again.';
+// HR's AI didn't answer the tool choice (timeout, rate limit, provider error, no key): nothing was called. Not a wrong pick.
+const CHOICE_FAILED_SUBMIT = 'HR\'s AI couldn\'t choose a PeopleSoft tool just now, so nothing was filed. Press Submit again.';
+const CHOICE_FAILED_BALANCES = 'HR\'s AI couldn\'t choose a PeopleSoft tool just now, so the balance isn\'t shown.';
+const CHOICE_FAILED_CHAT = 'HR\'s AI couldn\'t reach PeopleSoft just now, so I can\'t show your leave. Nothing changed — ask again in a moment.';
+// A chat answer that failed, by why: HR's AI (wrong pick / no answer) or PeopleSoft.
+const chatFailure = (outcome) => (outcome === 'tool_refused' ? [TOOL_REFUSED_CHAT, 'tool_refused'] : outcome === 'tool_choice_failed' ? [CHOICE_FAILED_CHAT, 'tool_choice_failed'] : [PEOPLESOFT_UNAVAILABLE_CHAT, 'peoplesoft_unavailable']);
 // The person the leave rules need, from PeopleSoft's balances (null balances: no credit is checked here).
 const personOf = (balances) => ({ standardHours: STANDARD_DAY, balances: balances ?? {} });
 let skillService = null;
@@ -238,14 +244,22 @@ const formHost = createFormHost({
           }
           if (spread.mode === 'invalid') return { status: 'rejected', message: TEXT.badHours, errors: { hours: TEXT.badHours } };
           const staffId = form.data.staffId;
-          // PeopleSoft files it (idempotent by operationId). Its steps are already stripped by the link.
-          const r = await peoplesoft.file(staffId, { absenceType: values.absenceType, absenceReason: values.absenceReason, beginDate: values.beginDate, endDate: values.endDate, partial }, operationId, { runId });
+          // A New conversation (closeAll) may close the card while HR awaits its AI or PeopleSoft.
+          const isClosed = () => form.state !== 'awaiting_input';
+          // PeopleSoft files it (idempotent by operationId). Its steps are already stripped by the link. A card
+          // closed meanwhile skips the call.
+          const r = await peoplesoft.file(staffId, { absenceType: values.absenceType, absenceReason: values.absenceReason, beginDate: values.beginDate, endDate: values.endDate, partial }, operationId, { runId, isClosed });
           emit('hr_operation', { operation: 'submitTimeOff', ok: r.ok, code: r.ok ? 'sent_to_manager' : r.code ?? r.outcome });
+          // Closed while the call ran (or before it): the card stays closed with its own words — never accepted. A
+          // record PeopleSoft wrote before its reset is gone with that reset; one that started after it is refused
+          // there (reset_during_call).
+          if (isClosed()) return { status: 'rejected', message: form.closedMessage ?? 'This card is closed.', errors: { _form: form.closedMessage ?? 'This card is closed.' } };
           if (r.outcome === 'refused') return { status: 'rejected', message: r.reason, errors: { _form: r.reason } };
           // Not filed, or not known to be filed: the card stays open and the same operationId may be sent again
           // (retryable: no layer keeps this answer, so a second Submit reaches PeopleSoft, which files once).
-          // HR's AI chose another tool: nothing was called — a definite rejection, still not stored.
+          // HR's AI chose another tool, or didn't answer: nothing was called — a definite rejection, still not stored.
           if (r.outcome === 'tool_refused') return { status: 'rejected', message: TOOL_REFUSED_SUBMIT, errors: { _form: TOOL_REFUSED_SUBMIT }, retryable: true };
+          if (r.outcome === 'tool_choice_failed') return { status: 'rejected', message: CHOICE_FAILED_SUBMIT, errors: { _form: CHOICE_FAILED_SUBMIT }, retryable: true };
           if (!r.ok) return { status: 'rejected', message: PEOPLESOFT_UNAVAILABLE, errors: { _form: PEOPLESOFT_UNAVAILABLE }, retryable: true, unknownOutcome: true };
           const { receipt } = r.value;
           log('recorded time-off request', { requestId: receipt.requestId, recordId: receipt.recordId, hours: receipt.hours, status: receipt.status });
@@ -403,18 +417,17 @@ const hrExecutor = {
     const bal = await peoplesoft.balances(staffId, { runId });
     if (bal.outcome === 'refused' && bal.code === 'unknown_staff') return send(TEXT.refused, 'refused');
     const balances = bal.ok ? { vacation: bal.value.vacation, sick: bal.value.sick, personalHoliday: bal.value.personalHoliday } : null;
-    const pickedWrong = bal.outcome === 'tool_refused'; // HR's AI, not PeopleSoft, is why there are no balances
     if (!workflowEnabled()) return send(TEXT.disabled, 'workflow_disabled');
     // A question about balances or filed requests: text only. An open card stays open and unchanged.
     const whichBalance = asksBalance(text);
     const wantsRequests = asksRequests(text);
     if (whichBalance || wantsRequests) {
-      if (!balances) return send(pickedWrong ? TOOL_REFUSED_CHAT : PEOPLESOFT_UNAVAILABLE_CHAT, pickedWrong ? 'tool_refused' : 'peoplesoft_unavailable');
+      if (!balances) return send(...chatFailure(bal.outcome));
       const parts = [];
       if (whichBalance) parts.push(balanceText(balances, whichBalance));
       if (wantsRequests) {
         const filed = await peoplesoft.requests(staffId, { runId });
-        if (!filed.ok) return send(filed.outcome === 'tool_refused' ? TOOL_REFUSED_CHAT : PEOPLESOFT_UNAVAILABLE_CHAT, filed.outcome === 'tool_refused' ? 'tool_refused' : 'peoplesoft_unavailable');
+        if (!filed.ok) return send(...chatFailure(filed.outcome));
         parts.push(requestsText(filed.value.requests));
       }
       return send(parts.join('\n'), whichBalance && wantsRequests ? 'info' : whichBalance ? 'balance' : 'requests');
@@ -439,7 +452,8 @@ const hrExecutor = {
     state.choices = read.choices?.length ? read.choices : followUp ? open.data.choices ?? [] : [];
     if (!isPair(state.values.absenceType, state.values.absenceReason)) state.values.absenceReason = state.values.absenceType ? defaultReason(state.values.absenceType) ?? '' : '';
     state.balances = balances;
-    state.noBalances = pickedWrong ? TOOL_REFUSED_BALANCES : NO_BALANCES;
+    // Why there are no balances: HR's AI (a wrong pick, or no answer) or PeopleSoft.
+    state.noBalances = bal.outcome === 'tool_refused' ? TOOL_REFUSED_BALANCES : bal.outcome === 'tool_choice_failed' ? CHOICE_FAILED_BALANCES : NO_BALANCES;
     const { hrCard, hours } = cardFor(state);
     const prefill = Object.fromEntries(Object.entries({ ...state.values, hours }).filter(([, v]) => v !== '' && v != null));
     emitViz('request_read', runId, { followUp: Boolean(followUp), cardValues: Boolean(cardValues?.ok), prefilled: Object.keys(prefill), missing: hrCard.missing, outcome: hrCard.problem === state.noBalances && !balances ? 'no_balances' : hrCard.problem ? 'forecast_failed' : hrCard.missing.length ? 'missing' : 'ready', code: read.error ?? null });

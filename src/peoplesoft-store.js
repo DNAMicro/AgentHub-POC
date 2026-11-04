@@ -11,11 +11,11 @@ import { workdays, isPair, nameOf, reasonsOf, shortDate } from './absence-types.
 import { planAbsence } from './leave-rules.js';
 
 const seedStaff = () => [{ staffId: 'staff-amir', name: 'Professor Amir', standardHours: 8, balances: { vacation: 96, sick: 120, personalHoliday: 8 }, role: 'Department chair', appointment: '12-month', synthetic: true }];
-export const REFUSAL_CODES = ['not_enough', 'holiday_boundary', 'no_workdays', 'too_long', 'overlap', 'bad_reason', 'operation_reused', 'unknown_staff', 'bad_hours'];
+export const REFUSAL_CODES = ['not_enough', 'holiday_boundary', 'no_workdays', 'too_long', 'overlap', 'bad_reason', 'operation_reused', 'unknown_staff', 'bad_hours', 'reset_during_call'];
 const recordNumber = (n) => `ABS-${String(n).padStart(6, '0')}`;
 
 export function createPeopleSoftStore({ now = () => new Date() } = {}) {
-  const state = { staff: seedStaff(), requests: [], operations: new Map(), counter: 101 }; // Map: any operation id string is a plain key
+  const state = { staff: seedStaff(), requests: [], operations: new Map(), counter: 101, generation: 0 }; // Map: any operation id string is a plain key
   const find = (staffId) => state.staff.find((s) => s.staffId === staffId) ?? null;
   const viewOf = (s) => ({ staffId: s.staffId, name: s.name, standardHours: s.standardHours, role: s.role, appointment: s.appointment, balances: { ...s.balances } });
   const fail = (code, reason) => ({ ok: false, code, reason });
@@ -30,9 +30,13 @@ export function createPeopleSoftStore({ now = () => new Date() } = {}) {
     staff: (staffId) => { const s = find(staffId); return s ? viewOf(s) : null; },
     workdays,
     plan,
+    // The reset generation: a caller that awaits (the planner) between reading it and file() passes it back, so a
+    // filing that started before New conversation can't write into the fresh records.
+    generation: () => state.generation,
     // Synchronous check-and-write (no await between the checks and the record). Idempotent by operationId:
     // the same values return the stored receipt; the same ID with different values is refused.
-    file(staffId, values, operationId, steps) {
+    file(staffId, values, operationId, steps, { generation } = {}) {
+      if (generation !== undefined && generation !== state.generation) return fail('reset_during_call', 'The HR records were reset while this request was being filed, so nothing was filed.');
       const request = JSON.stringify([staffId, values?.absenceType, values?.absenceReason, values?.beginDate, values?.endDate, values?.partial ?? null]);
       const previous = state.operations.get(operationId);
       if (previous) return previous.request === request ? previous.result : fail('operation_reused', 'This operation ID was already used for a different request.');
@@ -67,6 +71,7 @@ export function createPeopleSoftStore({ now = () => new Date() } = {}) {
       state.requests = [];
       state.operations = new Map();
       state.counter = 101;
+      state.generation += 1;
     },
     _records: () => structuredClone(state.requests),
   };

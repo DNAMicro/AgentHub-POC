@@ -155,8 +155,12 @@ export function createFormHost({ agentId, workflows, isEnabled, emitViz, log, lo
 
       const handler = workflows[form.workflowId].actions[checked.name];
       const result = await handler(form, checked.context, { formId, runId, operationId, trusted: incoming.metadata ?? {}, reviewAcknowledged: incoming.metadata?.reviewAcknowledged === true, emit: (type, data) => emitViz(type, runId, { formId, ...data }) });
-      if (checked.spec.final && result.status === 'accepted') form.state = 'accepted';
-      if (checked.spec.cancel) form.state = 'cancelled';
+      // Only an open form changes state here: one closed while the handler awaited its backend (closeAll on a
+      // New conversation) stays closed, whatever the handler answers.
+      if (form.state === 'awaiting_input') {
+        if (checked.spec.final && result.status === 'accepted') form.state = 'accepted';
+        if (checked.spec.cancel) form.state = 'cancelled';
+      }
       const closed = form.state !== 'awaiting_input';
       const body = { status: result.status, formId, operationId, workflowId: form.workflowId, message: result.message, ...(result.errors ? { errors: result.errors } : {}), ...(result.flags ? { flags: result.flags } : {}), ...(result.receipt ? { receipt: result.receipt } : {}), ...(result.retryable ? { retryable: true } : {}), ...(result.unknownOutcome ? { unknownOutcome: true } : {}) };
       const a2ui = [...(result.a2ui ?? []), ...(closed ? buildDelete(formId) : [])];
@@ -168,7 +172,7 @@ export function createFormHost({ agentId, workflows, isEnabled, emitViz, log, lo
       }
       log('form action result', { ...ids, status: result.status, receiptId: result.receipt?.requestId ?? result.receipt?.bookingId ?? null });
       // The handler's outcome first, then the reply that carries it back over A2A.
-      emitViz('form_action_result', runId, { ...ids, workflowId: form.workflowId, status: result.status, errors: result.errors ?? null, flags: result.flags ?? null, receipt: result.receipt ?? null, values: result.values ?? null });
+      emitViz('form_action_result', runId, { ...ids, workflowId: form.workflowId, status: result.status, errors: result.errors ?? null, flags: result.flags ?? null, receipt: result.receipt ?? null, values: result.values ?? null, ...(result.unknownOutcome ? { unknownOutcome: true } : {}) });
       respond(body, { a2ui, closed });
     }
   }

@@ -89,7 +89,7 @@ const HUB = {
   forward_attempted: (d) => hop('hub', d.agentId, 'request', 'attempted', `Forwarded to ${NODE_NAMES[d.agentId] ?? d.agentId}`),
   forward_completed: (d) => hop(d.agentId, 'hub', d.kind === 'form_offer' ? 'form' : 'request', 'completed', d.kind === 'form_offer' ? 'Specialist returned a form' : 'Specialist answered'),
   forward_failed: (d) => hop('hub', d.agentId, 'request', d.outcome === 'unknown' ? 'unknown' : 'failed', d.outcome === 'answered_with_error' ? 'Specialist reported an error' : d.outcome === 'unknown' ? 'Specialist did not answer in time' : 'Specialist unreachable'),
-  relay_sent: (d) => (STAFF_KINDS.has(d.kind) ? (SPECIALISTS.has(d.to) ? hop('hub', d.to, d.kind === 'staff_action_result' ? 'form' : 'request', d.status === 'ok' ? 'completed' : d.status === 'outcome_unknown' ? 'unknown' : 'failed', `Hub relayed HR’s ${d.kind === 'staff_action_result' ? 'card result' : 'reply'} (${d.status})`) : inside('hub', 'request', 'failed', 'Staff request refused (unverified sender)'))
+  relay_sent: (d) => (STAFF_KINDS.has(d.kind) ? (SPECIALISTS.has(d.to) ? hop('hub', d.to, d.kind === 'staff_action_result' ? 'form' : 'request', d.status === 'ok' ? 'completed' : d.status === 'outcome_unknown' || d.unknownOutcome ? 'unknown' : 'failed', `Hub relayed HR’s ${d.kind === 'staff_action_result' ? 'card result' : 'reply'} (${d.unknownOutcome ? 'outcome unknown' : d.status})`) : inside('hub', 'request', 'failed', 'Staff request refused (unverified sender)'))
     : hop('hub', 'student', d.kind === 'form_offer' ? 'form' : 'request', 'attempted', d.repeat ? 'Earlier result relayed again' : 'Hub relayed the reply')),
   // HR (staff only): the signed staff path, Professor agent → Hub → HR. Labels carry no staff words.
   staff_request_received: (d) => hop(d.agentId, 'hub', d.kind === 'action' ? 'form' : 'request', 'accepted', d.kind === 'action' ? 'Hub received a staff card action (verified)' : 'Hub received a staff request (verified)'),
@@ -99,7 +99,8 @@ const HUB = {
   form_action_rejected: () => inside('hub', 'form', 'failed', 'Hub refused the form action'),
   form_action_duplicate: () => hop('hub', 'student', 'form', 'completed', 'Same operation ID — stored result returned'),
   form_forwarded: (d) => hop('hub', d.agentId, 'form', 'attempted', 'Form action forwarded to its issuer'),
-  form_result_relayed: (d) => hop(d.agentId, 'hub', 'form', ['rejected', 'conflict'].includes(d.status) ? 'failed' : 'completed', `Issuer replied: ${d.status}`),
+  // unknownOutcome: the issuer doesn't know whether its backend acted (HR: PeopleSoft didn't confirm) — amber, not red.
+  form_result_relayed: (d) => hop(d.agentId, 'hub', 'form', d.unknownOutcome ? 'unknown' : ['rejected', 'conflict'].includes(d.status) ? 'failed' : 'completed', d.unknownOutcome ? 'Issuer replied: outcome unknown' : `Issuer replied: ${d.status}`),
   form_forward_failed: (d) => hop('hub', d.agentId, 'form', d.outcome === 'unknown' ? 'unknown' : 'failed', d.outcome === 'unknown' ? 'Issuer did not confirm in time' : 'Issuer unreachable'),
   registration_accepted: (d) => hop(d.agentId, 'hub', 'registration', 'accepted', 'Registration accepted'),
   registration_rejected: (d) => (SPECIALISTS.has(d.claimedAgentId) ? hop(d.claimedAgentId, 'hub', 'registration', 'failed', 'Registration refused') : inside('hub', 'registration', 'failed', 'Registration from an unknown identity refused')),
@@ -121,7 +122,7 @@ const SPECIALIST = {
   form_sent: (a) => hop(a, 'hub', 'form', 'attempted', 'Specialist sent a form'),
   form_action_received: (a) => hop('hub', a, 'form', 'accepted', 'Specialist received the form action'),
   form_review: (a) => inside(a, 'model', 'processing', 'Submission reviewed'),
-  form_action_result: (a, d) => inside(a, 'form', ['rejected', 'conflict'].includes(d.status) ? 'failed' : 'processing', `Handler result: ${d.status}`),
+  form_action_result: (a, d) => inside(a, 'form', d.unknownOutcome ? 'unknown' : ['rejected', 'conflict'].includes(d.status) ? 'failed' : 'processing', d.unknownOutcome ? 'Handler result: outcome unknown' : `Handler result: ${d.status}`),
   form_reply_sent: (a) => hop(a, 'hub', 'form', 'attempted', 'Specialist sent the form result'),
   ui_generated: (a, d) => inside(a, 'form', d.fallback ? 'failed' : 'processing', d.kind === 'ui' ? 'Generated an interface (validated)' : d.fallback ? 'Generated UI failed checks — answered in text' : d.kind === 'clarify' ? 'Asked a clarifying question' : 'Answered from loan records'),
   loan_operation: (a, d) => inside(a, 'form', d.ok ? 'completed' : 'failed', d.ok ? `Loan service renewed ${d.loanId}${d.duplicate ? ' (stored result)' : ''}` : `Loan service refused (${d.code})`),
@@ -136,7 +137,7 @@ const SPECIALIST = {
   mcp_call_started: (a, d) => hop('hr', 'peoplesoft', 'tool', 'attempted', `tools/call ${d.tool}`),
   mcp_call_result: (a, d) => hop('peoplesoft', 'hr', 'tool', d.ok ? 'completed' : d.outcome === 'uncertain' ? 'unknown' : 'failed',
     d.ok ? (d.recordId ? `Saved as ${d.recordId}` : 'PeopleSoft answered') : d.outcome === 'refused' ? (d.code ? `PeopleSoft refused (${d.code})` : 'PeopleSoft refused') : "PeopleSoft didn't answer"),
-  mcp_tool_refused: () => inside('hr', 'tool', 'failed', 'HR’s AI picked a tool not allowed here — no call'),
+  mcp_tool_refused: (a, d) => inside('hr', 'tool', 'failed', d.by === 'model_failed' ? 'HR’s AI didn’t answer — no call' : 'HR’s AI picked a tool not allowed here — no call'),
   peoplesoft_session: (a, d) => hop('hr', 'peoplesoft', 'registration', d.status === 'connected' ? 'completed' : 'failed', d.status === 'connected' ? 'MCP session open' : 'PeopleSoft unreachable'),
   card_notification: (a, d) => hop(a, 'hub', 'card', d.outcome === 'delivered' ? 'completed' : d.outcome === 'pending' ? 'unknown' : 'failed', `Card-change notice ${d.outcome}`),
 };

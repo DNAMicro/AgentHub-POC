@@ -170,8 +170,24 @@ test('record ids, reset, other staff, weekend adjacency, stored()', () => {
   // The seed has one staff member, so "a different staff member on the same day" cannot be tested.
 });
 
-test('REFUSAL_CODES is the fixed set of nine', async () => {
+test('REFUSAL_CODES is the fixed set of ten', async () => {
   const { REFUSAL_CODES } = await import('../src/peoplesoft-store.js');
-  assert.equal(REFUSAL_CODES.length, 9);
+  assert.equal(REFUSAL_CODES.length, 10);
   assert.ok(REFUSAL_CODES.includes('bad_hours'));
+  assert.ok(REFUSAL_CODES.includes('reset_during_call'));
+});
+
+test('final-review I1: a filing that started before a reset is refused after it (reset generation)', () => {
+  const s = fresh();
+  const v = { absenceType: 'VAC', absenceReason: 'VAC', beginDate: '2026-11-10', endDate: '2026-11-10', partial: null };
+  const before = s.generation();
+  assert.equal(typeof before, 'number');
+  s.reset(); // New conversation while the planner was thinking
+  assert.notEqual(s.generation(), before);
+  const late = s.file('staff-amir', v, 'aaaa1111', ['store_record'], { generation: before });
+  assert.deepEqual(late, { ok: false, code: 'reset_during_call', reason: 'The HR records were reset while this request was being filed, so nothing was filed.' });
+  assert.deepEqual(s.requests('staff-amir'), [], 'nothing written into the fresh records');
+  assert.equal(s.stored('aaaa1111'), null, 'the refusal is not kept under the operation ID');
+  // The current generation (or none, for a caller with no await in between) files as before.
+  assert.equal(s.file('staff-amir', v, 'aaaa1111', ['store_record'], { generation: s.generation() }).ok, true);
 });

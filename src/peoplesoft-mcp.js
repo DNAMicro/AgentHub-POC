@@ -70,9 +70,12 @@ function buildServer(store) {
       if (again) result = store.file(id, values, operationId, []);
       else {
         // Plan from the code's own view of the request (hours from the store's plan, when it can compute them).
+        // The reset generation is read before the planner's await: a New conversation during it refuses this filing
+        // (reset_during_call) instead of writing the old request into the fresh records.
+        const generation = store.generation();
         const p = store.plan(id, values);
         const { steps } = await planSteps({ request: { absenceType, beginDate, endDate, hours: p.hours ?? null } });
-        result = store.file(id, values, operationId, steps);
+        result = store.file(id, values, operationId, steps, { generation });
       }
       if (!result.ok) {
         log(`refused operationId=${operationId} staffId=${id} code=${result.code}`);

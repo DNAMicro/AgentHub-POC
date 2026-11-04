@@ -40,8 +40,8 @@ Steps 1–11 and 14 must be done. `npm run demo` currently starts six processes;
   - `list_absence_requests { staffId }` -> the filed requests.
   - `create_absence_request { staffId, absenceType, absenceReason, beginDate, endDate, partial, operationId }` -> the receipt (request id `ABS-000101`, `ABS-000102`, …) or a refusal.
 - Test-only: with `PEOPLESOFT_TEST_HOOKS=1` there is `GET /test/records` and `PEOPLESOFT_TEST_DELAY_MS` (delays the answer to a new filing after it is written). `POST /dev/reset` reseeds.
-- The staff, balances and requests that were in `src/hr-store.js` move to `src/peoplesoft-store.js` (`createPeopleSoftStore`) and `src/leave-rules.js` (`planAbsence`: dates, holidays, workdays, hours, Forecast). **Delete `src/hr-store.js`.** Memory only; reseed on start and on reset; nothing under `data/`. `file(staffId, values, operationId, steps)` is a synchronous check-and-write (no `await` between check and write), keyed by operationId in a `Map`.
-- **Nine refusal codes** (`REFUSAL_CODES`, exported from the store): `not_enough`, `holiday_boundary`, `no_workdays`, `too_long`, `overlap`, `bad_reason`, `operation_reused`, `unknown_staff`, `bad_hours`. A refusal is `isError` with `{ code, reason }`. Overlap means a new request sharing any workday with one already filed for the same person (checked after the plan). A known operationId with different values is `operation_reused`; the same values return the stored receipt.
+- The staff, balances and requests that were in `src/hr-store.js` move to `src/peoplesoft-store.js` (`createPeopleSoftStore`) and `src/leave-rules.js` (`planAbsence`: dates, holidays, workdays, hours, Forecast). **Delete `src/hr-store.js`.** Memory only; reseed on start and on reset; nothing under `data/`. `file(staffId, values, operationId, steps, { generation })` is a synchronous check-and-write (no `await` between check and write), keyed by operationId in a `Map`. The store has a **reset generation** (`generation()`, raised by `reset()`): `create_absence_request` reads it before it awaits the planner and passes it to `file`, which refuses with `reset_during_call` if a reset came in between, so New conversation during a Submit can't file the old request into the fresh records.
+- **Ten refusal codes** (`REFUSAL_CODES`, exported from the store): `not_enough`, `holiday_boundary`, `no_workdays`, `too_long`, `overlap`, `bad_reason`, `operation_reused`, `unknown_staff`, `bad_hours`, `reset_during_call`. A refusal is `isError` with `{ code, reason }`. Overlap means a new request sharing any workday with one already filed for the same person (checked after the plan). A known operationId with different values is `operation_reused`; the same values return the stored receipt.
 
 ## 2. PeopleSoft's own AI (`src/peoplesoft-model.js`)
 
@@ -54,15 +54,17 @@ Steps 1–11 and 14 must be done. `npm run demo` currently starts six processes;
 
 **Concrete specification**
 - `createPeopleSoftLink({ url, token, emit, timeoutMs })` -> `balances`, `requests`, `file`, `reset`, `records`, `close`. It connects lazily (SDK `Client` + `StreamableHTTPClientTransport`, bearer token in the request headers) and caches `tools/list` per connection.
-- **HR's AI chooses the tool at both moments** (`chooseTool` in `src/hr-model.js`): live, one structured call whose schema is an enum of the listed tools, purpose `choose PeopleSoft tool`, 8 s (`HR_TOOL_CHOICE_TIMEOUT_MS`); mock, the obvious tool, labelled. It returns a tool name only. `MOMENT_TOOL` says which tool each moment may use (card issue and balance question -> `get_leave_balances`, requests question -> `list_absence_requests`, Submit -> `create_absence_request`). Code compares the pick with `MOMENT_TOOL`; a mismatch emits `mcp_tool_refused` and makes **no call**. Code builds the arguments from the card's checked values. A failed tool choice (`model_failed`) makes no call either.
-- Outcomes of a call: `ok`, `refused { code, reason }` (the code is kept only if it is in `REFUSAL_CODES`, else null), `unavailable` (401, no session, connection refused), `uncertain` (timeout or any other error mid-call). The receipt's `steps` are removed in the link (`withoutSteps`); only `stepCount` is reported.
-- **One shared deadline** (12 s, `PEOPLESOFT_TIMEOUT_MS`) covers connect, `tools/list`, a reconnect and the call. It starts after the tool choice. **Reconnect once, and only when the session is unknown** (HTTP 404/400 after PeopleSoft restarted: the tool provably never ran). Never retry after a timeout.
+- **HR's AI chooses the tool at both moments** (`chooseTool` in `src/hr-model.js`): live, one structured call whose schema is an enum of the listed tools, purpose `choose PeopleSoft tool`, 8 s (`HR_TOOL_CHOICE_TIMEOUT_MS`); mock, the obvious tool, labelled. It returns a tool name only. `MOMENT_TOOL` says which tool each moment may use (card issue and balance question -> `get_leave_balances`, requests question -> `list_absence_requests`, Submit -> `create_absence_request`). Code compares the pick with `MOMENT_TOOL`; a mismatch emits `mcp_tool_refused` and makes **no call**. Code builds the arguments from the card's checked values. A failed tool choice (`model_failed`: timeout, rate limit, provider error, no key) makes no call either, and it is **not** a wrong pick: the link returns `tool_choice_failed` and emits `mcp_tool_refused { by: 'model_failed' }`.
+- Outcomes of a call: `ok`, `tool_refused`, `tool_choice_failed`, `closed` (the caller's `isClosed()` said the card closed meanwhile; checked before the tool choice and right before the call), `refused { code, reason }` (the code is kept only if it is in `REFUSAL_CODES`, else null), `unavailable` (401, no session, connection refused), `uncertain` (timeout or any other error mid-call). The receipt's `steps` are removed in the link (`withoutSteps`); only `stepCount` is reported.
+- **One shared deadline** (12 s, `PEOPLESOFT_TIMEOUT_MS`) covers connect, `tools/list`, a reconnect and the call. It starts after the tool choice. The call keeps a **floor of the planner's limit + 2 s** (`CALL_FLOOR_MS`, 10 s), so the connect may use only what is left (2 s, never under 1 s); a slower connect is `unavailable`, never a call cut short in the middle of PeopleSoft's planner. **Reconnect once, and only when the session is unknown** (HTTP 404/400 after PeopleSoft restarted: the tool provably never ran). Never retry after a timeout.
 - HR calls `get_leave_balances` when a card is issued or re-issued and for a balance question; it does not call on each edit (the browser recomputes the summary from the fetched balances). Submit calls `create_absence_request`. A requests question calls `list_absence_requests`. HR keeps no copy of the data.
 - Exact sentences:
   - Submit, unavailable or uncertain: **“PeopleSoft didn't answer. Nothing is filed until it confirms — press Submit again; it won't file twice.”**
   - Chat question, unavailable or uncertain: **“PeopleSoft didn't answer, so I can't show your leave right now. Nothing changed — ask again in a moment.”**
   - Card opened without balances: “PeopleSoft didn't answer, so the balance isn't shown.” (credit checks are skipped; PeopleSoft checks at Submit).
   - Wrong tool pick: “Nothing was filed — HR's AI chose the wrong PeopleSoft tool. Press Submit again.” (balance question: “HR's AI didn't choose the balance tool, so the balance isn't shown.”)
+  - HR's AI didn't answer the tool choice: Submit **“HR's AI couldn't choose a PeopleSoft tool just now, so nothing was filed. Press Submit again.”** (definite, retryable, not cached); card **“HR's AI couldn't choose a PeopleSoft tool just now, so the balance isn't shown.”**; chat **“HR's AI couldn't reach PeopleSoft just now, so I can't show your leave. Nothing changed — ask again in a moment.”**
+- **A card closed during its Submit stays closed.** HR passes `isClosed` (the card is no longer `awaiting_input`) into `peoplesoft.file` and checks it again after the call returns: a closed card answers with its closed message, never a receipt. `src/form-host.js` changes a form's state only while it is still `awaiting_input`.
 - **Unconfirmed results are never cached.** HR marks them `retryable` / `unknownOutcome`. `src/form-host.js` does not store them in `operations`, the Hub clears `record.promise`, and the Professor turns them into `outcome_unknown` (not definite), which the browser keeps the operationId for. Without this, a second Submit with the same operationId gets the first answer and never reaches PeopleSoft.
 - `/dev/hr/reset` closes every card, then calls PeopleSoft's reset; if PeopleSoft fails it answers 502 `{ status: 'failed', peoplesoft: 'unavailable' }`. `GET /test/hr/requests` (with `HR_TEST_HOOKS=1`) proxies PeopleSoft's `/test/records`. HR logs the URL and only whether the token is configured, never the token. HR logs still redact the absence name, reason and note.
 - The staff check is one balances call per message; `unknown_staff` -> “HR serves university staff only.”
@@ -75,7 +77,7 @@ Steps 1–11 and 14 must be done. `npm run demo` currently starts six processes;
 | --- | --- |
 | PeopleSoft's planner | 8 s |
 | HR's tool choice | 8 s |
-| HR's PeopleSoft call (connect + call, counted from after the tool choice) | 12 s |
+| HR's PeopleSoft call (connect + call, counted from after the tool choice; the call keeps at least planner + 2 s = 10 s) | 12 s |
 | Hub -> HR staff action | 25 s (students keep 8 s) |
 | Hub -> specialist chat / staff request | 60 s |
 | Professor -> Hub staff wait | 65 s |
@@ -86,10 +88,10 @@ Steps 1–11 and 14 must be done. `npm run demo` currently starts six processes;
 ## 5. Telemetry and Topology labels (`src/hr-peoplesoft.js`, `src/topology.js`, `src/hub-agent.js`, `src/ui-server.js`)
 
 **Concrete specification**
-- HR emits `mcp_call_started { tool, moment, operationId }`, `mcp_call_result { tool, moment, ok, code, outcome, recordId, stepCount, latencyMs }`, `mcp_tool_refused { tool, expected }` (all with the caller's run id) and `peoplesoft_session { status: connected | unreachable }` (no run id).
-- The Hub's allowlist (`SAFE_FIELDS`) gains `tool`, `moment`, `recordId`, `stepCount`, `expected`. The code passes only if it is a fixed refusal code. Nothing else about the request passes.
+- HR emits `mcp_call_started { tool, moment, operationId }`, `mcp_call_result { tool, moment, ok, code, outcome, recordId, stepCount, latencyMs }`, `mcp_tool_refused { tool, moment, expected, by }` (all with the caller's run id) and `peoplesoft_session { status: connected | unreachable }` (no run id; only when the status changes: unreachable after a failed connect or a call that ended `unavailable`, connected after a connect or a call PeopleSoft answered — the pill follows it).
+- The Hub's allowlist (`SAFE_FIELDS`) gains `tool`, `moment`, `recordId`, `stepCount`, `expected`, `unknownOutcome` (`by` is already there). The code passes only if it is a fixed refusal code. Nothing else about the request passes.
 - Add `peoplesoft_session` to the UI server's `CONFIG_EVENTS`, or the tile stays on “Not connected yet”.
-- `src/topology.js`: node name `peoplesoft`, edge `hr-peoplesoft`, labels for the call (“tools/call create_absence_request”), the result (“Saved as ABS-000101”, “PeopleSoft refused (not_enough)”, “PeopleSoft didn't answer”), the refused pick (inside HR) and the session. Labels contain a tool name, a record id or a fixed code, never staff words.
+- `src/topology.js`: node name `peoplesoft`, edge `hr-peoplesoft`, labels for the call (“tools/call create_absence_request”), the result (“Saved as ABS-000101”, “PeopleSoft refused (not_enough)”, “PeopleSoft didn't answer”), the refused pick (inside HR: “HR's AI picked a tool not allowed here — no call”, or “HR's AI didn't answer — no call” when `by` is `model_failed`) and the session. An unconfirmed Submit is **unknown** (amber) on every hop: HR's `form_action_result` and the Hub's `form_result_relayed` and `relay_sent` carry `unknownOutcome` and are labelled phase `unknown` (“outcome unknown”), never red “rejected”. Labels contain a tool name, a record id or a fixed code, never staff words.
 
 ## 6. Topology shows PeopleSoft (design F) (`public/topology.js`, `public/styles.css`, `public/index.html`)
 
@@ -114,7 +116,7 @@ Steps 1–11 and 14 must be done. `npm run demo` currently starts six processes;
 ## 8. Tests and checks
 
 - New: `test/peoplesoft-store.test.js`, `peoplesoft-model.test.js`, `peoplesoft-mcp.test.js`, `hr-peoplesoft.test.js`, `hr-peoplesoft-budget.test.js`, `topology-peoplesoft.test.js`, `timeouts.test.js`. `test/hr.test.js` starts its own PeopleSoft. The old `hr-store` test moved to the PeopleSoft store test.
-- `scripts/browser-checks/peoplesoft.js` (36 checks) on a **separate** rehearsal stack: `node scripts/demo/rehearsal-stack.js --ui 5544 --base 52340 --mock`, then `playwright-cli -s=ps open http://127.0.0.1:5544/professor` and `playwright-cli -s=ps run-code "$(cat scripts/browser-checks/peoplesoft.js)"`. Open every screenshot (ps-1 to ps-5).
+- `scripts/browser-checks/peoplesoft.js` (37 checks) on a **separate** rehearsal stack: `node scripts/demo/rehearsal-stack.js --ui 5544 --base 52340 --mock`, then `playwright-cli -s=ps open http://127.0.0.1:5544/professor` and `playwright-cli -s=ps run-code "$(cat scripts/browser-checks/peoplesoft.js)"`. Open every screenshot (ps-1 to ps-5).
 - Live run, as you asked (at least 20 scenarios): approvals, refusals (`not_enough`, `overlap`, a holiday boundary), PeopleSoft down and back up, a second press after “didn't answer”, a wrong tool pick, reset, a restart in the middle. Fix anything found.
 
 ## 9. Docs
@@ -135,7 +137,7 @@ README “Part 15”, the CLAUDE.md “Part 15 (PeopleSoft over MCP) notes”, t
 - **Don't cache an unconfirmed Submit** at the form host, the Hub or the Professor. Otherwise the retry never reaches PeopleSoft and the first “didn't answer” sticks forever.
 - **PeopleSoft must close its MCP sessions on SIGTERM.** An open stream kept the process alive.
 - **Reconnect once, only when the session is unknown.** After a PeopleSoft restart HR's session is stale (404/400, the tool never ran). Never retry after a timeout: the filing may have happened.
-- **Accept a refusal code only from the fixed set** of nine (including `bad_hours`). Anything else is null; the code, never the sentence, goes to telemetry.
+- **Accept a refusal code only from the fixed set** of ten (including `bad_hours` and `reset_during_call`). Anything else is null; the code, never the sentence, goes to telemetry.
 - **Strip the receipt's `steps`** before the card, chat, Professor, A2A and telemetry. Step names on screen are an anti-goal.
 - **The Hub's allowlist hides new fields.** Add `tool`, `moment`, `recordId`, `stepCount` and `expected` to `SAFE_FIELDS`, or Topology labels show “[n chars redacted]”. Add `peoplesoft_session` to `CONFIG_EVENTS`, or the pill never leaves “Not connected yet”.
 - **Pulses could play out of order.** The stagger restarted at 0 for each 100 ms batch, so an MCP answer could play before its call and the tile stayed on “Working…”. Carry the spacing across batches.
@@ -144,10 +146,15 @@ README “Part 15”, the CLAUDE.md “Part 15 (PeopleSoft over MCP) notes”, t
 - **After `npm install` of the MCP SDK, Express once failed to load (no `body-parser`).** Run `npm install` again. A hung first `npm test` came from this.
 - **`node --test` can hang when a test fails before closing its server.** Use `--test-force-exit` while iterating.
 - **Never print or log the PeopleSoft token** or HR's `callKey`.
+- **New conversation during a Submit filed the old card into the fresh records** (final review). Form-host checked the card once, before HR awaited its AI and PeopleSoft awaited its planner; the reset reseeded PeopleSoft, then the old call wrote into it and form-host turned the closed card into “accepted”. Use the store's reset generation, HR's `isClosed` check before and after the call, and let form-host change only an open form.
+- **A failed tool-choice model call was reported as “HR's AI chose the wrong PeopleSoft tool”.** A slow or rate-limited provider is not a wrong pick: return `tool_choice_failed` and say “HR's AI couldn't choose a PeopleSoft tool just now …”.
+- **An unconfirmed Submit showed red “rejected” on the HR and Hub hops** while the PeopleSoft hop showed amber “unknown”. Carry `unknownOutcome` to every hop's event and label it `unknown`.
+- **The pill kept saying “✓ Connected” after a call failed on an open session.** Report `unreachable` when a call ends `unavailable`, and `connected` again on the next success.
+- **A slow connect could leave the call less time than PeopleSoft's planner** (the floor was 1 s). Keep a floor of planner + 2 s for the call inside the same 12 s.
 
 ## Done when
 
-- `npm test` passes and `node scripts/demo/rehearsal-stack.js --ui 5544 --base 52340 --mock` plus the browser check give 36 of 36.
+- `npm test` passes and `node scripts/demo/rehearsal-stack.js --ui 5544 --base 52340 --mock` plus the browser check give 37 of 37.
 - `npm run demo` prints “Starting seven processes”, and `curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:41246/mcp` prints `401`.
 - A Submit from the Professor view shows a request number from PeopleSoft, and Topology shows the MCP line lighting up and the tile working.
 
@@ -159,3 +166,4 @@ README “Part 15”, the CLAUDE.md “Part 15 (PeopleSoft over MCP) notes”, t
 - **Retry honesty (from the reviews).** `retryable` results are never cached; the MCP deadline starts after the tool choice; one reconnect only for an unknown session.
 - **Time budget.** Staff actions got their own 25 s limit, and every outer wait was lengthened (section 4).
 - **Topology fixes (from the browser check).** Pulse order across batches, and unknown edges ignored.
+- **Final-review fixes.** New conversation during a Submit can't file (reset generation, `reset_during_call`, HR's closed check, form-host keeps a closed form closed); honest words when HR's AI doesn't answer the tool choice (`tool_choice_failed`); an unconfirmed Submit is amber “unknown” on every hop; the PeopleSoft pill follows failed and recovered calls; the call keeps a floor of planner + 2 s.

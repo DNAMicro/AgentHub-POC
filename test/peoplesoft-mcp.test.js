@@ -143,3 +143,26 @@ test('impossible dates and bad hours are refused', async () => {
   assert.ok(r.isError && /Input validation error/.test(r.content[0].text) && !/RangeError|Invalid time value/.test(r.content[0].text), `2026-13-45 is a validation error: ${r.content[0].text}`);
   await c.close();
 });
+
+test('final-review I1: New conversation while the planner thinks — the old filing is refused, the fresh records stay empty', async (t) => {
+  const { startFakeAnthropic, messageReply } = await import('./support/fake-anthropic.js');
+  const { randomUUID } = await import('node:crypto');
+  const fake = await startFakeAnthropic();
+  t.after(() => fake.close());
+  // PeopleSoft's own planner (live, against the fake API: plumbing, no key, no network) answers after 1.5 s.
+  fake.respondWith(() => ({ ...messageReply('{"steps":["route_to_manager"]}'), delayMs: 1500 }));
+  const own = await startPeopleSoft({ PEOPLESOFT_TOKEN: 't', PEOPLESOFT_TEST_HOOKS: '1', PEOPLESOFT_MODE: 'live', ANTHROPIC_API_KEY: `sk-ant-test-${randomUUID()}`, ANTHROPIC_BASE_URL: fake.url, TUTOR_LOAD_DOTENV: '0' });
+  t.after(() => own.proc.kill());
+  const client = new Client({ name: 'test', version: '1.0.0' });
+  await client.connect(new StreamableHTTPClientTransport(new URL(`${own.url}/mcp`), { requestInit: { headers: { Authorization: 'Bearer t' } } }));
+  t.after(() => client.close());
+  const pending = client.callTool({ name: 'create_absence_request', arguments: request({ operationId: 'race0001' }) });
+  const deadline = Date.now() + 5000;
+  while (!fake.requests.length && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+  assert.equal(fake.requests.length, 1, 'the planner was asked');
+  assert.equal((await fetch(`${own.url}/dev/reset`, { method: 'POST', headers: { Authorization: 'Bearer t' } })).status, 200);
+  const r = await pending;
+  assert.equal(r.isError, true, JSON.stringify(r.structuredContent));
+  assert.equal(r.structuredContent.code, 'reset_during_call');
+  assert.deepEqual((await (await fetch(`${own.url}/test/records`)).json()).records, [], 'nothing filed into the fresh records');
+});
