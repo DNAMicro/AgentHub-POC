@@ -86,13 +86,17 @@ export function readDates(text, now = new Date()) {
   let prevEnd = null;
   if (MORE_NEXT_WEEK.test(str)) return null;
   let nextWeek = nextWeekList(str);
+  let lastWeekday = null; // { at, day }: the weekday just read, until the next mention
   for (const m of str.matchAll(MENTION)) {
     const g = m.groups;
     const rest = str.slice(m.index + m[0].length);
     // "1/2 day", "3/4 of the day" are fractions, not dates.
     if (g.nm && (FRACTIONS.has(`${g.nm}/${g.nd}`) || /^\s*(?:of|days?|hours?|hrs?)\b/i.test(rest))) continue;
+    // A weekday right before a date names that date ("Friday Nov 6", "Friday, Nov 6"): one day, read from the date;
+    // a weekday that disagrees with it ("Friday Nov 7", a Saturday) is asked, never guessed.
+    const namesDay = Boolean(lastWeekday && (g.month || g.nm) && /^\s*,?\s*$/.test(str.slice(prevEnd, m.index)));
     // Two or more mentions are one span only when joined as a list or range ("Thursday and Friday", "Nov 10 to Nov 12").
-    if (prevEnd !== null && !JOINER.test(str.slice(prevEnd, m.index))) return null;
+    if (prevEnd !== null && !namesDay && !JOINER.test(str.slice(prevEnd, m.index))) return null;
     prevEnd = m.index + m[0].length;
     let dates = [];
     if (g.weekday) {
@@ -119,6 +123,11 @@ export function readDates(text, now = new Date()) {
     } else {
       dates = [withYear(today, Number(g.nm), Number(g.nd), g.ny)];
     }
+    if (namesDay) {
+      if (!dates[0] || dow(dates[0]) !== lastWeekday.day) return null;
+      found.splice(lastWeekday.at, 1);
+    }
+    lastWeekday = g.weekday ? { at: found.length, day: DAYS[g.weekday.toLowerCase()] } : null;
     // A date that isn't real ("Feb 30") is not read at all.
     for (const d of dates) if (d) found.push(d);
     if (dates.some((d, i) => i === 0 && !d)) return null;

@@ -127,7 +127,7 @@ test('missing absence name: HR asks; the next message fills the open card (vacat
   assert.equal((await state()).hrCard.formRef, st.hrCard.formRef);
 });
 
-test('“both”: HR first; after Submit the neutral note is offered, and “yes” posts exactly that note to the class', async () => {
+test('“both”: HR first; after Submit a class cancellation is offered for the class day, and “yes” sends exactly that to the class', async () => {
   assert.equal((await say("I'm sick, cancel Friday's class")).reply, UNSURE);
   const b = await say('both');
   assert.equal(b.action, 'staff');
@@ -138,14 +138,14 @@ test('“both”: HR first; after Submit the neutral note is offered, and “yes
   assert.equal(done.status, 'accepted', JSON.stringify(done));
   st = await state();
   assert.match(lastOf(st.chat, 'hr').text, /^Sent to your manager for a decision\. Request TO-\w+: Sick Leave \(Sick Personal\), Fri, Nov 6, 8 hours\.$/);
-  assert.equal(lastOf(st.chat, 'assistant').text, 'Want me to tell the class: “Professor Amir is out on Fri, Nov 6.”? Reply yes to post it.');
+  assert.equal(lastOf(st.chat, 'assistant').text, 'You have Marketing 101 on Fri, Nov 6. Would you like me to send a cancellation to your students?');
   assert.equal(st.lessons.length, 0, 'not posted before the professor says yes');
 
   const yes = await say('yes');
   assert.equal(yes.action, 'post');
   st = await state();
   assert.equal(st.lessons.length, 1, 'one class post');
-  assert.equal(st.lessons[0].text, 'Professor Amir is out on Fri, Nov 6.');
+  assert.equal(st.lessons[0].text, 'Marketing 101 is cancelled on Fri, Nov 6.');
   assert.equal(st.lessons[0].audience, 'all');
   assert.equal((await requests()).length, 1);
 });
@@ -190,7 +190,7 @@ test('hr-action input checks: malformed operation, unknown card', async () => {
 });
 
 // ---- fix round 1 ----------------------------------------------------------------------------------------
-const NOTE_OFFER = 'Want me to tell the class: “Professor Amir is out on Fri, Nov 6.”? Reply yes to post it.';
+const NOTE_OFFER = 'You have Marketing 101 on Fri, Nov 6. Would you like me to send a cancellation to your students?';
 // unsure → both → Submit: the neutral note is now on offer.
 async function noteOffer() {
   assert.equal((await say("I'm sick, cancel Friday's class")).reply, UNSURE);
@@ -218,23 +218,23 @@ test('fix 2: an unclear short answer to the unsure question is asked once more, 
   assert.deepEqual(await requests(), []);
 });
 
-test('fix 2: after the note offer, “nah” and an unclear reply never post', async () => {
+test('fix 2: after the cancellation offer, “nah” and an unclear reply never send it', async () => {
   await noteOffer();
-  assert.equal((await say('nah')).reply, 'Okay, I won’t post it.');
+  assert.equal((await say('nah')).reply, 'Okay, I won’t send a cancellation. Your class is still on for your students.');
   assert.equal((await state()).lessons.length, 0);
   await noteOffer();
-  assert.equal((await say('hmm?')).reply, 'Should I post that note to the class? Reply yes or no.');
-  assert.equal((await say('what?')).reply, 'Okay, I won’t post it.');
+  assert.equal((await say('hmm?')).reply, 'Should I send the cancellation to your students? Reply yes or no.');
+  assert.equal((await say('what?')).reply, 'Okay, I won’t send a cancellation. Your class is still on for your students.');
   assert.equal((await say('yes')).action, 'post', 'the offer is gone: “yes” is now just a message (today’s path)');
   const st = await state();
-  assert.ok(!st.lessons.some((l) => l.text.includes('is out on')), 'the note itself was never posted');
+  assert.ok(!st.lessons.some((l) => l.text.includes('is cancelled')), 'the cancellation was never sent');
 });
 
 test('fix 3: a refusal anywhere in the reply is not a yes', async () => {
   for (const words of ["please don't post it", "ok, but don't tell them", 'sure, no actually']) {
     await noteOffer();
     const r = await say(words);
-    assert.equal(r.reply, 'Okay, I won’t post it.', words);
+    assert.equal(r.reply, 'Okay, I won’t send a cancellation. Your class is still on for your students.', words);
     assert.equal((await state()).lessons.length, 0, words);
   }
 });
@@ -522,7 +522,7 @@ test('a reply of more than 8 words with no choice words is a new message: a staf
   assert.equal(st.lessons.length, 0);
 });
 
-test('“both please” after the unsure question still files the held message and offers the note', async () => {
+test('“both please” after the unsure question still files the held message and offers the cancellation', async () => {
   assert.equal((await say("I'm sick, cancel Friday's class")).reply, UNSURE);
   const b = await say('both please');
   assert.equal(b.action, 'staff');
@@ -531,7 +531,7 @@ test('“both please” after the unsure question still files the held message a
   const done = await hrAction({ operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: submitAction(st.hrCard, { absenceType: ['SCK'], absenceReason: ['SCK'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8' }) });
   assert.equal(done.status, 'accepted', JSON.stringify(done));
   st = await state();
-  assert.equal(lastOf(st.chat, 'assistant').text, 'Want me to tell the class: “Professor Amir is out on Fri, Nov 6.”? Reply yes to post it.');
+  assert.equal(lastOf(st.chat, 'assistant').text, 'You have Marketing 101 on Fri, Nov 6. Would you like me to send a cancellation to your students?');
   assert.equal(st.lessons.length, 0);
 });
 
@@ -731,7 +731,7 @@ test('R3 notice: a re-asked reply with new content says the new message was not 
 const NOT_SENT = "Your new message wasn't sent; please send it again.";
 const told = (r) => (r.reply ?? '').endsWith(NOT_SENT) || r.notice === NOT_SENT;
 const chatHasNotice = async () => (await state()).chat.some((m) => m.role === 'assistant' && m.text.includes(NOT_SENT));
-test('R3 note offer: act on yes / no / HR and say the new content was not sent', async () => {
+test('R3 cancellation offer: act on yes / no / HR and say the new content was not sent', async () => {
   await post(`${s.hub.url}/dev/classroom/reset`, {});
   await noteOffer();
   const yes = await say('Yes please. Also I need Monday off, my son is still sick');
@@ -739,15 +739,20 @@ test('R3 note offer: act on yes / no / HR and say the new content was not sent',
   assert.ok(told(yes), JSON.stringify(yes));
   assert.ok(await chatHasNotice(), 'the notice is in the chat');
   let st = await state();
-  assert.deepEqual(st.lessons.map((l) => l.text), ['Professor Amir is out on Fri, Nov 6.'], 'only the note — never the new words');
-  for (const reply of ['No thanks. I also need next Monday off', 'Can you file Monday with HR too']) {
-    await post(`${s.hub.url}/dev/classroom/reset`, {});
-    await noteOffer();
-    const r = await say(reply);
-    assert.equal(r.reply, `Okay, I won’t post it. ${NOT_SENT}`, reply);
-    st = await state();
-    assert.equal(st.lessons.length, 0, reply);
-  }
+  assert.deepEqual(st.lessons.map((l) => l.text), ['Marketing 101 is cancelled on Fri, Nov 6.'], 'only the note — never the new words');
+  await post(`${s.hub.url}/dev/classroom/reset`, {});
+  await noteOffer();
+  const no = await say('No thanks. I also need next Monday off');
+  assert.equal(no.reply, `Okay, I won’t send a cancellation. Your class is still on for your students. ${NOT_SENT}`);
+  assert.equal((await state()).lessons.length, 0);
+  // A longer message that doesn't start with yes or no is a new message (the cancellation offer stays open).
+  await post(`${s.hub.url}/dev/classroom/reset`, {});
+  await noteOffer();
+  const fresh = await say('I also need next Monday off for a doctor appointment');
+  assert.equal(fresh.action, 'staff', JSON.stringify(fresh));
+  assert.ok(!told(fresh), 'handled, not dropped');
+  st = await state();
+  assert.equal(st.lessons.length, 0);
 });
 
 test('R3 class-post offer: a yes with new content is asked again; a no declines — both say it was not sent', async () => {
@@ -780,7 +785,7 @@ test('R3 held question: a clear choice with new content acts on the HELD message
     if (both) {
       const done = await hrAction({ operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: submitAction(st.hrCard, { absenceType: ['SCK'], absenceReason: ['SCK'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8' }) });
       assert.equal(done.status, 'accepted');
-      assert.equal(lastOf((await state()).chat, 'assistant').text, NOTE_OFFER, 'both: the note offer follows');
+      assert.equal(lastOf((await state()).chat, 'assistant').text, NOTE_OFFER, 'both: the cancellation offer follows');
     }
   }
   await post(`${s.hub.url}/dev/classroom/reset`, {});
@@ -1044,4 +1049,108 @@ test('Task 7: balance and request questions go to HR as text (mock): no unsure q
   st = await state();
   assert.equal(st.hrCard.formRef, open.formRef, 'the same card is still open');
   assert.deepEqual(await requests(), []);
+});
+
+// ---- class cancellation after HR files (he teaches every weekday) ------------------------------------------
+const CANCEL_NO = 'Okay, I won’t send a cancellation. Your class is still on for your students.';
+async function fileCard(text, values) {
+  await say(text);
+  const st = await state();
+  assert.ok(st.hrCard, `${text}: HR opened a card`);
+  const done = await hrAction({ operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: submitAction(st.hrCard, values) });
+  assert.equal(done.status, 'accepted', JSON.stringify(done));
+  return state();
+}
+
+test('cancellation: any filed weekday (no “both” needed) offers it; “yes” sends only dates, never the reason', async () => {
+  const st = await fileCard('I want to file for time off. My grandmother passed away, I need this Thursday and Friday', { absenceType: ['BRV'], absenceReason: ['GGP'], beginDate: '2026-11-05', endDate: '2026-11-06', hours: '16' });
+  assert.equal(lastOf(st.chat, 'assistant').text, 'You have Marketing 101 on Thu, Nov 5 and Fri, Nov 6. Would you like me to send a cancellation to your students?');
+  assert.equal(st.lessons.length, 0, 'nothing sent before yes');
+  const yes = await say('yes');
+  assert.equal(yes.action, 'post', JSON.stringify(yes));
+  const after = await state();
+  assert.equal(after.lessons.length, 1);
+  const [p] = after.lessons;
+  assert.equal(p.text, 'Marketing 101 is cancelled on Thu, Nov 5 and Fri, Nov 6.');
+  assert.equal(p.title, 'Class cancelled');
+  assert.equal(p.kind, 'message');
+  assert.equal(p.audience, 'all');
+  assert.doesNotMatch(`${p.title} ${p.text}`, /grand|passed|funeral|bereave|sick|leave|vacation/i, 'never why');
+  assert.equal(lastOf(after.chat, 'assistant').text, 'Sent to your students: “Marketing 101 is cancelled on Thu, Nov 5 and Fri, Nov 6.”');
+});
+
+test('cancellation: a part day counts; campus holidays and weekends are not class days', async () => {
+  let st = await fileCard("I want to file for time off. I'm not feeling well, I'm leaving at noon on Friday", { absenceType: ['SCK'], absenceReason: ['SCK'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '3' });
+  assert.equal(lastOf(st.chat, 'assistant').text, 'You have Marketing 101 on Fri, Nov 6. Would you like me to send a cancellation to your students?');
+  assert.equal((await say('no')).reply, CANCEL_NO);
+  // Tue Nov 10 – Mon Nov 16: Wed Nov 11 is a campus holiday, Sat/Sun are weekend.
+  st = await fileCard('I need vacation from Tuesday Nov 10 to Monday Nov 16', { absenceType: ['VAC'], absenceReason: ['VAC'], beginDate: '2026-11-10', endDate: '2026-11-16', hours: '32' });
+  assert.equal(lastOf(st.chat, 'assistant').text, 'You have Marketing 101 on Tue, Nov 10, Thu, Nov 12, Fri, Nov 13 and Mon, Nov 16. Would you like me to send a cancellation to your students?');
+  assert.equal((await say('sure, send the cancellation')).action, 'post');
+  assert.deepEqual((await state()).lessons.map((l) => l.text), ['Marketing 101 is cancelled on Tue, Nov 10, Thu, Nov 12, Fri, Nov 13 and Mon, Nov 16.']);
+});
+
+test('cancellation: “yes, cancel it” is a yes (cancel is the offer’s own word); “don’t cancel” is a no; unclear is asked once', async () => {
+  const values = { absenceType: ['VAC'], absenceReason: ['VAC'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8' };
+  await fileCard("I need Friday off, it's a vacation day", values);
+  assert.equal((await say('yes, cancel it')).action, 'post');
+  await fileCard("I need Friday off, it's a vacation day", values);
+  assert.equal((await say('please cancel the class for me')).action, 'post', 'a longer yes that talks about cancelling');
+  assert.equal((await state()).lessons.length, 2);
+  await post(`${s.hub.url}/dev/classroom/reset`, {});
+  await fileCard("I need Friday off, it's a vacation day", values);
+  assert.equal((await say('yes, cancel it')).action, 'post');
+  assert.equal((await state()).lessons.length, 1);
+  await post(`${s.hub.url}/dev/classroom/reset`, {});
+  await fileCard("I need Friday off, it's a vacation day", values);
+  assert.equal((await say("don't cancel the class")).reply, CANCEL_NO);
+  await fileCard("I need Friday off, it's a vacation day", values);
+  assert.equal((await say('hmm?')).reply, 'Should I send the cancellation to your students? Reply yes or no.');
+  assert.equal((await say('what?')).reply, CANCEL_NO);
+  assert.equal((await state()).lessons.length, 0);
+});
+
+test('cancellation: a cancelled card offers nothing', async () => {
+  await say("I need Friday off, it's a vacation day");
+  const st = await state();
+  await hrAction({ operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: { name: 'cancelForm', surfaceId: surfaceOf(st.hrCard), sourceComponentId: 'cancel_button', timestamp: new Date().toISOString(), context: {} } });
+  const after = await state();
+  assert.ok(!after.chat.some((m) => m.role === 'assistant' && /cancellation/.test(m.text)));
+});
+
+test('cancellation: a new request right after filing is handled as usual; the offer stays open for a later yes', async () => {
+  await fileCard("I need Friday off, it's a vacation day", { absenceType: ['VAC'], absenceReason: ['VAC'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8' });
+  const next = await say("I want to file for time off. I'm not feeling well, I'm leaving at noon on Thursday");
+  assert.equal(next.action, 'staff', JSON.stringify(next));
+  let st = await state();
+  assert.ok(st.hrCard, 'the new request opened a card');
+  assert.ok(!st.chat.some((m) => m.role === 'assistant' && /won’t send a cancellation|wasn't sent/.test(m.text)), 'not read as a no, not dropped');
+  await hrAction({ operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: { name: 'cancelForm', surfaceId: surfaceOf(st.hrCard), sourceComponentId: 'cancel_button', timestamp: new Date().toISOString(), context: {} } });
+  // A short new request is a new message too.
+  assert.equal((await say('I need Monday off')).action, 'staff');
+  st = await state();
+  await hrAction({ operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: { name: 'cancelForm', surfaceId: surfaceOf(st.hrCard), sourceComponentId: 'cancel_button', timestamp: new Date().toISOString(), context: {} } });
+  // A class message in between posts as today, and the offer is still open.
+  const cls = await say('Please read chapter 5 before next class');
+  assert.equal(cls.action, 'post', JSON.stringify(cls));
+  assert.equal((await say('yes')).action, 'post');
+  st = await state();
+  assert.deepEqual(st.lessons.map((l) => l.text).sort(), ['Marketing 101 is cancelled on Fri, Nov 6.', 'Please read chapter 5 before next class']);
+});
+
+test('cancellation: a second filing while the offer waits adds its days to the same offer (none lost)', async () => {
+  await fileCard("I need Friday off, it's a vacation day", { absenceType: ['VAC'], absenceReason: ['VAC'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8' });
+  const st = await fileCard("I also need next Monday off, it's a vacation day", { absenceType: ['VAC'], absenceReason: ['VAC'], beginDate: '2026-11-09', endDate: '2026-11-09', hours: '8' });
+  assert.equal(lastOf(st.chat, 'assistant').text, 'You have Marketing 101 on Fri, Nov 6 and Mon, Nov 9. Would you like me to send a cancellation to your students?');
+  assert.equal((await say('yes')).action, 'post');
+  assert.deepEqual((await state()).lessons.map((l) => l.text), ['Marketing 101 is cancelled on Fri, Nov 6 and Mon, Nov 9.']);
+});
+
+test('cancellation: an @assistant question in between keeps the offer; a later “yes” sends it', async () => {
+  await fileCard("I need Friday off, it's a vacation day", { absenceType: ['VAC'], absenceReason: ['VAC'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8' });
+  await say('@assistant what does chapter 5 cover?'); // the mock assistant may post it; live answers it
+  assert.equal((await say('yes')).action, 'post');
+  const texts = (await state()).lessons.map((l) => l.text);
+  assert.ok(texts.includes('Marketing 101 is cancelled on Fri, Nov 6.'), JSON.stringify(texts));
+  assert.ok(!texts.includes('yes'), 'the yes answered the offer');
 });

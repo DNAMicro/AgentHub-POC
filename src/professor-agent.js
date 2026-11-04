@@ -367,16 +367,16 @@ async function professorChat({ operationId, text, replyTo = null, answers = null
   }
 }
 
-// “Both”: the professor said yes to the neutral note (code-built from HR's receipt dates) — posted to the
-// whole class as the professor's own message, with exactly the words the professor approved.
+// The professor said yes to the class cancellation (code-built from HR's receipt dates, no reason) — sent to
+// the whole class as a message, with exactly the words the professor was shown.
 async function postNote({ operationId, text }) {
-  const r = await createPost({ operationId, kind: 'message', title: `${COURSE.professorName} is out`, text, audience: 'all', source: 'chat', verbatim: false });
+  const r = await createPost({ operationId, kind: 'message', title: 'Class cancelled', text, audience: 'all', source: 'chat', verbatim: false });
   if (!r.body.lesson || r.body.ack?.status === 'rejected') {
     const problem = `Nothing was sent: ${r.body.ack?.reason ?? Object.values(r.body.errors ?? {})[0] ?? 'refused'}.`;
     return { action: 'error', reply: problem, post: null, entries: [{ role: 'assistant', text: problem, action: 'error' }] };
   }
   const post = { key: lessonKey(r.body.lesson.lessonId, r.body.lesson.revision) };
-  const said = `Posted to the class: “${text}”`;
+  const said = `Sent to your students: “${text}”`;
   return { action: 'post', kind: 'message', reply: said, post, entries: [{ role: 'assistant', text: said, action: 'post', postKey: post.key }] };
 }
 

@@ -19,6 +19,19 @@ const TUE = new Date('2026-11-03T17:00:00Z');
 // An arrival partial (hours missed before arriving) carries side 'arrive'.
 const arrive = (hours) => ({ mode: 'start_day_only', hours, side: 'arrive' });
 
+test('readDates: a weekday right before its date is one day (“Friday Nov 6”); a weekday that disagrees is asked', () => {
+  const span = (b, e) => ({ beginDate: b, endDate: e });
+  assert.deepEqual(readDates('I need vacation Friday Nov 6', TUE), span('2026-11-06', '2026-11-06'));
+  assert.deepEqual(readDates('I need vacation Friday, Nov 6', TUE), span('2026-11-06', '2026-11-06'));
+  assert.deepEqual(readDates('I need vacation from Friday Nov 6 to Monday Nov 9', TUE), span('2026-11-06', '2026-11-09'));
+  assert.deepEqual(readDates('I need vacation from Tuesday Nov 10 to Thursday Nov 12', TUE), span('2026-11-10', '2026-11-12'));
+  assert.deepEqual(readDates('out Thursday Nov 5 and Friday Nov 6', TUE), span('2026-11-05', '2026-11-06'));
+  assert.deepEqual(readDates('off Friday 11/13', TUE), span('2026-11-13', '2026-11-13'), 'the date wins over this week’s Friday');
+  // Nov 7 is a Saturday: never a guess, with or without the comma.
+  assert.equal(readDates('I need vacation Friday Nov 7', TUE), null);
+  assert.equal(readDates('I need vacation Friday, Nov 7', TUE), null);
+});
+
 test('readDates: today, tomorrow, yesterday', () => {
   assert.deepEqual(readDates('I am out today', MON), { beginDate: '2026-11-02', endDate: '2026-11-02' });
   assert.deepEqual(readDates('out tomorrow', MON), { beginDate: '2026-11-03', endDate: '2026-11-03' });

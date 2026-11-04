@@ -3,8 +3,10 @@
 //   * staff_request → HR, over the Hub's signed staff path (Professor → Hub → HR); HR's card comes back.
 //   * unsure        → ask the fixed question; the next message answers it (HR / class / both).
 //   * class_message → null: the chat continues exactly as today (direct post).
-// Nothing is filed or posted on a guess. For “both”, the class gets only a code-built neutral note
-// (“Professor Amir is out on …”, dates from HR's receipt), and only after the professor says yes.
+// Nothing is filed or posted on a guess. After HR files a request, the assistant checks the filed dates for
+// class days (the professor teaches every weekday: Mon–Fri minus campus holidays, part days included) and
+// offers a cancellation; only on “yes” do students get a code-built message (“Marketing 101 is cancelled on …”,
+// dates from HR's receipt, never a reason — privacy).
 //
 // State here is memory only (owner rule): the open card (formRef, its A2UI messages, the hrCard summary),
 // the held message awaiting an answer, and the note awaiting “yes”. The chat itself (in the outbox) keeps
@@ -12,7 +14,7 @@
 // new HR conversation.
 import { randomUUID } from 'node:crypto';
 import { CARD_CLOSED, STAFF_ACTION_MEDIA_TYPE, STAFF_REQUEST_MEDIA_TYPE, staffActionFields, staffRequestFields } from './staff.js';
-import { shortDate, titleOf } from './absence-types.js';
+import { shortDate, titleOf, workdays } from './absence-types.js';
 import { COURSE } from './course-pack.js';
 import { classifyStaff } from './professor-model.js';
 import { asksBalance, asksRequests } from './hr-intent.js';
@@ -39,12 +41,14 @@ const HELD_FOR_MS = 15 * 60_000; // an unanswered question or note offer is forg
 const CARD_TTL_MS = Number(process.env.HUB_FORM_TTL_MS ?? 2 * 60 * 60 * 1000);
 export const NOTE_REASK = 'Should I post that note to the class? Reply yes or no.';
 export const NOTE_DECLINED = 'Okay, I won’t post it.';
+export const CANCEL_REASK = 'Should I send the cancellation to your students? Reply yes or no.';
+export const CANCEL_DECLINED = 'Okay, I won’t send a cancellation. Your class is still on for your students.';
 const NOTHING_DONE = 'Okay, nothing was filed or posted.';
 
 let conversationId = randomUUID(); // one HR conversation per classroom (a reset starts a new one)
-let openCard = null; // { formRef, a2ui, hrCard, conversationId, alsoTellClass, at }
+let openCard = null; // { formRef, a2ui, hrCard, conversationId, at }
 let pendingChoice = null; // { text, entryId, at, reasked } — the held message awaiting HR / class / both
-let pendingNote = null; // { text, at, reasked, kind?, entryId? } — the neutral class note (or an offered class post) awaiting “yes”
+let pendingNote = null; // { text, at, reasked, kind?, entryId? } — the class cancellation (kind 'cancel') or an offered class post (kind 'post') awaiting “yes”
 
 // The answer to the unsure question (words, read by code): “both” wins; then HR words; then class words.
 const BOTH = /\bboth\b/i;
@@ -52,6 +56,11 @@ const YES = /^\s*(yes|yeah|yep|sure|ok|okay|please|please do|post it|go ahead)\b
 const YES_FILLER = /^(yes|yeah|yep|sure|ok|okay|post|it|please|do|go|ahead|thanks|thank|you)$/i;
 const HR_NAMED = /\b(hr|human\s+resources|file|filed|filing)\b/i;
 // Any refusal anywhere means it is not a yes (“please don't post it”, “ok, but don't tell them”).
+const ANSWER_START = /^\s*(yes|yeah|yep|sure|ok|okay|no|nope|nah|don['’]?t|do not|never)\b/i;
+const CANCEL_WORD = /\b(cancel|cancell?ation|cancell?ed)\b/i;
+// The cancellation offer's own words: “yes, send the cancellation”, “sure, cancel the class”.
+const CANCEL_WORDS = /\b(cancel|cancell?ation|cancell?ed)\b/gi;
+const CANCEL_FILLER = /^(send|cancel|cancellation|cancelled|canceled|the|class|classes|students|my|them|to|for|me|now)$/i;
 const NEGATION = /\b(no|nope|nah|not|never|don['’]?t|do not|won['’]?t|skip|cancel|neither)\b/i;
 // A short reply right after a question is an answer attempt — never a message for the class.
 const SHORT = (text) => text.trim().split(/\s+/).length <= 4;
@@ -105,11 +114,15 @@ const cardOpen = () => {
   return openCard;
 };
 
-// “Professor Amir is out on Fri, Nov 6.” / “Professor Amir is out Fri, Nov 6 – Mon, Nov 9.” (dates from HR).
-export function neutralNote({ beginDate, endDate }) {
-  if (!beginDate || !endDate) return null;
-  return beginDate === endDate ? `${COURSE.professorName} is out on ${shortDate(beginDate)}.` : `${COURSE.professorName} is out ${shortDate(beginDate)} – ${shortDate(endDate)}.`;
+// The filed days the professor has class (he teaches every weekday): Mon–Fri minus campus holidays, part days included.
+export const classDays = ({ beginDate, endDate }) => workdays(beginDate, endDate);
+const listOf = (items) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`);
+// The student message: fixed words, dates only — never why (privacy).
+export function cancellationText(days) {
+  if (!days.length) return null;
+  return `${COURSE.title} is cancelled on ${listOf(days.map(shortDate))}.`;
 }
+export const cancellationOffer = (days) => `You have ${COURSE.title} on ${listOf(days.map(shortDate))}. Would you like me to send a cancellation to your students?`;
 // “Sent to your manager for a decision. Request TO-1A2B: Bereavement (Grandparent/Great Grandparent), Thu, Nov 5 – Fri, Nov 6,
 // 16 hours.” The reason is in parentheses only when it says more than the name (titleOf's subtitle).
 export function receiptText(r) {
@@ -146,7 +159,9 @@ function withNotice(r) {
 export async function staffTurn({ operationId, text, entryId, hubLink, bypass = false, card = {}, emit = () => {} }) {
   if (bypass) {
     pendingChoice = null;
-    pendingNote = null;
+    // A class cancellation offer survives an aside to the assistant (“@assistant …”) or one student: it waits for
+    // its yes or no. Other offers are dropped (the professor moved on).
+    if (pendingNote?.kind !== 'cancel') pendingNote = null;
     return null;
   }
   // A question about balances or filed requests is always HR's (code decides, mock and live, no classifier call).
@@ -161,24 +176,37 @@ export async function staffTurn({ operationId, text, entryId, hubLink, bypass = 
   }
   const say = (reply, extra = {}) => ({ action: 'clarify', reply, ...extra, entries: [{ role: 'assistant', text: reply, action: 'clarify' }] });
 
-  const note = fresh(pendingNote) ? pendingNote : null;
+  let note = fresh(pendingNote) ? pendingNote : null;
   pendingNote = null;
+  // The cancellation offer follows every filed request, so the professor often just carries on (“I also need
+  // Monday off”, “I need Friday off”, “Please read chapter 5”). An answer starts with yes or no, talks about
+  // cancelling, or is short (4 words or fewer) with no new day or leave word; anything else is a NEW message:
+  // handled as usual, and the offer stays open for a later yes or no (nothing reaches students without one).
+  const answers = (n) => ANSWER_START.test(text) || CANCEL_WORD.test(text) || (SHORT(text) && !hasNewContent(n.text, text));
+  if (note?.kind === 'cancel' && !answers(note)) {
+    pendingNote = note;
+    note = null;
+  }
   if (note) {
     const fresh = hasNewContent(note.text, text); // new content: act on the answer, and say it wasn't sent
     const told = (r) => (fresh ? withNotice(r) : r);
     const sayN = (reply, extra) => say(fresh ? `${reply} ${NOT_SENT}` : reply, extra);
-    if (NEGATION.test(text)) return sayN(NOTE_DECLINED, { check: 'note_declined' });
+    const cancel = note.kind === 'cancel';
+    const declined = cancel ? CANCEL_DECLINED : NOTE_DECLINED;
+    // “cancel” is the offer's own word (“yes, cancel it”): not a refusal here.
+    const refusal = cancel ? String(text).replace(CANCEL_WORDS, ' ') : text;
+    if (NEGATION.test(refusal)) return sayN(declined, { check: 'note_declined' });
     // A reply that names HR is never a yes to posting (“yes, to HR”, “Please send it to HR”).
-    if (HR_NAMED.test(text)) return sayN(NOTE_DECLINED, { check: 'note_declined' });
+    if (HR_NAMED.test(text)) return sayN(declined, { check: 'note_declined' });
     // A yes counts only when it is nothing but yes words (“yes”, “ok, post it”, “yes please, go ahead”). With new
     // content, the first sentence decides (“Yes please. Also I need Monday off” is a yes); a yes with other words in
     // the same sentence (“yes but change Tuesday to Wednesday”, “Yes, and I also need Tuesday off”) is asked again.
     const decides = fresh ? text.split(/[.!?]/)[0] : text;
-    const pureYes = YES.test(decides) && decides.toLowerCase().replace(/[^\w’'\s]/g, ' ').split(/\s+/).filter(Boolean).every((w) => YES_FILLER.test(w));
+    const pureYes = YES.test(decides) && decides.toLowerCase().replace(/[^\w’'\s]/g, ' ').split(/\s+/).filter(Boolean).every((w) => YES_FILLER.test(w) || (cancel && CANCEL_FILLER.test(w)));
     const reaskNote = () => {
-      if (note.reasked) return sayN(NOTE_DECLINED, { check: 'note_declined' });
+      if (note.reasked) return sayN(declined, { check: 'note_declined' });
       pendingNote = { ...note, reasked: true };
-      return sayN(NOTE_REASK, { check: 'note_reask' });
+      return sayN(cancel ? CANCEL_REASK : NOTE_REASK, { check: 'note_reask' });
     };
     if (YES.test(text) && !pureYes) return reaskNote();
     // A long class message offered while a message was held (“Should I post this to the class: …?”) goes out as
@@ -210,7 +238,7 @@ export async function staffTurn({ operationId, text, entryId, hubLink, bypass = 
     const actOnChoice = async () => {
       const both = picked.has('hr') && picked.has('class');
       if (picked.has('hr')) {
-        const r = await sendToHr({ operationId, text: held.text, hubLink, emit, decidedBy: both ? 'both' : 'professor_choice', alsoTellClass: both });
+        const r = await sendToHr({ operationId, text: held.text, hubLink, emit, decidedBy: both ? 'both' : 'professor_choice' }); // the class hears only through the cancellation offer
         return fresh ? withNotice(r) : r;
       }
       emit('staff_decision', { kind: 'class_message', decidedBy: 'professor_choice' });
@@ -278,7 +306,7 @@ export async function staffTurn({ operationId, text, entryId, hubLink, bypass = 
 }
 
 // Professor → Hub → HR: a signed staff request in this classroom's HR conversation.
-async function sendToHr({ operationId, text, hubLink, emit, decidedBy, alsoTellClass = false, model = null, formValues }) {
+async function sendToHr({ operationId, text, hubLink, emit, decidedBy, model = null, formValues }) {
   const value = { type: 'staff_request', operationId, conversationId, text, ...(formValues ? { formValues } : {}) };
   const asked = conversationId;
   const r = await hubLink.sendSigned(STAFF_REQUEST_MEDIA_TYPE, value, staffRequestFields(value), { timeoutMs: STAFF_TIMEOUT_MS });
@@ -287,7 +315,7 @@ async function sendToHr({ operationId, text, hubLink, emit, decidedBy, alsoTellC
   if (r.status === 'ok' && r.reply) {
     // A reset while HR answered started a new conversation: that card is gone with it.
     if (r.reply.formRef && asked === conversationId) {
-      openCard = { formRef: r.reply.formRef, a2ui: r.reply.a2ui ?? [], hrCard: r.reply.hrCard ?? null, conversationId: asked, alsoTellClass: alsoTellClass || Boolean(openCard?.alsoTellClass), at: Date.now() };
+      openCard = { formRef: r.reply.formRef, a2ui: r.reply.a2ui ?? [], hrCard: r.reply.hrCard ?? null, conversationId: asked, at: Date.now() };
     }
     return { ...result, reply: r.reply.text, entries: [{ role: 'hr', text: r.reply.text, ...(r.reply.formRef ? { formRef: r.reply.formRef } : {}) }] };
   }
@@ -318,10 +346,13 @@ export async function staffAction({ operationId, formRef, action, hubLink, emit 
       // the answer the professor picked once the card is gone.
       const { requestId, absenceType, absenceReason, beginDate, endDate, hours } = reply.receipt;
       entries.push({ role: 'hr', text: receiptText(reply.receipt), formRef, closed: true, record: { requestId, absenceType, absenceReason, beginDate, endDate, hours } });
-      const note = card.alsoTellClass ? neutralNote(reply.receipt) : null;
-      if (note && current) {
-        pendingNote = { text: note, at: Date.now() };
-        entries.push({ role: 'assistant', text: `Want me to tell the class: “${note}”? Reply yes to post it.`, action: 'clarify' });
+      // Class on any filed day (every weekday, part days too): offer a cancellation; students get it only on “yes”.
+      // A cancellation offer still waiting (an earlier filing) is joined, so no class day is dropped.
+      const waiting = current && pendingNote?.kind === 'cancel' && fresh(pendingNote) ? pendingNote.days ?? [] : [];
+      const days = [...new Set([...waiting, ...classDays(reply.receipt)])].sort();
+      if (days.length && current) {
+        pendingNote = { text: cancellationText(days), at: Date.now(), kind: 'cancel', days };
+        entries.push({ role: 'assistant', text: cancellationOffer(days), action: 'clarify' });
       }
     } else {
       entries.push({ role: 'hr', text: reply.text, formRef, closed: true });

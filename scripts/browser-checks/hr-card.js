@@ -133,6 +133,9 @@ async (page) => {
   const recordText = ((await record.textContent()) ?? '').replace(/\s+/g, ' ');
   check('submit: the card becomes a record of what was filed', /You submitted\s*Sick Leave\s*Family Care/.test(recordText) && new RegExp(`${DAY} to ${DAY} · 16 hours`).test(recordText), recordText);
   check('submit: no stale dropdown wording left in the chat', !/pick from the dropdown below/.test(await page.locator('#prof-log').textContent()));
+  // He teaches every weekday: the assistant offers to cancel those classes (sent only on yes — see the end).
+  const offer = ((await page.locator('#prof-log .msg[data-speaker="professor"]').last().textContent()) ?? '').replace(/\s+/g, ' ');
+  check('submit: the assistant offers a class cancellation for the filed days', new RegExp(`You have Marketing 101 on ${DAY} and ${DAY}\\. Would you like me to send a cancellation to your students\\?`).test(offer), offer);
   await receipt.scrollIntoViewIfNeeded();
   await page.locator('#prof-log').screenshot({ path: `${SHOTS}/hr-6-submit-receipt.png` });
 
@@ -239,6 +242,18 @@ async (page) => {
   check('topology: staff trace uses hub-hr and hub-professor', await topo.locator('[data-edge="hub-hr"].in-trace').count() === 1 && await topo.locator('[data-edge="hub-professor"].in-trace').count() === 1);
   await topo.screenshot({ path: `${SHOTS}/hr-13-topology-staff-trace.png` });
   await topo.close();
+
+  // The cancellation offer was never answered, so each filing added its class days (Nov 5–6, then Nov 12–13):
+  // “yes” sends them all, with dates only, to the students.
+  await say('yes');
+  const sent = ((await page.locator('#prof-log').textContent()) ?? '').replace(/\s+/g, ' ');
+  check('cancellation: “yes” sends it to the students', /Sent to your students: “Marketing 101 is cancelled on Thu, Nov 5, Fri, Nov 6, Thu, Nov 12 and Fri, Nov 13\.”/.test(sent), sent.slice(-300));
+  await page.locator('#prof-log').screenshot({ path: `${SHOTS}/hr-14-cancellation-sent.png` });
+  await page.goto(`${origin}/conversation`);
+  const studentSaw = await page.waitForFunction(() => /Marketing 101 is cancelled on Thu, Nov 5, Fri, Nov 6, Thu, Nov 12 and Fri, Nov 13\./.test(document.body.textContent), null, { timeout: 15000 }).then(() => true).catch(() => false);
+  const studentText = (await page.locator('#view-conversation').textContent()) ?? ''; // the student's own view (the page also holds the hidden Professor view)
+  check('cancellation: the student sees it, with no reason', studentSaw && !/uncle|bereave|funeral|sick|grandmother/i.test(studentText));
+  await page.screenshot({ path: `${SHOTS}/hr-15-student-sees-cancellation.png` });
 
   check('no page or console errors', errors.length === 0, errors);
   return { passed: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok), total: results.length };
