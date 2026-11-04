@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quiz to Canvas — mockup</title>
+<link rel="stylesheet" href="../../../public/styles.css">
+<style>
+  :root { --lms: #4d7c0f; --lms-tint: #eef6dc; --lms-ink: #365a09; }
+  @media (prefers-color-scheme: dark) { :root { --lms: #a3d65c; --lms-tint: #24301a; --lms-ink: #c8ec98; } }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); margin: 0; }
+  .doc { max-width: 1240px; margin: 0 auto; padding: 28px 24px 80px; }
+  .doc > header h1 { font-size: 1.55rem; margin: 0 0 6px; }
+  .doc > header p { margin: 0; color: var(--muted); max-width: 72ch; line-height: 1.5; }
+  .legend-note { display: inline-block; margin-top: 10px; font-size: .82rem; color: var(--muted); border: 1px dashed var(--border-strong); border-radius: 8px; padding: 6px 10px; }
+  .screen { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 28px; margin-top: 44px; align-items: start; }
+  .screen .say { position: sticky; top: 16px; }
+  .say .n { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--professor); color: #fff; font-weight: 700; font-size: .95rem; }
+  .say h2 { font-size: 1.08rem; margin: 10px 0 6px; }
+  .say p { margin: 0 0 8px; color: var(--muted); font-size: .9rem; line-height: 1.5; }
+  .say .who { font-size: .78rem; color: var(--muted); border-top: 1px solid var(--border); padding-top: 8px; margin-top: 10px; }
+  .say .call { color: var(--lms-ink); font-weight: 700; }
+  /* the app's views are one window tall; in the mockup they grow with their content */
+  .stage .panel.chat { height: auto; max-height: none; }
+  .stage .chat-log { overflow: visible; max-height: none; flex: none; }
+  .stage .view { display: block; height: auto; padding: 0; }
+  .stage .dock { position: static; }
+
+  /* topic picker (assistant message body) */
+  .topic-pick { margin-top: 10px; display: grid; gap: 12px; }
+  .unit { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px 12px; background: var(--surface); }
+  .unit h4 { margin: 0 0 8px; font-size: .8rem; font-weight: 700; color: var(--muted); display: flex; justify-content: space-between; }
+  .unit h4 span { font-weight: 600; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tchip { font: inherit; font-size: .86rem; border: 1px solid var(--border-strong); background: var(--field); color: var(--text); border-radius: 999px; padding: 5px 11px; cursor: pointer; }
+  .tchip b { font-family: var(--mono); font-weight: 600; font-size: .78rem; color: var(--muted); margin-right: 4px; }
+  .tchip:hover { border-color: var(--professor); }
+  .tchip[aria-pressed="true"] { background: var(--professor); border-color: var(--professor); color: #fff; }
+  .tchip[aria-pressed="true"] b { color: #fff; }
+  .tchip[disabled] { opacity: .5; cursor: not-allowed; background: transparent; border-style: dashed; }
+  .pick-foot { font-size: .82rem; color: var(--muted); margin: 2px 0 0; }
+
+  /* the quiz draft card */
+  .quiz-card { max-width: min(100%, 720px); width: 100%; border: 1px solid var(--border); border-left: 4px solid var(--professor); border-radius: 4px 14px 14px 14px; background: var(--surface); padding: 12px 18px 18px; }
+  .chat-log .msg.quiz-card { padding: 12px 18px 18px; border-left: 4px solid var(--professor); border-radius: 4px 14px 14px 14px; }
+  .quiz-card .msg-head .msg-dir { color: var(--professor); font-weight: 700; }
+  .quiz-card .msg-head time { font-family: var(--mono); font-size: .72rem; }
+  .q-lead { margin: 2px 0 12px; }
+  .q-slip { background: color-mix(in srgb, var(--professor) 7%, var(--surface)); border-radius: 12px; padding: 14px 16px; display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; }
+  .q-slip .t { font-size: 1.25rem; font-weight: 700; margin: 0; }
+  .q-slip .m { margin: 0; color: var(--muted); font-size: .9rem; }
+  .q-slip .m b { color: var(--text); }
+  .state-badge { align-self: start; font-size: .75rem; font-weight: 700; border-radius: 999px; padding: 4px 10px; border: 1px solid var(--border-strong); color: var(--muted); background: var(--surface); white-space: nowrap; }
+  .state-badge.lms { border-color: var(--lms); color: var(--lms-ink); background: var(--lms-tint); }
+  .q-from { font-size: .8rem; color: var(--muted); margin: 8px 2px 14px; }
+  .q-settings { display: grid; grid-template-columns: minmax(0, 2fr) 5rem 5.5rem minmax(11rem, 1.6fr) 4.5rem; gap: 10px; margin-bottom: 16px; }
+  .fld label { display: block; font-size: .78rem; font-weight: 700; margin-bottom: 4px; }
+  .fld input, .fld textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: .9rem; padding: 7px 9px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--text); }
+  .fld textarea { resize: vertical; min-height: 54px; line-height: 1.4; }
+  .q-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; counter-reset: q; }
+  .q { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--field); counter-increment: q; }
+  .q-top { display: flex; align-items: baseline; gap: 10px; }
+  .q-top .num::before { content: counter(q) "."; font-weight: 700; font-family: var(--mono); font-size: .85rem; color: var(--muted); }
+  .q-top .stem { flex: 1; margin: 0; font-weight: 600; line-height: 1.4; }
+  .q-tag { font-size: .7rem; font-weight: 700; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+  .q-tag.ai { color: var(--muted); border: 1px solid var(--border-strong); }
+  .q-tag.you { color: var(--amber-ink); background: var(--amber-tint); }
+  .q-tools { display: flex; gap: 4px; }
+  .icon-btn { font: inherit; font-size: .78rem; border: 1px solid transparent; background: none; color: var(--muted); border-radius: 6px; padding: 3px 7px; cursor: pointer; }
+  .icon-btn:hover { border-color: var(--border-strong); color: var(--text); }
+  .opts { list-style: none; margin: 8px 0 0 26px; padding: 0; display: grid; gap: 4px; }
+  .opts li { font-size: .9rem; display: flex; gap: 8px; align-items: baseline; }
+  .opts li .l { font-family: var(--mono); font-size: .8rem; color: var(--muted); width: 1.2em; }
+  .opts li[data-correct] { font-weight: 700; color: var(--ok); }
+  .opts li[data-correct]::after { content: "✓ correct"; flex: none; white-space: nowrap; align-self: center; font-size: .72rem; font-weight: 700; border-radius: 999px; padding: 1px 7px; background: var(--ok-bg); }
+  .q.editing { background: var(--surface); border: 2px solid var(--professor); }
+  .edit-opts { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+  .edit-opts li { display: grid; grid-template-columns: 1.4rem 1.2rem minmax(0, 1fr); align-items: center; gap: 6px; }
+  .edit-opts input[type="radio"] { accent-color: var(--ok); width: 16px; height: 16px; margin: 0; }
+  .edit-opts .l { font-family: var(--mono); font-size: .8rem; color: var(--muted); }
+  .edit-opts input[type="text"] { font: inherit; font-size: .9rem; padding: 6px 8px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--text); }
+  .edit-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: .8rem; color: var(--muted); }
+  .q.removed { background: transparent; border-style: dashed; color: var(--muted); padding: 8px 12px; display: flex; justify-content: space-between; align-items: center; font-size: .86rem; counter-increment: none; }
+  .add-row { display: flex; gap: 8px; margin-top: 10px; }
+  .ghost-btn { font: inherit; font-size: .88rem; font-weight: 600; border: 1px dashed var(--border-strong); background: var(--surface); color: var(--text); border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+  .ghost-btn .spark { color: var(--professor); }
+  .q-actions { display: flex; align-items: center; gap: 14px; margin-top: 18px; flex-wrap: wrap; }
+  .btn-primary { font: inherit; font-weight: 700; border: 0; border-radius: 8px; padding: 11px 18px; background: var(--professor); color: #fff; cursor: pointer; }
+  .btn-primary.lms { background: var(--lms); color: #fff; }
+  .btn-link { font: inherit; font-weight: 700; border: 0; background: none; color: var(--professor); cursor: pointer; padding: 8px 4px; }
+  .q-check { font-size: .8rem; color: var(--muted); margin-left: auto; }
+  .q-check b { color: var(--ok); }
+
+  /* Canvas confirmation card */
+  .lms-card { max-width: min(100%, 600px); width: 100%; border: 1px solid var(--border); border-left: 4px solid var(--lms); border-radius: 4px 14px 14px 14px; background: var(--surface); padding: 12px 18px 16px; }
+  .chat-log .msg.lms-card { padding: 12px 18px 16px; border-left: 4px solid var(--lms); border-radius: 4px 14px 14px 14px; }
+  .lms-card .msg-head .msg-dir { color: var(--lms-ink); font-weight: 700; }
+  .lms-card .msg-head time { font-family: var(--mono); font-size: .72rem; }
+  .lms-row { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 10px 0 4px; font-size: .9rem; }
+  .lms-row dt { color: var(--muted); }
+  .lms-row dd { margin: 0; }
+  .lms-row .mono { font-family: var(--mono); font-size: .85rem; }
+  .lms-ask { margin: 12px 0 0; padding-top: 12px; border-top: 1px solid var(--border); }
+  .lms-ask p { margin: 0 0 10px; }
+  .working { display: inline-flex; align-items: center; gap: 8px; font-size: .88rem; color: var(--lms-ink); background: var(--lms-tint); border-radius: 999px; padding: 4px 12px; }
+  .working i { width: 8px; height: 8px; border-radius: 50%; background: var(--lms); animation: blink 1s ease-in-out infinite; }
+  .summary-line { font-size: .86rem; color: var(--muted); }
+
+  /* the student's side */
+  .student-stage { position: relative; padding-bottom: 40px; }
+  .mock-toast { position: absolute; bottom: -34px; right: 14px; z-index: 3; width: 330px; background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--professor); border-radius: 10px; padding: 10px 14px; box-shadow: 0 8px 24px rgb(0 0 0 / .12); }
+  .mock-toast .tt { font-weight: 700; margin: 0 0 2px; }
+  .mock-toast .tb { margin: 0; font-size: .86rem; color: var(--muted); }
+  .quiz-notice .kind-tag { background: var(--lms-tint); color: var(--lms-ink); }
+  .quiz-facts { margin: 8px 0 0; font-size: .86rem; color: var(--muted); }
+  .quiz-facts b { color: var(--text); }
+  .no-action { display: inline-block; margin-top: 8px; font-size: .78rem; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; }
+
+  /* topology additions */
+  .topo-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 10px; }
+  .topo-wrap svg { width: 100%; height: auto; display: block; }
+  .topo .node.lms .tile { stroke: var(--lms); }
+  .topo .node.lms .spark { fill: var(--lms); }
+  .topo .node.lms .node-status[data-tone="busy"] .status-pill { fill: var(--lms-tint); }
+  .topo .node.lms .node-status[data-tone="busy"] .status-text { fill: var(--lms-ink); }
+  .topo .node.lms .qi-board { fill: var(--lms-tint); stroke: var(--lms); stroke-width: 2; }
+  .topo .node.lms .qi-clip { fill: var(--lms); }
+  .topo .node.lms .qi-tick { fill: none; stroke: var(--lms); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .topo .node.lms .qi-line { stroke: var(--lms); stroke-width: 2; stroke-linecap: round; }
+  .topo .lms-label { fill: var(--lms) !important; }
+  .topo-key { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 10px; font-size: .84rem; color: var(--muted); }
+  .topo-key b { color: var(--text); }
+  .open-q { margin-top: 40px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; }
+  .open-q h2 { margin: 0 0 8px; font-size: 1.05rem; }
+  .open-q ul { margin: 0; padding-left: 20px; line-height: 1.6; }
+  .screen.wide { grid-template-columns: 1fr; }
+  .screen.wide .say { position: static; display: grid; grid-template-columns: 30px 1fr; column-gap: 12px; }
+  .screen.wide .say h2 { margin-top: 2px; }
+  .screen.wide .say > p, .screen.wide .say > .who { grid-column: 2; max-width: 90ch; }
+  @media (max-width: 900px) { .screen { grid-template-columns: 1fr; } .screen .say { position: static; } .q-settings { grid-template-columns: 1fr 1fr; } }
+</style></head>
+<body><div class="doc">
+<header>
+  <h1>Part 16 — Dr. Dabirian's quiz goes to Canvas over MCP</h1>
+  <p>High-fidelity mockup built from the running app's own stylesheet, chat markup and Topology. Everything shown is fictional demo data; “Canvas LMS” is a demo stand-in, like PeopleSoft. Six moments, in order.</p>
+  <span class="legend-note">Course facts used: CSUF MKTG 351 schedule (Topics 1–20 from MKTG14), three Canvas exams at 3 points per question — the quiz copies that format.</span>
+</header>
+
+<!-- 1 -->
+<section class="screen">
+  <div class="say"><span class="n">1</span><h2>He asks; no topic, so the assistant lists what's been taught</h2>
+    <p>The list comes from the course schedule, not from the AI. Topics already taught by today are tappable; later ones are shown but can't be picked yet.</p>
+    <p class="who">No Canvas call yet. Faculty's model only reads the request.</p></div>
+  <div class="stage"><div class="view view-professor"><section class="panel chat prof-chat" data-agent="professor">
+    <header class="panel-head"><h2>Marketing 351 — Faculty</h2><span class="role">Marketing 351 — A fictional introductory course for this demo — not an official CSUF course or approved curriculum.</span><span class="class-roster"><span class="presence" data-online="true">Alex Student</span><span class="presence" data-online="false">Sam Student</span></span></header>
+    <ol class="log chat-log prof-log">
+      <li class="msg" data-dir="sent" data-speaker="student"><div class="msg-head"><span class="msg-dir">You → course assistant</span><time>12:41:05</time></div><p class="msg-text">@assistant create a quiz for Marketing 351</p></li>
+      <li class="msg" data-dir="received" data-speaker="professor" style="max-width: 720px"><div class="msg-head"><span class="msg-dir">Course assistant · claude-haiku-5-5</span><time>12:41:07</time></div>
+        <p class="msg-text">Which topic should the quiz cover? Here's what Marketing 351 has covered so far — through Topic 16 (Tue, Nov 3).</p>
+        <div class="topic-pick" role="group" aria-label="Topics covered in class">
+          <div class="unit"><h4>Exam 1 unit <span>Topics 1–7</span></h4><div class="chips">
+            <button class="tchip"><b>1</b>An overview of marketing</button><button class="tchip"><b>2</b>Strategic planning for competitive advantage</button><button class="tchip"><b>3</b>Ethics &amp; social responsibility</button><button class="tchip"><b>4</b>The marketing environment</button><button class="tchip"><b>5</b>Developing a global vision</button><button class="tchip"><b>6</b>Consumer decision making</button><button class="tchip"><b>7</b>Business marketing</button></div></div>
+          <div class="unit"><h4>Exam 2 unit <span>Topics 8–14</span></h4><div class="chips">
+            <button class="tchip" aria-pressed="true"><b>8</b>Segmentation &amp; targeting</button><button class="tchip"><b>9</b>Marketing research</button><button class="tchip"><b>10</b>Product concepts &amp; branding</button><button class="tchip"><b>11</b>Developing &amp; managing products</button><button class="tchip"><b>12</b>Services &amp; nonprofit marketing</button><button class="tchip"><b>13</b>Distribution (place)</button><button class="tchip"><b>14</b>Retailing</button></div></div>
+          <div class="unit"><h4>Exam 3 unit <span>Topics 15–20</span></h4><div class="chips">
+            <button class="tchip"><b>15</b>Marketing communications</button><button class="tchip"><b>16</b>Advertising, PR &amp; sales promotion</button><button class="tchip" disabled><b>17</b>Personal selling — Nov 10</button><button class="tchip" disabled><b>18</b>Social media — Nov 17</button><button class="tchip" disabled><b>19</b>Pricing concepts — Nov 19</button><button class="tchip" disabled><b>20</b>Marketing metrics — Dec 1</button></div></div>
+          <p class="pick-foot">Or just type it — “a quiz on pricing”, “segmentation, 8 questions”.</p>
+        </div></li>
+      <li class="msg" data-dir="sent" data-speaker="student"><div class="msg-head"><span class="msg-dir">You → course assistant</span><time>12:41:15</time></div><p class="msg-text">Topic 8 · Segmentation &amp; targeting</p></li>
+    </ol></section></div></div>
+</section>
+
+<!-- 2 -->
+<section class="screen">
+  <div class="say"><span class="n">2</span><h2>The AI drafts it; he edits, adds and removes</h2>
+    <p>One card, like the HR card. Every question can be edited in place (text, the four answers, which one is correct), removed with undo, or added — blank, or one more from the AI.</p>
+    <p>Code checks each question before Approve unlocks: a question, four filled answers, exactly one correct.</p>
+    <p class="who">Faculty → Faculty's model (draft). Nothing reaches Canvas until Approve.</p></div>
+  <div class="stage"><ol class="log chat-log prof-log" style="padding:0">
+    <li class="msg quiz-card" data-dir="received" data-speaker="professor"><div class="msg-head"><span class="msg-dir">Course assistant · Quiz draft</span><time>12:41:24</time></div>
+      <p class="q-lead">Here's a draft. Change anything you like, then approve it to post it to Canvas.</p>
+      <section class="q-slip" aria-label="Summary">
+        <p class="t">Topic 8 Quiz: Segmentation &amp; Targeting</p><span class="state-badge">Not in Canvas yet</span>
+        <p class="m"><b>5 questions</b> · 15 points · 10 minutes · 1 attempt · due <b style="white-space:nowrap">Mon, Nov 9, 11:59 PM</b></p>
+      </section>
+      <p class="q-from">Drafted by claude-haiku-5-5 from the Topic 8 course notes — read every answer before approving.</p>
+      <div class="q-settings">
+        <div class="fld"><label>Quiz title</label><input value="Topic 8 Quiz: Segmentation &amp; Targeting"></div>
+        <div class="fld"><label>Points each</label><input value="3"></div>
+        <div class="fld"><label>Time limit</label><input value="10 min"></div>
+        <div class="fld"><label>Due</label><input value="Nov 9, 11:59 PM"></div>
+        <div class="fld"><label>Attempts</label><input value="1"></div>
+      </div>
+      <ol class="q-list">
+        <li class="q"><div class="q-top"><span class="num"></span><p class="stem">In marketing, a market is best described as:</p><span class="q-tag ai">AI draft</span><span class="q-tools"><button class="icon-btn">Edit</button><button class="icon-btn">Remove</button></span></div>
+          <ul class="opts"><li data-correct><span class="l">a</span>People or organizations with needs or wants and the ability and willingness to buy</li><li><span class="l">b</span>Everyone who has heard of a product</li><li><span class="l">c</span>The group of companies selling similar products</li><li><span class="l">d</span>The stores where a product is sold</li></ul></li>
+        <li class="q editing"><div class="q-top"><span class="num"></span><p class="stem" style="font-weight:700">Editing question</p><span class="q-tag you">Edited by you</span></div>
+          <div class="fld" style="margin-top:8px"><label>Question</label><textarea>A sportswear brand can measure a segment's size but cannot reach it through any channel or medium it uses. Which segmentation criterion does the segment fail?</textarea></div>
+          <ul class="edit-opts" aria-label="Answers — pick the correct one">
+            <li><input type="radio" name="q2"><span class="l">a</span><input type="text" value="Substantiality"></li>
+            <li><input type="radio" name="q2"><span class="l">b</span><input type="text" value="Measurability"></li>
+            <li><input type="radio" name="q2" checked><span class="l">c</span><input type="text" value="Accessibility"></li>
+            <li><input type="radio" name="q2"><span class="l">d</span><input type="text" value="Responsiveness"></li></ul>
+          <div class="edit-foot"><span>The green dot marks the correct answer.</span><span><button class="btn-link" style="font-size:.88rem">Done</button></span></div></li>
+        <li class="q removed"><span>Question 3 removed — “Grouping viewers by how often they watch is…”</span><button class="icon-btn" style="color:var(--professor);font-weight:700">Undo</button></li>
+        <li class="q"><div class="q-top"><span class="num"></span><p class="stem">A company designs separate offers for college students and for retirees. Which targeting strategy is it using?</p><span class="q-tag ai">AI draft</span><span class="q-tools"><button class="icon-btn">Edit</button><button class="icon-btn">Remove</button></span></div>
+          <ul class="opts"><li><span class="l">a</span>Undifferentiated</li><li><span class="l">b</span>Concentrated</li><li data-correct><span class="l">c</span>Multisegment</li><li><span class="l">d</span>One-to-one</li></ul></li>
+        <li class="q"><div class="q-top"><span class="num"></span><p class="stem">Positioning is best described as:</p><span class="q-tag ai">AI draft</span><span class="q-tools"><button class="icon-btn">Edit</button><button class="icon-btn">Remove</button></span></div>
+          <ul class="opts"><li data-correct><span class="l">a</span>Shaping how customers see a brand compared with its competitors</li><li><span class="l">b</span>Choosing which segment to serve</li><li><span class="l">c</span>Dividing a market into groups</li><li><span class="l">d</span>Setting a price below competitors</li></ul></li>
+        <li class="q"><div class="q-top"><span class="num"></span><p class="stem">A coffee chain notices its loyalty-app users visit twice as often as other customers and builds offers just for them. Which basis of segmentation is it using?</p><span class="q-tag you">Added by you</span><span class="q-tools"><button class="icon-btn">Edit</button><button class="icon-btn">Remove</button></span></div>
+          <ul class="opts"><li><span class="l">a</span>Geographic</li><li><span class="l">b</span>Demographic</li><li><span class="l">c</span>Psychographic</li><li data-correct><span class="l">d</span>Usage-rate</li></ul></li>
+      </ol>
+      <div class="add-row"><button class="ghost-btn">+ Add a question</button><button class="ghost-btn"><span class="spark">✦</span> Draft one more with AI</button></div>
+      <div class="q-actions"><button class="btn-primary">Approve &amp; post to Canvas</button><button class="btn-link">Discard draft</button><span class="q-check"><b>✓</b> 5 questions ready · 15 points</span></div>
+    </li></ol></div>
+</section>
+
+<!-- 3 -->
+<section class="screen">
+  <div class="say"><span class="n">3</span><h2>Approve → saved in Canvas, unpublished</h2>
+    <p>Real Canvas saves a new quiz <b>unpublished</b>: students can't see it. So the confirmation says exactly that, with Canvas's own quiz number, and the assistant asks whether to publish.</p>
+    <p class="who"><span class="call">MCP:</span> Faculty's AI picks <code>create_quiz</code>, code checks the pick and sends the approved questions. Canvas's wrapper checks and stores them.</p></div>
+  <div class="stage"><ol class="log chat-log prof-log" style="padding:0">
+    <li class="msg" data-dir="sent" data-speaker="student"><div class="msg-head"><span class="msg-dir">You approved the quiz</span><time>12:43:02</time></div><p class="msg-text">Topic 8 Quiz: Segmentation &amp; Targeting — 5 questions (1 edited, 1 added, 1 removed by you)</p></li>
+    <li class="msg" data-dir="received" data-speaker="professor"><div class="msg-head"><span class="msg-dir">Course assistant</span><time>12:43:02</time></div><p class="msg-text"><span class="working"><i></i>Saving to Canvas…</span></p></li>
+    <li class="msg lms-card" data-dir="received"><div class="msg-head"><span class="msg-dir">Canvas LMS · Quiz saved</span><time>12:43:04</time></div>
+      <p class="msg-text" style="margin:2px 0 0">Saved in Canvas as an <b>unpublished</b> quiz — students can't see it yet.</p>
+      <dl class="lms-row"><dt>Canvas quiz</dt><dd class="mono">#4821 · MKTG 351 (Fall 2026)</dd><dt>Quiz</dt><dd>Topic 8 Quiz: Segmentation &amp; Targeting</dd><dt>Questions</dt><dd>5 · 15 points · 10 minutes · 1 attempt</dd><dt>Due</dt><dd>Mon, Nov 9, 11:59 PM</dd></dl>
+      <div class="lms-ask"><p><b>Publish it now?</b> Publishing makes it visible in Canvas, and your 2 students get a notification.</p>
+        <button class="btn-primary lms">Publish &amp; notify students</button> <button class="btn-link" style="color:var(--lms-ink)">Keep as draft</button></div></li>
+  </ol></div>
+</section>
+
+<!-- 4 -->
+<section class="screen">
+  <div class="say"><span class="n">4</span><h2>Published — each student's notice tracked</h2>
+    <p>A second MCP call publishes it. Then the notice goes to each enrolled student through the Hub, exactly like a post, with honest per-student states.</p>
+    <p class="who"><span class="call">MCP:</span> <code>publish_quiz</code> → then Faculty → Hub → Student (A2A).</p></div>
+  <div class="stage"><ol class="log chat-log prof-log" style="padding:0">
+    <li class="msg" data-dir="sent" data-speaker="student"><div class="msg-head"><span class="msg-dir">You</span><time>12:43:20</time></div><p class="msg-text">Publish &amp; notify students</p></li>
+    <li class="msg lms-card" data-dir="received"><div class="msg-head"><span class="msg-dir">Canvas LMS · Published</span><time>12:43:21</time></div>
+      <p class="msg-text" style="margin:2px 0 0"><span class="state-badge lms">● Published</span> &nbsp;Topic 8 Quiz: Segmentation &amp; Targeting is open in Canvas (quiz #4821), due Mon, Nov 9, 11:59 PM.</p>
+      <ul class="per-student" style="margin-top:10px"><li data-tone="ok"><span class="who">Alex Student</span><span class="what">Notified — Nov 4, 12:43 PM</span></li><li data-tone="busy"><span class="who">Sam Student</span><span class="what">Queued at Hub — their student agent isn’t connected; delivered when it is</span></li></ul></li>
+  </ol>
+  <p class="summary-line" style="margin:14px 0 0">If he picks <b>Keep as draft</b>: “Kept as a draft in Canvas (quiz #4821). Nobody was notified.” — and the quiz stays unpublished.</p></div>
+</section>
+
+<!-- 5 -->
+<section class="screen">
+  <div class="say"><span class="n">5</span><h2>Alex is notified — nothing to do</h2>
+    <p>A notice in the student's chat (and a toast), from Dr. Dabirian. No button, no link to take the quiz here — the quiz lives in Canvas.</p>
+    <p class="who">Arrives like Part 9 messages: signed by the Hub, into the Student agent's inbox.</p></div>
+  <div class="stage student-stage">
+    <div class="mock-toast"><p class="tt">New quiz in Marketing 351</p><p class="tb">Topic 8 Quiz: Segmentation &amp; Targeting — due Mon, Nov 9</p></div>
+    <section class="panel chat" data-agent="student"><header class="panel-head"><h2>Conversation with the university</h2><span class="role">Student agent “student-alex” · connects only to the university</span></header>
+      <ol class="log chat-log"><li class="msg quiz-notice" data-dir="received" data-speaker="professor"><div class="msg-head"><span class="msg-dir">Dr. Dabirian → the whole class</span><time>12:43:21</time></div>
+        <p class="msg-text"><span class="kind-tag">Quiz</span> A new quiz is open in Canvas: <b>Topic 8 Quiz: Segmentation &amp; Targeting</b>.</p>
+        <p class="quiz-facts"><b>5 questions</b> · 15 points · 10 minutes · 1 attempt · due <b>Mon, Nov 9, 11:59 PM</b></p>
+        <span class="no-action">Notice only — take it in Canvas</span></li></ol></section></div>
+</section>
+
+<!-- 6 -->
+<section class="screen wide">
+  <div class="say"><span class="n">6</span><h2>Topology: Canvas joins as a system, not an agent</h2>
+    <p>Same family as PeopleSoft (design F): a rounded tile, its own icon (a quiz clipboard), sparkle and sweep while busy, the dash-dot MCP line and a hexagon pulse. No circle, no model box.</p>
+    <p>Each system sits in the right-hand column <b>under its agent’s AI model box</b>: Canvas under Faculty’s model, PeopleSoft under HR’s model. The model box moves up a little; the agent’s HTTPS line goes up-right to its model and its MCP line goes down-right to its system. Only Faculty talks to Canvas; only HR talks to PeopleSoft.</p>
+    <p class="who">Shown mid-call: “Working…”, hexagon on its way to Canvas. Colour: moss green (new; not used by any other node).</p></div>
+  <div class="stage"><div class="topo-wrap"><svg id="topo" class="topo" viewBox="0 0 1100 1029" role="group" aria-label="Live topology: Student, University Hub, Tutor Agent, Library Agent, Marketing 351 Faculty and the staff-only HR Agent, each with its own model box, and PeopleSoft (a demo stand-in system, not an agent), reached only by the HR Agent over MCP. Use Tab to reach a node or connection, Enter to open its details.">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9 z" fill="currentColor"></path></marker>
+          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="b"></feGaussianBlur><feMerge><feMergeNode in="b"></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge></filter>
+        </defs>
+        <g id="topo-edges"><g class="edge" data-edge="student-hub" data-kind="a2a" tabindex="0" role="button" aria-label="Connection Student agent ↔ University Hub (A2A JSON-RPC). Open its event timeline."><line class="hit" x1="130" y1="478" x2="450" y2="478"></line><line class="lane" data-dir="out" x1="196" y1="487" x2="364" y2="487" marker-end="url(#arrow)"></line><line class="lane" data-dir="back" x1="368" y1="469" x2="200" y2="469" marker-end="url(#arrow)"></line><text class="edge-label" x="290" y="460" text-anchor="middle">A2A</text></g><g class="edge" data-edge="hub-tutor" data-kind="a2a" tabindex="0" role="button" aria-label="Connection University Hub ↔ Tutor Agent (A2A JSON-RPC). Open its event timeline."><line class="hit" x1="450" y1="478" x2="710" y2="95"></line><line class="lane" data-dir="out" x1="503.5024247754716" y1="415.21074500246874" x2="680.3767613782032" y2="154.66124146844487" marker-end="url(#arrow)"></line><line class="lane" data-dir="back" x1="667.730772980916" y1="141.2418906102372" x2="490.8564363781844" y2="401.79139414426106" marker-end="url(#arrow)"></line><text class="edge-label" x="598" y="286.5" text-anchor="start">A2A</text></g><g class="edge" data-edge="hub-professor" data-kind="a2a" tabindex="0" role="button" aria-label="Connection University Hub ↔ Faculty (A2A JSON-RPC). Open its event timeline."><line class="hit" x1="450" y1="478" x2="710" y2="605"></line><line class="lane" data-dir="out" x1="519.7298356879671" y1="522.076637972163" x2="646.7465340438688" y2="584.1194098613919" marker-end="url(#arrow)"></line><line class="lane" data-dir="back" x1="658.2408807504246" y1="569.70136582659" x2="531.2241823945229" y2="507.65859393736105" marker-end="url(#arrow)"></line><text class="edge-label" x="580" y="523.5" text-anchor="middle">A2A</text></g><g class="edge" data-edge="hub-library" data-kind="a2a" tabindex="0" role="button" aria-label="Connection University Hub ↔ Library Agent (A2A JSON-RPC). Open its event timeline."><line class="hit" x1="450" y1="478" x2="710" y2="350"></line><line class="lane" data-dir="out" x1="527.5431516614731" y1="449.8564460238976" x2="654.7618916074733" y2="387.22568174278973" marker-end="url(#arrow)"></line><line class="lane" data-dir="back" x1="650.4002618593377" y1="369.30987347354943" x2="523.1815219133374" y2="431.94063775465725" marker-end="url(#arrow)"></line><text class="edge-label" x="580" y="396" text-anchor="middle">A2A</text></g><g class="edge" data-edge="hub-hr" data-kind="a2a" tabindex="0" role="button" aria-label="Connection University Hub ↔ HR Agent (A2A JSON-RPC). Open its event timeline."><line class="hit" x1="450" y1="478" x2="710" y2="860"></line><line class="lane" data-dir="out" x1="488.6983762015725" y1="550.852149449152" x2="665.4239373112633" y2="810.5027815410824" marker-end="url(#arrow)"></line><line class="lane" data-dir="back" x1="682.554926351172" y1="803.6815489168034" x2="505.8293652414811" y2="544.030916824873" marker-end="url(#arrow)"></line><text class="edge-label" x="598" y="669" text-anchor="start">A2A</text></g><g class="edge" data-edge="student-model" data-kind="model" tabindex="0" role="button" aria-label="Connection Student agent ↔ Student’s model (HTTPS model API calls). Open its event timeline." data-unused="true"><line class="hit" x1="130" y1="478" x2="130" y2="228"></line><line class="lane" data-dir="out" x1="139" y1="412" x2="139" y2="275" marker-end="url(#arrow)"></line><line class="lane" data-dir="back" x1="121" y1="271" x2="121" y2="408" marker-end="url(#arrow)"></line><text class="edge-label" x="148" y="353" text-anchor="start">HTTPS</text></g><g class="edge" data-edge="hub-model" data-kind="model" tabindex="0" role="button" aria-label="Connection University Hub ↔ Hub router’s model (HTTPS model API calls). Open its event timeline." data-unused="true"><line class="hit" x1="450" y1="478" x2="450" y2="228"></line><line class="lane" data-dir="out" x1="459" y1="396" x2="459" y2="275" marker-end="url(#arrow)"></line><line class="lane" data-dir="back" x1="441" y1="271" x2="441" y2="392" marker-end="url(#arrow)"></line><text class="edge-label" x="468" y="353" text-anchor="start">HTTPS</text></g><g class="edge" data-edge="tutor-model" data-kind="model" tabindex="0" role="button" aria-label="Connection Tutor Agent ↔ Tutor’s model (HTTPS model API calls). Open its event timeline." data-unused="true"><line class="hit" x1="710" y1="95" x2="985" y2="95"></line><line class="lane" data-dir="out" x1="772" y1="104" x2="883" y2="104" marker-end="url(#arrow)"></line><line class="lane" data-dir="back" x1="887" y1="86" x2="776" y2="86" marker-end="url(#arrow)"></line><text class="edge-label" x="847.5" y="77" text-anchor="middle">HTTPS</text></g><g class="edge" data-edge="professor-model" data-kind="model" tabindex="0" role="button" aria-label="Connection Faculty ↔ Faculty’s model (HTTPS model API calls). Open its event timeline." data-unused="true"><line class="hit" x1="710" y1="605" x2="985" y2="550"></line><line class="lane" data-dir="out" x1="772.5610471090806" y1="601.6660257026508" x2="884.9592384593344" y2="579.1863874326001" marker-end="url(#arrow)"></line><line class="lane" data-dir="back" x1="885.3514707296109" y1="560.7514707296108" x2="772.9532793793571" y2="583.2311089996616" marker-end="url(#arrow)"></line><text class="edge-label" x="829" y="560" text-anchor="middle">HTTPS</text></g><g class="edge" data-edge="library-model" data-kind="model" tabindex="0" role="button" aria-label="Connection Library Agent ↔ Library’s model (HTTPS model API calls). Open its event timeline." data-unused="true"><line class="hit" x1="710" y1="350" x2="985" y2="350"></line><line class="lane" data-dir="out" x1="772" y1="359" x2="883" y2="359" marker-end="url(#arrow)"></line><line class="lane" data-dir="back" x1="887" y1="341" x2="776" y2="341" marker-end="url(#arrow)"></line><text class="edge-label" x="847.5" y="332" text-anchor="middle">HTTPS</text></g><g class="edge" data-edge="hr-model" data-kind="model" tabindex="0" role="button" aria-label="Connection HR Agent ↔ HR’s model (HTTPS model API calls). Open its event timeline." data-unused="true"><line class="hit" x1="710" y1="860" x2="985" y2="805"></line><line class="lane" data-dir="out" x1="772.5610471090806" y1="856.6660257026508" x2="884.9592384593344" y2="834.1863874326001" marker-end="url(#arrow)"></line><line class="lane" data-dir="back" x1="885.3514707296109" y1="815.7514707296108" x2="772.9532793793571" y2="838.2311089996616" marker-end="url(#arrow)"></line><text class="edge-label" x="829" y="815" text-anchor="middle">HTTPS</text></g><g class="edge" data-edge="hr-peoplesoft" data-kind="mcp" tabindex="0" role="button" aria-label="Connection HR Agent ↔ PeopleSoft (MCP tool calls). Open its event timeline."><line class="hit" x1="710" y1="860" x2="985" y2="935"></line><line class="lane" data-dir="out" x1="767.9735350761946" y1="883.0666259077749" x2="885.510539947078" y2="915.1221726907431" marker-end="url(#arrow)"></line><line class="lane" data-dir="back" x1="893.0532389131183" y1="902.6679488165831" x2="775.516234042235" y2="870.612402033615" marker-end="url(#arrow)"></line><text class="edge-label" x="821" y="929" text-anchor="middle">MCP</text></g><g class="edge" data-edge="professor-canvas" data-kind="mcp" tabindex="0" role="button" aria-label="Connection Faculty ↔ Canvas LMS (MCP tool calls). Open its event timeline."><line class="hit" x1="710" y1="605" x2="985" y2="680"></line><line class="lane lit" style="--lit: var(--professor);" data-dir="out" x1="767.9735350761946" y1="628.0666259077749" x2="885.510539947078" y2="660.1221726907431" marker-end="url(#arrow)"></line><line class="lane" data-dir="back" x1="893.0532389131183" y1="647.6679488165831" x2="775.516234042235" y2="615.612402033615" marker-end="url(#arrow)"></line><text class="edge-label lms-label" x="821" y="674" text-anchor="middle">MCP</text></g></g>
+        <g id="topo-pulses" aria-hidden="true"><g class="pulse" transform="translate(826.7 644.1) rotate(15.3)"><path d="M-8,-14 L8,-14 L16,0 L8,14 L-8,14 L-16,0 Z" fill="var(--professor)" stroke="var(--surface)" stroke-width="2.5"></path></g></g>
+        <g id="topo-nodes"><g class="node" data-node="student" transform="translate(130 478)" tabindex="0" role="button" style="--node: var(--student)" data-status="ready" data-busy="false" aria-label="Student agent: Unknown. Open details."><circle class="halo" r="70"></circle><circle class="orbit" r="65"></circle><circle class="disc" r="60"></circle><text class="node-name" y="-6" text-anchor="middle">Student agent</text><text class="node-sub" y="13" text-anchor="middle">You</text><text class="node-extra" y="31" text-anchor="middle">student-alex</text><g class="node-status" data-tone="ok" transform="translate(0 86)" ><rect class="status-pill" x="-62" y="-13" width="124" height="24" rx="12"></rect><text class="status-text" y="4" text-anchor="middle">✓ Online</text></g><text class="node-caption" y="-78" text-anchor="middle"></text></g><g class="node" data-node="hub" transform="translate(450 478)" tabindex="0" role="button" style="--node: var(--hub)" data-status="ready" data-busy="false" aria-label="University Hub: Unknown. Open details."><circle class="halo" r="86"></circle><circle class="orbit" r="81"></circle><circle class="disc" r="76"></circle><text class="node-name" y="-14" text-anchor="middle">University Hub</text><text class="node-sub" y="6" text-anchor="middle">Front door and router</text><text class="node-extra" y="26" text-anchor="middle">router: live</text><g class="node-status" data-tone="ok" transform="translate(0 102)" ><rect class="status-pill" x="-62" y="-13" width="124" height="24" rx="12"></rect><text class="status-text" y="4" text-anchor="middle">✓ Ready</text></g><text class="node-caption" y="-94" text-anchor="middle"></text></g><g class="node" data-node="tutor" transform="translate(710 95)" tabindex="0" role="button" style="--node: var(--tutor)" data-status="ready" data-busy="false" aria-label="Tutor Agent: Unknown. Open details."><circle class="halo" r="66"></circle><circle class="orbit" r="61"></circle><circle class="disc" r="56"></circle><text class="node-name" y="-6" text-anchor="middle">Tutor Agent</text><text class="node-sub" y="13" text-anchor="middle">Tutoring specialist</text><text class="node-extra" y="31" text-anchor="middle">♥ 2s ago</text><g class="node-status" data-tone="ok" transform="translate(0 82)" ><rect class="status-pill" x="-62" y="-13" width="124" height="24" rx="12"></rect><text class="status-text" y="4" text-anchor="middle">✓ Ready</text></g><text class="node-caption" y="-74" text-anchor="middle"></text></g><g class="node" data-node="library" transform="translate(710 350)" tabindex="0" role="button" style="--node: var(--library)" data-status="ready" data-busy="false" aria-label="Library Agent: Unknown. Open details."><circle class="halo" r="66"></circle><circle class="orbit" r="61"></circle><circle class="disc" r="56"></circle><text class="node-name" y="-6" text-anchor="middle">Library Agent</text><text class="node-sub" y="13" text-anchor="middle">Library specialist</text><text class="node-extra" y="31" text-anchor="middle">♥ 2s ago</text><g class="node-status" data-tone="ok" transform="translate(0 82)" ><rect class="status-pill" x="-62" y="-13" width="124" height="24" rx="12"></rect><text class="status-text" y="4" text-anchor="middle">✓ Ready</text></g><text class="node-caption" y="-74" text-anchor="middle"></text></g><g class="node" data-node="professor" transform="translate(710 605)" tabindex="0" role="button" style="--node: var(--professor)" data-status="ready" data-busy="true" aria-label="Faculty: Unknown. Open details."><circle class="halo" r="66"></circle><circle class="orbit" r="61"></circle><circle class="disc" r="56"></circle><text class="node-name" y="-6" text-anchor="middle">Faculty</text><text class="node-sub" y="13" text-anchor="middle">Marketing 351</text><text class="node-extra" y="31" text-anchor="middle">♥ 1s ago</text><g class="node-status" data-tone="ok" transform="translate(0 82)" ><rect class="status-pill" x="-62" y="-13" width="124" height="24" rx="12"></rect><text class="status-text" y="4" text-anchor="middle">✓ Ready</text></g><text class="node-caption" y="-74" text-anchor="middle"></text></g><g class="node" data-node="hr" transform="translate(710 860)" tabindex="0" role="button" style="--node: var(--hr)" data-status="ready" data-busy="false" aria-label="HR Agent: Unknown. Open details."><circle class="halo" r="66"></circle><circle class="orbit" r="61"></circle><circle class="disc" r="56"></circle><text class="node-name" y="-6" text-anchor="middle">HR Agent</text><text class="node-sub" y="13" text-anchor="middle">Staff only</text><text class="node-extra" y="31" text-anchor="middle">♥ 2s ago</text><g class="node-status" data-tone="ok" transform="translate(0 82)" ><rect class="status-pill" x="-62" y="-13" width="124" height="24" rx="12"></rect><text class="status-text" y="4" text-anchor="middle">✓ Ready</text></g><text class="node-caption" y="-74" text-anchor="middle"></text></g><g class="node system busy lms" data-node="canvas" transform="translate(985 680)" tabindex="0" role="button" style="--node: var(--lms)" data-status="ready" data-busy="true" aria-label="Canvas LMS (demo stand-in, MCP server): Unknown. Open details."><clipPath id="canvas-tile-clip"><rect x="-88" y="-40" width="176" height="80" rx="16"></rect></clipPath><linearGradient id="canvas-sweep-grad" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="var(--lms)" stop-opacity="0"></stop><stop offset=".5" stop-color="var(--lms)" stop-opacity=".22"></stop><stop offset="1" stop-color="var(--lms)" stop-opacity="0"></stop></linearGradient><rect class="halo" x="-95" y="-47" width="190" height="94" rx="23"></rect><rect class="tile" x="-88" y="-40" width="176" height="80" rx="16"></rect><g clip-path="url(#canvas-tile-clip)"><rect class="sweep" x="-30" y="-40" width="60" height="80" fill="url(#canvas-sweep-grad)"></rect></g><g class="quiz-icon" transform="translate(-58 0)"><rect class="qi-board" x="-13" y="-16" width="26" height="32" rx="4"></rect><rect class="qi-clip" x="-6" y="-19" width="12" height="6" rx="2"></rect><path class="qi-tick" d="M-8,-5 l3,3 l5,-6 M-8,7 l3,3 l5,-6"></path><path class="qi-line" d="M3,-4 h5 M3,8 h5"></path></g><g transform="translate(68 -22)"><path class="spark" d="M0,-10 C1.5,-2 2,-1.5 10,0 C2,1.5 1.5,2 0,10 C-1.5,2 -2,1.5 -10,0 C-2,-1.5 -1.5,-2 0,-10 Z"></path></g><g transform="translate(14 0)"><text class="node-name" y="4" text-anchor="middle">Canvas LMS</text><text class="node-sub" y="21" text-anchor="middle">MCP SERVER</text></g><g class="node-status" data-tone="busy" transform="translate(0 64)" ><rect class="status-pill" x="-62" y="-13" width="124" height="24" rx="12"></rect><text class="status-text" y="4" text-anchor="middle">● Working…</text></g><text class="node-caption" x="-100" y="4" text-anchor="end"></text></g><g class="node system" data-node="peoplesoft" transform="translate(985 935)" tabindex="0" role="button" style="--node: var(--ps)" data-status="ready" data-busy="false" aria-label="PeopleSoft (demo stand-in, MCP server): Unknown. Open details."><clipPath id="peoplesoft-tile-clip"><rect x="-88" y="-40" width="176" height="80" rx="16"></rect></clipPath><linearGradient id="peoplesoft-sweep-grad" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="var(--ps)" stop-opacity="0"></stop><stop offset=".5" stop-color="var(--ps)" stop-opacity=".22"></stop><stop offset="1" stop-color="var(--ps)" stop-opacity="0"></stop></linearGradient><rect class="halo" x="-95" y="-47" width="190" height="94" rx="23"></rect><rect class="tile" x="-88" y="-40" width="176" height="80" rx="16"></rect><g clip-path="url(#peoplesoft-tile-clip)"><rect class="sweep" x="-30" y="-40" width="60" height="80" fill="url(#peoplesoft-sweep-grad)"></rect></g><g class="db-icon" transform="translate(-58 2)"><path class="db" d="M-14,-13 A14,4.5 0 0 0 14,-13 L14,13 A14,4.5 0 0 1 -14,13 Z"></path><ellipse class="db" cx="0" cy="-13" rx="14" ry="4.5"></ellipse><path class="db-line" d="M-14,-4 A14,4.5 0 0 0 14,-4 M-14,5 A14,4.5 0 0 0 14,5"></path></g><g transform="translate(68 -22)"><path class="spark" d="M0,-10 C1.5,-2 2,-1.5 10,0 C2,1.5 1.5,2 0,10 C-1.5,2 -2,1.5 -10,0 C-2,-1.5 -1.5,-2 0,-10 Z"></path></g><g transform="translate(14 0)"><text class="node-name" y="4" text-anchor="middle">PeopleSoft</text><text class="node-sub" y="21" text-anchor="middle">MCP SERVER</text></g><g class="node-status" data-tone="ok" transform="translate(0 64)" ><rect class="status-pill" x="-62" y="-13" width="124" height="24" rx="12"></rect><text class="status-text" y="4" text-anchor="middle">✓ Connected</text></g><text class="node-caption" x="-100" y="4" text-anchor="end"></text></g><g class="node service" data-node="llm-student" data-owner="student" transform="translate(130 228)" tabindex="0" role="button" style="--node: var(--model)" data-status="ready" data-busy="false" aria-label="Student’s model: Unknown. Open details."><rect class="halo" x="-99" y="-44" width="198" height="88" rx="19"></rect><rect class="orbit" x="-95" y="-40" width="190" height="80" rx="15"></rect><rect class="disc" x="-92" y="-37" width="184" height="74" rx="12"></rect><text class="node-name" y="-12" text-anchor="middle">Student’s model</text><text class="node-extra" y="6" text-anchor="middle">claude-haiku-5-5</text><g class="node-status" data-tone="muted" ><text class="status-text" y="25" text-anchor="middle">○ No calls yet</text></g><text class="node-caption" y="-47" text-anchor="middle"></text></g><g class="node service" data-node="llm-hub" data-owner="hub" transform="translate(450 228)" tabindex="0" role="button" style="--node: var(--model)" data-status="ready" data-busy="false" aria-label="Hub router’s model: Unknown. Open details."><rect class="halo" x="-99" y="-44" width="198" height="88" rx="19"></rect><rect class="orbit" x="-95" y="-40" width="190" height="80" rx="15"></rect><rect class="disc" x="-92" y="-37" width="184" height="74" rx="12"></rect><text class="node-name" y="-12" text-anchor="middle">Hub router’s model</text><text class="node-extra" y="6" text-anchor="middle">claude-haiku-5-5</text><g class="node-status" data-tone="muted" ><text class="status-text" y="25" text-anchor="middle">○ No calls yet</text></g><text class="node-caption" y="-47" text-anchor="middle"></text></g><g class="node service" data-node="llm-tutor" data-owner="tutor" transform="translate(985 95)" tabindex="0" role="button" style="--node: var(--model)" data-status="ready" data-busy="false" aria-label="Tutor’s model: Unknown. Open details."><rect class="halo" x="-99" y="-42" width="198" height="84" rx="19"></rect><rect class="orbit" x="-95" y="-38" width="190" height="76" rx="15"></rect><rect class="disc" x="-92" y="-35" width="184" height="70" rx="12"></rect><text class="node-name" y="-12" text-anchor="middle">Tutor’s model</text><text class="node-extra" y="6" text-anchor="middle">claude-haiku-5-5</text><g class="node-status" data-tone="muted" ><text class="status-text" y="25" text-anchor="middle">○ No calls yet</text></g><text class="node-caption" y="-45" text-anchor="middle"></text></g><g class="node service" data-node="llm-library" data-owner="library" transform="translate(985 350)" tabindex="0" role="button" style="--node: var(--model)" data-status="ready" data-busy="false" aria-label="Library’s model: Unknown. Open details."><rect class="halo" x="-99" y="-42" width="198" height="84" rx="19"></rect><rect class="orbit" x="-95" y="-38" width="190" height="76" rx="15"></rect><rect class="disc" x="-92" y="-35" width="184" height="70" rx="12"></rect><text class="node-name" y="-12" text-anchor="middle">Library’s model</text><text class="node-extra" y="6" text-anchor="middle">claude-haiku-5-5</text><g class="node-status" data-tone="muted" ><text class="status-text" y="25" text-anchor="middle">○ No calls yet</text></g><text class="node-caption" y="-45" text-anchor="middle"></text></g><g class="node service" data-node="llm-professor" data-owner="professor" transform="translate(985 550)" tabindex="0" role="button" style="--node: var(--model)" data-status="ready" data-busy="false" aria-label="Faculty’s model: Unknown. Open details."><rect class="halo" x="-99" y="-42" width="198" height="84" rx="19"></rect><rect class="orbit" x="-95" y="-38" width="190" height="76" rx="15"></rect><rect class="disc" x="-92" y="-35" width="184" height="70" rx="12"></rect><text class="node-name" y="-12" text-anchor="middle">Faculty’s model</text><text class="node-extra" y="6" text-anchor="middle">claude-haiku-5-5</text><g class="node-status" data-tone="ok" ><text class="status-text" y="25" text-anchor="middle">✓ Last call answered</text></g><text class="node-caption" y="-45" text-anchor="middle"></text></g><g class="node service" data-node="llm-hr" data-owner="hr" transform="translate(985 805)" tabindex="0" role="button" style="--node: var(--model)" data-status="ready" data-busy="false" aria-label="HR’s model: Unknown. Open details."><rect class="halo" x="-99" y="-42" width="198" height="84" rx="19"></rect><rect class="orbit" x="-95" y="-38" width="190" height="76" rx="15"></rect><rect class="disc" x="-92" y="-35" width="184" height="70" rx="12"></rect><text class="node-name" y="-12" text-anchor="middle">HR’s model</text><text class="node-extra" y="6" text-anchor="middle">claude-haiku-5-5</text><g class="node-status" data-tone="muted" ><text class="status-text" y="25" text-anchor="middle">○ No calls yet</text></g><text class="node-caption" y="-45" text-anchor="middle"></text></g></g>
+      </svg></div>
+    <div class="topo-key"><span><b>Faculty → Canvas LMS</b> · MCP (dash-dot), down-right</span><span><b>HR → PeopleSoft</b> · MCP, now down-right too (moved under HR’s model)</span><span>Details panel: “Canvas LMS — demo stand-in”, never step names</span></div></div>
+</section>
+
+</div></body></html>
