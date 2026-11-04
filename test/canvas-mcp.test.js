@@ -6,6 +6,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { startCanvas } from './support/harness.js';
 import { defaultSettings } from '../src/quiz-rules.js';
 
+const NOW = '2026-11-04T18:00:00Z';
 const TOKEN = 'canvas-test-token-xyz';
 let cv;
 before(async () => { cv = await startCanvas({ CANVAS_TOKEN: TOKEN, CANVAS_TEST_HOOKS: '1', CANVAS_MODE: 'mock' }); });
@@ -20,7 +21,7 @@ const reset = () => fetch(`${cv.url}/dev/reset`, { method: 'POST', headers: { Au
 const quizzes = async () => (await (await fetch(`${cv.url}/test/quizzes`)).json()).quizzes;
 const QUESTION = 'Which statement about the marketing mix is correct?';
 const q = (i) => ({ text: `${QUESTION} (variant ${i})`, answers: ['Alpha', 'Beta', 'Gamma', 'Delta'], correct: 2 });
-const quiz = (extra = {}) => ({ topic: 1, ...defaultSettings(1, new Date()), questions: [q(1), q(2), q(3)], ...extra });
+const quiz = (extra = {}) => ({ topic: 1, ...defaultSettings(1, new Date(NOW)), questions: [q(1), q(2), q(3)], ...extra });
 const create = (c, over = {}) => c.callTool({ name: 'create_quiz', arguments: { courseId: 'mkt-351', quiz: quiz(), operationId: 'create-0001', ...over } });
 
 test('lists exactly two tools with the stand-in prefix', async () => {
@@ -173,4 +174,35 @@ test('New conversation while the planner thinks: the old save is refused and the
   assert.equal(r.isError, true, JSON.stringify(r.structuredContent));
   assert.equal(r.structuredContent.code, 'reset_during_call');
   assert.deepEqual((await (await fetch(`${own.url}/test/quizzes`)).json()).quizzes, []);
+});
+
+test('CANVAS_NOW pins the date: after the term the default due date is refused', async () => {
+  const own = await startCanvas({ CANVAS_TOKEN: 't', CANVAS_TEST_HOOKS: '1', CANVAS_MODE: 'mock', CANVAS_NOW: '2026-12-20T18:00:00Z' });
+  try {
+    const client = new Client({ name: 'test', version: '1.0.0' });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${own.url}/mcp`), { requestInit: { headers: { Authorization: 'Bearer t' } } }));
+    const r = await create(client, { operationId: 'after-term-1' }); // due date built from 2026-11-04 is in the past by then
+    assert.equal(r.isError, true);
+    assert.ok(['due_in_past', 'not_taught', 'bad_settings'].includes(r.structuredContent.code), r.structuredContent.code);
+    assert.equal(r.structuredContent.code, 'due_in_past');
+    await client.close();
+  } finally { own.proc.kill(); }
+});
+
+test('CANVAS_NOW is ignored without the test hook, and an invalid one refuses to start', async () => {
+  const own = await startCanvas({ CANVAS_TOKEN: 't', CANVAS_MODE: 'mock', CANVAS_NOW: '2020-01-01T00:00:00Z' });
+  try {
+    const client = new Client({ name: 'test', version: '1.0.0' });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${own.url}/mcp`), { requestInit: { headers: { Authorization: 'Bearer t' } } }));
+    const r = await create(client, { operationId: 'ignored-now-1', quiz: quiz({ dueAt: '2026-09-08T06:59:00Z' }) });
+    // Past by the real clock (it is after Sep 2026), future by the ignored 2020 pin.
+    assert.equal(r.structuredContent.code, 'due_in_past', 'real clock used, not 2020');
+    await client.close();
+  } finally { own.proc.kill(); }
+  const { spawn } = await import('node:child_process');
+  const p = spawn(process.execPath, ['src/canvas-mcp.js'], { env: { ...process.env, PORT: '0', CANVAS_TOKEN: 't', CANVAS_TEST_HOOKS: '1', CANVAS_NOW: 'not-a-date' } });
+  let out = '';
+  p.stdout.on('data', (d) => (out += d)); p.stderr.on('data', (d) => (out += d));
+  assert.equal(await new Promise((r) => p.on('exit', r)), 1);
+  assert.match(out, /CANVAS_NOW must be an ISO date-time/);
 });

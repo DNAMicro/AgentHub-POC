@@ -20,7 +20,9 @@ const PUBLISH_STEPS = ['check_quiz_exists', 'set_published'];
 const log = (...a) => console.log('[Canvas]', ...a);
 
 const asResult = (value, isError = false) => ({ content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value, ...(isError ? { isError: true } : {}) });
-const refusal = (code, reason) => asResult(CANVAS_REFUSAL_CODES.includes(code) ? { code, reason } : { code: 'tool_error', reason: 'Canvas could not complete that request.' }, true);
+// Refusals are only the fixed codes. An unexpected store error is NOT a refusal: it is rethrown, the SDK answers an
+// error, and the caller treats a thrown call as uncertain.
+const refusal = (code, reason) => asResult({ code, reason }, true);
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 function buildServer(store, stepsByOp) {
@@ -53,9 +55,9 @@ function buildServer(store, stepsByOp) {
       log(`created operationId=${op} quizId=${result.quiz.quizId} steps=${steps.length}${again ? ' (repeat)' : ''}`);
       if (!again && lateMs > 0) await new Promise((r) => setTimeout(r, lateMs));
       return asResult({ receipt: { ...result.quiz, steps, stepCount: steps.length } });
-    } catch {
+    } catch (err) {
       log(`error operationId=${op}`);
-      return refusal('tool_error');
+      throw err;
     }
   });
 
@@ -71,9 +73,9 @@ function buildServer(store, stepsByOp) {
       }
       log(`published operationId=${op} quizId=${result.quiz.quizId}`);
       return asResult({ receipt: { ...result.quiz, steps: PUBLISH_STEPS, stepCount: PUBLISH_STEPS.length } });
-    } catch {
+    } catch (err) {
       log(`error operationId=${op}`);
-      return refusal('tool_error');
+      throw err;
     }
   });
   return server;
@@ -81,13 +83,20 @@ function buildServer(store, stepsByOp) {
 
 export function startCanvasServer({ port = 41247, token = process.env.CANVAS_TOKEN } = {}) {
   if (!token) return Promise.reject(new Error('CANVAS_TOKEN is required: set it to any secret string.'));
+  // Test hook only: CANVAS_NOW (ISO) pins "today" so tests judge dates like the Faculty agent's pinned date.
+  // Production (no CANVAS_TEST_HOOKS) ignores it.
+  let clock = null;
+  if (process.env.CANVAS_TEST_HOOKS === '1' && process.env.CANVAS_NOW) {
+    clock = Date.parse(process.env.CANVAS_NOW);
+    if (Number.isNaN(clock)) return Promise.reject(new Error('CANVAS_NOW must be an ISO date-time such as 2026-11-04T18:00:00Z.'));
+  }
   const want = Buffer.from(`Bearer ${token}`);
   const authorized = (req) => {
     const got = Buffer.from(req.headers.authorization ?? '');
     return got.length === want.length && timingSafeEqual(got, want);
   };
   return new Promise((resolve, reject) => {
-    const store = createCanvasStore();
+    const store = createCanvasStore(clock ? { now: () => new Date(clock) } : {});
     const stepsByOp = new Map();
     const app = express();
     const sessions = new Map(); // sessionId -> { transport, server }
