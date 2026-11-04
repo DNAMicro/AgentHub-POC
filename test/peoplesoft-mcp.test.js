@@ -15,7 +15,7 @@ async function connect(token = 't') {
   return client;
 }
 const records = async () => (await (await fetch(`${ps.url}/test/records`)).json()).records;
-const request = (over = {}) => ({ staffId: 'staff-amir', absenceType: 'VAC', absenceReason: 'VAC', beginDate: '2026-11-10', endDate: '2026-11-10', partial: null, operationId: 'abcdef0123', ...over });
+const request = (over = {}) => ({ staffId: 'staff-dabirian', absenceType: 'VAC', absenceReason: 'VAC', beginDate: '2026-11-10', endDate: '2026-11-10', partial: null, operationId: 'abcdef0123', ...over });
 
 test('lists exactly three tools', async () => {
   const c = await connect();
@@ -25,10 +25,10 @@ test('lists exactly three tools', async () => {
   await c.close();
 });
 
-test('balances for staff-amir are 96/120/8', async () => {
+test('balances for staff-dabirian are 96/120/8', async () => {
   const c = await connect();
-  const r = await c.callTool({ name: 'get_leave_balances', arguments: { staffId: 'staff-amir' } });
-  assert.deepEqual(r.structuredContent, { staffId: 'staff-amir', vacation: 96, sick: 120, personalHoliday: 8 });
+  const r = await c.callTool({ name: 'get_leave_balances', arguments: { staffId: 'staff-dabirian' } });
+  assert.deepEqual(r.structuredContent, { staffId: 'staff-dabirian', vacation: 96, sick: 120, personalHoliday: 8 });
   assert.deepEqual(JSON.parse(r.content[0].text), r.structuredContent);
   const bad = await c.callTool({ name: 'get_leave_balances', arguments: { staffId: 'nobody' } });
   assert.equal(bad.isError, true);
@@ -54,7 +54,7 @@ test('creates a request and lists it', async () => {
   assert.notEqual(made.isError, true, JSON.stringify(made));
   assert.equal(made.structuredContent.receipt.recordId, 'ABS-000101');
   assert.equal(made.structuredContent.receipt.status, 'sent_to_manager');
-  const listed = await c.callTool({ name: 'list_absence_requests', arguments: { staffId: 'staff-amir' } });
+  const listed = await c.callTool({ name: 'list_absence_requests', arguments: { staffId: 'staff-dabirian' } });
   assert.equal(listed.structuredContent.requests.length, 1);
   assert.equal(listed.structuredContent.requests[0].recordId, 'ABS-000101');
   assert.equal('steps' in listed.structuredContent.requests[0], false);

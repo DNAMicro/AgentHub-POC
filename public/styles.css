@@ -26,7 +26,7 @@
   --student: #2b59c3;     /* cobalt — you */
   --tutor: #8a3fa8;       /* plum */
   --library: #16765e;     /* spruce */
-  --professor: #a3315a;   /* berry — the Marketing 101 Professor (Part 9) */
+  --professor: #a3315a;   /* berry — the Marketing 101 Faculty (Part 9) */
   --router: #9a6300;      /* ochre — the university Hub: routing and relay */
   --hub: var(--router);
   --model: #5b6472;       /* slate — the model provider (outside the university) */
@@ -624,7 +624,7 @@ dialog#skills-dialog::backdrop { background: rgb(0 0 0 / 0.5); }
 .dialog-actions button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
 .dialog-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* ---- Part 9: the course inbox, lesson, toast and the Professor view ---------------------------------
+/* ---- Part 9: the course inbox, lesson, toast and the Faculty view ---------------------------------
    Lessons wear the Professor's berry; the student's own actions stay cobalt. A bookmark is the motif. */
 .chat .panel-head { grid-template-columns: auto 1fr auto auto; }
 .inbox-toggle {
@@ -734,11 +734,11 @@ dialog#skills-dialog::backdrop { background: rgb(0 0 0 / 0.5); }
 .meeting-times .slot[aria-pressed="true"]::before { content: "✓ "; }
 
 /* The chat fills the window's height at every width (user request, 2026-10-30): while the Conversation
-   or Professor view is showing, the page is exactly one window tall and the chat takes what the header
+   or Faculty view is showing, the page is exactly one window tall and the chat takes what the header
    and the hop-by-hop strip leave, with its own scroll. Short windows keep a usable chat (the grid rows' 420px minimum) and scroll the page. */
 body:has(#view-conversation:not([hidden]), #view-professor:not([hidden])) { height: 100dvh; }
 
-/* Professor view: a hand-over is ONE card (the student's message, one Reply) with a status strip — waiting
+/* Faculty view: a hand-over is ONE card (the student's message, one Reply) with a status strip — waiting
    (amber) → answered (green) — and the tab counts the waiting ones. flex-shrink: 0 keeps a card whole in
    the scrolling chat (overflow: hidden would otherwise let it shrink). */
 .tab-count[hidden] { display: none; }
@@ -753,7 +753,7 @@ body:has(#view-conversation:not([hidden]), #view-professor:not([hidden])) { heig
 .handover-status .told { color: var(--muted); }
 .handover-status .told q { quotes: "“" "”"; }
 
-/* ---- HR (staff only): the time-off card in the Professor view ----
+/* ---- HR (staff only): the time-off card in the Faculty view ----
    Approved design: docs/superpowers/specs/2026-11-03-hr-card-redesign.html — readable in 3 seconds.
    Lead line, the summary slip (what, when, what is left), “Picked from what you wrote”, then HR's A2UI
    surface (official renderer, light DOM): two dropdowns, dates and hours, the note with its ⓘ, buttons. */

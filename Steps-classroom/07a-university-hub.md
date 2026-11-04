@@ -211,7 +211,7 @@ Don't stop to ask questions. Everything you need is in this file and Step 0.
     - a clarify decision with `clarification_question: 'Which subject: Calculus (Tutor Agent)?'` → `clarificationQuestion` is `'Which subject: Calculus?'` (the "(<name>)" is dropped);
     - `reason: 'Could be Tutor Agent.'` → `'Could be Tutoring.'`;
     - ordinary words stay: an `unsupported` decision with reason `'Ask the tutor at the library.'` keeps that reason unchanged.
-    Step 9a extends this test with the Professor.
+    Step 9a extends this test with the Faculty agent.
 
 ## Phase 3 — Join and check (lead)
 
@@ -280,4 +280,8 @@ Then append the "CLAUDE.md notes" below to `CLAUDE.md` and commit `Step 7a: The 
 
 - Free: `npm run demo`, open `http://127.0.0.1:4444`. Ask a calculus question, a library question, "I want to reserve a group study room", and "How do I fix my plumbing?".
 - PAID (a few cents): `env -u ANTHROPIC_BASE_URL npm run demo:live`. Each live startup line must say `API host: api.anthropic.com`.
-- A later step adds a Professor behind the same Hub. Keep peers, destinations and the registry driven by config, so a new peer needs no Hub code changes.
+- A later step adds a Faculty behind the same Hub. Keep peers, destinations and the registry driven by config, so a new peer needs no Hub code changes.
+
+## Enhancements merged into this step
+
+- Renamed what the audience sees (2026-11-04): the agent is “Marketing 101 Faculty”, the tab is “Faculty view” (/faculty; /professor still opens it), and the person is “Dr. Dabirian” (was “Professor Amir”), because “Professor” confused the audience. Code names, files, settings and commands keep “professor”. Students may still type “professor”: keep accepting it (the Student agent treats a title word — professor, faculty, instructor, Dr. — as naming whoever the last reply named with a title).

@@ -1,4 +1,4 @@
-// HR (staff only): the Professor agent's staff desk in the Professor view chat. Before a message without
+// HR (staff only): the Professor agent's staff desk in the Faculty view chat. Before a message without
 // @assistant goes to students, this decides whether it is a request for the professor HIMSELF as staff:
 //   * staff_request → HR, over the Hub's signed staff path (Professor → Hub → HR); HR's card comes back.
 //   * unsure        → ask the fixed question; the next message answers it (HR / class / both).
@@ -133,7 +133,7 @@ export function receiptText(r) {
   return `Sent to your manager for a decision. Request ${r.requestId}: ${r.absenceName}${subtitle ? ` (${subtitle})` : ''}, ${dates}, ${r.hours} ${r.hours === 1 ? 'hour' : 'hours'}.`;
 }
 
-// The open card as /author/state shows it (the Professor view renders it); null when none is open.
+// The open card as /author/state shows it (the Faculty view renders it); null when none is open.
 export const staffView = () => (cardOpen() ? { formRef: openCard.formRef, a2ui: openCard.a2ui, card: openCard.hrCard } : null);
 
 export function resetStaff() {

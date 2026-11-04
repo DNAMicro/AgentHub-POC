@@ -1,4 +1,4 @@
-// Part 10: AG-UI for the Professor view — its OWN agent stream (GET /api/ag-ui/professor/stream), separate
+// Part 10: AG-UI for the Faculty view — its OWN agent stream (GET /api/ag-ui/professor/stream), separate
 // from the student's: a STATE_SNAPSHOT replaces an agent's whole state, and the two sides' runs must not
 // collide. The route stays browser → UI server → Hub's developer proxy → Professor agent.
 //
@@ -49,7 +49,7 @@ export function createProfessorAgUi({ bootId, getState, postChat, unreachable })
   async function fetchState() {
     try {
       const r = await getState();
-      return r.ok ? { professor: r.json, error: null } : { professor: state?.professor ?? null, error: r.json?.error ?? 'The Professor agent isn’t reachable right now.' };
+      return r.ok ? { professor: r.json, error: null } : { professor: state?.professor ?? null, error: r.json?.error ?? 'The Faculty agent isn’t reachable right now.' };
     } catch {
       return { professor: state?.professor ?? null, error: unreachable };
     }

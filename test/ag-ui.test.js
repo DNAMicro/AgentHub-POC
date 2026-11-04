@@ -1,4 +1,4 @@
-// Part 10: AG-UI (@ag-ui/* 1.0.3) between the Student agent / Professor view and the browser. The UI server's
+// Part 10: AG-UI (@ag-ui/* 1.0.3) between the Student agent / Faculty view and the browser. The UI server's
 // AG-UI streams are a second view of its real events; /api/events is unchanged (the other test files read it).
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -190,7 +190,7 @@ test('a reload replays the history with the replayed marker; the form lifecycle 
   reload.close();
 });
 
-test('the Professor view: its own stream, a state snapshot, and one message as a run', async () => {
+test('the Faculty view: its own stream, a state snapshot, and one message as a run', async () => {
   const p = await aguiStream(`${stack.ui.url}/api/ag-ui/professor/stream`);
   await waitFor(() => p.events.some((e) => e.type === 'STATE_SNAPSHOT'), { what: 'professor snapshot' });
   assert.ok(p.events.find((e) => e.type === 'STATE_SNAPSHOT').snapshot.professor.course, 'the Professor’s state');

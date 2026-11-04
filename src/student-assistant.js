@@ -122,10 +122,11 @@ export async function planRequest(args) {
   return plan.relation === 'new_request' ? { text: question, ...plan } : { text: combined, ...plan, relation: 'answers_question' };
 }
 
-// A short message that only names something from the last university reply — “Amir”, “Professor Amir”,
-// “ask the professor” right after “…passed this on to Professor Amir…” — continues that conversation: it goes on
+// A short message that only names something from the last university reply — “Dabirian”, “Dr. Dabirian”,
+// “ask the professor” right after “…passed this on to Dr. Dabirian…” — continues that conversation: it goes on
 // as-is and the university routes it to the service that replied. Never a clarifying question.
 const FILLER = new Set('ask tell talk speak to the my please with can could you i would like want a an of'.split(' '));
+const TITLES = new Set('professor prof faculty member instructor teacher dr doctor'.split(' '));
 const wordsOf = (s) => String(s ?? '').toLowerCase().replace(/[’']/g, '').split(/[^a-z0-9]+/).filter(Boolean);
 export function namesFromLastReply(question, last) {
   if (!last?.capability || !last.answer) return false;
@@ -133,7 +134,10 @@ export function namesFromLastReply(question, last) {
   if (!raw.length || raw.length > 4) return false;
   const content = raw.filter((w) => !FILLER.has(w));
   const inReply = new Set(wordsOf(last.answer));
-  return content.length > 0 && content.every((w) => inReply.has(w));
+  // A title word (“ask the professor”, “the faculty member”) names whoever the reply named with a title
+  // (“…passed this on to Dr. Dabirian…”): students still say “professor” although the app says “Faculty”.
+  const titled = [...TITLES].some((w) => inReply.has(w));
+  return content.length > 0 && content.every((w) => inReply.has(w) || (titled && TITLES.has(w)));
 }
 
 async function planCore({ question, capabilities, recentTurns = [], followsQuestion = false, clarifiedAlready = false, clarificationAnswer = '', pending = null, onModelEvent = () => {} }) {

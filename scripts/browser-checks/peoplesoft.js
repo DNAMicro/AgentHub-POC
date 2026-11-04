@@ -68,8 +68,8 @@ async (page) => {
   check('MCP label between the two', geo.label > laneMin && geo.label < laneMax, geo.label);
   await topo.locator('#topo').screenshot({ path: `${SHOTS}/ps-1-rest.png` });
 
-  // 2. File a request from the Professor view; Topology watches for the MCP hop, busy and “✓ Saved”.
-  await page.goto(`${origin}/professor`);
+  // 2. File a request from the Faculty view; Topology watches for the MCP hop, busy and “✓ Saved”.
+  await page.goto(`${origin}/faculty`);
   await page.waitForTimeout(1200);
   const card = page.locator('#prof-log .hr-card');
   async function say(text) {

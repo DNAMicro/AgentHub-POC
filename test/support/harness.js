@@ -106,7 +106,7 @@ export const stateOf = (events, runId) => forRun(events, runId).filter((e) => e.
 
 export const LIBRARY_READY = /\[Library Agent\] listening on (http:\/\/127\.0\.0\.1:\d+)/;
 
-export const PROFESSOR_READY = /\[Marketing 101 Professor\] listening on (http:\/\/127\.0\.0\.1:\d+)/;
+export const PROFESSOR_READY = /\[Marketing 101 Faculty\] listening on (http:\/\/127\.0\.0\.1:\d+)/;
 export async function startProfessor(env = {}) {
   const professor = startProcess('src/professor-agent.js', { PORT: '0', PROFESSOR_OUTBOX_FILE: tempFile('outbox.json'), ...env }, PROFESSOR_READY);
   professor.url = await professor.ready;
@@ -151,7 +151,7 @@ export async function stopProcess(p) {
 // with the Hub. Pass tutorPort/libraryPort to restart a specialist on the same trusted endpoint.
 // library: false starts only the Tutor (the Library stays registered-but-absent, i.e. disconnected).
 // readyAgents: which specialists must be 'ready' before returning (e.g. ['tutor'] when the Library is disabled).
-// Part 9: professor: true also starts the Marketing 101 Professor. The UI (Student) port is pre-picked
+// Part 9: professor: true also starts the Marketing 101 Faculty. The UI (Student) port is pre-picked
 // too, so the Hub's configuration names the Student's inbound endpoint before it starts.
 // HR: hr: true also starts the HR Agent (with HR_TEST_HOOKS=1). Its port is always pre-picked, so a test
 // Hub never follows a real HR on the default port.
@@ -263,7 +263,7 @@ export async function professorStandIn(stack) {
   const base = `http://127.0.0.1:${stack.professorPort}`;
   const app = express();
   app.get('/.well-known/agent-card.json', (req, res) => res.json({
-    name: 'Marketing 101 Professor', description: 'Test stand-in (registers and signs staff requests only).', version: '0.0.0',
+    name: 'Marketing 101 Faculty', description: 'Test stand-in (registers and signs staff requests only).', version: '0.0.0',
     supportedInterfaces: [{ url: `${base}/a2a/jsonrpc`, protocolBinding: 'JSONRPC', protocolVersion: '1.0', tenant: '' }],
     capabilities: { streaming: false, pushNotifications: false, extensions: [] }, securitySchemes: {}, securityRequirements: [],
     defaultInputModes: ['text/plain'], defaultOutputModes: ['text/plain'], skills: [], signatures: [],

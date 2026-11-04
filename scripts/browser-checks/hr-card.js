@@ -1,9 +1,9 @@
-// Browser check: HR's time-off card in the Professor view (approved redesign
+// Browser check: HR's time-off card in the Faculty view (approved redesign
 // docs/superpowers/specs/2026-11-03-hr-card-redesign.html: 3-second summary slip, dropdowns, ⓘ notes) and the
 // staff hop on Topology (HR Agent, staff only). Run it on a SEPARATE stack, never the user's demo (it presses
 // New conversation, which resets the classroom):
 //   node scripts/demo/rehearsal-stack.js --ui 5544 --base 52340 --mock
-//   playwright-cli -s=hr open http://127.0.0.1:5544/professor
+//   playwright-cli -s=hr open http://127.0.0.1:5544/faculty
 //   playwright-cli -s=hr run-code "$(cat scripts/browser-checks/hr-card.js)"
 // Screenshots go to SHOTS (relative to where playwright-cli runs). Mock HR = a labelled heuristic: this
 // checks the card on screen and the plumbing, not live judgment. Dates like “this Thursday” depend on
@@ -24,7 +24,7 @@ async (page) => {
   await page.waitForTimeout(1200);
   await page.getByRole('button', { name: 'New conversation' }).click();
   await page.waitForTimeout(1200);
-  await page.goto(`${origin}/professor`);
+  await page.goto(`${origin}/faculty`);
   await page.waitForTimeout(1200);
 
   const card = page.locator('#prof-log .hr-card');
@@ -251,7 +251,7 @@ async (page) => {
   await page.locator('#prof-log').screenshot({ path: `${SHOTS}/hr-14-cancellation-sent.png` });
   await page.goto(`${origin}/conversation`);
   const studentSaw = await page.waitForFunction(() => /Marketing 101 is cancelled on Thu, Nov 5, Fri, Nov 6, Thu, Nov 12 and Fri, Nov 13\./.test(document.body.textContent), null, { timeout: 15000 }).then(() => true).catch(() => false);
-  const studentText = (await page.locator('#view-conversation').textContent()) ?? ''; // the student's own view (the page also holds the hidden Professor view)
+  const studentText = (await page.locator('#view-conversation').textContent()) ?? ''; // the student's own view (the page also holds the hidden Faculty view)
   check('cancellation: the student sees it, with no reason', studentSaw && !/uncle|bereave|funeral|sick|grandmother/i.test(studentText));
   await page.screenshot({ path: `${SHOTS}/hr-15-student-sees-cancellation.png` });
 

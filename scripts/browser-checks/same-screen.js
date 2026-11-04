@@ -81,7 +81,7 @@ async (page) => {
   await page.reload();
   await page.waitForTimeout(3000);
   out.push(await dump('09-after-reload'));
-  await page.getByRole('tab', { name: 'Professor view' }).click();
+  await page.getByRole('tab', { name: 'Faculty view' }).click();
   await page.waitForTimeout(4000);
   out.push(await dump('10-professor-view'));
   await page.getByRole('tab', { name: 'Agent activity' }).click();

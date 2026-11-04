@@ -1,13 +1,13 @@
 // Step 9 · Professor — the professor posts to the class, Alex replies, and the professor offers meeting times
 scenes.push({
   n: 9,
-  title: 'Professor',
+  title: 'Faculty',
   async run() {
     // (a) The professor posts a lesson through the course assistant, then leaves for the student's screen.
-    // The toast only appears while the Professor view is hidden, so the professor tab is left at once and the
+    // The toast only appears while the Faculty view is hidden, so the professor tab is left at once and the
     // lesson is awaited on the Conversation tab, where the audience sees it arrive unprompted.
     let arrived = false;
-    let lessonCard = 0; // index of this lesson's card in the professor's chat (its new card is appended last)
+    let lessonCard = 0; // index of this lesson's card in the faculty member's chat (its new card is appended last)
     await moment('professor posts a lesson, it arrives at the student', async () => {
       await tab('professor');
       const box = left.locator('#prof-message');
@@ -42,26 +42,26 @@ scenes.push({
 
     // (c) A follow-up about the lesson, routed by the lesson's delivery record; the professor answers.
     let answered = false;
-    await moment('Alex asks a follow-up about the lesson, the professor answers', async () => {
+    await moment('Alex asks a follow-up about the lesson, the faculty member answers', async () => {
       await click(left.locator('#lesson-ask'));
       await pause(500);
       const answer = await ask('Could you give me the same idea for a small bookstore?');
       // ask() returns the newest chat item; it is an answer only if it isn't Alex's own message.
       const head = ((await answer.locator('.msg-dir').first().textContent().catch(() => '')) ?? '').trim();
       answered = head !== '' && !/^Sent to /.test(head);
-      if (!answered) problems.push('Step 9 · the professor did not answer the follow-up');
+      if (!answered) problems.push('Step 9 · the faculty member did not answer the follow-up');
     });
     if (!answered) return;
 
     // (d) Back on the professor's side: Alex's state on the lesson, then a direct message to Alex.
     let sentToAlex = false;
     const lessonState = left.locator('#prof-log li.post-card').nth(lessonCard).locator('.per-student li[data-tone="ok"]', { hasText: 'Alex' });
-    await moment('the professor sees Alex has opened the lesson', async () => {
+    await moment('the faculty member sees Alex has opened the lesson', async () => {
       await tab('professor');
       const opened = lessonState.filter({ hasText: 'Opened' });
       if (await seen(opened, 30000)) await moveTo(opened); // scroll the result into view for the screenshot
     });
-    await moment('the professor writes to Alex directly, it is delivered', async () => {
+    await moment('the faculty member writes to Alex directly, it is delivered', async () => {
       const box = left.locator('#prof-message');
       await typeInto(box, '@al');
       await pause(800);
@@ -77,7 +77,7 @@ scenes.push({
 
     // (e) Alex taps ↩ Reply on the professor's message and answers; the reply goes back to the professor only.
     let replied = false;
-    await moment('Alex taps ↩ Reply on the professor’s message and answers', async () => {
+    await moment('Alex taps ↩ Reply on the faculty member’s message and answers', async () => {
       await tab('conversation');
       const replyButton = left.locator('#student-log li.incoming-message', { hasText: 'draft by Friday' }).locator('.reply-action').last();
       if (!(await seen(replyButton, 30000))) return;
@@ -90,7 +90,7 @@ scenes.push({
 
     // (e, second result) The professor’s chat shows Alex’s reply, relayed by the Hub (no model involved).
     let relayed = false;
-    await moment('the professor’s chat shows Alex’s reply', async () => {
+    await moment('the faculty member’s chat shows Alex’s reply', async () => {
       await tab('professor');
       const line = left.locator('#prof-log li.student-reply', { hasText: 'Thursday evening' }).last();
       relayed = await seen(line, 120000);
@@ -114,7 +114,7 @@ scenes.push({
     if (!offered) return;
 
     // (g) Alex picks the first time; the professor books it and the offer shows the choice.
-    await moment('Alex picks a time, the professor confirms the booking', async () => {
+    await moment('Alex picks a time, the faculty member confirms the booking', async () => {
       await tab('conversation');
       const offer = left.locator('#student-log li[data-meeting]').last();
       const slot = offer.locator('.meeting-times .slot').first();

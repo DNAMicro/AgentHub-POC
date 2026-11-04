@@ -8,16 +8,16 @@ Repository: this one (`..` from this folder). Sources: `Steps/README.md`, `Steps
 
 **Problem.** Show, with real protocols rather than mock transcripts, how independent AI agents discover each other, exchange messages, hand structured UI to a person, get routed by an intermediary, and start conversations from either side.
 
-**Users (fictional).** A student, **Alex Student** (`student-alex`, `alex@example.com`), a second enrolled student **Sam Student** (`student-sam`, no Student agent), and a professor using the Professor view. Everything is fictional sample data (CLAUDE.md "Scope constraints"; Steps/09 §4).
+**Users (fictional).** A student, **Alex Student** (`student-alex`, `alex@example.com`), a second enrolled student **Sam Student** (`student-sam`, no Student agent), and a faculty member using the Faculty view. Everything is fictional sample data (CLAUDE.md "Scope constraints"; Steps/09 §4).
 
 **Purpose.** A learning spike, built in 9 prompted steps, each "explain → implement → test → stop so I can understand" (Steps/01 "Teaching style"). Each `Steps/NN-*.md` is the original prompt with later enhancements merged, plus "Avoid these known problems" and "Enhancements merged" sections (Steps/README.md).
 
 **What it demonstrates (final state).**
 - Real **A2A v1.0** (JSON-RPC binding) between separate Node processes via `@a2a-js/sdk` 1.3.0 — Agent Card discovery, Messages, Tasks (`INPUT_REQUIRED`), typed data parts (README "How a message gets there and back").
 - **A2UI v0.9** forms carried inside A2A and rendered by the official `@a2ui/lit` 0.14.0 renderer, including model-composed UI validated against the official schemas (Steps/03, 08).
-- **Claude Haiku 5.5** (`claude-haiku-5-5`, `@anthropic-ai/sdk` 1.3.0) used per agent for answers, scope checks, routing, clarifying, form review, UI composition and professor assistance (CLAUDE.md).
+- **Claude Haiku 5.5** (`claude-haiku-5-5`, `@anthropic-ai/sdk` 1.3.0) used per agent for answers, scope checks, routing, clarifying, form review, UI composition and faculty member assistance (CLAUDE.md).
 - A **University Hub** (public name “California State University Fullerton”, fictional) as the only front door, with private registry, routing, relaying, form-reference mapping and dedupe (Steps/07).
-- **Reverse-direction** communication: a Professor posts lessons Professor → Hub → Student as new signed A2A interactions (Steps/09).
+- **Reverse-direction** communication: a Faculty posts lessons Faculty → Hub → Student as new signed A2A interactions (Steps/09).
 - Honest visualization: a separate SSE telemetry channel that only reports real events (CLAUDE.md "Three channels").
 
 **Out of production scope** (CLAUDE.md "Scope constraints"; README "Deliberately not included"): token streaming, A2A push notifications, multi-agent fan-out (Hub forwards to at most one specialist), mailboxes, database (only JSON files under `data/`), real auth/accounts (Part 9 keys are a local demo measure), real email/SMS, frontend frameworks, model tools, model-generated code/HTML (model-generated UI only in Part 8 from the validated catalog), deployment. All servers bind `127.0.0.1`. Dependencies pinned exactly.
@@ -369,35 +369,35 @@ Repository: this one (`..` from this folder). Sources: `Steps/README.md`, `Steps
 
 ---
 
-## Step 9 — Marketing 101 Professor and professor-initiated lessons
+## Step 9 — Marketing 101 Faculty and faculty-initiated lessons
 
 1. **Title / commits:** Table: `6d84aec`, `cad2e9d`, `2814874`, `9150c60` (verified). Also Part 9: `36ba0a6` (messages as chat, meetings, `scripts/demo/progression.js`) — **not listed in the Steps table** but merged into Steps/09.
 2. **Before:** All conversations started with the student; Student → Hub identity self-declared; inspector relayed full model text.
-3. **Intent:** "Demonstrate that communication can begin on either side… a professor can also introduce a lesson while the student is idle" (Steps/09).
-4. **Built:** `src/professor-agent.js` (:41244; `/author/{state,reset,lessons,chat}`), `src/professor-model.js`, `src/course-pack.js` (8 topics, 3 seed lessons, WSU references), `src/lessons.js` (media types, `sign`/`verify`, `contentHash`), `src/hub-lessons.js` (publish checks, deliveries, pump, queries, notices), `src/student-inbox.js` (Student inbound executor), `src/a2a-data.js` (`sendData`), `src/json-store.js`, `public/classroom.js`, `config/professor.example.json`, `test/professor.test.js`; later `src/meeting-times.js` (`36ba0a6`). Hub destination `marketing`; course `mkt-101`; `studentEndpoints`. Student inbound A2A on UI server: `/.well-known/agent-card.json` (“Student Agent”, skill `receive-course-lessons`), `/a2a/jsonrpc`. UI routes `/api/inbox`, `/api/inbox/:id/open|save`, `/api/notices/:id/seen`, `/api/professor/{chat,state,lessons}`; tab `/professor`. Signatures: publish, session challenge, `metadata.studentSignature` over `[studentId, contextId, messageId]`, delivery/query/notice/receipt. IDs `ls-…`, `dl-…`, `in-…`, `av-mkt-101`. Follow-ups carry `lessonDeliveryId` → `decidedBy: 'lesson'`.
+3. **Intent:** "Demonstrate that communication can begin on either side… a faculty member can also introduce a lesson while the student is idle" (Steps/09).
+4. **Built:** `src/professor-agent.js` (:41244; `/author/{state,reset,lessons,chat}`), `src/professor-model.js`, `src/course-pack.js` (8 topics, 3 seed lessons, WSU references), `src/lessons.js` (media types, `sign`/`verify`, `contentHash`), `src/hub-lessons.js` (publish checks, deliveries, pump, queries, notices), `src/student-inbox.js` (Student inbound executor), `src/a2a-data.js` (`sendData`), `src/json-store.js`, `public/classroom.js`, `config/professor.example.json`, `test/professor.test.js`; later `src/meeting-times.js` (`36ba0a6`). Hub destination `marketing`; course `mkt-101`; `studentEndpoints`. Student inbound A2A on UI server: `/.well-known/agent-card.json` (“Student Agent”, skill `receive-course-lessons`), `/a2a/jsonrpc`. UI routes `/api/inbox`, `/api/inbox/:id/open|save`, `/api/notices/:id/seen`, `/api/professor/{chat,state,lessons}`; tab `/faculty` (`/professor` still opens it). Signatures: publish, session challenge, `metadata.studentSignature` over `[studentId, contextId, messageId]`, delivery/query/notice/receipt. IDs `ls-…`, `dl-…`, `in-…`, `av-mkt-101`. Follow-ups carry `lessonDeliveryId` → `decidedBy: 'lesson'`.
 5. **Technologies:** no new package (git diff of `package.json` adds only scripts `professor`, `professor:live`). Changes: reverse route as a new `message/send` (not push notifications), per-process HMAC keys for every Hub caller, JSON-file persistence (`data/hub-lessons.json`, `data/student-inbox.json`, `data/professor-outbox.json`), `sameOriginGuard` on dev routes.
 6. **Changed / corrections:**
-   - Professor view first built as a form → replaced by a chat; model decides kind/audience/title, code checks (`cad2e9d`, user feedback).
+   - Faculty view first built as a form → replaced by a chat; model decides kind/audience/title, code checks (`cad2e9d`, user feedback).
    - Lessons-only → lessons or messages, to one student or `all` (Hub expands enrollment); Sam added; classroom reset (`cad2e9d`).
    - Assistant interposed on every post → direct posts; assistant only on `@assistant`; cross-site guards; email-not-a-tag; "queued" once (`2814874`).
-   - Port 4444; course questions reach the Professor (`course-questions` skill); `publicWords` (`9150c60`).
+   - Port 4444; course questions reach the Faculty agent (`course-questions` skill); `publicWords` (`9150c60`).
    - Messages as chat bubbles with Reply, `author` in content hash, `needs_professor`, meeting scheduling with times read by code (`36ba0a6`).
-7. **Evidence:** professor.test.js (20) e.g. "a lesson the professor writes reaches an idle student who never started a conversation", "a lost acknowledgment is reconciled without a duplicate delivery", "a notification does not mark a lesson opened; only the student’s own action does", "malicious lesson text is only content…", "a web page on another site can’t reset the classroom…", "meetings: the assistant asks the professor for times…". Suite: 139 → 144 → 145 → 147 → **150** (counted per commit). Live walkthrough (5 agents on Haiku 5.5) ≈ $0.002; 14-scenario live e2e.
+7. **Evidence:** professor.test.js (20) e.g. "a lesson the faculty member writes reaches an idle student who never started a conversation", "a lost acknowledgment is reconciled without a duplicate delivery", "a notification does not mark a lesson opened; only the student’s own action does", "malicious lesson text is only content…", "a web page on another site can’t reset the classroom…", "meetings: the assistant asks the faculty member for times…". Suite: 139 → 144 → 145 → 147 → **150** (counted per commit). Live walkthrough (5 agents on Haiku 5.5) ≈ $0.002; 14-scenario live e2e.
 8. **Pitfall → lesson:** "Accepted by the Hub" ≠ "delivered" — "delivered" only after the Student commits the inbox entry; an uncertain delivery is queried before any re-send.
 9. **Architecture after:**
-   - Components: Browser (4 tabs) **[MODIFIED]**, UI server/Student Agent **[MODIFIED: inbound A2A endpoint + inbox]**, Student model, Hub **[MODIFIED: lessons, sessions]**, Hub router model, Tutor(+model), Library(+model), **Marketing 101 Professor [ADDED]**, **Professor model [ADDED]**, Anthropic API, data/*.json **[MODIFIED: + hub-lessons, student-inbox, professor-outbox]**, SSE.
-   - Edges **[ADDED]**: Professor → Hub `A2A data part lesson-publish (signed)`; Hub → Student (UI server :4444 `/a2a/jsonrpc`) `A2A data parts lesson-delivery / lesson-query / course-available / session-challenge (hubSignature)`; Student → Hub `A2A data parts student-session, lesson-receipt`; Hub ↔ Professor `A2A: forwarded questions (+lessonId, signed student)` and control messages; Professor → Anthropic `HTTPS: answers, interpretProfessor, classifyPost`; UI server → Hub `/dev/agents/professor/author/*`, `/dev/classroom/reset` → Professor `/author/*` (HTTP dev proxy); Professor → Hub `SSE /viz/events`.
+   - Components: Browser (4 tabs) **[MODIFIED]**, UI server/Student Agent **[MODIFIED: inbound A2A endpoint + inbox]**, Student model, Hub **[MODIFIED: lessons, sessions]**, Hub router model, Tutor(+model), Library(+model), **Marketing 101 Faculty [ADDED]**, **Faculty model [ADDED]**, Anthropic API, data/*.json **[MODIFIED: + hub-lessons, student-inbox, professor-outbox]**, SSE.
+   - Edges **[ADDED]**: Faculty → Hub `A2A data part lesson-publish (signed)`; Hub → Student (UI server :4444 `/a2a/jsonrpc`) `A2A data parts lesson-delivery / lesson-query / course-available / session-challenge (hubSignature)`; Student → Hub `A2A data parts student-session, lesson-receipt`; Hub ↔ Faculty `A2A: forwarded questions (+lessonId, signed student)` and control messages; Faculty → Anthropic `HTTPS: answers, interpretProfessor, classifyPost`; UI server → Hub `/dev/agents/professor/author/*`, `/dev/classroom/reset` → Faculty `/author/*` (HTTP dev proxy); Faculty → Hub `SSE /viz/events`.
    - Edges **[MODIFIED]**: Student → Hub requests now require `metadata.studentSignature`; inspector telemetry structure-only by default.
-10. **User action** (professor posts a lesson; idle Alex asks a follow-up):
-    1. Professor types in `/professor` → `POST /api/professor/chat` → Hub `/dev/…/author/chat` → Professor `/author/chat`.
+10. **User action** (faculty member posts a lesson; idle Alex asks a follow-up):
+    1. Faculty types in `/professor` → `POST /api/professor/chat` → Hub `/dev/…/author/chat` → Faculty `/author/chat`.
     2. Plain message = direct post; `classifyPost` names kind/title (`src/professor-agent.js`, `src/professor-model.js`).
-    3. Professor `hubLink.sendSigned` → A2A `lesson-publish` to Hub (persisted in outbox).
+    3. Faculty `hubLink.sendSigned` → A2A `lesson-publish` to Hub (persisted in outbox).
     4. Hub verifies signature, course, enrollment, dedupe; creates deliveries (`src/hub-lessons.js`).
     5. Hub `sendData` `lesson-delivery` (signed) to Student endpoint.
     6. Student verifies, writes inbox to disk, replies `delivered` (`src/student-inbox.js`).
     7. Browser toast "New Marketing 101 lesson" → View lesson → `POST /api/inbox/:id/open` → signed receipt.
-    8. "Ask about this lesson" → chip → message with `lessonDeliveryId` → Hub `lessonRoute` → Professor.
-    9. Professor answers from that lesson; reply relayed to Alex.
+    8. "Ask about this lesson" → chip → message with `lessonDeliveryId` → Hub `lessonRoute` → Faculty.
+    9. Faculty answers from that lesson; reply relayed to Alex.
 11. **Code example** — `src/lessons.js:12-22`:
     ```js
     const MT = (name) => `application/vnd.a2a-spike.${name}+json`;
@@ -412,18 +412,18 @@ Repository: this one (`..` from this folder). Sources: `Steps/README.md`, `Steps
     export const HUB_LESSON_MEDIA_TYPES = new Set([LESSON_PUBLISH_MEDIA_TYPE, LESSON_STATUS_MEDIA_TYPE, LESSON_RECEIPT_MEDIA_TYPE, STUDENT_SESSION_MEDIA_TYPE]);
     export const STUDENT_INBOUND_MEDIA_TYPES = new Set([LESSON_DELIVERY_MEDIA_TYPE, LESSON_QUERY_MEDIA_TYPE, COURSE_AVAILABLE_MEDIA_TYPE, SESSION_CHALLENGE_MEDIA_TYPE]);
     ```
-12. **Test:** `node --test test/professor.test.js` → 20 pass (mock Professor/router + scripted fake API). Full: `npm test` → 150. Live: `env -u ANTHROPIC_BASE_URL npm run demo:live`, open `http://127.0.0.1:4444/professor` and `/conversation`.
+12. **Test:** `node --test test/professor.test.js` → 20 pass (mock Faculty/router + scripted fake API). Full: `npm test` → 150. Live: `env -u ANTHROPIC_BASE_URL npm run demo:live`, open `http://127.0.0.1:4444/professor` and `/conversation`.
 13. **Unknown:** README "Deliberately not included" still lists "whole-class broadcasts" although Part 9 supports class-wide posts (implemented as one delivery per enrolled student) — wording conflict.
 
 ## Step 10 — AG-UI between the agents and the screen
 
 1. **Title / commits:** "AG-UI 1.0 between the agents and your screen". `cff915c` (Steps 10 and 11 together: they share `src/ui-server.js` and `public/app.js`), `fdfd6a3` (hash in the Steps table).
-2. **Before:** The browser used the app's own endpoints — `POST /api/runs`, one SSE stream `/api/events` for every tab — and the Professor view polled its state.
-3. **Intent:** "why not make AG-UI step 10 so we have the right infrastructure for filling forms from the UI"; scope "just the conversation, and the agent activity and the professor not the topology" (user, this session; Steps/10).
-4. **Built:** `src/ag-ui-bridge.js` (app events → AG-UI: reply → TEXT_MESSAGE block + CUSTOM, telemetry → ACTIVITY_SNAPSHOT, form lifecycle → STATE_DELTA; runs, server-opened `srv-…` runs, history cut at run boundaries), `src/ag-ui-professor.js` (Professor state as STATE_SNAPSHOT; a message is a run), `src/ag-ui-stream-agent.js` (`StreamAgent`, `bufferedChannel`), `src/browser/ag-ui-entry.js`; UI server `POST /api/ag-ui/runs`, `GET /api/ui/stream` (monitor, student, professor channels), `/api/ag-ui/stream`, `/api/ag-ui/professor/{stream,runs}`; browser `monitor()` vs `handle()`.
+2. **Before:** The browser used the app's own endpoints — `POST /api/runs`, one SSE stream `/api/events` for every tab — and the Faculty view polled its state.
+3. **Intent:** "why not make AG-UI step 10 so we have the right infrastructure for filling forms from the UI"; scope "just the conversation, and the agent activity and the faculty member not the topology" (user, this session; Steps/10).
+4. **Built:** `src/ag-ui-bridge.js` (app events → AG-UI: reply → TEXT_MESSAGE block + CUSTOM, telemetry → ACTIVITY_SNAPSHOT, form lifecycle → STATE_DELTA; runs, server-opened `srv-…` runs, history cut at run boundaries), `src/ag-ui-professor.js` (Faculty state as STATE_SNAPSHOT; a message is a run), `src/ag-ui-stream-agent.js` (`StreamAgent`, `bufferedChannel`), `src/browser/ag-ui-entry.js`; UI server `POST /api/ag-ui/runs`, `GET /api/ui/stream` (monitor, student, `professor` channels), `/api/ag-ui/stream`, `/api/ag-ui/professor/{stream,runs}`; browser `monitor()` vs `handle()`.
 5. **Technologies:** `@ag-ui/core`, `@ag-ui/client`, `@ag-ui/encoder` 1.0.3; `rxjs` 7.8.1, `zod` 3.25.76 (pinned, `package.json`).
 6. **Changed / corrections (during the step):** `HttpAgent.connect()` is not implemented in 1.0.3 → `StreamAgent` overrides it; three streams per page hit the browser's 6-connection limit with two windows → one multiplexed `/api/ui/stream`; a plain Subject dropped events before subscription → `bufferedChannel`; the strip was wiped after reload → the monitor side clears it.
-7. **Evidence:** `test/ag-ui.test.js` (13), e.g. "a chat question as AG-UI run input: valid events, the server's run ID, threadId = conversation, one block of reply text", "one connection per page: /api/ui/stream carries the monitor, student and professor channels". `scripts/browser-checks/same-screen.js`: before/after screens match.
+7. **Evidence:** `test/ag-ui.test.js` (13), e.g. "a chat question as AG-UI run input: valid events, the server's run ID, threadId = conversation, one block of reply text", "one connection per page: /api/ui/stream carries the monitor, student and `professor` channels". `scripts/browser-checks/same-screen.js`: before/after screens match.
 8. **Pitfall → lesson:** one connection per page; verify what the installed package really implements.
 9. **Architecture after:** Browser **[MODIFIED: AG-UI client, one connection]**, Student/UI server **[MODIFIED: AG-UI bridge]**; edges Browser → UI server `AG-UI run input` **[MODIFIED]**, UI server → Browser `one stream: AG-UI + monitor` **[MODIFIED]**. A2A, A2UI and the monitoring stream unchanged.
 10. **Test:** `node --test test/ag-ui.test.js` → 13 pass.
@@ -451,22 +451,22 @@ Repository: this one (`..` from this folder). Sources: `Steps/README.md`, `Steps
 | Student | Step 5 (router in UI server, `ROUTER_MODE=live`) | Step 7: router moved to Hub; Student's own model (`STUDENT_MODE`, clarify/capability/decline) added in the same step; Step 11: also decides whether a message fills an open form |
 | Library | Step 5 (`7bc2e21`, evidence-verified answers); Step 6 intent + review; Step 8 loan UI composition | — |
 | Hub | Step 7 (router) | — |
-| Professor | Step 9 (answers, `interpretProfessor`, `classifyPost`) | — |
+| Faculty | Step 9 (answers, `interpretProfessor`, `classifyPost`) | — |
 
 ## SSE telemetry path by step
 
 - Step 2–4: Tutor `/viz/events` → UI server → browser `/api/events`.
 - Step 5–6: Tutor and Library `/viz/events` → UI server (relayed with `source`) → browser.
-- Step 7+: specialists `/viz/events` → **Hub** (allowlist redaction, `topologyLabel`) → Hub `/viz/events` → UI server → browser; Hub `/viz/topology` snapshot. Step 9 adds the Professor feed; inspector structure-only.
+- Step 7+: specialists `/viz/events` → **Hub** (allowlist redaction, `topologyLabel`) → Hub `/viz/events` → UI server → browser; Hub `/viz/topology` snapshot. Step 9 adds the Faculty agent feed; inspector structure-only.
 - Step 10+: the browser gets the monitor feed as the `monitor` channel of `/api/ui/stream`, next to the AG-UI `student` and `professor` channels.
 
 ---
 
 ## Final architecture summary (after `36ba0a6`; Steps 10–11 below)
 
-Processes (all `127.0.0.1`): **UI server** `src/ui-server.js` :4444 (Browser UI tabs `/conversation`, `/activity`, `/topology`, `/professor`; hosts **Student Agent** `student-alex` with its own model and an inbound A2A endpoint + persisted inbox `data/student-inbox.json`); **University Hub** `src/hub-agent.js` :41243 (public CSUF card, private registry, router model, form-ref mapping, chat/operation ledgers, lesson deliveries `data/hub-lessons.json`, telemetry relay/redaction, `/dev/*` proxy); **Tutor** :41241; **Library** :41242 (loans in memory only); **Marketing 101 Professor** :41244 (`data/professor-outbox.json`). Each model-using agent calls the **Anthropic Messages API** over HTTPS with its own configured model and key variable.
+Processes (all `127.0.0.1`): **UI server** `src/ui-server.js` :4444 (Browser UI tabs `/conversation`, `/activity`, `/topology`, `/faculty`; hosts **Student Agent** `student-alex` with its own model and an inbound A2A endpoint + persisted inbox `data/student-inbox.json`); **University Hub** `src/hub-agent.js` :41243 (public CSUF card, private registry, router model, form-ref mapping, chat/operation ledgers, lesson deliveries `data/hub-lessons.json`, telemetry relay/redaction, `/dev/*` proxy); **Tutor** :41241; **Library** :41242 (loans in memory only); **Marketing 101 Faculty** :41244 (`data/professor-outbox.json`). Each model-using agent calls the **Anthropic Messages API** over HTTPS with its own configured model and key variable.
 
-Edges: Browser ⇄ UI server (HTTP POST `/api/*`, SSE `/api/events`); Student ⇄ Hub (A2A JSON-RPC: signed chat, form actions with `formRef`, `student-session`, `lesson-receipt`; Hub → Student: `lesson-delivery`, `lesson-query`, `course-available`, `session-challenge`); Hub ⇄ Tutor/Library/Professor (A2A: forwarded requests with signed student; specialist → Hub control messages and `lesson-publish`); specialists → Hub → UI server (SSE telemetry); agents → Anthropic (HTTPS). No Student ↔ specialist edge exists.
+Edges: Browser ⇄ UI server (HTTP POST `/api/*`, SSE `/api/events`); Student ⇄ Hub (A2A JSON-RPC: signed chat, form actions with `formRef`, `student-session`, `lesson-receipt`; Hub → Student: `lesson-delivery`, `lesson-query`, `course-available`, `session-challenge`); Hub ⇄ Tutor/Library/Faculty (A2A: forwarded requests with signed student; specialist → Hub control messages and `lesson-publish`); specialists → Hub → UI server (SSE telemetry); agents → Anthropic (HTTPS). No Student ↔ specialist edge exists.
 
 Start: `npm run demo` (mock, 5 processes) or `env -u ANTHROPIC_BASE_URL npm run demo:live` (paid). Tests: `npm test` (150, no paid calls; `HUB_URL=http://127.0.0.1:9`).
 

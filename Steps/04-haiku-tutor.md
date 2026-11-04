@@ -72,7 +72,7 @@ Explain the design before coding. After testing, explain where A2A ends and the 
 - Record "New conversation" as an event in the UI server's history so a page reload stays cleared. Refuse it while a request is in flight.
 - Start live servers **without an inherited `ANTHROPIC_BASE_URL`** and print the API host at startup. A parent proxy once answered with fake 429 "rate limits". On a real 429, log which limit was hit from the `anthropic-ratelimit-*` headers.
 - Hand the app over in **live** mode; never leave the user on mock or fixed placeholder answers.
-- **Ask for plain text.** The browser shows replies exactly as written (`textContent`, no Markdown renderer), so live answers showed raw `**Example:**` and `**9**` until the prompt said “plain text, no Markdown” (found in the 2026-10-30 full demo run; the Professor and loan prompts already said it).
+- **Ask for plain text.** The browser shows replies exactly as written (`textContent`, no Markdown renderer), so live answers showed raw `**Example:**` and `**9**` until the prompt said “plain text, no Markdown” (found in the 2026-10-30 full demo run; the Faculty agent and loan prompts already said it).
 
 ---
 
@@ -84,3 +84,4 @@ Explain the design before coding. After testing, explain where A2A ends and the 
 - **No budget step for live use** (your instruction, this session): you disagreed with having to approve planned calls and pricing before paid calls. The rule now: live verification and use just run, and usage and cost are reported afterwards. The scripted smoke and eval commands keep their max-spend env gates.
 - **Ready means live** (your instruction, this session): mock and fixed modes are for automated tests only. Anything handed over as ready runs live.
 - **Proxy guard** (from a fake "rate limit" bug): a parent environment had `ANTHROPIC_BASE_URL` pointing at a local proxy that answered with bare 429s. Startup now prints the API host, and live servers are started without that variable. On a real 429, the server logs which Anthropic limit was hit (from the `anthropic-ratelimit-*` headers and `retry-after`), never the key.
+- Renamed what the audience sees (2026-11-04): the agent is “Marketing 101 Faculty”, the tab is “Faculty view” (/faculty; /professor still opens it), and the person is “Dr. Dabirian” (was “Professor Amir”), because “Professor” confused the audience. Code names, files, settings and commands keep “professor”. Students may still type “professor”: keep accepting it (the Student agent treats a title word — professor, faculty, instructor, Dr. — as naming whoever the last reply named with a title).

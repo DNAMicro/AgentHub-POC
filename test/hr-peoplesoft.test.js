@@ -163,7 +163,8 @@ test('uncertain submit then retry files once', async (t) => {
   const first = await own.act(card.reply.formRef, submit(card.reply, VACATION), operationId);
   assert.equal(first.status, 'refused', JSON.stringify(first));
   assert.equal(first.reason, UNAVAILABLE);
-  assert.ok(own.feed.events.some((e) => e.type === 'mcp_call_result' && e.data.tool === 'create_absence_request' && e.data.outcome === 'uncertain'));
+  // Telemetry may land after the A2A reply (full-suite load): wait for it rather than assume the order.
+  await waitFor(() => own.feed.events.some((e) => e.type === 'mcp_call_result' && e.data.tool === 'create_absence_request' && e.data.outcome === 'uncertain'), { what: 'mcp_call_result uncertain' });
   await waitFor(async () => (await own.requests()).length === 1, { what: 'PeopleSoft wrote it anyway' });
   const again = await own.act(card.reply.formRef, submit(card.reply, VACATION), operationId);
   assert.equal(again.status, 'ok', JSON.stringify(again));
@@ -283,7 +284,7 @@ test('connect and call share one MCP budget: a slow PeopleSoft cannot hold HR pa
   t.after(() => { slow.closeAllConnections(); slow.close(); });
   const link = createPeopleSoftLink({ url: `http://127.0.0.1:${slow.address().port}`, token, timeoutMs: 600 });
   const t0 = Date.now();
-  const r = await link.balances('staff-amir');
+  const r = await link.balances('staff-dabirian');
   assert.equal(r.ok, false, 'one budget for connect + list + call');
   assert.ok(['unavailable', 'uncertain'].includes(r.outcome), r.outcome);
   const took = Date.now() - t0;

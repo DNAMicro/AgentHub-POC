@@ -11,7 +11,7 @@
 
 const SPECIALISTS = new Set(['tutor', 'library', 'professor', 'hr']); // hr: staff only (reached only by the Hub's staff path)
 const edgeFor = (agentId) => (SPECIALISTS.has(agentId) ? `hub-${agentId}` : null);
-const NODE_NAMES = { student: 'Student', hub: 'University Hub', tutor: 'Tutor', library: 'Library', professor: 'Marketing 101 Professor', hr: 'HR Agent', peoplesoft: 'PeopleSoft (demo stand-in)', model: 'Model provider' };
+const NODE_NAMES = { student: 'Student', hub: 'University Hub', tutor: 'Tutor', library: 'Library', professor: 'Marketing 101 Faculty', hr: 'HR Agent', peoplesoft: 'PeopleSoft (demo stand-in)', model: 'Model provider' };
 
 function hop(from, to, category, phase, label) {
   const edge = from === 'model' || to === 'model' ? `${from === 'model' ? to : from}-model`
@@ -72,7 +72,7 @@ const HUB = {
   route_decided: (d) => inside('hub', 'routing', d.decision === 'route' ? 'processing' : 'completed', d.decision === 'route' ? `Routed to ${d.destination}${{ student: ' (Student’s choice)', lesson: ' (inbox item record)', staff: ' (staff path)' }[d.decidedBy] ?? ''}` : `Not routed: ${d.decision}`),
   capability_rejected: () => inside('hub', 'routing', 'failed', 'Unknown capability ignored — Hub routed itself'),
   // Part 9: the reverse route, Professor → Hub → Student, and the student's receipts.
-  lesson_publish_received: (d) => hop(d.agentId, 'hub', 'lesson', 'accepted', `${d.kind === 'message' ? 'Message' : 'Lesson'} received from the Professor (verified${d.audience === 'all' ? `, for all ${d.recipients} students` : ''})`),
+  lesson_publish_received: (d) => hop(d.agentId, 'hub', 'lesson', 'accepted', `${d.kind === 'message' ? 'Message' : 'Lesson'} received from the faculty member (verified${d.audience === 'all' ? `, for all ${d.recipients} students` : ''})`),
   lesson_rejected: (d) => (SPECIALISTS.has(d.agentId) ? hop(d.agentId, 'hub', 'lesson', 'failed', `Lesson refused (${d.reason})`) : inside('hub', 'lesson', 'failed', `Lesson refused (${d.reason})`)),
   lesson_delivery_attempted: (d) => hop('hub', 'student', 'lesson', 'attempted', d.attempt > 1 ? `Lesson sent to the Student (attempt ${d.attempt})` : 'Lesson sent to the Student'),
   lesson_delivered: (d) => hop('student', 'hub', 'lesson', 'completed', d.duplicate ? 'Already in the Student’s inbox (no duplicate)' : 'Saved in the Student’s inbox'),
@@ -128,11 +128,11 @@ const SPECIALIST = {
   loan_operation: (a, d) => inside(a, 'form', d.ok ? 'completed' : 'failed', d.ok ? `Loan service renewed ${d.loanId}${d.duplicate ? ' (stored result)' : ''}` : `Loan service refused (${d.code})`),
   hub_registration: (a, d) => hop(a, 'hub', 'registration', d.status === 'registered' ? 'completed' : 'failed', d.status === 'registered' ? 'Registered with the Hub' : d.status === 'not_delivered' ? 'Hub not reachable for registration' : 'Registration refused'),
   skills_saved: (a) => inside(a, 'card', 'processing', 'Skills saved'),
-  lesson_posted: (a, d) => inside(a, 'lesson', 'processing', `Professor posted a ${d.kind === 'message' ? 'message' : 'lesson'}${d.audience === 'all' ? ' to all students' : ''}`),
+  lesson_posted: (a, d) => inside(a, 'lesson', 'processing', `The faculty member posted a ${d.kind === 'message' ? 'message' : 'lesson'}${d.audience === 'all' ? ' to all students' : ''}`),
   lesson_publish_result: (a, d) => hop('hub', a, 'lesson', d.status === 'rejected' ? 'failed' : ['not_delivered', 'uncertain'].includes(d.status) ? 'unknown' : 'completed', `Hub: lesson ${d.status}${d.duplicate ? ' (stored result)' : ''}`),
   // HR (staff only): what HR read from the request (outcome only), and the Professor's staff desk.
   request_read: (a, d) => inside(a, 'form', d.outcome === 'forecast_failed' ? 'failed' : 'processing', d.outcome === 'missing' ? 'Read the request — something is missing, asking' : d.outcome === 'forecast_failed' ? 'Read the request — the balance check failed' : 'Read the request — card ready'),
-  staff_decision: (a, d) => inside(a, 'routing', 'processing', d.kind === 'staff_request' ? 'A staff request — sent to HR' : d.kind === 'unsure' ? 'Staff or class? Asking the professor' : 'A class message — not for HR'),
+  staff_decision: (a, d) => inside(a, 'routing', 'processing', d.kind === 'staff_request' ? 'A staff request — sent to HR' : d.kind === 'unsure' ? 'Staff or class? Asking the faculty member' : 'A class message — not for HR'),
   // Part 15: HR → PeopleSoft over MCP (tool names, codes and record ids only — never the arguments).
   mcp_call_started: (a, d) => hop('hr', 'peoplesoft', 'tool', 'attempted', `tools/call ${d.tool}`),
   mcp_call_result: (a, d) => hop('peoplesoft', 'hr', 'tool', d.ok ? 'completed' : d.outcome === 'uncertain' ? 'unknown' : 'failed',

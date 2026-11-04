@@ -82,7 +82,7 @@ const topology = createTopology({
   onActivity: () => { if ($('view-topology').hidden) $('tab-pulse').dataset.on = 'true'; },
 });
 
-// Part 9: the course inbox, lesson view and toast (Conversation) and the Professor view.
+// Part 9: the course inbox, lesson view and toast (Conversation) and the Faculty view.
 const classroom = createClassroom({
   sendChat: (text, extra) => { chatFollow.pin(); return startRun({ text, contextId: currentContextId, ...extra }); },
   showConversation: () => { if ($('view-conversation').hidden) showTab(tabs[0], { history: 'push' }); },
@@ -518,7 +518,7 @@ const errorText = (errors) => Object.entries(errors ?? {}).map(([field, msg]) =>
 
 // ---- Part 5: advertised skills, Student's cached view, propagation ---------
 
-const AGENT_NAMES = { tutor: 'Tutor Agent', library: 'Library Agent', professor: 'Marketing 101 Professor', hr: 'HR Agent', hub: 'University Hub', student: 'Student agent' };
+const AGENT_NAMES = { tutor: 'Tutor Agent', library: 'Library Agent', professor: 'Marketing 101 Faculty', hr: 'HR Agent', hub: 'University Hub', student: 'Student agent' };
 let universityName = 'California State University Fullerton';
 // Replies come from the university; the specialist that produced one is shown as attribution.
 const viaUniversity = (id) => (id && id !== 'hub' ? `${universityName} · ${AGENT_NAMES[id] ?? id}` : universityName);
@@ -888,7 +888,7 @@ function handle(event, { live = true } = {}) {
       // Part 9: New conversation also cleared every student's lessons and messages (here, at the Hub and
       // at the Professor). A clean reset needs no note; only say so if a part of it couldn't be reached.
       if (data.classroom && data.classroom !== 'reset') {
-        const note = { reset: 'Every student’s lessons and messages were cleared; the professor sends them again.', hub_unreachable: 'Your inbox was cleared, but the university Hub couldn’t be reached, so other students’ lessons and the professor’s list were not reset.', hub_error: 'Your inbox was cleared, but the Hub refused the reset.', professor_unreachable: 'Lessons were cleared at the Hub and here, but the professor’s posted list couldn’t be reached.' }[data.classroom] ?? data.classroom;
+        const note = { reset: 'Every student’s lessons and messages were cleared; the faculty member sends them again.', hub_unreachable: 'Your inbox was cleared, but the university Hub couldn’t be reached, so other students’ lessons and the faculty member’s list were not reset.', hub_error: 'Your inbox was cleared, but the Hub refused the reset.', professor_unreachable: 'Lessons were cleared at the Hub and here, but the professor’s posted list couldn’t be reached.' }[data.classroom] ?? data.classroom;
         student({ dir: data.classroom === 'reset' ? 'info' : 'error', label: 'New conversation', text: note, ids: {} });
       }
       // The Library's sample loans are restored too ('unknown' when the Hub itself wasn't reached — said above).
@@ -953,8 +953,8 @@ function handle(event, { live = true } = {}) {
         // A message from the professor (or the course assistant for them) arrives in the chat itself, as
         // its own bubble with a Reply button; a lesson stays in the inbox.
         if (data.kind === 'message' && typeof data.text === 'string') {
-          const from = `${data.professorName ?? 'Your professor'}${data.author === 'assistant' ? ' · course assistant' : ''}`;
-          const item = messageItem({ at, dir: 'received', speaker: 'professor', label: `${from} → ${data.toAll ? 'the whole class' : 'you'}`, text: data.text, ids: { course: data.courseTitle, delivery: data.deliveryId, lesson: data.lessonId, note: 'Delivered by the university to your Student agent (a new A2A message the professor started).' } });
+          const from = `${data.professorName ?? 'Your faculty member'}${data.author === 'assistant' ? ' · course assistant' : ''}`;
+          const item = messageItem({ at, dir: 'received', speaker: 'professor', label: `${from} → ${data.toAll ? 'the whole class' : 'you'}`, text: data.text, ids: { course: data.courseTitle, delivery: data.deliveryId, lesson: data.lessonId, note: 'Delivered by the university to your Student agent (a new A2A message the faculty member started).' } });
           item.dataset.delivery = data.deliveryId;
           item.classList.add('incoming-message');
           const reply = document.createElement('button');
@@ -1036,8 +1036,8 @@ function handle(event, { live = true } = {}) {
         }
         // A reply to the professor's own message went to the professor in person: no answer yet, just a note.
         if (data.professor?.outcome === 'relayed') {
-          student({ dir: 'info', speaker: 'professor', kind: 'note', label: `Sent to ${data.professor.name ?? data.servedByName ?? 'your professor'}`, text: data.text, ids: { messageId: data.messageId, inReplyTo: data.inReplyTo, contextId: data.contextId, run } });
-          studentConsole({ dir: 'received', label: 'A2A reply from the Hub', text: `${agentName(data.servedBy)} took your reply for the professor (no model answer).`, ids: { messageId: data.messageId, contextId: data.contextId, run } });
+          student({ dir: 'info', speaker: 'professor', kind: 'note', label: `Sent to ${data.professor.name ?? data.servedByName ?? 'your faculty member'}`, text: data.text, ids: { messageId: data.messageId, inReplyTo: data.inReplyTo, contextId: data.contextId, run } });
+          studentConsole({ dir: 'received', label: 'A2A reply from the Hub', text: `${agentName(data.servedBy)} took your reply for the faculty member (no model answer).`, ids: { messageId: data.messageId, contextId: data.contextId, run } });
           break;
         }
         const label = own ? `${universityName}${decision === 'clarify' ? ' asks' : decision === 'unavailable' ? ' — service unavailable' : decision === 'unsupported' ? ' — not supported' : ''}` : (data.professor?.name ? `${universityName} · ${data.professor.name}${data.professor.onBehalf ? '’s course assistant' : ''}` : viaUniversity(data.servedBy));
@@ -1118,7 +1118,7 @@ function handle(event, { live = true } = {}) {
         formAgentEvent(library, type, data, run);
     }
   } else if (source === 'professor') {
-    // Part 9: the Marketing 101 Professor — student questions in, answers out, and lessons it posted.
+    // Part 9: the Marketing 101 Faculty — student questions in, answers out, and lessons it posted.
     switch (type) {
       case 'message_received':
         professor({ dir: 'received', label: 'Received', text: data.text, ids: { messageId: data.messageId, contextId: data.contextId, run } });
@@ -1212,7 +1212,7 @@ function hubEvent(panel, type, data, run) {
       break;
     // Part 9: lessons (Professor → Hub → Student), student sessions and course notices.
     case 'lesson_publish_received':
-      panel({ dir: 'received', label: `${data.kind === 'message' ? 'Message' : 'Lesson'} from the Professor`, text: `Signature, course, professor and enrollment checked; delivering to ${data.audience === 'all' ? `all ${data.recipients} enrolled students (one delivery each)` : 'the student'}.`, ids: { lesson: data.lessonId, revision: data.revision } });
+      panel({ dir: 'received', label: `${data.kind === 'message' ? 'Message' : 'Lesson'} from the faculty member`, text: `Signature, course, faculty member and enrollment checked; delivering to ${data.audience === 'all' ? `all ${data.recipients} enrolled students (one delivery each)` : 'the student'}.`, ids: { lesson: data.lessonId, revision: data.revision } });
       break;
     case 'lesson_rejected':
       panel({ dir: 'error', label: 'Lesson refused', text: data.reason, ids: { from: data.agentId, lesson: data.lessonId } });
@@ -1236,7 +1236,7 @@ function hubEvent(panel, type, data, run) {
       panel({ dir: 'error', label: 'Delivery refused', text: data.reason, ids: { delivery: data.deliveryId } });
       break;
     case 'lesson_opened':
-      panel({ dir: 'received', label: 'Lesson opened', text: 'Signed receipt from the Student; the Professor will see it.', ids: { delivery: data.deliveryId } });
+      panel({ dir: 'received', label: 'Lesson opened', text: 'Signed receipt from the Student; the faculty member will see it.', ids: { delivery: data.deliveryId } });
       break;
     case 'classroom_reset':
       panel({ dir: 'info', label: 'Classroom reset', text: 'Every lesson, message, delivery and notice was forgotten for every student (New conversation).', ids: {} });
@@ -1402,7 +1402,7 @@ function formAgentEvent(panel, type, data, run) {
 // connections per server — a page holding three streams blocked every request once two windows were open.
 //   monitor   — the /api/events payload: Topology, the hop-by-hop strip, the Hub telemetry badge (monitor());
 //   student   — the Student agent's AG-UI events: the Conversation and Agent activity tabs (handle());
-//   professor — the Professor view's AG-UI events (classroom.js).
+//   professor — the Faculty view's AG-UI events (classroom.js).
 // Each AG-UI channel goes to its own StreamAgent (its own run sequence and verifier). None of them can
 // start an A2A request or submit a form; only POSTs do.
 let monitorReplaying = false;
@@ -1564,7 +1564,7 @@ connectUi();
 // Each tab is a link with its own address (/conversation, /activity, /topology), so it can be opened in
 // its own browser tab and bookmarked. The plain address / always opens Conversation.
 const tabs = [...document.querySelectorAll('[role="tab"]')];
-const tabForPath = (path) => tabs.find((t) => t.getAttribute('href') === path) ?? tabs[0];
+const tabForPath = (path) => tabs.find((t) => t.getAttribute('href') === (path === '/professor' ? '/faculty' : path)) ?? tabs[0]; // /professor: the old address of the Faculty view
 function showTab(tab, { focus = false, history: how = null } = {}) {
   for (const t of tabs) {
     const on = t === tab;

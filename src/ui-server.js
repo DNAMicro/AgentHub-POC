@@ -48,10 +48,10 @@ const SHARED_ABSENCE_MODULE = fileURLToPath(new URL('./absence-types.js', import
 const ACTION_KEYS = ['name', 'surfaceId', 'sourceComponentId', 'timestamp', 'context'];
 const CONTEXT_ID_PATTERN = /^[\w-]{8,100}$/;
 const CONFIG_EVENTS = new Set(['skills_saved', 'card_notification', 'hub_registration', 'lesson_posted', 'lesson_publish_result', 'lessons_reset', 'staff_decision', 'peoplesoft_session']); // + Part 9: the Professor's own lesson events; + HR: the Professor's staff-desk decision (no words) // specialist events not tied to a run
-// The Professor view's own runs, started by the professor through this UI, so shown like this UI's runs on the
+// The Faculty view's own runs, started by the professor through this UI, so shown like this UI's runs on the
 // monitor (never in the student's AG-UI stream). The suffix is the professor's operation ID (src/lessons.js ID).
 //   staff-<operationId>: an HR staff request/action — emitted by the Professor, the Hub and HR only.
-//   prof-<operationId>:  a Professor view chat turn (its model calls: naming a post, the @assistant) — the Professor only.
+//   prof-<operationId>:  a Faculty view chat turn (its model calls: naming a post, the @assistant) — the Professor only.
 const RUN_SOURCES = { staff: new Set(['professor', 'hub', 'hr']), prof: new Set(['professor']) };
 export function professorViewRun(source, runId) {
   const m = typeof runId === 'string' ? /^(staff|prof)-(.*)$/s.exec(runId) : null;
@@ -95,7 +95,7 @@ export async function startUiServer({ port = 4444 } = {}) {
   const clients = new Set();
   // Part 10: the AG-UI view of the same events for the Conversation and Agent activity tabs.
   const agui = createAgUiBridge({ bootId, historyLimit: MAX_HISTORY, hello: () => statusBody() });
-  // …and the Professor view's own AG-UI stream (its state comes from the Professor, through the Hub).
+  // …and the Faculty view's own AG-UI stream (its state comes from the Professor, through the Hub).
   const professorCall = async (path, body) => {
     const r = await fetch(`${hub.devUrl}/agents/professor/author${path}`, {
       method: body ? 'POST' : 'GET', headers: body ? { 'Content-Type': 'application/json' } : {},
@@ -105,7 +105,7 @@ export async function startUiServer({ port = 4444 } = {}) {
   };
   const professorAgUi = createProfessorAgUi({
     bootId, getState: () => professorCall('/state'), postChat: (body) => professorCall('/chat', body),
-    unreachable: `${hub.name} is not reachable, so the Professor view can’t load or post.`,
+    unreachable: `${hub.name} is not reachable, so the Faculty view can’t load or post.`,
   });
   const runs = new Map(); // runId → { kind, state, ... }
   const forms = new Map(); // formId → { workflowId, agentId, conversationId, contextId, taskId, formRef, state, … }
@@ -142,7 +142,7 @@ export async function startUiServer({ port = 4444 } = {}) {
     for (const res of clients) writeEvent(res, stamped);
     if (!EPHEMERAL.has(event.type)) {
       const { topo: _topo, ...plain } = stamped; // topology labels stay on the monitoring stream
-      // The Professor view's own runs (staff-*, prof-*) never enter the student's AG-UI stream: they would
+      // The Faculty view's own runs (staff-*, prof-*) never enter the student's AG-UI stream: they would
       // be nested in whatever student run is open. They still reach the monitor/Topology above.
       if (!isProfessorViewRunId(plain.runId)) agui.push(plain);
       professorAgUi.onAppEvent(plain);
@@ -231,7 +231,7 @@ export async function startUiServer({ port = 4444 } = {}) {
       if (source === 'hub' || CONFIG_EVENTS.has(type)) publish({ source, type, runId: null, data: event.data, at: event.at });
       return;
     }
-    if (!runs.has(event.runId) && !professorViewRun(source, event.runId)) return; // only runs started from this UI (and the Professor view's staff and chat runs)
+    if (!runs.has(event.runId) && !professorViewRun(source, event.runId)) return; // only runs started from this UI (and the Faculty view's staff and chat runs)
     // Keep the agent's own timestamp: it records when the agent observed the event.
     publish({ source, type, runId: event.runId, data: event.data, at: event.at });
     if (source === 'hub' && type === 'message_received') setState(event.runId, 'waiting');
@@ -253,7 +253,7 @@ export async function startUiServer({ port = 4444 } = {}) {
   app.get('/shared/forms.js', (req, res) => res.type('text/javascript').sendFile(SHARED_FORM_MODULE));
   app.get('/shared/absence-types.js', (req, res) => res.type('text/javascript').sendFile(SHARED_ABSENCE_MODULE));
   // Each tab has its own address; the page picks the tab from the path. Only these three exist.
-  app.get(['/conversation', '/activity', '/topology', '/professor'], (req, res) => res.sendFile('index.html', { root: PUBLIC_DIR }));
+  app.get(['/conversation', '/activity', '/topology', '/faculty', '/professor'], (req, res) => res.sendFile('index.html', { root: PUBLIC_DIR }));
   app.use(express.static(PUBLIC_DIR));
 
   agentStatus.student = studentAssistantStatus(); // the Student's own model (mode, model, key present)
@@ -667,7 +667,7 @@ export async function startUiServer({ port = 4444 } = {}) {
     }
   }
   app.get('/api/agents/:agentId/skills', (req, res) => proxySettings(req, res, '', 'GET'));
-  // Part 9: the Professor view (the professor's own console in this demo), proxied through the Hub to
+  // Part 9: the Faculty view (the professor's own console in this demo), proxied through the Hub to
   // the Professor agent's authoring API. Posting there makes the PROFESSOR send the lesson over A2A.
   async function proxyAuthor(req, res, path, method) {
     try {
@@ -677,7 +677,7 @@ export async function startUiServer({ port = 4444 } = {}) {
       });
       res.status(upstream.status).json(await upstream.json());
     } catch {
-      res.status(502).json({ error: `${hub.name} is not reachable, so the Professor view can’t load or post.` });
+      res.status(502).json({ error: `${hub.name} is not reachable, so the Faculty view can’t load or post.` });
     }
   }
   app.get('/api/professor/state', (req, res) => proxyAuthor(req, res, '/state', 'GET'));
@@ -712,7 +712,7 @@ export async function startUiServer({ port = 4444 } = {}) {
     } catch {
       res.status(502).json({ error: `${hub.name} is not reachable, so the card wasn’t sent. Press the button again — it won’t file twice.` });
     }
-    professorAgUi.refresh(); // the Professor view's state (chat + card) changed
+    professorAgUi.refresh(); // the Faculty view's state (chat + card) changed
   });
   apiPost.post('/agents/:agentId/skills/preview', (req, res) => proxySettings(req, res, '/preview', 'POST'));
   apiPost.put('/agents/:agentId/skills', (req, res) => proxySettings(req, res, '', 'PUT'));
@@ -753,7 +753,7 @@ export async function startUiServer({ port = 4444 } = {}) {
   // holding the monitoring stream and two AG-UI streams blocked every request once two windows were open
   // (the live walkthrough opens two). This stream carries all three channels, each SSE event named by its
   // channel: `monitor` / `monitor:hello` / `monitor:truncated` / `monitor:replayed` (the /api/events payload),
-  // `student` (the Student agent's AG-UI events) and `professor` (the Professor view's AG-UI events). The
+  // `student` (the Student agent's AG-UI events) and `professor` (the Faculty view's AG-UI events). The
   // browser hands each AG-UI channel to its own agent, so each keeps its own run sequence and verifier.
   // Cursors: ?monitor=<id>&student=<id> (the Professor channel is state-only: a fresh snapshot each time).
   app.get('/api/ui/stream', (req, res) => {

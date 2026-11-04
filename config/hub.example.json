@@ -4,7 +4,7 @@
   "peers": [
     { "agentId": "tutor", "expectedName": "Tutor Agent", "displayName": "Tutor Agent", "baseUrl": "http://127.0.0.1:41241" },
     { "agentId": "library", "expectedName": "Library Agent", "displayName": "Library Agent", "baseUrl": "http://127.0.0.1:41242" },
-    { "agentId": "professor", "expectedName": "Marketing 101 Professor", "displayName": "Marketing 101 Professor", "baseUrl": "http://127.0.0.1:41244" },
+    { "agentId": "professor", "expectedName": "Marketing 101 Faculty", "displayName": "Marketing 101 Faculty", "baseUrl": "http://127.0.0.1:41244" },
     { "agentId": "hr", "expectedName": "HR Agent", "displayName": "HR Agent", "baseUrl": "http://127.0.0.1:41245" }
   ],
   "destinations": {
@@ -13,11 +13,11 @@
     "marketing": { "worker": "professor", "description": "Marketing 101 (a fictional introductory course): marketing concepts, course lessons, worked examples, checking your understanding, and questions about the course itself (homework, assignments, the professor’s messages)." },
     "hr": { "worker": "hr", "audience": "staff", "name": "Human Resources", "description": "Staff services: time off and absences." }
   },
-  "staff": { "professor": { "staffId": "staff-amir", "name": "Professor Amir" } },
+  "staff": { "professor": { "staffId": "staff-dabirian", "name": "Dr. Dabirian" } },
   "students": ["student-alex", "student-sam"],
   "studentNames": { "student-alex": "Alex Student", "student-sam": "Sam Student" },
   "studentEndpoints": { "student-alex": "http://127.0.0.1:4444" },
-  "courses": { "mkt-101": { "title": "Marketing 101", "professor": "professor", "professorName": "Professor Amir", "enrolled": ["student-alex", "student-sam"] } },
+  "courses": { "mkt-101": { "title": "Marketing 101", "professor": "professor", "professorName": "Dr. Dabirian", "enrolled": ["student-alex", "student-sam"] } },
   "heartbeatExpiryMs": 10000,
   "timeouts": { "dispatchMs": 60000, "formActionMs": 8000, "staffActionMs": 25000, "cardFetchMs": 3000 },
   "model": { "name": "claude-haiku-5-5", "apiKeyEnv": "ANTHROPIC_API_KEY" }

@@ -1,5 +1,5 @@
 // HR (staff only), Task 6: the Professor agent spots a request for the professor HIMSELF as staff in the
-// Professor view chat, asks when it can't tell staff from class, and relays HR's card (Professor → Hub →
+// Faculty view chat, asks when it can't tell staff from class, and relays HR's card (Professor → Hub →
 // HR over the signed staff path). Plain class messages behave exactly as before.
 //
 // Mock Professor (labelled heuristic classifier) and mock HR: these tests prove plumbing and the
@@ -94,7 +94,7 @@ test('a staff request opens HR’s card (bereavement); Submit files it and the c
   st = await state();
   assert.equal(lastOf(st.chat, 'hr').text, `Sent to your manager for a decision. Request ${id}: Bereavement (Grandparent/Great Grandparent), Thu, Nov 5 to Fri, Nov 6, 16 hours.`);
   assert.equal(lastOf(st.chat, 'hr').closed, true);
-  // What was filed, so the Professor view can answer the card's question once the card is gone; never the note.
+  // What was filed, so the Faculty view can answer the card's question once the card is gone; never the note.
   assert.deepEqual(lastOf(st.chat, 'hr').record, { requestId: id, absenceType: 'BRV', absenceReason: 'GGP', beginDate: '2026-11-05', endDate: '2026-11-06', hours: 16 });
   assert.equal(st.hrCard, null, 'the card is closed');
   assert.equal((await requests()).length, 1);
@@ -308,7 +308,7 @@ test('fix 1: @assistant never sees or posts a private staff message; staff words
     assert.ok(interpretCalls.length >= 1);
     for (const c of interpretCalls) {
       assert.ok(!/grandmother|passed away/i.test(c), 'no staff words in the model input');
-      assert.match(c, /private: the professor/);
+      assert.match(c, /private: the faculty member/);
     }
 
     // Words only the staff message contains are not the professor's words for the class → not verbatim.

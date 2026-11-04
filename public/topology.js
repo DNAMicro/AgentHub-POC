@@ -1,5 +1,5 @@
 // Part 7: the live topology — a switchboard of the agents. Student on the left, the university
-// Hub in the centre, the Tutor, the Library, the Marketing 101 Professor (Part 9) and the HR Agent (staff
+// Hub in the centre, the Tutor, the Library, the Marketing 101 Faculty (Part 9) and the HR Agent (staff
 // only — the Professor agent reaches it for the professor himself, never a student) behind it. Each agent has its own small model box: the agent
 // picks its own mode and model and calls the provider from its own process with its own key, so these
 // are separate connections, not one shared service. Those lines are HTTPS calls, drawn dashed, not A2A.
@@ -21,7 +21,7 @@ const NODES = {
   hub: { x: 450, y: 378, r: 76, name: 'University Hub', role: 'Front door and router' },
   tutor: { x: 770, y: 100, r: 56, name: 'Tutor Agent', role: 'Tutoring specialist' },
   library: { x: 770, y: 285, r: 56, name: 'Library Agent', role: 'Library specialist' },
-  professor: { x: 770, y: 470, r: 56, name: 'Professor', role: 'Marketing 101' },
+  professor: { x: 770, y: 470, r: 56, name: 'Faculty', role: 'Marketing 101' },
   hr: { x: 770, y: 655, r: 56, name: 'HR Agent', role: 'Staff only' },
   // Part 15: a system, not an agent (design F: tile + database icon + sparkle + sweep).
   peoplesoft: { x: 770, y: 890, w: 176, h: 80, kind: 'system', name: 'PeopleSoft', role: 'MCP server' },
@@ -30,7 +30,7 @@ const NODES = {
   'llm-hub': { x: 450, y: 120, w: 184, h: 74, owner: 'hub', name: 'Hub router’s model' },
   'llm-tutor': { x: 985, y: 100, w: 184, h: 70, owner: 'tutor', name: 'Tutor’s model' },
   'llm-library': { x: 985, y: 285, w: 184, h: 70, owner: 'library', name: 'Library’s model' },
-  'llm-professor': { x: 985, y: 470, w: 184, h: 70, owner: 'professor', name: 'Professor’s model' },
+  'llm-professor': { x: 985, y: 470, w: 184, h: 70, owner: 'professor', name: 'Faculty’s model' },
   'llm-hr': { x: 985, y: 655, w: 184, h: 70, owner: 'hr', name: 'HR’s model' },
 };
 const EDGES = {
@@ -38,7 +38,7 @@ const EDGES = {
   'student-model': ['student', 'llm-student'], 'hub-model': ['hub', 'llm-hub'], 'tutor-model': ['tutor', 'llm-tutor'], 'professor-model': ['professor', 'llm-professor'], 'library-model': ['library', 'llm-library'], 'hr-model': ['hr', 'llm-hr'],
   'hr-peoplesoft': ['hr', 'peoplesoft'],
 };
-const MODEL_USES = { student: 'clarifying unclear questions and choosing which university capability a non-obvious one needs', hub: 'deciding where each question goes', tutor: 'answers, scope checks and form review', library: 'answers from saved content and form review', professor: 'answering questions from the course pack and its lessons, and telling the professor’s own HR requests from class messages', hr: 'reading the absence name from a staff member’s words (code checks it and decides dates and hours)' };
+const MODEL_USES = { student: 'clarifying unclear questions and choosing which university capability a non-obvious one needs', hub: 'deciding where each question goes', tutor: 'answers, scope checks and form review', library: 'answers from saved content and form review', professor: 'answering questions from the course pack and its lessons, and telling the faculty member’s own HR requests from class messages', hr: 'reading the absence name from a staff member’s words (code checks it and decides dates and hours)' };
 const SPECIALIST_IDS = ['tutor', 'library', 'professor', 'hr'];
 const relaying = (active) => SPECIALIST_IDS.reduce((n, id) => n + (active[id] ?? 0), 0);
 const EDGE_KIND = (id) => (id.endsWith('-model') ? 'model' : id === 'hr-peoplesoft' ? 'mcp' : 'a2a');
@@ -450,7 +450,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
   function trace(runId) {
     let tr = state.traces.get(runId);
     if (!tr) {
-      // HR (staff only): the Hub names a staff request's run `staff-<operationId>` (started from the Professor view).
+      // HR (staff only): the Hub names a staff request's run `staff-<operationId>` (started from the Faculty view).
       tr = { n: state.traces.size + 1, kind: runId.startsWith('staff-') ? 'staff' : 'chat', at: null, destination: null, outcome: null, edges: new Set(), nodes: new Set(), events: [] };
       state.traces.set(runId, tr);
     }
@@ -459,7 +459,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
   const traceName = (runId) => {
     const tr = state.traces.get(runId);
     if (!tr) return runId.slice(0, 8);
-    const what = tr.kind === 'form_action' ? `Form action${tr.action ? ` “${tr.action}”` : ''}` : tr.kind === 'staff' ? 'Staff request (Professor → HR)' : 'Chat';
+    const what = tr.kind === 'form_action' ? `Form action${tr.action ? ` “${tr.action}”` : ''}` : tr.kind === 'staff' ? 'Staff request (Faculty → HR)' : 'Chat';
     return `${what} #${tr.n}${tr.destination ? ` → ${tr.destination}` : ''}${tr.outcome ? ` · ${tr.outcome}` : ''}`;
   };
   function renderTraceOptions() {

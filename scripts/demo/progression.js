@@ -289,7 +289,7 @@ async (page) => {
     await submit(anyway.locator('xpath=ancestor::li[1]'), 'Send anyway', 'Live: sending the reviewed values…');
   }
 
-  const STEPS = ['A2A', 'Browser monitor', 'A2UI form', 'Haiku tutor', 'Routing & skills', 'Forms on request', 'University Hub', 'Generated UI', 'Professor', 'AG-UI', 'Fill from chat'];
+  const STEPS = ['A2A', 'Browser monitor', 'A2UI form', 'Haiku tutor', 'Routing & skills', 'Forms on request', 'University Hub', 'Generated UI', 'Faculty', 'AG-UI', 'Fill from chat'];
   const PARTS = [
     {
       n: 1, title: 'Two agents talking over A2A',
@@ -445,7 +445,7 @@ async (page) => {
       n: 7, title: 'One front door: the University Hub',
       lead: 'The Student now talks only to the university — “California State University Fullerton”. The Hub keeps a private registry of specialists, decides where each request goes, forwards it over a second A2A leg, and relays the answer back.',
       bullets: ['Specialists register, send heartbeats, and only “ready” ones get work', 'The Student’s own model asks you to clarify when a request is unclear', 'The Topology tab shows each real message moving — including every model call'],
-      arch: 'Student ──A2A──▶ University Hub ──A2A──▶ Tutor | Library | Professor\n   (model)          (model)                  (model)  (model)   (model)',
+      arch: 'Student ──A2A──▶ University Hub ──A2A──▶ Tutor | Library | Faculty\n   (model)          (model)                  (model)  (model)   (model)',
       async run(k) {
         await tab('topology');
         await show(page.locator('#topo'), 'Live topology', 10, [k, 'The switchboard', 'The Student, the Hub and each specialist — and each one’s own model box. The Student never connects to a specialist directly.']);
@@ -495,14 +495,14 @@ async (page) => {
       },
     },
     {
-      n: 9, title: 'The professor can start the conversation',
-      lead: 'A Marketing 101 Professor joins behind the Hub. Now conversations can start on either side: the professor posts, and the post travels Professor → Hub → Student as a new, signed A2A message into the student agent’s inbox.',
-      bullets: ['Without @assistant, the professor’s words go as written to tagged students or the whole class', '@assistant asks the course assistant (Haiku) to write and post a lesson', 'Honest delivery states — queued, delivered, opened; follow-ups are routed by the Hub’s own delivery record'],
-      arch: 'Professor ──A2A──▶ University Hub ──signed A2A──▶ Student agent inbox\nStudent ──A2A──▶ Hub ──(lesson record)──▶ Professor',
+      n: 9, title: 'The faculty member can start the conversation',
+      lead: 'A Marketing 101 Faculty agent joins behind the Hub. Now conversations can start on either side: the faculty member posts, and the post travels Faculty → Hub → Student as a new, signed A2A message into the student agent’s inbox.',
+      bullets: ['Without @assistant, the faculty member’s words go as written to tagged students or the whole class', '@assistant asks the course assistant (Haiku) to write and post a lesson', 'Honest delivery states — queued, delivered, opened; follow-ups are routed by the Hub’s own delivery record'],
+      arch: 'Faculty ──A2A──▶ University Hub ──signed A2A──▶ Student agent inbox\nStudent ──A2A──▶ Hub ──(lesson record)──▶ Faculty',
       async run(k) {
         await tab('professor');
         const box = page.locator('#prof-message');
-        await cap(k, 'The professor’s chat', 'A message straight to one student. Typing @ opens the class list.');
+        await cap(k, 'The faculty member’s chat', 'A message straight to one student. Typing @ opens the class list.');
         await typeInto(box, '@al');
         await page.waitForTimeout(1200 * PACE);
         await box.press('Tab');
@@ -523,7 +523,7 @@ async (page) => {
         await toast.waitFor({ timeout: 120000 }).catch(() => {});
         await status(null);
         if (await toast.isVisible().catch(() => false)) {
-          await show(toast, 'A lesson arrives — unprompted', 9, [k, 'Communication started by the professor', 'Alex never asked. The lesson came Professor → Hub → Student agent as a new A2A message, signed by the Hub.']);
+          await show(toast, 'A lesson arrives — unprompted', 9, [k, 'Communication started by the faculty member', 'Alex never asked. The lesson came Faculty → Hub → Student agent as a new A2A message, signed by the Hub.']);
           await toast.getByRole('button', { name: /View/ }).click();
         } else {
           await page.locator('#inbox-toggle').click().catch(() => {});
@@ -531,24 +531,24 @@ async (page) => {
         }
         const dialog = page.locator('#lesson-dialog');
         await dialog.waitFor({ state: 'visible' });
-        await show(dialog, 'Opened — and the professor can see that', 11, [k, 'Opening is recorded', 'Shown as text only — nothing in a lesson can act. The professor’s view now shows “Opened” for Alex.']);
+        await show(dialog, 'Opened — and the faculty member can see that', 11, [k, 'Opening is recorded', 'Shown as text only — nothing in a lesson can act. The faculty member’s view now shows “Opened” for Alex.']);
         await page.locator('#lesson-ask').click();
         await page.waitForTimeout(500);
         const r1 = await ask('Could you give me the same idea for a small bookstore?');
         await show(page.locator('.timeline-panel'), 'Routed by the lesson record, not by keywords', 9, [k, 'A follow-up about this lesson', 'The question carries the lesson’s delivery id. The Hub routes it with its own record of who sent that lesson.']);
-        await show(r1, 'The professor’s answer', 10);
+        await show(r1, 'The faculty member’s answer', 10);
         await page.locator('#about-clear').click().catch(() => {});
-        await cap(k, 'The professor remembers what it posted', 'A plain question about the course — answered from the professor’s own recent posts to this student.');
+        await cap(k, 'The faculty member remembers what it posted', 'A plain question about the course — answered from the faculty member’s own recent posts to this student.');
         const r2 = await ask('Can I hand in my marketing homework late this week?');
-        await show(r2, 'Answered from the professor’s own post', 11);
+        await show(r2, 'Answered from the faculty member’s own post', 11);
         await tab('professor');
-        await show(page.locator('#prof-log > li').filter({ hasText: '4 Ps' }).last(), 'Delivery state per student', 11, [k, 'Back on the professor’s side', 'Alex: delivered, then opened. Sam has no student agent connected, so the lesson waits at the Hub — and says so.']);
+        await show(page.locator('#prof-log > li').filter({ hasText: '4 Ps' }).last(), 'Delivery state per student', 11, [k, 'Back on the faculty member’s side', 'Alex: delivered, then opened. Sam has no student agent connected, so the lesson waits at the Hub — and says so.']);
         await tab('conversation');
       },
     },
     {
       n: 10, title: 'Same screen, now on AG-UI',
-      lead: 'Nothing new to look at — on purpose. The Conversation, Agent activity and Professor view now receive their updates as AG-UI events (the open Agent–User Interaction protocol), and a question is sent as AG-UI run input. A2A between the agents is unchanged; Topology keeps its own monitoring stream.',
+      lead: 'Nothing new to look at — on purpose. The Conversation, Agent activity and Faculty view now receive their updates as AG-UI events (the open Agent–User Interaction protocol), and a question is sent as AG-UI run input. A2A between the agents is unchanged; Topology keeps its own monitoring stream.',
       bullets: ['A question is an AG-UI run: started → the reply as text-message events → finished (or an error)', 'Console entries arrive as AG-UI activity events, still filtered by the Hub’s privacy rules', 'Form states are AG-UI shared state — the groundwork for filling forms from the chat'],
       arch: 'Agents ──A2A──▶ Student agent ──AG-UI events──▶ your screen\n            (A2UI forms travel inside AG-UI)',
       async run(k) {

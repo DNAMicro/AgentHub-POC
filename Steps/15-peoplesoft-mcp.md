@@ -20,7 +20,7 @@
 
 ## What you get
 
-- In the **Professor view**, ask for time off exactly as in Step 14. The card opens with the same look. The only differences are behind it, and on **Topology**.
+- In the **Faculty view**, ask for time off exactly as in Step 14. The card opens with the same look. The only differences are behind it, and on **Topology**.
 - On Topology, below the HR Agent, there is a rounded **PeopleSoft** tile with a small database icon, the words “PeopleSoft” and “MCP SERVER”, and a ✦ sparkle in its corner. A dash-dot line labelled **MCP** joins HR to it. It has no circle, no orbit and no model box, so it can't be mistaken for an agent.
 - When the card opens, then when you press Submit, a hexagon pulse runs down the MCP line, the tile shows “● Working…” while the sparkle twinkles and a light sweeps across it, and then it shows “✓ Saved” and “✓ Connected”. The event list names the call (“tools/call create_absence_request”, “Saved as ABS-000101”).
 - Click the tile: “PeopleSoft — demo stand-in”, who can reach it, its status, the last call and its three tools. No internal step names anywhere.
@@ -33,7 +33,7 @@ Steps 1–11 and 14 must be done. `npm run demo` currently starts six processes;
 ## 1. Add the PeopleSoft stand-in (`src/peoplesoft-mcp.js`)
 
 **Concrete specification**
-- A new process on `127.0.0.1:41246` (`PORT` overrides). `npm run peoplesoft` (mock) and `npm run peoplesoft:live`. It says it is a **demo stand-in** in its startup line and in every tool description. Fictional data only (Professor Amir, `staff-amir`).
+- A new process on `127.0.0.1:41246` (`PORT` overrides). `npm run peoplesoft` (mock) and `npm run peoplesoft:live`. It says it is a **demo stand-in** in its startup line and in every tool description. Fictional data only (Dr. Dabirian, `staff-amir`).
 - MCP with `@modelcontextprotocol/sdk` **1.32.1** (pinned exactly; it works with `zod` 3.25.76; `npm ls zod` must show one version), Streamable HTTP, one session per client. A request with no or a wrong `Authorization: Bearer <PEOPLESOFT_TOKEN>` header gets **401**. The token is required: with none set the process exits with a message that does not print it. Compare with `timingSafeEqual`.
 - Host guard on every route; bound to `127.0.0.1`; malformed JSON gets 400 `{ error: 'bad_request' }`. On SIGTERM close every MCP session first, or the process will not exit.
 - Three tools, with arguments checked by `zod` (dates must be real calendar dates; partial hours positive and at most 24):
@@ -66,7 +66,7 @@ Steps 1–11 and 14 must be done. `npm run demo` currently starts six processes;
   - Wrong tool pick: “Nothing was filed — HR's AI chose the wrong PeopleSoft tool. Press Submit again.” (balance question: “HR's AI didn't choose the balance tool, so the balance isn't shown.”)
   - HR's AI didn't answer the tool choice: Submit **“HR's AI couldn't choose a PeopleSoft tool just now, so nothing was filed. Press Submit again.”** (definite, retryable, not cached); card **“HR's AI couldn't choose a PeopleSoft tool just now, so the balance isn't shown.”**; chat **“HR's AI couldn't reach PeopleSoft just now, so I can't show your leave. Nothing changed — ask again in a moment.”**
 - **A card closed during its Submit stays closed.** HR passes `isClosed` (the card is no longer `awaiting_input`) into `peoplesoft.file` and checks it again after the call returns: a closed card answers with its closed message, never a receipt. `src/form-host.js` changes a form's state only while it is still `awaiting_input`.
-- **Unconfirmed results are never cached.** HR marks them `retryable` / `unknownOutcome`. `src/form-host.js` does not store them in `operations`, the Hub clears `record.promise`, and the Professor turns them into `outcome_unknown` (not definite), which the browser keeps the operationId for. Without this, a second Submit with the same operationId gets the first answer and never reaches PeopleSoft.
+- **Unconfirmed results are never cached.** HR marks them `retryable` / `unknownOutcome`. `src/form-host.js` does not store them in `operations`, the Hub clears `record.promise`, and the Faculty agent turns them into `outcome_unknown` (not definite), which the browser keeps the operationId for. Without this, a second Submit with the same operationId gets the first answer and never reaches PeopleSoft.
 - `/dev/hr/reset` closes every card, then calls PeopleSoft's reset; if PeopleSoft fails it answers 502 `{ status: 'failed', peoplesoft: 'unavailable' }`. `GET /test/hr/requests` (with `HR_TEST_HOOKS=1`) proxies PeopleSoft's `/test/records`. HR logs the URL and only whether the token is configured, never the token. HR logs still redact the absence name, reason and note.
 - The staff check is one balances call per message; `unknown_staff` -> “HR serves university staff only.”
 
@@ -81,9 +81,9 @@ Steps 1–11 and 14 must be done. `npm run demo` currently starts six processes;
 | HR's PeopleSoft call (connect + call, counted from after the tool choice; the call keeps at least planner + 2 s = 10 s) | 12 s |
 | Hub -> HR staff action | 25 s (students keep 8 s) |
 | Hub -> specialist chat / staff request | 60 s |
-| Professor -> Hub staff wait | 65 s |
-| Professor's own staff-or-class model call | 10 s |
-| Hub proxy -> Professor `/author/*` | 80 s |
+| Faculty -> Hub staff wait | 65 s |
+| Faculty's own staff-or-class model call | 10 s |
+| Hub proxy -> Faculty `/author/*` | 80 s |
 | UI server -> Hub proxy | 85 s |
 
 ## 5. Telemetry and Topology labels (`src/hr-peoplesoft.js`, `src/topology.js`, `src/hub-agent.js`, `src/ui-server.js`)
@@ -117,7 +117,7 @@ Steps 1–11 and 14 must be done. `npm run demo` currently starts six processes;
 ## 8. Tests and checks
 
 - New: `test/peoplesoft-store.test.js`, `peoplesoft-model.test.js`, `peoplesoft-mcp.test.js`, `hr-peoplesoft.test.js`, `hr-peoplesoft-budget.test.js`, `topology-peoplesoft.test.js`, `timeouts.test.js`. `test/hr.test.js` starts its own PeopleSoft. The old `hr-store` test moved to the PeopleSoft store test.
-- `scripts/browser-checks/peoplesoft.js` (37 checks) on a **separate** rehearsal stack: `node scripts/demo/rehearsal-stack.js --ui 5544 --base 52340 --mock`, then `playwright-cli -s=ps open http://127.0.0.1:5544/professor` and `playwright-cli -s=ps run-code "$(cat scripts/browser-checks/peoplesoft.js)"`. Open every screenshot (ps-1 to ps-5).
+- `scripts/browser-checks/peoplesoft.js` (37 checks) on a **separate** rehearsal stack: `node scripts/demo/rehearsal-stack.js --ui 5544 --base 52340 --mock`, then `playwright-cli -s=ps open http://127.0.0.1:5544/faculty` and `playwright-cli -s=ps run-code "$(cat scripts/browser-checks/peoplesoft.js)"`. Open every screenshot (ps-1 to ps-5).
 - Live run, as you asked (at least 20 scenarios): approvals, refusals (`not_enough`, `overlap`, a holiday boundary), PeopleSoft down and back up, a second press after “didn't answer”, a wrong tool pick, reset, a restart in the middle. Fix anything found.
 
 ## 9. Docs
@@ -135,14 +135,14 @@ README “Part 15”, the CLAUDE.md “Part 15 (PeopleSoft over MCP) notes”, t
 - **Put the timeouts in the right order.** The Hub (8 s) once gave up before HR's tool choice plus the MCP call (20 s), so the PeopleSoft sentence never showed. Every outer wait must be longer than everything inside it (section 4). The MCP deadline must start after the tool choice, or a slow choice shortens the call.
 - **Chat questions need their own sentence.** “press Submit again” makes no sense in the chat; use the chat sentence.
 - **A wrong tool pick must say so honestly.** It is a definite rejection (“nothing was filed”), not an unknown outcome, and it is not cached.
-- **Don't cache an unconfirmed Submit** at the form host, the Hub or the Professor. Otherwise the retry never reaches PeopleSoft and the first “didn't answer” sticks forever.
+- **Don't cache an unconfirmed Submit** at the form host, the Hub or the Faculty agent. Otherwise the retry never reaches PeopleSoft and the first “didn't answer” sticks forever.
 - **PeopleSoft must close its MCP sessions on SIGTERM.** An open stream kept the process alive.
 - **Reconnect once, only when the session is unknown.** After a PeopleSoft restart HR's session is stale (404/400, the tool never ran). Never retry after a timeout: the filing may have happened.
 - **Accept a refusal code only from the fixed set** of ten (including `bad_hours` and `reset_during_call`). Anything else is null; the code, never the sentence, goes to telemetry.
-- **Strip the receipt's `steps`** before the card, chat, Professor, A2A and telemetry. Step names on screen are an anti-goal.
+- **Strip the receipt's `steps`** before the card, chat, Faculty, A2A and telemetry. Step names on screen are an anti-goal.
 - **The Hub's allowlist hides new fields.** Add `tool`, `moment`, `recordId`, `stepCount` and `expected` to `SAFE_FIELDS`, or Topology labels show “[n chars redacted]”. Add `peoplesoft_session` to `CONFIG_EVENTS`, or the pill never leaves “Not connected yet”.
 - **Pulses could play out of order.** The stagger restarted at 0 for each 100 ms batch, so an MCP answer could play before its call and the tile stayed on “Working…”. Carry the spacing across batches.
-- **An unknown edge must not throw.** A label for an edge the page doesn't draw froze the Professor chat at “Sending…” and left a stale operation id in localStorage (“operation ID already used with different values”). Ignore it; a fresh browser session clears the stale attempt.
+- **An unknown edge must not throw.** A label for an edge the page doesn't draw froze the Faculty agent chat at “Sending…” and left a stale operation id in localStorage (“operation ID already used with different values”). Ignore it; a fresh browser session clears the stale attempt.
 - **A test HR must never follow the real PeopleSoft.** Always give HR a test PeopleSoft or the closed port 9, never 41246. Never run `npm run demo` (or anything on 4444 or 41241–41246) while the owner's demo runs.
 - **After `npm install` of the MCP SDK, Express once failed to load (no `body-parser`).** Run `npm install` again. A hung first `npm test` came from this.
 - **`node --test` can hang when a test fails before closing its server.** Use `--test-force-exit` while iterating.
@@ -157,7 +157,7 @@ README “Part 15”, the CLAUDE.md “Part 15 (PeopleSoft over MCP) notes”, t
 
 - `npm test` passes and `node scripts/demo/rehearsal-stack.js --ui 5544 --base 52340 --mock` plus the browser check give 37 of 37.
 - `npm run demo` prints “Starting seven processes”, and `curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:41246/mcp` prints `401`.
-- A Submit from the Professor view shows a request number from PeopleSoft, and Topology shows the MCP line lighting up and the tile working.
+- A Submit from the Faculty view shows a request number from PeopleSoft, and Topology shows the MCP line lighting up and the tile working.
 
 ## Enhancements merged into this step
 
@@ -168,3 +168,4 @@ README “Part 15”, the CLAUDE.md “Part 15 (PeopleSoft over MCP) notes”, t
 - **Time budget.** Staff actions got their own 25 s limit, and every outer wait was lengthened (section 4).
 - **Topology fixes (from the browser check).** Pulse order across batches, and unknown edges ignored.
 - **Final-review fixes.** New conversation during a Submit can't file (reset generation, `reset_during_call`, HR's closed check, form-host keeps a closed form closed); honest words when HR's AI doesn't answer the tool choice (`tool_choice_failed`); an unconfirmed Submit is amber “unknown” on every hop; the PeopleSoft pill follows failed and recovered calls; the call keeps a floor of planner + 2 s.
+- Renamed what the audience sees (2026-11-04): the agent is “Marketing 101 Faculty”, the tab is “Faculty view” (/faculty; /professor still opens it), and the person is “Dr. Dabirian” (was “Professor Amir”), because “Professor” confused the audience. Code names, files, settings and commands keep “professor”. Students may still type “professor”: keep accepting it (the Student agent treats a title word — professor, faculty, instructor, Dr. — as naming whoever the last reply named with a title).

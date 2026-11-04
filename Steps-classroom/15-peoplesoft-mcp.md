@@ -6,7 +6,7 @@ Time: about 90 minutes. Cost: free (tests use mocks and the local fake). Optiona
 
 ## What you'll see when it works
 
-- In **Professor view**, file time off exactly as in Step 14. The card looks the same. The receipt now carries a request number from PeopleSoft, like `ABS-000101` (Step 14 used `TO-…`).
+- In **Faculty view**, file time off exactly as in Step 14. The card looks the same. The receipt now carries a request number from PeopleSoft, like `ABS-000101` (Step 14 used `TO-…`).
 - Open **Topology**. Below the HR Agent there is a rounded **PeopleSoft** tile (a small database icon, “PeopleSoft”, “MCP SERVER”, a ✦ sparkle) joined to HR by a dash-dot line labelled **MCP**. It has no circle and no model box.
 - Press Submit. A hexagon pulse runs down the MCP line, the tile shows “● Working…” with a twinkling sparkle and a sweeping light, then “✓ Saved” and “✓ Connected”. The event list says “tools/call create_absence_request” and “Saved as ABS-000101”.
 - Click the tile. It says “PeopleSoft — demo stand-in”, lists three tools, and shows no internal step names.
@@ -62,7 +62,7 @@ Tasks B, C and D need A's exports and the contracts above. Each task writes agai
 3. **One deadline** covers connect, `tools/list`, a reconnect and the call; it starts after the tool choice. **Reconnect once, only on HTTP 404/400 (session unknown).** Never retry after a timeout.
 4. **`chooseTool`:** `MOMENT_TOOL = { balances: 'get_leave_balances', requests: 'list_absence_requests', file: 'create_absence_request' }`. Mock: the moment's tool, labelled. Live: one `callModel` (schema `{ tool: enum(tools) }`, purpose `choose PeopleSoft tool`, 8 s via `HR_TOOL_CHOICE_TIMEOUT_MS`); the prompt ends with `HR needs to: <moment in plain words>`. A failure gives `tool: null` (no call, no fallback).
 5. **HR agent:** remove every `store.*` use. Card issue and re-issue call `balances`; a balance question calls `balances`; a requests question calls `requests`; Submit calls `file`. `unknown_staff` → “HR serves university staff only.” Balances unavailable → the card opens without balances and the problem “PeopleSoft didn't answer, so the balance isn't shown.” Submit `refused` → the card reopens with the reason. Submit `unavailable`/`uncertain` → `PEOPLESOFT_UNAVAILABLE`, marked `retryable` and `unknownOutcome`. Wrong tool at Submit → “Nothing was filed — HR's AI chose the wrong PeopleSoft tool. Press Submit again.” Chat: `PEOPLESOFT_UNAVAILABLE_CHAT`. `/dev/hr/reset` closes cards, then calls PeopleSoft's reset (502 `{ status: 'failed', peoplesoft: 'unavailable' }` if that fails). Log the URL and whether the token is configured; never the token.
-6. **Never cache unconfirmed results:** `form-host` does not store a `retryable` result in `operations` and returns `retryable: true`; the Hub clears `record.promise` for it and passes `retryable` on; the Professor turns it into `outcome_unknown` (not definite) with HR's sentence.
+6. **Never cache unconfirmed results:** `form-host` does not store a `retryable` result in `operations` and returns `retryable: true`; the Hub clears `record.promise` for it and passes `retryable` on; the Faculty agent turns it into `outcome_unknown` (not definite) with HR's sentence.
 7. **Time budget:** Hub staff actions wait `hubStaffActionMs`, other form actions keep `hubFormActionMs`; use the table values for the rest.
 8. **Harness:** `startStack({ hr: true })` always starts PeopleSoft on a pre-picked port with a random token and gives HR `PEOPLESOFT_URL`/`PEOPLESOFT_TOKEN`; `startHr` alone points at the closed port 9, never 41246; add `stopProcess(p)` (check `exitCode`/`signalCode` before awaiting `exit`).
 
@@ -88,7 +88,7 @@ Tasks B, C and D need A's exports and the contracts above. Each task writes agai
 
 1. `npm run build:ui`, then `npm test` (run files one at a time with `--test-timeout` while building; use `--test-force-exit` when iterating, because a test that fails before closing its server can hang).
 2. Prove the token wiring without the demo ports: `PEOPLESOFT_TOKEN=x PORT=52111 node src/peoplesoft-mcp.js &`, then `curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:52111/mcp` must print `401`; stop it by PID.
-3. On a **separate stack**, never the running demo: `node scripts/demo/rehearsal-stack.js --ui 5544 --base 52340 --mock`, then `playwright-cli -s=ps open http://127.0.0.1:5544/professor` and `playwright-cli -s=ps run-code "$(cat scripts/browser-checks/peoplesoft.js)"`. Expect 36 of 36. Open every screenshot and look at it.
+3. On a **separate stack**, never the running demo: `node scripts/demo/rehearsal-stack.js --ui 5544 --base 52340 --mock`, then `playwright-cli -s=ps open http://127.0.0.1:5544/faculty` and `playwright-cli -s=ps run-code "$(cat scripts/browser-checks/peoplesoft.js)"`. Expect 36 of 36. Open every screenshot and look at it.
 4. Live (PAID, cents), only when no other demo is on those ports: `env -u ANTHROPIC_BASE_URL npm run demo:live` (the startup lines say `API host: api.anthropic.com` and seven processes start). Run at least 20 scenarios: an approval, `not_enough`, `overlap`, a holiday boundary, PeopleSoft stopped and restarted, a second Submit after “didn't answer”, a balance question, New conversation. Fix anything you find.
 
 ## Rules that apply to the whole step
@@ -110,11 +110,11 @@ Tasks B, C and D need A's exports and the contracts above. Each task writes agai
 - Keep the time limits nested (the table in `src/timeouts.js`). The MCP deadline starts after the tool choice.
 - Chat questions use the chat sentence, not “press Submit again”.
 - A wrong tool pick is a definite “nothing was filed”, not cached.
-- Never cache an unconfirmed Submit at the form host, the Hub or the Professor.
+- Never cache an unconfirmed Submit at the form host, the Hub or the Faculty agent.
 - Close the MCP sessions on SIGTERM or PeopleSoft will not exit.
 - Reconnect once, only when the session is unknown. Never retry after a timeout.
 - Accept a refusal code only from the nine; anything else is null.
-- Strip the receipt's `steps` before the card, chat, Professor, A2A and telemetry.
+- Strip the receipt's `steps` before the card, chat, Faculty, A2A and telemetry.
 - Add `tool`, `moment`, `recordId`, `stepCount`, `expected` to `SAFE_FIELDS` and `peoplesoft_session` to `CONFIG_EVENTS`.
 - Carry pulse spacing across batches; ignore labels for edges the page does not draw.
 - A test HR must point at a test PeopleSoft or port 9, never 41246. Never run on 4444 or 41241–41246 while a demo runs there.
@@ -132,7 +132,7 @@ Tasks B, C and D need A's exports and the contracts above. Each task writes agai
 ## Part 15 (PeopleSoft over MCP) notes
 - PeopleSoft stand-in (src/peoplesoft-mcp.js, :41246, npm run peoplesoft / peoplesoft:live, PEOPLESOFT_MODE mock|live) is a fictional demo stand-in, MCP SDK 1.32.1, Streamable HTTP, bearer token PEOPLESOFT_TOKEN (start-all makes a random one per start, gives it to psoft and hr only, never prints it). Records are in memory only (src/peoplesoft-store.js); src/hr-store.js is gone.
 - Three tools: get_leave_balances, list_absence_requests, create_absence_request (idempotent by operationId). HR's AI chooses the tool at both moments (card issue, Submit); MOMENT_TOOL decides which tool is allowed; a mismatch makes no call (mcp_tool_refused). PeopleSoft's planner picks steps from a fixed menu; code adds the four required steps and runs them.
-- Nine refusal codes (REFUSAL_CODES); a code outside the set becomes null. Unavailable/uncertain: exact Submit and chat sentences. retryable/unknownOutcome results are never cached (form-host, Hub, Professor). Reconnect once only when the session is unknown.
+- Nine refusal codes (REFUSAL_CODES); a code outside the set becomes null. Unavailable/uncertain: exact Submit and chat sentences. retryable/unknownOutcome results are never cached (form-host, Hub, Faculty). Reconnect once only when the session is unknown.
 - Nested time budget in src/timeouts.js: 8 / 8 / 12 / 25 / 65 / 80 / 85 s; change together.
 - Receipt steps are stripped in the link. Telemetry: mcp_call_started, mcp_call_result, mcp_tool_refused, peoplesoft_session (in CONFIG_EVENTS); SAFE_FIELDS gains tool, moment, recordId, stepCount, expected.
 - Topology design F: tile, sparkle, sweep, dash-dot MCP line; no circle, no model box, no step names.
@@ -141,7 +141,7 @@ Tasks B, C and D need A's exports and the contracts above. Each task writes agai
 
 ## Show it (optional)
 
-- PAID (a few cents): `env -u ANTHROPIC_BASE_URL npm run demo:live`, open the Professor view and Topology side by side, and file “My grandmother passed away, I need this Thursday and Friday.” Watch HR's model box light, then the MCP line, then the PeopleSoft tile working.
+- PAID (a few cents): `env -u ANTHROPIC_BASE_URL npm run demo:live`, open the Faculty view and Topology side by side, and file “My grandmother passed away, I need this Thursday and Friday.” Watch HR's model box light, then the MCP line, then the PeopleSoft tile working.
 - Stop PeopleSoft by its PID, press Submit, read the “didn't answer” sentence, start it again and press Submit once more.
 
 ## Enhancements merged into this step
@@ -150,3 +150,4 @@ Tasks B, C and D need A's exports and the contracts above. Each task writes agai
 - **Ask the AI at both moments**: HR's AI picks the tool when the card opens and at Submit.
 - **Retry rules from the reviews**: unconfirmed results are never cached, one reconnect only for an unknown session, the MCP deadline starts after the tool choice, and the time limits are nested.
 - **Fixes from the browser check**: pulse order across batches, and unknown edges ignored.
+- Renamed what the audience sees (2026-11-04): the agent is “Marketing 101 Faculty”, the tab is “Faculty view” (/faculty; /professor still opens it), and the person is “Dr. Dabirian” (was “Professor Amir”), because “Professor” confused the audience. Code names, files, settings and commands keep “professor”. Students may still type “professor”: keep accepting it (the Student agent treats a title word — professor, faculty, instructor, Dr. — as naming whoever the last reply named with a title).

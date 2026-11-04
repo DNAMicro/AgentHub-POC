@@ -155,4 +155,4 @@ export function briefReply(text, head = 200, tail = 300) {
 }
 
 // Added to every prompt whose output talks about people: models must not guess pronouns.
-export const PEOPLE_RULE = 'Never guess a person’s pronouns or gender: refer to people (the professor, a student, a librarian) by name or role, or with “they/them”, and use he/she/him/her/his/hers only if the data states them.';
+export const PEOPLE_RULE = 'Never guess a person’s pronouns or gender: refer to people (a faculty member, a student, a librarian) by name or role, or with “they/them”, and use he/she/him/her/his/hers only if the data states them.';

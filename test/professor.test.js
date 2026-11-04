@@ -92,7 +92,7 @@ test('course availability appears once, even after the Professor and the Student
   await waitFor(async () => (await inbox(s)).notices.length === 1, { what: 'availability notice' });
   const [notice] = (await inbox(s)).notices;
   assert.equal(notice.courseTitle, 'Marketing 101');
-  assert.equal(notice.professorName, 'Professor Amir', 'students see the course’s professor by name');
+  assert.equal(notice.professorName, 'Dr. Dabirian', 'students see the course’s professor by name');
   // Professor restart (new instance, new key) and Student restart: no second announcement.
   await stop(s.professor);
   s.professor = await startProfessor({ ...s.specialistEnv, PORT: String(s.professorPort), PROFESSOR_OUTBOX_FILE: s.files.outbox });
@@ -111,7 +111,7 @@ test('opening the notification opens that lesson; follow-ups keep its context an
   await postLesson(s, { title: 'Price signals value', text: 'Pricing communicates value; a reusable bottle priced too low can look flimsy.' });
   const box = await inbox(s);
   assert.equal(box.lessons.length, 2);
-  assert.ok(box.lessons.every((l) => l.professorName === 'Professor Amir'), 'each delivery names the professor');
+  assert.ok(box.lessons.every((l) => l.professorName === 'Dr. Dabirian'), 'each delivery names the professor');
   const target = box.lessons.find((l) => l.title === 'Price signals value');
   const opened = await (await post(`${s.ui.url}/api/inbox/${target.deliveryId}/open`, {})).json();
   assert.equal(opened.title, 'Price signals value');
@@ -193,7 +193,7 @@ test('double-clicks, restarts, reconnects and event replay produce one delivery'
 test('Student agent offline: the lesson queues at the Hub and arrives when it returns; the browser gets it from the persisted inbox', async () => {
   const { s, stream } = await classroom();
   await stop(s.ui);
-  // The Student's UI (which also hosts the Professor view in this demo) is down: use the Professor's API.
+  // The Student's UI (which also hosts the Faculty view in this demo) is down: use the Professor's API.
   const res = await (await post(`${s.professor.url}/author/lessons`, { operationId: `op-${randomUUID()}`, audience: 'student-alex', title: 'While you were away', text: 'Positioning is the place a brand holds in a customer’s mind.' })).json();
   assert.equal(res.ack.status, 'queued', 'queued at the Hub — not “delivered”');
   const direct = await (await fetch(`${s.professor.url}/author/state`)).json();
@@ -330,7 +330,7 @@ test('New conversation clears every student’s lessons and messages — inbox, 
   assert.ok(stream.events.findIndex((e) => e.type === 'conversation_reset') < stream.events.findIndex((e) => e.source === 'hub' && e.type === 'classroom_reset'), 'the screen clears before the agents report their reset');
 });
 
-// ---- the professor's chat (Professor view) ------------------------------------------------------------------
+// ---- the professor's chat (Faculty view) ------------------------------------------------------------------
 const say = async (s, text, operationId = `op-${randomUUID()}`) => (await post(`${s.ui.url}/api/professor/chat`, { operationId, text })).json();
 
 test('professor chat: plain messages go straight to students (tags pick who, no tag = the class); @assistant gets help; repeats send once', async () => {
@@ -483,14 +483,14 @@ test('a course question the assistant can’t answer goes to the professor’s c
       const { runId } = await res.json();
       await waitFor(() => find(forRun(stream.events, runId), 'student', 'reply_received'), { timeout: 15000, what: 'reply' });
       const reply = find(forRun(stream.events, runId), 'student', 'reply_received').data;
-      assert.match(reply.text, /passed this on to Professor Amir/i);
+      assert.match(reply.text, /passed this on to Dr. Dabirian/i);
       assert.equal(reply.professor.outcome, 'needs_professor');
       assert.equal(reply.professor.onBehalf, true, 'shown as the course assistant speaking for the professor');
       const chat = (await professorState(s)).chat;
       assert.ok(chat.some((m) => m.role === 'student' && m.studentId === 'student-alex' && m.text === question), 'the question is in the professor’s chat');
       assert.ok(chat.some((m) => m.action === 'answer_student' && m.to === 'student-alex' && m.needsProfessor), 'flagged: needs the professor’s answer');
 
-      // The professor's Reply on that question marks it answered (the Professor view's green "✓ Answered").
+      // The professor's Reply on that question marks it answered (the Faculty view's green "✓ Answered").
       const asked = chat.find((m) => m.role === 'student' && m.text === question);
       const handedOver = () => professorState(s).then((st) => st.chat.find((m) => m.id === asked.id.replace(/:s$/, ':r')));
       assert.equal((await handedOver()).answeredAt, undefined, 'waiting until the professor replies');
@@ -501,7 +501,7 @@ test('a course question the assistant can’t answer goes to the professor’s c
       // An unsigned caller (straight to the Professor, not through the Hub) is nobody: nothing reaches the chat.
       const entries = (await professorState(s)).chat.length;
       const direct = await askTutor(s.professor.url, 'When is the homework due?', {});
-      assert.match(direct.text, /couldn’t pass this on to Professor Amir/);
+      assert.match(direct.text, /couldn’t pass this on to Dr. Dabirian/);
       assert.equal((await professorState(s)).chat.length, entries, 'no anonymous entry in the professor’s chat');
     } finally {
       stream.close();
@@ -637,8 +637,8 @@ test('meeting times come only from the professor’s words', () => {
 });
 
 // ---- Bug (seen live): "what is SWOT in marketing" was refused with a topic list; "ask the professor" and
-// "Amir" made the Hub ask which course, twice. Scripted model output = plumbing, not judgment.
-test('conversation: a marketing question the course doesn’t cover goes to the professor, "ask the professor" and "Amir" follow the same service, and nobody is asked the same question twice', async () => {
+// "Dabirian" made the Hub ask which course, twice. Scripted model output = plumbing, not judgment.
+test('conversation: a marketing question the course doesn’t cover goes to the professor, "ask the professor" and "Dabirian" follow the same service, and nobody is asked the same question twice', async () => {
   const stub = await startFakeAnthropic();
   stub.respondWith(() => messageReply(JSON.stringify({ kind: 'needs_professor', text: 'SWOT isn’t in my material.', topic_ids: [] })));
   const { s, stream } = await classroom({ professorEnv: { PROFESSOR_MODE: 'live', ANTHROPIC_API_KEY: `sk-ant-test-${randomUUID()}`, ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0' } });
@@ -646,14 +646,14 @@ test('conversation: a marketing question the course doesn’t cover goes to the 
     const q1 = 'what is SWOT in marketing';
     const r1 = await chatVia(s.ui, stream, q1);
     assert.equal(r1.decision.agentId, 'professor');
-    assert.match(r1.reply.text, /passed this on to Professor Amir/i, 'the student is told in the fixed words');
+    assert.match(r1.reply.text, /passed this on to Dr. Dabirian/i, 'the student is told in the fixed words');
     assert.equal(r1.reply.professor.outcome, 'needs_professor');
     assert.match(stub.requests.at(-1).body.system?.[0]?.text ?? JSON.stringify(stub.requests.at(-1).body.system), /SWOT analysis/, 'the prompt names a marketing concept the pack lacks as needs_professor');
     const chat1 = (await professorState(s)).chat;
     assert.equal(chat1.filter((m) => m.role === 'student' && m.text === q1).length, 1, 'the question is in the professor’s chat once');
 
     const asked = [];
-    for (const text of ['ask the professor', 'Amir']) {
+    for (const text of ['ask the professor', 'Dabirian']) {
       const r = await chatVia(s.ui, stream, text, r1.contextId);
       assert.equal(r.decision.decision, 'route', `“${text}” is routed, not clarified`);
       assert.equal(r.decision.agentId, 'professor');
@@ -677,15 +677,15 @@ test('"ask the professor" after an answered Marketing 101 question hands that ea
   assert.equal(r2.decision.decision, 'route');
   assert.equal(r2.decision.agentId, 'professor');
   assert.deepEqual(r2.destinations, ['professor']);
-  assert.match(r2.reply.text, /passed this on to Professor Amir/i);
+  assert.match(r2.reply.text, /passed this on to Dr. Dabirian/i);
   const chat = (await professorState(s)).chat;
   assert.ok(chat.some((m) => m.role === 'student' && m.studentId === 'student-alex' && m.text === q), 'the EARLIER question is in the professor’s chat');
   assert.ok(chat.some((m) => m.action === 'answer_student' && m.needsProfessor), 'flagged as waiting for the professor');
   assert.ok(!chat.some((m) => m.text === 'ask the professor'), 'not the words "ask the professor"');
   // Nothing earlier to hand over: asks what the question is (no entry in the chat).
-  const fresh = await chatVia(s.ui, stream, 'Amir');
+  const fresh = await chatVia(s.ui, stream, 'Dabirian');
   assert.equal(fresh.decision.agentId, 'professor', 'naming the professor identifies Marketing 101');
-  assert.match(fresh.reply.text, /What would you like to ask Professor Amir/);
+  assert.match(fresh.reply.text, /What would you like to ask Dr. Dabirian/);
 });
 
 test('a mock Professor hands a course question no topic covers to the professor', async () => {
@@ -699,9 +699,9 @@ test('a mock Professor hands a course question no topic covers to the professor'
 
 test('the router never asks the same clarifying question twice in a row (it goes on to the service that last answered)', async () => {
   const { noRepeatClarify, sameQuestion } = await import('../src/router.js');
-  const services = [{ agentId: 'professor', name: 'Marketing 101 Professor', publicName: 'Marketing 101', skills: [{ id: 'pricing' }] }];
-  const q2 = 'Which course would you like to ask Professor Amir about: Marketing 101, or is it about something else? Please tell me your question too.';
-  const q3 = 'Is your question for Professor Amir about Marketing 101, or about something else? Please also tell me what you want to ask.';
+  const services = [{ agentId: 'professor', name: 'Marketing 101 Faculty', publicName: 'Marketing 101', skills: [{ id: 'pricing' }] }];
+  const q2 = 'Which course would you like to ask Dr. Dabirian about: Marketing 101, or is it about something else? Please tell me your question too.';
+  const q3 = 'Is your question for Dr. Dabirian about Marketing 101, or about something else? Please also tell me what you want to ask.';
   assert.ok(sameQuestion(q2, q3));
   assert.ok(!sameQuestion(q2, 'Do you want tutoring or the library?'));
   const turns = [
@@ -716,14 +716,14 @@ test('the router never asks the same clarifying question twice in a row (it goes
   assert.equal(noRepeatClarify({ ...again, clarificationQuestion: 'Tutoring or library?' }, turns, services).decision, 'clarify', 'a different question is allowed');
 });
 
-// ---- Student side of the same bug: "Amir" right after the Marketing 101 reply was held by the Student agent
-// ("Did you want to ask Professor Amir something?"). Scripted model = plumbing, not judgment.
-test('"Amir" after a Marketing 101 reply is not held or clarified by the Student agent — it reaches the Professor (Student model live, scripted to clarify)', async () => {
+// ---- Student side of the same bug: "Dabirian" right after the Marketing 101 reply was held by the Student agent
+// ("Did you want to ask Dr. Dabirian something?"). Scripted model = plumbing, not judgment.
+test('"Dabirian" after a Marketing 101 reply is not held or clarified by the Student agent — it reaches the Professor (Student model live, scripted to clarify)', async () => {
   const profStub = await startFakeAnthropic();
   profStub.respondWith(() => messageReply(JSON.stringify({ kind: 'needs_professor', text: 'SWOT isn’t in my material.', topic_ids: [] })));
   const studentStub = await startFakeAnthropic();
   // If the Student's model were asked, it would do what the live one did: hold the message and ask.
-  studentStub.respondWith(() => messageReply(JSON.stringify({ action: 'clarify', capability: 'none', reason: '', clarification_question: 'Did you want to ask Professor Amir something? Let me know your question and I’ll pass it along to him.' })));
+  studentStub.respondWith(() => messageReply(JSON.stringify({ action: 'clarify', capability: 'none', reason: '', clarification_question: 'Did you want to ask Dr. Dabirian something? Let me know your question and I’ll pass it along to him.' })));
   const key = `sk-ant-test-${randomUUID()}`;
   const { s, stream } = await classroom({
     professorEnv: { PROFESSOR_MODE: 'live', ANTHROPIC_API_KEY: key, ANTHROPIC_BASE_URL: profStub.url, TUTOR_LOAD_DOTENV: '0' },
@@ -731,8 +731,8 @@ test('"Amir" after a Marketing 101 reply is not held or clarified by the Student
   });
   try {
     const r1 = await chatVia(s.ui, stream, 'what is SWOT in marketing');
-    assert.match(r1.reply.text, /passed this on to Professor Amir/i);
-    for (const text of ['Amir', 'Professor Amir', 'ask the professor']) {
+    assert.match(r1.reply.text, /passed this on to Dr. Dabirian/i);
+    for (const text of ['Dabirian', 'Dr. Dabirian', 'ask the professor']) {
       const r = await chatVia(s.ui, stream, text, r1.contextId);
       assert.equal(find(r.events, 'student', 'clarification_asked'), undefined, `“${text}” is not held`);
       assert.equal(r.decision?.agentId, 'professor', `“${text}” reaches the Professor`);
@@ -748,10 +748,10 @@ test('"Amir" after a Marketing 101 reply is not held or clarified by the Student
 test('Student mock path: naming something from the last reply continues with that service', async () => {
   process.env.STUDENT_MODE = 'mock';
   const { namesFromLastReply } = await import('../src/student-assistant.js');
-  const last = { question: 'what is SWOT', capability: 'marketing', answer: 'I’ve passed this on to Professor Amir, who will get back to you.' };
-  for (const q of ['Amir', 'Professor Amir', 'the professor', 'ask the professor', 'please ask Amir']) assert.ok(namesFromLastReply(q, last), q);
-  for (const q of ['Explain the derivative of x squared', 'Bob', 'ask the librarian', 'Amir please renew my library book now']) assert.ok(!namesFromLastReply(q, last), q);
-  assert.ok(!namesFromLastReply('Amir', { ...last, capability: null }), 'only after a reply from a service');
+  const last = { question: 'what is SWOT', capability: 'marketing', answer: 'I’ve passed this on to Dr. Dabirian, who will get back to you.' };
+  for (const q of ['Dabirian', 'Dr. Dabirian', 'the professor', 'ask the professor', 'please ask Dabirian']) assert.ok(namesFromLastReply(q, last), q);
+  for (const q of ['Explain the derivative of x squared', 'Bob', 'ask the librarian', 'Dabirian please renew my library book now']) assert.ok(!namesFromLastReply(q, last), q);
+  assert.ok(!namesFromLastReply('Dabirian', { ...last, capability: null }), 'only after a reply from a service');
 });
 
 test('every prompt that writes about people carries the no-guessing-pronouns rule', async () => {
@@ -767,7 +767,7 @@ test('every prompt that writes about people carries the no-guessing-pronouns rul
   for (const [name, text] of Object.entries(prompts)) assert.ok(text.includes(PEOPLE_RULE), `${name} prompt has the rule`);
 });
 
-test('“ask the professor” then “Amir”: both quote the real question, and the professor’s chat holds it once', async () => {
+test('“ask the professor” then “Dabirian”: both quote the real question, and the professor’s chat holds it once', async () => {
   // Live report: the third message said “I've already passed “ask the professor” on…”.
   const stub = await startFakeAnthropic();
   stub.respondWith(() => messageReply(JSON.stringify({ kind: 'needs_professor', text: 'Not in my material.', topic_ids: [] })));
@@ -776,10 +776,10 @@ test('“ask the professor” then “Amir”: both quote the real question, and
     const q = 'what is SWOT in marketing';
     const r1 = await chatVia(s.ui, stream, q);
     const r2 = await chatVia(s.ui, stream, 'ask the professor', r1.contextId);
-    const r3 = await chatVia(s.ui, stream, 'Amir', r1.contextId);
+    const r3 = await chatVia(s.ui, stream, 'Dabirian', r1.contextId);
     for (const r of [r2, r3]) {
       assert.match(r.reply.text, /already passed “what is SWOT in marketing”/);
-      assert.doesNotMatch(r.reply.text, /“ask the professor”|“Amir”/);
+      assert.doesNotMatch(r.reply.text, /“ask the professor”|“Dabirian”/);
     }
     const chat = (await professorState(s)).chat;
     assert.equal(chat.filter((m) => m.role === 'student').length, 1);
@@ -789,18 +789,18 @@ test('“ask the professor” then “Amir”: both quote the real question, and
   }
 });
 
-test('mock: after an answered question, “ask the professor” passes it on once; “Amir” then says it was already passed (quoting the real question)', async () => {
+test('mock: after an answered question, “ask the professor” passes it on once; “Dabirian” then says it was already passed (quoting the real question)', async () => {
   const { s, stream } = await classroom();
   const q = 'What is market segmentation?';
   const r1 = await chatVia(s.ui, stream, q);
   const r2 = await chatVia(s.ui, stream, 'ask the professor', r1.contextId);
-  assert.match(r2.reply.text, /passed this on to Professor Amir/);
-  const r3 = await chatVia(s.ui, stream, 'Amir', r1.contextId);
+  assert.match(r2.reply.text, /passed this on to Dr. Dabirian/);
+  const r3 = await chatVia(s.ui, stream, 'Dabirian', r1.contextId);
   assert.match(r3.reply.text, /already passed “What is market segmentation\?”/);
   assert.equal((await professorState(s)).chat.filter((m) => m.role === 'student').length, 1);
 });
 
-// Topology: the Professor view's own model calls (naming a direct post, the @assistant) are Professor → model
+// Topology: the Faculty view's own model calls (naming a direct post, the @assistant) are Professor → model
 // hops on the UI stream, in a `prof-<operationId>` run, with no message words. Scripted output = plumbing.
 test('professor view model calls reach the UI stream as professor-model hops: a direct post and an @assistant turn', async () => {
   const stub = await startFakeAnthropic();

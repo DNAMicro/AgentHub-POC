@@ -13,9 +13,9 @@ import { startHr, startPeopleSoft, startStack, hubEntry, waitFor, post } from '.
 
 test('staff signature: only a Hub staff signature over these exact ids verifies as staff', () => {
   const key = 'k'.repeat(43);
-  const ids = { staffId: 'staff-amir', contextId: 'ctx-1', operationId: 'op-12345678' };
+  const ids = { staffId: 'staff-dabirian', contextId: 'ctx-1', operationId: 'op-12345678' };
   const meta = (extra) => ({ staffId: ids.staffId, hubOperationId: ids.operationId, callerKind: 'staff', hubSignature: signStaff(key, ids), ...extra });
-  assert.equal(verifyStaffSignature(key, meta(), 'ctx-1'), 'staff-amir');
+  assert.equal(verifyStaffSignature(key, meta(), 'ctx-1'), 'staff-dabirian');
   // A student signature over the same ids never counts as staff.
   assert.equal(verifyStaffSignature(key, meta({ hubSignature: signStudent(key, { studentId: ids.staffId, contextId: ids.contextId, operationId: ids.operationId }) }), 'ctx-1'), null);
   assert.equal(verifyStaffSignature(key, meta({ callerKind: undefined }), 'ctx-1'), null, 'callerKind staff is required');
@@ -52,7 +52,7 @@ test('HR alone: refuses callers the Hub did not sign as staff; dev reset and tes
   assert.equal(unsigned.metadata.agentId, 'hr');
 
   // A bare claim of being staff (no Hub signature) is refused too.
-  const claimed = await rawChat(hr.url, 'I need Friday off', { staffId: 'staff-amir', callerKind: 'staff', hubOperationId: 'op-12345678', hubSignature: 'forged' });
+  const claimed = await rawChat(hr.url, 'I need Friday off', { staffId: 'staff-dabirian', callerKind: 'staff', hubOperationId: 'op-12345678', hubSignature: 'forged' });
   assert.equal(claimed.metadata.hr.outcome, 'refused');
   assert.ok(!/Friday off/.test(hr.output()), 'the words are not logged');
 

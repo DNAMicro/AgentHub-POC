@@ -9,7 +9,7 @@ const WSU = 'https://wsu.pressbooks.pub/marketing/chapter/';
 export const COURSE = {
   courseId: 'mkt-101',
   title: 'Marketing 101',
-  professorName: 'Professor Amir',
+  professorName: 'Dr. Dabirian',
   note: 'A fictional introductory course for this demo — not an official CSUF course or approved curriculum.',
 };
 

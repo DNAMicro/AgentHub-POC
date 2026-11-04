@@ -5,7 +5,7 @@
 //     that makes follow-up questions carry the lesson reference.
 //     Messages (announcements, notes, replies) aren't in the inbox: they arrive in the chat itself, with a
 //     Reply button that makes the next message a reply to that one (it goes to whoever sent it).
-//   * Professor view: the professor's chat — post, watch delivery state, see students' replies and the
+//   * Faculty view: the professor's chat — post, watch delivery state, see students' replies and the
 //     course assistant's answers, and reply to one student.
 // Everything here comes from the UI server's APIs and real events. A toast or a delivery never marks a
 // lesson opened: only opening it does. Lesson text is content — always set with textContent.
@@ -76,7 +76,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     els.notice.hidden = !notice;
     if (notice) {
       els.noticeTitle.textContent = `${notice.courseTitle} is now available.`;
-      els.noticeText.textContent = `Ask its professor anything about the course here; new lessons from ${notice.professorName ?? 'the professor'} will appear in this inbox.`;
+      els.noticeText.textContent = `Ask its faculty member anything about the course here; new lessons from ${notice.professorName ?? 'the faculty member'} will appear in this inbox.`;
       els.notice.dataset.id = notice.noticeId;
       els.notice.dataset.course = notice.courseTitle;
     }
@@ -110,7 +110,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     const r = await api(`/api/inbox/${encodeURIComponent(deliveryId)}/open`, { method: 'POST' });
     if (!r.ok) return;
     showing = r.json;
-    els.dCourse.textContent = `${isMessage(showing) ? 'Message' : 'Lesson'} · ${showing.courseTitle} · from ${showing.professorName ?? 'the professor'}${showing.toAll ? ' to the whole class' : ''} · ${when(showing.postedAt)}`;
+    els.dCourse.textContent = `${isMessage(showing) ? 'Message' : 'Lesson'} · ${showing.courseTitle} · from ${showing.professorName ?? 'the faculty member'}${showing.toAll ? ' to the whole class' : ''} · ${when(showing.postedAt)}`;
     els.dTitle.textContent = untitled(showing);
     // A message has nothing to "start"; both can be asked about and saved.
     els.start.hidden = isMessage(showing);
@@ -188,7 +188,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
   // ---- toast: announces a delivery; never opens it, never takes focus -------------------------------------
   function toast(data) {
     const item = el('div', { className: 'toast', dataset: { delivery: data.deliveryId } },
-      el('p', { className: 'toast-title', textContent: isMessage(data) ? `New message from ${data.professorName ?? 'your professor'}` : `New ${data.courseTitle ?? 'course'} lesson` }),
+      el('p', { className: 'toast-title', textContent: isMessage(data) ? `New message from ${data.professorName ?? 'your faculty member'}` : `New ${data.courseTitle ?? 'course'} lesson` }),
       el('p', { className: 'toast-text', textContent: untitled(data) }),
       el('div', { className: 'toast-actions' },
         el('button', { type: 'button', textContent: isMessage(data) ? 'View message' : 'View lesson', onclick: () => openLesson(data.deliveryId) }),
@@ -201,7 +201,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     for (const t of els.toasts.querySelectorAll('.toast')) if (t.dataset.delivery === deliveryId) t.remove();
   }
 
-  // ---- Professor view: a chat ---------------------------------------------------------------------------
+  // ---- Faculty view: a chat ---------------------------------------------------------------------------
   // The professor writes naturally; the Professor agent's model decides whether that is a post (a lesson
   // or a message, for the whole class or a tagged student), a question about the class, or needs one
   // question back — and code checks it before anything is sent. Each post appears in the chat with exactly
@@ -678,7 +678,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     keep.before(...items.slice(0, at));
     keep.after(...items.slice(at + 1));
   }
-  // Part 10: the Professor view's state arrives over its own AG-UI stream (STATE_SNAPSHOT), pushed by the
+  // Part 10: the Faculty view's state arrives over its own AG-UI stream (STATE_SNAPSHOT), pushed by the
   // UI server — no polling here. refreshProfessor() re-renders the latest state.
   let professorState = null;
   function refreshProfessor() {
@@ -763,7 +763,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     } else {
       // Not processed (or unknown): give the text back; sending it again reuses the same operation id.
       if (!pv.input.value) pv.input.value = text;
-      pv.error.textContent = `Not sent: ${r?.json?.error ?? 'no answer from the Professor agent'}. Your text is back in the box; send it again to retry.`;
+      pv.error.textContent = `Not sent: ${r?.json?.error ?? 'no answer from the Faculty agent'}. Your text is back in the box; send it again to retry.`;
     }
     lastRendered = '';
     refreshProfessor();
@@ -807,7 +807,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
   return {
     event({ source, type, data }, { live }) {
       if (source === 'student' && ['lesson_received', 'lesson_opened', 'course_available'].includes(type)) refreshInbox();
-      // A toast is for the student; while this browser shows the Professor view, the inbox and the
+      // A toast is for the student; while this browser shows the Faculty view, the inbox and the
       // Conversation tab's unread dot carry it instead.
       if (source === 'student' && type === 'lesson_received' && live && pv.view.hidden && !isMessage(data)) toast(data); // a message is in the chat itself
       if (source === 'system' && (type === 'conversation_reset' || type === 'classroom_reset')) {

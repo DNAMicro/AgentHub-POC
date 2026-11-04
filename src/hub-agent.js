@@ -433,7 +433,7 @@ export function startHubServer({ port } = {}) {
     if (requested && !capability) emit('capability_rejected', runId, { operationId, capability: requested, reason: 'Not one of this university’s capabilities; the Hub routed the request itself.' });
     try {
       if (lesson) {
-        decision = { decision: 'route', agentId: lesson.professorId, skillId: null, reason: `A question about lesson ${lesson.lessonId} (revision ${lesson.revision}), delivered to this student — routed to its professor.`, model: null, decidedBy: 'lesson' };
+        decision = { decision: 'route', agentId: lesson.professorId, skillId: null, reason: `A question about lesson ${lesson.lessonId} (revision ${lesson.revision}), delivered to this student — routed to its faculty member.`, model: null, decidedBy: 'lesson' };
       } else if (capability) {
         decision = { decision: 'route', agentId: capability.worker, skillId: null, reason: `The Student asked for ${capability.name ?? requested}.`, model: null, decidedBy: 'student' };
       } else if (ROUTER_MODE === 'direct') {
@@ -710,7 +710,7 @@ export function startHubServer({ port } = {}) {
       dev.get('/dev/agents/:agentId/skills', proxy('', 'GET'));
       dev.post('/dev/agents/:agentId/skills/preview', proxy('/preview', 'POST'));
       dev.put('/dev/agents/:agentId/skills', proxy('', 'PUT'));
-      // Part 9: the Professor view's authoring API (the professor's own console; HTTP, not A2A). Posting a
+      // Part 9: the Faculty view's authoring API (the professor's own console; HTTP, not A2A). Posting a
       // lesson there makes the PROFESSOR start a real A2A interaction with the Hub.
       const author = (path, method) => async (req, res) => {
         const peer = registry.peer(req.params.agentId);

@@ -13,7 +13,7 @@ export const NODES = {
   hub: { x: 488, y: 250, w: 180, h: 96, type: 'agent', title: 'University Hub', sub: 'front door + router' },
   tutor: { x: 790, y: 124, w: 186, h: 88, type: 'agent', title: 'Tutor Agent', sub: 'A2A server' },
   library: { x: 790, y: 252, w: 186, h: 88, type: 'agent', title: 'Library Agent', sub: 'A2A server' },
-  professor: { x: 790, y: 380, w: 186, h: 88, type: 'agent', title: 'Marketing 101 Professor', sub: 'A2A server' },
+  professor: { x: 790, y: 380, w: 186, h: 88, type: 'agent', title: 'Marketing 101 Faculty', sub: 'A2A server' },
   storage: { x: 228, y: 566, w: 952, h: 58, type: 'storage', title: 'data/*.json', sub: 'git-ignored files on disk' },
 };
 

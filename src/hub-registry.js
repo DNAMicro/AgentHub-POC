@@ -80,7 +80,7 @@ export function createHubRegistry({ peers, expiryMs, cardFetchMs = 3000, onEvent
     return e.refreshing;
   }
 
-  const ROLES = { tutor: 'Tutoring specialist', library: 'Library specialist', professor: 'Course professor', hr: 'Staff service (staff only)' };
+  const ROLES = { tutor: 'Tutoring specialist', library: 'Library specialist', professor: 'Course faculty', hr: 'Staff service (staff only)' };
   const snapshotOf = (e) => ({
     agentId: e.peer.agentId, displayName: e.peer.displayName, role: ROLES[e.peer.agentId] ?? 'Specialist',
     status: e.status, registered: e.registered, enabled: e.enabled, reachable: e.reachable, cardStatus: e.cardStatus,

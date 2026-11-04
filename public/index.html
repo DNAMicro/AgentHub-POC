@@ -33,7 +33,7 @@
     <a href="/conversation" role="tab" id="tab-conversation" aria-controls="view-conversation" aria-selected="true">Conversation</a>
     <a href="/activity" role="tab" id="tab-activity" aria-controls="view-activity" aria-selected="false" tabindex="-1">Agent activity</a>
     <a href="/topology" role="tab" id="tab-topology" aria-controls="view-topology" aria-selected="false" tabindex="-1">Topology <span class="tab-pulse" id="tab-pulse" aria-hidden="true"></span></a>
-    <a href="/professor" role="tab" id="tab-professor" aria-controls="view-professor" aria-selected="false" tabindex="-1">Professor view <span class="tab-count" id="prof-waiting" hidden></span></a>
+    <a href="/faculty" role="tab" id="tab-professor" aria-controls="view-professor" aria-selected="false" tabindex="-1">Faculty view <span class="tab-count" id="prof-waiting" hidden></span></a>
   </nav>
 
   <!-- Conversation: you and the university -->
@@ -63,7 +63,7 @@
           <button type="submit" id="send">Send</button>
         </form>
         <div class="actions">
-          <button type="button" id="new-conversation" hidden title="Starts a new conversation and clears every student’s lessons and messages — the professor sends them again">New conversation</button>
+          <button type="button" id="new-conversation" hidden title="Starts a new conversation and clears every student’s lessons and messages — the faculty member sends them again">New conversation</button>
           <button type="button" id="refresh-skills" title="The Hub re-fetches its services’ Agent Cards (conditional, no model calls)">Refresh skills</button>
           <p class="form-error" id="form-error" role="alert"></p>
         </div>
@@ -114,9 +114,9 @@
     </section>
     <section class="panel console" aria-labelledby="professor-title" data-agent="professor">
       <header class="panel-head">
-        <h2 id="professor-title">Marketing 101 Professor</h2>
+        <h2 id="professor-title">Marketing 101 Faculty</h2>
         <span class="role" id="professor-role">Specialist behind the Hub</span>
-        <button type="button" class="gear" data-agent="professor" aria-label="Edit agent skills — Marketing 101 Professor" title="Edit skills">⚙</button>
+        <button type="button" class="gear" data-agent="professor" aria-label="Edit agent skills — Marketing 101 Faculty" title="Edit skills">⚙</button>
       </header>
       <div class="skills-box" id="professor-skills"></div>
       <ol class="log console-log" id="professor-log"></ol>
@@ -135,7 +135,7 @@
   <section class="view view-professor" id="view-professor" role="tabpanel" aria-labelledby="tab-professor" hidden>
     <section class="panel chat prof-chat" aria-labelledby="author-title" data-agent="professor">
       <header class="panel-head">
-        <h2 id="author-title">Marketing 101 — Professor</h2>
+        <h2 id="author-title">Marketing 101 — Faculty</h2>
         <span class="role" id="author-course">Marketing 101</span>
         <span class="class-roster" id="prof-roster" aria-label="Your class"></span>
       </header>
@@ -165,7 +165,7 @@
         </label>
         <span class="topo-clock" id="topo-clock" aria-live="off"></span>
       </div>
-      <svg id="topo" class="topo" viewBox="0 0 1100 990" role="group" aria-label="Live topology: Student, University Hub, Tutor Agent, Library Agent, Marketing 101 Professor and the staff-only HR Agent, each with its own model box, and PeopleSoft (a demo stand-in system, not an agent), reached only by the HR Agent over MCP. Use Tab to reach a node or connection, Enter to open its details.">
+      <svg id="topo" class="topo" viewBox="0 0 1100 990" role="group" aria-label="Live topology: Student, University Hub, Tutor Agent, Library Agent, Marketing 101 Faculty and the staff-only HR Agent, each with its own model box, and PeopleSoft (a demo stand-in system, not an agent), reached only by the HR Agent over MCP. Use Tab to reach a node or connection, Enter to open its details.">
         <defs>
           <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9 z" fill="currentColor"></path></marker>
           <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="b"></feGaussianBlur><feMerge><feMergeNode in="b"></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge></filter>

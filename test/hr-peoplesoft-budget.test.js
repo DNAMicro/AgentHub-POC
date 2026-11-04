@@ -19,7 +19,7 @@ const { createPeopleSoftLink } = await import('../src/hr-peoplesoft.js');
 
 let mcpDelayMs = 0;
 let connectDelayMs = 0; // initialize and tools/list (the connect), not the tool call
-let mcpResult = { structuredContent: { staffId: 'staff-amir', vacation: 96, sick: 120, personalHoliday: 8 } };
+let mcpResult = { structuredContent: { staffId: 'staff-dabirian', vacation: 96, sick: 120, personalHoliday: 8 } };
 const server = createServer(async (req, res) => {
   if (!req.url.startsWith('/mcp')) { res.writeHead(404).end(); return; }
   let raw = '';
@@ -46,10 +46,10 @@ const newLink = (timeoutMs, events, extra = {}) => createPeopleSoftLink({ url, t
 test('a slow tool choice does not eat into the call budget', async () => {
   stub.respondWith((body) => ({ ...toolChoiceReply(body), delayMs: 1500 })); // choice takes 1.5 s
   mcpDelayMs = 2200; // PeopleSoft answers just under the 3 s budget
-  mcpResult = { structuredContent: { staffId: 'staff-amir', vacation: 96, sick: 120, personalHoliday: 8 } };
+  mcpResult = { structuredContent: { staffId: 'staff-dabirian', vacation: 96, sick: 120, personalHoliday: 8 } };
   const events = [];
   const link = newLink(3000, events);
-  const r = await link.balances('staff-amir');
+  const r = await link.balances('staff-dabirian');
   await link.close();
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(r.value.vacation, 96);
@@ -61,7 +61,7 @@ test('a refusal carrying an unknown code reaches telemetry as code null; the rea
   mcpResult = { isError: true, structuredContent: { code: 'insufficient_balance', reason: 'Not enough vacation.' } };
   const events = [];
   const link = newLink(3000, events);
-  const r = await link.balances('staff-amir');
+  const r = await link.balances('staff-dabirian');
   await link.close();
   assert.equal(r.outcome, 'refused');
   assert.equal(r.code, null);
@@ -73,7 +73,7 @@ test('a refusal with a code from the fixed set keeps it', async () => {
   mcpResult = { isError: true, structuredContent: { code: 'not_enough', reason: 'Not enough vacation.' } };
   const events = [];
   const link = newLink(3000, events);
-  const r = await link.balances('staff-amir');
+  const r = await link.balances('staff-dabirian');
   await link.close();
   assert.equal(r.code, 'not_enough');
   assert.equal(events.find((e) => e.type === 'mcp_call_result').data.code, 'not_enough');
@@ -83,10 +83,10 @@ test('final-review M7: the call keeps its floor — a connect that eats into it 
   stub.respondWith((body) => toolChoiceReply(body));
   connectDelayMs = 1300; // initialize + tools/list ≈ 2.6 s: more than the 1.5 s the floor leaves the connect
   mcpDelayMs = 2300; // the tool (think: PeopleSoft's planner) needs 2.3 s; the floor gives it 2.5 s
-  mcpResult = { structuredContent: { staffId: 'staff-amir', vacation: 96, sick: 120, personalHoliday: 8 } };
+  mcpResult = { structuredContent: { staffId: 'staff-dabirian', vacation: 96, sick: 120, personalHoliday: 8 } };
   const events = [];
   const link = newLink(4000, events, { callFloorMs: 2500 });
-  const r = await link.balances('staff-amir');
+  const r = await link.balances('staff-dabirian');
   await link.close();
   connectDelayMs = 0;
   assert.equal(r.outcome, 'unavailable', 'nothing reached the tool — not an uncertain, cut-short call');

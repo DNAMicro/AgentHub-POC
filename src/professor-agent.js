@@ -1,11 +1,11 @@
-// Part 9: the Marketing 101 Professor — one private specialist behind the University Hub that works in
+// Part 9: the Marketing 101 Faculty — one private specialist behind the University Hub that works in
 // both directions:
 //   * students ask questions:       Student → Hub → Professor → Hub → Student (normal chat over A2A)
 //   * the professor posts lessons:  Professor → Hub → Student (a NEW A2A interaction the professor starts)
 //
 // Answers come from the course pack (src/course-pack.js, its editable answer skills) and, for a question
 // about a delivered lesson, that lesson (src/professor-model.js). Posting a lesson happens only through the
-// authoring API below, which the Professor view calls when the professor presses “Post lesson”. The outbox
+// authoring API below, which the Faculty view calls when the professor presses “Post lesson”. The outbox
 // is persisted (PROFESSOR_OUTBOX_FILE, default data/professor-outbox.json); every post carries a stable
 // operation id so retries and double-clicks never make a second lesson.
 import { randomUUID } from 'node:crypto';
@@ -36,14 +36,14 @@ let hubLink = null;
 let skillService = null;
 const RULES = { answer: { knowledge: 'required' } };
 
-const log = (...args) => console.log('[Marketing 101 Professor]', ...args);
+const log = (...args) => console.log('[Marketing 101 Faculty]', ...args);
 const vizEvents = new EventEmitter();
 const emitViz = (type, runId, data) => vizEvents.emit('event', { source: 'professor', type, runId, at: new Date().toISOString(), data });
 const textOf = (message) => message.parts.filter((p) => p.content?.$case === 'text').map((p) => p.content.value).join('');
 const textPart = (value) => ({ content: { $case: 'text', value }, metadata: undefined, filename: '', mediaType: 'text/plain' });
 
 // Outbox: lessons the professor posted (every revision kept) and post operations (for dedupe).
-// Also the professor's chat with this console (Professor view), and its operations (for dedupe).
+// Also the professor's chat with this console (Faculty view), and its operations (for dedupe).
 // Also meeting offers and their bookings, and a meeting waiting for the professor's times.
 const outbox = createJsonStore(process.env.PROFESSOR_OUTBOX_FILE ?? 'data/professor-outbox.json', { lessons: {}, operations: {}, chat: [], chatOps: {}, meetings: {}, pendingMeeting: null });
 const lessonKey = (lessonId, revision) => `${lessonId}#${revision}`;
@@ -60,8 +60,8 @@ const postedTo = (student) => (student ? Object.values(outbox.get().lessons)
   .filter((l, i, all) => all.findIndex((x) => x.lessonId === l.lessonId) === i)
   .slice(0, 5) : []);
 const NEEDS_PROFESSOR_TEXT = `I’ve passed this on to ${COURSE.professorName}, who will get back to you.`;
-// Asking for the professor with nothing else: “ask the professor”, “please ask Professor Amir”, “Amir”.
-const PROF = `(?:the\\s+|my\\s+)?(?:professor|prof\\.?|${COURSE.professorName.split(/\s+/).at(-1)})(?:\\s+${COURSE.professorName.split(/\s+/).at(-1)})?`;
+// Asking for the professor with nothing else: “ask the professor”, “please ask Dr. Dabirian”, “Dabirian”.
+const PROF = `(?:the\\s+|my\\s+)?(?:professor|prof\\.?|faculty(?:\\s+member)?|instructor|dr\\.?|doctor|${COURSE.professorName.split(/\s+/).at(-1)})(?:\\s+${COURSE.professorName.split(/\s+/).at(-1)})?`;
 const ASK_PROFESSOR = new RegExp(`^\\s*(?:(?:please|can you|could you|i(?:['’]d| would) like to|i want to|let['’]s)\\s+)*(?:(?:ask|tell|check with|talk to|speak to|(?:pass|send|forward) (?:it|this|that|the question) (?:on )?to)\\s+)?${PROF}\\s*[.!?]*\\s*$`, 'i');
 const NOT_PASSED_TEXT = `I couldn’t pass this on to ${COURSE.professorName} because the university couldn’t verify your request.`;
 async function handleChat(ctx, bus, runId) {
@@ -95,10 +95,10 @@ async function handleChat(ctx, bus, runId) {
     metadata.professor = { name: COURSE.professorName, outcome: 'relayed', mode: PROFESSOR_MODE, model: null, usage: null, lessonId: lesson.lessonId, topics: [] };
     return publishReply(ctx, bus, runId, incoming, text, metadata);
   }
-  // “ask the professor” / “ask Professor Amir” / just “Amir”: the student means the question they asked
+  // “ask the professor” / “ask Dr. Dabirian” / just “Dabirian”: the student means the question they asked
   // before. Done in code (no model): that earlier question goes to the professor's chat.
   if (ASK_PROFESSOR.test(question)) {
-    // Earlier hand-over requests (“ask the professor”, “Amir”) are never the question to pass on: skip them.
+    // Earlier hand-over requests (“ask the professor”, “Dabirian”) are never the question to pass on: skip them.
     const earlier = (recent.get(ctx.contextId) ?? []).findLast((t) => !t.handoverRequest);
     if (!earlier) return publishReply(ctx, bus, runId, incoming, `What would you like to ask ${COURSE.professorName}? Tell me your question and I’ll pass it on.`, { ...metadata, professor: { name: COURSE.professorName, outcome: 'clarify', mode: PROFESSOR_MODE, model: null, usage: null, lessonId: null, topics: [] } }, question, { handoverRequest: true });
     const handOver = Boolean(student);
@@ -106,7 +106,7 @@ async function handleChat(ctx, bus, runId) {
     const text = !handOver ? NOT_PASSED_TEXT : already ? `I’ve already passed “${earlier.question.slice(0, 120)}” on to ${COURSE.professorName}, who will get back to you.` : NEEDS_PROFESSOR_TEXT;
     metadata.professor = { name: COURSE.professorName, outcome: handOver ? 'needs_professor' : 'out_of_scope', mode: PROFESSOR_MODE, model: null, usage: null, lessonId: lesson?.lessonId ?? null, topics: [], ...(handOver ? { onBehalf: true } : {}) };
     if (handOver && !already) {
-      earlier.handedOver = true; // the real question, so a later “Amir” finds it already passed on
+      earlier.handedOver = true; // the real question, so a later “Dabirian” finds it already passed on
       recordReply(incoming.messageId, { studentId: student, text: earlier.question, about, relayed: true }, { text, model: null, needsProfessor: true, onBehalf: false });
       emitViz('student_reply', runId, { lessonId: lesson?.lessonId ?? null, relayed: false, needsProfessor: true });
     }
@@ -129,7 +129,7 @@ async function handleChat(ctx, bus, runId) {
     }
   } catch (err) {
     const failure = err instanceof LlmError ? err : new LlmError('internal_error');
-    text = `The Marketing 101 Professor could not answer: ${failure.message}`;
+    text = `The Marketing 101 Faculty could not answer: ${failure.message}`;
     metadata.serviceError = { code: failure.code, message: failure.message, requestId: failure.requestId };
     // The professor still sees what the student wrote — and that nobody answered it.
     if (lesson) recordReply(incoming.messageId, { studentId: student, text: question, about, relayed: false }, { text: `Not answered: ${failure.message}`, model: null, needsProfessor: true, onBehalf, failed: true });
@@ -164,23 +164,23 @@ function bookSlot(meetingId, slotId, student) {
   outbox.update((s) => {
     const m = s.meetings?.[meetingId];
     const slot = m?.slots.find((x) => x.slotId === slotId);
-    if (!m || !slot) { r = { status: 'unknown', text: 'That isn’t one of the times the professor offered.' }; return; }
+    if (!m || !slot) { r = { status: 'unknown', text: `That isn’t one of the times ${COURSE.professorName} offered.` }; return; }
     const mine = m.byStudent[student];
     if (mine) {
       const booked = m.slots.find((x) => x.slotId === mine);
-      r = mine === slotId ? { status: 'booked', slot: booked, duplicate: true } : { status: 'already', slot: booked, text: `You’re already booked for ${booked.label}. If you need a different time, reply here and the professor will sort it out.` };
+      r = mine === slotId ? { status: 'booked', slot: booked, duplicate: true } : { status: 'already', slot: booked, text: `You’re already booked for ${booked.label}. If you need a different time, reply here and ${COURSE.professorName} will sort it out.` };
       return;
     }
     if (m.bookings[slotId]) {
       const open = m.slots.filter((x) => !m.bookings[x.slotId]);
-      r = { status: 'taken', slot, needsProfessor: !open.length, text: open.length ? `Sorry — ${slot.label} was just taken. Still open: ${open.map((x) => x.label).join('; ')}.` : `Sorry — ${slot.label} was just taken, and every offered time is gone. I’ve let the professor know.` };
+      r = { status: 'taken', slot, needsProfessor: !open.length, text: open.length ? `Sorry — ${slot.label} was just taken. Still open: ${open.map((x) => x.label).join('; ')}.` : `Sorry — ${slot.label} was just taken, and every offered time is gone. I’ve let ${COURSE.professorName} know.` };
       return;
     }
     m.bookings[slotId] = { studentId: student, at };
     m.byStudent[student] = slotId;
     r = { status: 'booked', slot };
   });
-  if (r.status === 'booked') r.text = `Booked: ${r.slot.label} (Pacific Time) with the professor. Demo booking — no calendar invite is sent.`;
+  if (r.status === 'booked') r.text = `Booked: ${r.slot.label} (Pacific Time) with ${COURSE.professorName}. Demo booking — no calendar invite is sent.`;
   return { needsProfessor: false, ...r };
 }
 function publishReply(ctx, bus, runId, incoming, text, metadata, question = null, extra = {}) {
@@ -493,9 +493,9 @@ function resolveAudience(d, said, roster) {
 async function offerMeeting({ operationId, audience, slots, roster }) {
   const meeting = { meetingId: `mt-${randomUUID().slice(0, 12)}`, slots };
   const who = audience === 'all' ? 'the class' : audience.split(',').map((id) => roster.find((x) => x.studentId === id)?.name ?? id).join(' and ');
-  const text = `The professor would like to meet with you. Pick the time that works for you:\n${slots.map((x) => `• ${x.label}`).join('\n')}\n(Pacific Time.)`;
+  const text = `${COURSE.professorName} would like to meet with you. Pick the time that works for you:\n${slots.map((x) => `• ${x.label}`).join('\n')}\n(Pacific Time.)`;
   outbox.update((s) => { s.meetings ??= {}; s.meetings[meeting.meetingId] = { meetingId: meeting.meetingId, slots, audience, bookings: {}, byStudent: {}, createdAt: new Date().toISOString() }; s.pendingMeeting = null; });
-  const r = await createPost({ operationId, kind: 'message', title: 'Meeting with the professor', text, audience, source: 'chat', verbatim: false, author: 'assistant', meeting });
+  const r = await createPost({ operationId, kind: 'message', title: `Meeting with ${COURSE.professorName}`, text, audience, source: 'chat', verbatim: false, author: 'assistant', meeting });
   if (!r.body.lesson || r.body.ack?.status === 'rejected') return { action: 'error', reply: `Nothing was sent: ${r.body.ack?.reason ?? Object.values(r.body.errors ?? {})[0] ?? 'refused'}.`, post: null };
   return { action: 'post', kind: 'message', post: { key: lessonKey(r.body.lesson.lessonId, r.body.lesson.revision) }, reply: `Sent ${who} ${slots.length === 1 ? 'this time' : `${slots.length} times to choose from`}: ${slots.map((x) => x.label).join('; ')}. You’ll see the choice here.` };
 }
@@ -503,7 +503,7 @@ async function offerMeeting({ operationId, audience, slots, roster }) {
 // HR (staff only): words from the professor's private staff messages (to HR) that the current @assistant
 // request doesn't itself contain — e.g. “grandmother”, “passed away”. A draft using any of them would share
 // the private request with students, so checkPost refuses it (code guard, whatever the model was told).
-const PRIVATE_STAFF_TEXT = '[private: the professor’s own HR matter — never post, quote or repeat it to students]';
+const PRIVATE_STAFF_TEXT = '[private: the faculty member’s own HR matter — never post, quote or repeat it to students]';
 const COMMON = new Set('about after again also because before being class could course every first friday monday need please really saturday should since students sunday their there these thing think thursday today tomorrow tuesday wednesday which while would'.split(' '));
 const wordsOf = (t) => norm(t).split(' ').filter((w) => w.length >= 5 && !COMMON.has(w));
 // Leave words are private whatever their length (the 5-letter rule above would miss “sick”, “died”, “flu”).
@@ -589,8 +589,8 @@ function authorRouter() {
 // ---- server ----------------------------------------------------------------------------------------------
 function buildAgentCard(port) {
   return {
-    name: 'Marketing 101 Professor',
-    description: 'The professor of Marketing 101, a fictional introductory course (not an official CSUF course): explains introductory marketing concepts, discusses course lessons, works through examples, and helps students check their understanding. Posts lessons and course messages to one enrolled student or the whole class through the university.',
+    name: 'Marketing 101 Faculty',
+    description: 'The faculty member who teaches Marketing 101, a fictional introductory course (not an official CSUF course): explains introductory marketing concepts, discusses course lessons, works through examples, and helps students check their understanding. Posts lessons and course messages to one enrolled student or the whole class through the university.',
     version: '0.1.0',
     supportedInterfaces: [{ url: `http://${HOST}:${port}${JSONRPC_PATH}`, protocolBinding: 'JSONRPC', protocolVersion: A2A_PROTOCOL_VERSION, tenant: '' }],
     provider: undefined,
