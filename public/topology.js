@@ -429,6 +429,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
   // carries over between batches: a long burst's last pulses must not be overtaken by the next batch's first
   // (PeopleSoft's busy look pairs each MCP call with its answer in play order).
   let nextSlot = 0;
+  const MAX_PULSE_DELAY_MS = 2000;
   setInterval(() => {
     if (controls.pause.checked || !state.queue.length) return;
     const now = performance.now();
@@ -438,7 +439,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     state.queue = state.queue.filter((q) => q.arrived > cutoff);
     ready.sort((a, b) => (a.ev.at < b.ev.at ? -1 : a.ev.at > b.ev.at ? 1 : a.ev.seq - b.ev.seq));
     for (const q of ready) {
-      const at = Math.max(now, nextSlot);
+      const at = Math.min(Math.max(now, nextSlot), now + MAX_PULSE_DELAY_MS); // order kept; a flood can't queue minutes
       nextSlot = at + STAGGER_MS;
       setTimeout(() => pulse(q.ev), at - now);
     }
@@ -627,6 +628,12 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
       for (const k of Object.keys(state.edgeEvents)) state.edgeEvents[k] = [];
       allEvents.length = 0;
       state.ps.last = null;
+      // New conversation: no call is shown as running or just saved (an answer still on its way is ignored).
+      state.ps.inFlight = 0;
+      state.ps.savedUntil = 0;
+      clearTimeout(state.ps.maxTimer);
+      clearTimeout(state.ps.savedTimer);
+      renderNodes();
       list.replaceChildren();
       count.textContent = '';
       truncatedNote.hidden = true;
@@ -648,14 +655,14 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     },
     // A labelled telemetry event. live=false for replayed history (no animation).
     event(ev, { live }) {
+      // A label for a connection this page doesn't draw (a newer server) is ignored, not allowed to break the
+      // stream: before Part 15's drawing, an hr-peoplesoft label threw here and stalled the page's live view.
+      if (ev.topo?.edge && !EDGES[ev.topo.edge]) ev.topo = null;
       // A provider hop is labelled 'model' by the server; draw it at the calling agent's own model box.
       if (ev.topo?.edge?.endsWith('-model')) {
         const box = EDGES[ev.topo.edge][1];
         ev.topo = { ...ev.topo, from: ev.topo.from === 'model' ? box : ev.topo.from, to: ev.topo.to === 'model' ? box : ev.topo.to };
       }
-      // A label for a connection this page doesn't draw (a newer server) is ignored, not allowed to break the
-      // stream: before Part 15's drawing, an hr-peoplesoft label threw here and stalled the page's live view.
-      if (ev.topo?.edge && !EDGES[ev.topo.edge]) ev.topo = null;
       const t = ev.topo;
       // Node state updates that come with events.
       if (ev.source === 'hub' && ev.type === 'registry_status') {

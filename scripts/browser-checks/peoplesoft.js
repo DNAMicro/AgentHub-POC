@@ -79,7 +79,7 @@ async (page) => {
     await page.waitForFunction((n) => document.querySelectorAll('#prof-log > li').length > n && !document.querySelector('#prof-log .chat-pending'), before, { timeout: 30000 });
     await page.waitForTimeout(700);
   }
-  const seen = { lit: false, busy: false, busyShot: false, saved: false, savedShot: false, pills: new Set() };
+  const seen = { lit: false, busy: false, busyShot: false, saved: false, savedShot: false, pills: [] }; // pills: each change, in order
   let watchingOn = true;
   const watching = (async () => {
     for (let i = 0; watchingOn && i < 900; i++) {
@@ -89,7 +89,7 @@ async (page) => {
         busy: Boolean(document.querySelector('[data-node="peoplesoft"].busy')),
         pill: document.querySelector('[data-node="peoplesoft"] .status-text')?.textContent ?? '',
       }));
-      seen.pills.add(s.pill);
+      if (seen.pills[seen.pills.length - 1] !== s.pill) seen.pills.push(s.pill);
       if (s.lit) seen.lit = true;
       if (s.busy) {
         seen.busy = true;
@@ -112,8 +112,10 @@ async (page) => {
   watchingOn = false;
   await watching;
   check('MCP lane lit', seen.lit);
-  check('node got class busy (pill “● Working…”)', seen.busy && seen.pills.has('● Working…'), [...seen.pills]);
-  check('pill then reads “✓ Saved”', seen.saved, [...seen.pills]);
+  check('node got class busy (pill “● Working…”)', seen.busy && seen.pills.includes('● Working…'), seen.pills);
+  // Order: the filing's “● Working…” comes right before “✓ Saved” (Saved only after the call it answers).
+  const savedAt = seen.pills.indexOf('✓ Saved');
+  check('pill reads “● Working…” then “✓ Saved”', seen.saved && savedAt > 0 && seen.pills[savedAt - 1] === '● Working…', seen.pills);
   // After 3 s the pill returns to the session status.
   await topo.waitForTimeout(3600);
   const after = await pill();
@@ -137,23 +139,31 @@ async (page) => {
   check('details: no step names', !stepWords.test(detail));
   check('whole page: no step names', !stepWords.test((await topo.locator('#view-topology').textContent()) ?? ''));
 
-  // 5. Reduced motion: busy, but nothing animates (checkbox, and the OS setting).
+  // 5. Reduced motion. Changing the setting re-renders the node (which drops a hand-set `busy`), so `busy` is set
+  //    AFTER each change, then the animations are read: running with motion allowed, 'none' with reduced motion.
   const animations = () => ps.evaluate((g) => [g.querySelector('.spark'), g.querySelector('.sweep')].map((e) => getComputedStyle(e).animationName));
-  await ps.evaluate((g) => g.classList.add('busy'));
-  const moving = await animations();
-  check('busy animates sparkle and sweep', moving.every((n) => n !== 'none'), moving);
+  const busyAnimations = async () => {
+    await topo.waitForTimeout(100);
+    await ps.evaluate((g) => g.classList.add('busy'));
+    await topo.waitForTimeout(50);
+    const names = await animations();
+    const stillBusy = await ps.evaluate((g) => g.classList.contains('busy'));
+    await ps.evaluate((g) => g.classList.remove('busy'));
+    return { names, stillBusy };
+  };
+  const moving = await busyAnimations();
+  check('motion allowed: busy animates sparkle and sweep', moving.stillBusy && moving.names.every((n) => n !== 'none'), moving);
   await topo.locator('#topo-reduce').check();
-  await topo.waitForTimeout(100);
-  const still = await animations();
-  check('Reduce motion checkbox: no animation', still.every((n) => n === 'none'), still);
+  const still = await busyAnimations();
+  check('Reduce motion checkbox: busy, but no animation', still.stillBusy && still.names.every((n) => n === 'none'), still);
   await topo.locator('#topo-reduce').uncheck();
+  const again = await busyAnimations();
+  check('checkbox off again: busy animates', again.stillBusy && again.names.every((n) => n !== 'none'), again);
   await topo.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
-  await topo.waitForTimeout(100);
-  const osStill = await animations();
-  check('prefers-reduced-motion: no animation', osStill.every((n) => n === 'none'), osStill);
+  const osStill = await busyAnimations();
+  check('prefers-reduced-motion: busy, but no animation', osStill.stillBusy && osStill.names.every((n) => n === 'none'), osStill);
   await topo.emulateMedia({ colorScheme: 'light', reducedMotion: 'no-preference' });
-  await topo.locator('#topo-reduce').uncheck();
-  await ps.evaluate((g) => g.classList.remove('busy'));
+  await topo.waitForTimeout(100);
 
   // 6. Dark mode at rest (selection cleared through “All traffic”), and busy (class forced for the picture only).
   await topo.locator('#topo-trace').dispatchEvent('change');
