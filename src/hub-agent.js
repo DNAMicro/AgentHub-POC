@@ -614,6 +614,7 @@ export function startHubServer({ port } = {}) {
   // Relay each specialist's own visualization feed (trusted URLs from configuration), redacted.
   const feedAbort = new AbortController();
   const feeds = Object.fromEntries(cfg.peers.map((p) => [p.agentId, false]));
+  const lastSession = {}; // `${agentId}:${type}` → the latest MCP session state (peoplesoft_session / canvas_session), for viewers that connect after it
   const lastStatus = {}; // agentId → the specialist's latest 'status' event (mode, skills), for new viewers
   for (const peer of cfg.peers) {
     (async function follow() {
@@ -634,7 +635,9 @@ export function startHubServer({ port } = {}) {
               if (!line) continue;
               const ev = JSON.parse(line.slice(6));
               if (ev.type === 'status') lastStatus[peer.agentId] = { source: peer.agentId, type: 'status', runId: null, at: ev.at, data: ev.data };
-              viz.emit('event', { source: peer.agentId, type: ev.type, runId: ev.runId ?? null, at: ev.at, data: redactTelemetry(ev) });
+              const relayed = { source: peer.agentId, type: ev.type, runId: ev.runId ?? null, at: ev.at, data: redactTelemetry(ev) };
+              if (ev.type === 'peoplesoft_session' || ev.type === 'canvas_session') lastSession[`${peer.agentId}:${ev.type}`] = relayed;
+              viz.emit('event', relayed);
             }
           }
         } catch {
@@ -686,6 +689,7 @@ export function startHubServer({ port } = {}) {
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
         res.write(`data: ${JSON.stringify({ source: 'hub', type: 'status', runId: null, at: new Date().toISOString(), data: { ...topologySnapshot(), feeds } })}\n\n`);
         for (const ev of Object.values(lastStatus)) res.write(`data: ${JSON.stringify(ev)}\n\n`);
+        for (const ev of Object.values(lastSession)) res.write(`data: ${JSON.stringify(ev)}\n\n`);
         const forward = (event) => res.write(`data: ${JSON.stringify(event)}\n\n`);
         viz.on('event', forward);
         req.on('close', () => viz.off('event', forward));

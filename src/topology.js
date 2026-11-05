@@ -20,6 +20,8 @@ function hop(from, to, category, phase, label) {
     : from === 'student' || to === 'student' ? 'student-hub' : edgeFor(from === 'hub' ? to : from);
   return { edge, from, to, category, phase, label };
 }
+// Old events carry no kind: they keep the lesson wording.
+const openedWhat = (d) => (d?.kind === 'quiz' ? 'quiz notice' : d?.kind === 'message' ? 'message' : 'lesson');
 const inside = (node, category, phase, label) => ({ edge: null, node, from: node, to: node, category, phase, label });
 
 // A provider call is a hop only when it really went over the network (live). Mock "models" run in
@@ -48,7 +50,7 @@ const STUDENT = {
   // Part 9: the Student's inbound side (lessons the Hub delivered) and its session with the Hub.
   student_session: (d) => hop('student', 'hub', 'registration', d.status === 'registered' ? 'completed' : 'failed', d.status === 'registered' ? 'Student session confirmed' : `Student session not registered (${d.reason ?? d.status})`),
   lesson_received: (d) => inside('student', 'lesson', 'completed', `${d.kind === 'message' ? 'Message' : 'Lesson'} saved in the Student’s inbox`),
-  lesson_opened: () => inside('student', 'lesson', 'completed', 'Student opened the lesson'),
+  lesson_opened: (d) => inside('student', 'lesson', 'completed', `Student opened the ${openedWhat(d)}`),
   course_available: () => inside('student', 'lesson', 'completed', 'Course available notice received'),
   inbox_reset: () => inside('student', 'lesson', 'completed', 'Inbox cleared (New conversation)'),
   request_declined: () => inside('student', 'request', 'completed', 'Student answered you itself (not offered by the university)'),
@@ -81,7 +83,7 @@ const HUB = {
   lesson_uncertain: () => hop('hub', 'student', 'lesson', 'unknown', 'Delivery outcome unknown — will reconcile'),
   lesson_reconciled: (d) => inside('hub', 'lesson', 'processing', d.found ? 'Reconciled: already delivered' : 'Reconciled: not delivered — sending again'),
   lesson_failed: (d) => hop('hub', 'student', 'lesson', 'failed', `Delivery refused (${d.reason})`),
-  lesson_opened: () => hop('student', 'hub', 'lesson', 'completed', 'Student opened the lesson'),
+  lesson_opened: (d) => hop('student', 'hub', 'lesson', 'completed', `Student opened the ${openedWhat(d)}`),
   course_available_sent: () => hop('hub', 'student', 'lesson', 'completed', 'Course available notice delivered'),
   student_session: (d) => hop('student', 'hub', 'registration', d.status === 'registered' ? 'accepted' : 'failed', d.status === 'registered' ? 'Student session confirmed (challenge answered)' : `Student session refused (${d.reason})`),
   classroom_reset: () => inside('hub', 'lesson', 'completed', 'Classroom reset — every lesson and message forgotten'),

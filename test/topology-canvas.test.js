@@ -70,3 +70,13 @@ test('the page: approved viewBox, no Canvas model box, Canvas tile and edge, --l
   assert.match(css, /--lms: #a3d65c/);
   assert.match(read('src/ui-server.js'), /CONFIG_EVENTS = new Set\([^)]*'canvas_session'/);
 });
+
+test('lesson_opened names what was opened: quiz notice, message, else lesson (old events keep lesson)', () => {
+  for (const source of ['student', 'hub']) {
+    const l = (data) => topologyLabel({ source, type: 'lesson_opened', data }).label;
+    assert.equal(l({ kind: 'quiz' }), 'Student opened the quiz notice');
+    assert.equal(l({ kind: 'message' }), 'Student opened the message');
+    assert.equal(l({ kind: 'lesson' }), 'Student opened the lesson');
+    assert.equal(l({}), 'Student opened the lesson');
+  }
+});

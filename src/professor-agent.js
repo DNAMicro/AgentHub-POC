@@ -718,6 +718,9 @@ function buildAgentCard(port) {
 function serveVizEvents(req, res) {
   res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
   res.write(`data: ${JSON.stringify({ source: 'professor', type: 'status', runId: null, at: new Date().toISOString(), data: { ...professorStatus(), skills: skillService?.describe() ?? null } })}\n\n`);
+  // A follower that connects after the link's startup warm-up still learns the session's current state.
+  const session = canvasLink.sessionStatus();
+  if (session) res.write(`data: ${JSON.stringify({ source: 'professor', type: 'canvas_session', runId: null, at: new Date().toISOString(), data: session })}\n\n`);
   const forward = (event) => res.write(`data: ${JSON.stringify(event)}\n\n`);
   vizEvents.on('event', forward);
   req.on('close', () => vizEvents.off('event', forward));
@@ -767,6 +770,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     });
   }
   log(`listening on ${baseUrl}`);
+  canvasLink.warm(); // open the MCP session now (no tool call) so the pill is right after a restart
   log(`Agent Card: ${baseUrl}/${AGENT_CARD_PATH}`);
   const s = professorStatus();
   log(`mode: ${s.mode} (${s.model})${s.mode === 'live' ? `, API key (${keyEnvName()}): ${s.keyConfigured ? 'configured' : 'NOT SET'}, API host: ${apiHost()}` : ''}`);

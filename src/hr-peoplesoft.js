@@ -45,10 +45,12 @@ export function createPeopleSoftLink({ url, token, emit = () => {}, timeoutMs = 
   const base = String(url ?? '').replace(/\/+$/, '');
   let session = null; // { client, tools }
   let connecting = null;
+  let reportedExtra = null;
   let reported = null; // the last session status sent (connected | unreachable)
   const report = (status, extra = {}) => {
     if (reported === status) return;
     reported = status;
+    reportedExtra = extra;
     emit('peoplesoft_session', null, { status, ...extra });
   };
   // Reserved for the call out of the shared budget: the floor, but never so much that the connect has under 1 s
@@ -83,6 +85,29 @@ export function createPeopleSoftLink({ url, token, emit = () => {}, timeoutMs = 
       }
     })().finally(() => { connecting = null; });
     return connecting;
+  }
+
+  // Startup warm-up (best effort, no tool call): open the MCP session so the pill is right before the first real call.
+  // Failure reports unreachable and retries the connect every retryMs for up to maxMs (the other process may start
+  // later); stops once connected, on close(), and never keeps the process alive (unref'd timer).
+  let warmTimer = null;
+  let warmStopped = false;
+  function warm({ retryMs = 3000, maxMs = 60000 } = {}) {
+    if (!token) return Promise.resolve('not_configured'); // no status of its own: the pill stays as it is
+    const until = Date.now() + maxMs;
+    const attempt = async () => {
+      warmTimer = null;
+      if (warmStopped || session) return;
+      try {
+        await connect();
+        return;
+      } catch {
+        if (warmStopped || Date.now() + retryMs > until) return;
+        warmTimer = setTimeout(attempt, retryMs);
+        warmTimer.unref?.();
+      }
+    };
+    return attempt().then(() => (session ? 'connected' : 'unreachable'));
   }
 
   // isClosed(): the caller's own check (HR: the card was closed by a New conversation). Asked before the tool choice
@@ -163,6 +188,9 @@ export function createPeopleSoftLink({ url, token, emit = () => {}, timeoutMs = 
   }
 
   return {
+    warm,
+    // The last session state reported (null before any): { status, tools? }. For a feed follower that connects later.
+    sessionStatus: () => (reported ? { status: reported, ...(reportedExtra ?? {}) } : null),
     // → value { staffId, vacation, sick, personalHoliday }
     balances: (staffId, { runId } = {}) => call('balances', { staffId }, { runId }),
     // → value { requests: [...] } (newest first)
@@ -189,6 +217,8 @@ export function createPeopleSoftLink({ url, token, emit = () => {}, timeoutMs = 
     },
     // Shutdown: end the MCP session at PeopleSoft (DELETE), then close the client. Best effort and bounded.
     async close() {
+      warmStopped = true;
+      clearTimeout(warmTimer);
       const s = session;
       session = null;
       if (!s) return;

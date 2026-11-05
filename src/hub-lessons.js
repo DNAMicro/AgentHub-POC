@@ -199,7 +199,8 @@ export function createLessonService({ cfg, registry, emit = () => {}, file = pro
     if (msg.event !== 'opened') return { status: 'rejected', reason: 'unknown_event' };
     if (!d.openedAt) {
       store.update((s) => { s.deliveries[d.deliveryId].openedAt = new Date().toISOString(); });
-      emit('lesson_opened', { deliveryId: d.deliveryId, lessonId: d.lessonId });
+      const lesson = store.get().lessons[`${d.lessonId}#${d.revision}`];
+      emit('lesson_opened', { deliveryId: d.deliveryId, lessonId: d.lessonId, kind: lesson?.quiz ? 'quiz' : (lesson?.kind ?? 'lesson') });
     }
     return { status: 'ok', openedAt: store.get().deliveries[d.deliveryId].openedAt };
   }

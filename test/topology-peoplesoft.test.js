@@ -110,7 +110,8 @@ test('through a real stack: the monitor stream gets labelled hr-peoplesoft event
   assert.equal(result.data.tool, 'get_leave_balances');
   assert.equal(result.data.outcome, 'ok');
   assert.equal(result.topo.phase, 'completed');
-  assert.ok(stream.events.some((e) => e.type === 'peoplesoft_session' && e.source === 'hr' && e.data.status === 'connected'), 'peoplesoft_session reaches the monitor stream');
+  // HR reports the session when it starts up (before this stream opened), so the stream replays it; telemetry may lag.
+  await waitFor(() => stream.events.some((e) => e.type === 'peoplesoft_session' && e.source === 'hr' && e.data.status === 'connected'), { timeout: 10000, what: 'peoplesoft_session on the monitor stream' });
   const staffEvents = stream.events.filter((e) => e.runId?.startsWith('staff-'));
   assert.ok(!/grandmother|passed away|Bereavement/i.test(JSON.stringify(staffEvents)), 'no staff words in the staff run events');
 });

@@ -187,7 +187,16 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
   els.close.addEventListener('click', () => els.dialog.close());
 
   // ---- toast: announces a delivery; never opens it, never takes focus -------------------------------------
+  // The stack sits just under the header and the tab bar, wherever they wrap to, so it never covers the status pills.
+  function placeToasts() {
+    const tabs = document.querySelector('.tabs');
+    const bottom = tabs ? tabs.getBoundingClientRect().bottom : 0;
+    els.toasts.style.top = `${Math.max(0, Math.ceil(bottom)) + 8}px`;
+  }
+  window.addEventListener('resize', placeToasts);
+  window.addEventListener('scroll', placeToasts, { passive: true });
   function toast(data) {
+    placeToasts();
     const item = el('div', { className: 'toast', dataset: { delivery: data.deliveryId, ...(data.quiz ? { kind: 'quiz' } : {}) } },
       el('p', { className: 'toast-title', textContent: data.quiz ? `New quiz in ${data.courseTitle ?? 'Marketing 351'}` : isMessage(data) ? `New message from ${data.professorName ?? 'your faculty member'}` : `New ${data.courseTitle ?? 'course'} lesson` }),
       el('p', { className: 'toast-text', textContent: data.quiz ? `${data.quiz.title} — due ${dueDay(data.quiz.dueAt)}` : untitled(data) }),

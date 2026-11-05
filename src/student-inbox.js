@@ -123,7 +123,7 @@ export function createStudentInbox({ studentId, hubUrl, file = process.env.STUDE
     if (!e) return null;
     if (!e.openedAt) {
       store.update((s) => { s.lessons[deliveryId].openedAt = new Date().toISOString(); if (!s.pendingReceipts.includes(deliveryId)) s.pendingReceipts.push(deliveryId); });
-      emit('lesson_opened', { deliveryId, lessonId: e.lessonId });
+      emit('lesson_opened', { deliveryId, lessonId: e.lessonId, kind: e.quiz ? 'quiz' : (e.kind ?? 'lesson') });
       sendPendingReceipts();
     }
     return store.get().lessons[deliveryId];

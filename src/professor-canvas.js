@@ -46,10 +46,12 @@ export function createCanvasLink({ url, token, emit = () => {}, timeoutMs = TIME
   const base = String(url ?? '').replace(/\/+$/, '');
   let session = null; // { client, transport, tools }
   let connecting = null;
+  let reportedExtra = null;
   let reported = null;
   const report = (status, extra = {}) => {
     if (reported === status) return;
     reported = status;
+    reportedExtra = extra;
     emit('canvas_session', null, { status, ...extra });
   };
   const reserve = Math.max(0, Math.min(callFloorMs, timeoutMs - 1000));
@@ -79,6 +81,32 @@ export function createCanvasLink({ url, token, emit = () => {}, timeoutMs = TIME
       }
     })().finally(() => { connecting = null; });
     return connecting;
+  }
+
+  // Startup warm-up (best effort, no tool call): open the MCP session so the pill is right before the first real call.
+  // Failure reports unreachable and retries the connect every retryMs for up to maxMs (the other process may start
+  // later); stops once connected, on close(), and never keeps the process alive (unref'd timer).
+  let warmTimer = null;
+  let warmStopped = false;
+  function warm({ retryMs = 3000, maxMs = 60000 } = {}) {
+    if (!token) {
+      report('not_configured');
+      return Promise.resolve('not_configured');
+    }
+    const until = Date.now() + maxMs;
+    const attempt = async () => {
+      warmTimer = null;
+      if (warmStopped || session) return;
+      try {
+        await connect();
+        return;
+      } catch {
+        if (warmStopped || Date.now() + retryMs > until) return;
+        warmTimer = setTimeout(attempt, retryMs);
+        warmTimer.unref?.();
+      }
+    };
+    return attempt().then(() => (session ? 'connected' : 'unreachable'));
   }
 
   async function call(moment, args, { runId = null, operationId = null, isClosed = () => false } = {}) {
@@ -155,11 +183,16 @@ export function createCanvasLink({ url, token, emit = () => {}, timeoutMs = TIME
   }
 
   return {
+    warm,
+    // The last session state reported (null before any): { status, tools? }. For a feed follower that connects later.
+    sessionStatus: () => (reported ? { status: reported, ...(reportedExtra ?? {}) } : null),
     // quiz: the Faculty's checked quiz { title, questions, settings... } (built by code) -> value { receipt }
     createQuiz: ({ quiz, operationId, runId, isClosed }) => call('approve', { courseId: COURSE_ID, quiz, operationId }, { runId, operationId, isClosed }),
     publishQuiz: ({ quizId, operationId, runId, isClosed }) => call('publish', { courseId: COURSE_ID, quizId, operationId }, { runId, operationId, isClosed }),
     // Shutdown: end the MCP session at Canvas (DELETE), then close the client. Best effort and bounded.
     async close() {
+      warmStopped = true;
+      clearTimeout(warmTimer);
       const s = session;
       session = null;
       if (!s) return;
