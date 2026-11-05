@@ -57,9 +57,9 @@ const procs = [
   ['hub', 'src/hub-agent.js', { PORT: String(ports.hub), ROUTER_MODE: mode, TUTOR_URL: url(ports.tutor), LIBRARY_URL: url(ports.library), PROFESSOR_URL: url(ports.professor), HR_URL: url(ports.hr), STUDENT_URL: url(ports.ui) }],
   ['tutor', 'src/tutor-agent.js', { ...specialist, PORT: String(ports.tutor), TUTOR_MODE: mode }],
   ['library', 'src/library-agent.js', { ...specialist, PORT: String(ports.library), LIBRARY_MODE: mode }],
-  ['prof', 'src/professor-agent.js', { ...specialist, PORT: String(ports.professor), PROFESSOR_MODE: mode, CANVAS_URL: url(ports.canvas), CANVAS_TOKEN: canvasToken, ...pinProf }],
-  ['canvas', 'src/canvas-mcp.js', { PORT: String(ports.canvas), CANVAS_MODE: mode, CANVAS_TOKEN: canvasToken, ...pinCanvas }],
   ['ps', 'src/peoplesoft-mcp.js', { PORT: String(ports.peoplesoft), PEOPLESOFT_MODE: mode, PEOPLESOFT_TOKEN: psToken }],
+  ['canvas', 'src/canvas-mcp.js', { PORT: String(ports.canvas), CANVAS_MODE: mode, CANVAS_TOKEN: canvasToken, ...pinCanvas }],
+  ['prof', 'src/professor-agent.js', { ...specialist, PORT: String(ports.professor), PROFESSOR_MODE: mode, CANVAS_URL: url(ports.canvas), CANVAS_TOKEN: canvasToken, ...pinProf }],
   ['hr', 'src/hr-agent.js', { ...specialist, PORT: String(ports.hr), HR_MODE: mode, PEOPLESOFT_URL: url(ports.peoplesoft), PEOPLESOFT_TOKEN: psToken }],
   ['ui', 'src/ui-server.js', { HUB_URL: url(ports.hub), UI_PORT: String(ports.ui), STUDENT_MODE: mode, ...pinProf }],
 ].map(([name, script, env]) => {

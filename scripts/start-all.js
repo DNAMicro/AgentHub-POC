@@ -18,10 +18,10 @@ const procs = [
   ['hub', 'src/hub-agent.js', { ROUTER_MODE: live ? 'live' : 'mock' }],
   ['tutor', 'src/tutor-agent.js', { TUTOR_MODE: live ? 'live' : 'mock' }],
   ['library', 'src/library-agent.js', { LIBRARY_MODE: live ? 'live' : 'mock' }],
-  ['prof', 'src/professor-agent.js', { PROFESSOR_MODE: live ? 'live' : 'mock', CANVAS_URL: 'http://127.0.0.1:41247', CANVAS_TOKEN: canvasToken }],
-  ['hr', 'src/hr-agent.js', { HR_MODE: live ? 'live' : 'mock', PEOPLESOFT_TOKEN: peoplesoftToken }],
   ['psoft', 'src/peoplesoft-mcp.js', { PEOPLESOFT_MODE: live ? 'live' : 'mock', PEOPLESOFT_TOKEN: peoplesoftToken }],
   ['canvas', 'src/canvas-mcp.js', { CANVAS_MODE: live ? 'live' : 'mock', CANVAS_TOKEN: canvasToken }],
+  ['prof', 'src/professor-agent.js', { PROFESSOR_MODE: live ? 'live' : 'mock', CANVAS_URL: 'http://127.0.0.1:41247', CANVAS_TOKEN: canvasToken }],
+  ['hr', 'src/hr-agent.js', { HR_MODE: live ? 'live' : 'mock', PEOPLESOFT_TOKEN: peoplesoftToken }],
   ['ui', 'src/ui-server.js', { STUDENT_MODE: live ? 'live' : 'mock' }],
 ].map(([name, script, env]) => {
   const child = spawn(process.execPath, [script], { env: { ...baseEnv, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });

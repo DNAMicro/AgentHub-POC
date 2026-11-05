@@ -47,11 +47,13 @@ export function createCanvasLink({ url, token, emit = () => {}, timeoutMs = TIME
   let session = null; // { client, transport, tools }
   let connecting = null;
   let reportedExtra = null;
+  let reportedAt = null;
   let reported = null;
   const report = (status, extra = {}) => {
     if (reported === status) return;
     reported = status;
     reportedExtra = extra;
+    reportedAt = new Date().toISOString();
     emit('canvas_session', null, { status, ...extra });
   };
   const reserve = Math.max(0, Math.min(callFloorMs, timeoutMs - 1000));
@@ -60,6 +62,15 @@ export function createCanvasLink({ url, token, emit = () => {}, timeoutMs = TIME
     s?.client.close().catch(() => {});
   };
   const left = (deadline) => Math.max(1, deadline - Date.now());
+
+  function lost(s) {
+    if (session !== s) return;
+    session = null;
+    s.client.close().catch(() => {});
+    if (warmStopped) return;
+    report('unreachable');
+    warm(warmOpts);
+  }
 
   function connect(deadline = Date.now() + timeoutMs) {
     if (session) return Promise.resolve(session);
@@ -70,7 +81,14 @@ export function createCanvasLink({ url, token, emit = () => {}, timeoutMs = TIME
         await client.connect(transport, { timeout: left(deadline) });
         const listed = await client.listTools({}, { timeout: left(deadline) });
         const s = { client, transport, tools: listed.tools.map((t) => t.name) };
-        client.onclose = () => { if (session === s) session = null; };
+        // The other process went away under a live session (its stream closed or errored): check with a ping, and if
+        // it does not answer the pill follows (unreachable) and the warm-up retries. No tool call is made.
+        client.onclose = () => lost(s);
+        client.onerror = () => {
+          if (session !== s || s.probing) return;
+          s.probing = true;
+          client.ping({ timeout: 2000 }).then(() => { s.probing = false; }, () => { s.probing = false; lost(s); });
+        };
         session = s;
         report('connected', { tools: s.tools.length });
         return s;
@@ -88,7 +106,11 @@ export function createCanvasLink({ url, token, emit = () => {}, timeoutMs = TIME
   // later); stops once connected, on close(), and never keeps the process alive (unref'd timer).
   let warmTimer = null;
   let warmStopped = false;
-  function warm({ retryMs = 3000, maxMs = 60000 } = {}) {
+  let warmOpts = {};
+  function warm(opts = {}) {
+    if (warmTimer || warmStopped) return Promise.resolve(session ? 'connected' : 'unreachable');
+    warmOpts = opts;
+    const { retryMs = 3000, maxMs = 60000 } = opts;
     if (!token) {
       report('not_configured');
       return Promise.resolve('not_configured');
@@ -98,7 +120,8 @@ export function createCanvasLink({ url, token, emit = () => {}, timeoutMs = TIME
       warmTimer = null;
       if (warmStopped || session) return;
       try {
-        await connect();
+        const s = await connect();
+        if (warmStopped) drop(s);
         return;
       } catch {
         if (warmStopped || Date.now() + retryMs > until) return;
@@ -185,7 +208,7 @@ export function createCanvasLink({ url, token, emit = () => {}, timeoutMs = TIME
   return {
     warm,
     // The last session state reported (null before any): { status, tools? }. For a feed follower that connects later.
-    sessionStatus: () => (reported ? { status: reported, ...(reportedExtra ?? {}) } : null),
+    sessionStatus: () => (reported ? { status: reported, ...(reportedExtra ?? {}), at: reportedAt } : null),
     // quiz: the Faculty's checked quiz { title, questions, settings... } (built by code) -> value { receipt }
     createQuiz: ({ quiz, operationId, runId, isClosed }) => call('approve', { courseId: COURSE_ID, quiz, operationId }, { runId, operationId, isClosed }),
     publishQuiz: ({ quizId, operationId, runId, isClosed }) => call('publish', { courseId: COURSE_ID, quizId, operationId }, { runId, operationId, isClosed }),

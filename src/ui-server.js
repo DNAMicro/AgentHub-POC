@@ -217,6 +217,7 @@ export async function startUiServer({ port = 4444 } = {}) {
     }
   })();
 
+  const lastSessionStatus = new Map(); // `${source}:${type}` → last MCP session status published
   function relayEvent(event) {
     const { source, type } = event;
     if (source === 'hub' && type === 'status') {
@@ -232,6 +233,8 @@ export async function startUiServer({ port = 4444 } = {}) {
     }
     if (event.runId == null) {
       // Hub configuration/registry events, and specialists' configuration events.
+      if ((type === 'peoplesoft_session' || type === 'canvas_session') && lastSessionStatus.get(`${source}:${type}`) === event.data?.status) return; // only on a change
+      if (type === 'peoplesoft_session' || type === 'canvas_session') lastSessionStatus.set(`${source}:${type}`, event.data?.status);
       if (source === 'hub' || CONFIG_EVENTS.has(type)) publish({ source, type, runId: null, data: event.data, at: event.at });
       return;
     }

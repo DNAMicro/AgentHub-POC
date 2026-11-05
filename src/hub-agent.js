@@ -636,7 +636,11 @@ export function startHubServer({ port } = {}) {
               const ev = JSON.parse(line.slice(6));
               if (ev.type === 'status') lastStatus[peer.agentId] = { source: peer.agentId, type: 'status', runId: null, at: ev.at, data: ev.data };
               const relayed = { source: peer.agentId, type: ev.type, runId: ev.runId ?? null, at: ev.at, data: redactTelemetry(ev) };
-              if (ev.type === 'peoplesoft_session' || ev.type === 'canvas_session') lastSession[`${peer.agentId}:${ev.type}`] = relayed;
+              if (ev.type === 'peoplesoft_session' || ev.type === 'canvas_session') {
+                const key = `${peer.agentId}:${ev.type}`;
+                if (lastSession[key]?.data?.status === relayed.data?.status) continue; // only on a change (a reconnecting feed replays the state)
+                lastSession[key] = relayed;
+              }
               viz.emit('event', relayed);
             }
           }
@@ -645,6 +649,7 @@ export function startHubServer({ port } = {}) {
         }
         if (feeds[peer.agentId]) emit('specialist_feed', null, { agentId: peer.agentId, connected: false });
         feeds[peer.agentId] = false;
+        for (const key of Object.keys(lastSession)) if (key.startsWith(`${peer.agentId}:`)) delete lastSession[key]; // a down feed's state is unknown, never replayed
         if (!feedAbort.signal.aborted) await new Promise((r) => setTimeout(r, 1000));
       }
     })();

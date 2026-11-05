@@ -476,7 +476,7 @@ function serveVizEvents(req, res) {
   res.write(`data: ${JSON.stringify({ source: 'hr', type: 'status', runId: null, at: new Date().toISOString(), data: { ...hrStatus(), skills: skillService?.describe() ?? null } })}\n\n`);
   // A follower that connects after the link's startup warm-up still learns the session's current state.
   const session = peoplesoft.sessionStatus();
-  if (session) res.write(`data: ${JSON.stringify({ source: 'hr', type: 'peoplesoft_session', runId: null, at: new Date().toISOString(), data: session })}\n\n`);
+  if (session) res.write(`data: ${JSON.stringify({ source: 'hr', type: 'peoplesoft_session', runId: null, at: session.at, data: (({ at, ...d }) => d)(session) })}\n\n`);
   const forward = (event) => res.write(`data: ${JSON.stringify(event)}\n\n`);
   vizEvents.on('event', forward);
   req.on('close', () => vizEvents.off('event', forward));

@@ -46,11 +46,13 @@ export function createPeopleSoftLink({ url, token, emit = () => {}, timeoutMs = 
   let session = null; // { client, tools }
   let connecting = null;
   let reportedExtra = null;
+  let reportedAt = null;
   let reported = null; // the last session status sent (connected | unreachable)
   const report = (status, extra = {}) => {
     if (reported === status) return;
     reported = status;
     reportedExtra = extra;
+    reportedAt = new Date().toISOString();
     emit('peoplesoft_session', null, { status, ...extra });
   };
   // Reserved for the call out of the shared budget: the floor, but never so much that the connect has under 1 s
@@ -65,6 +67,15 @@ export function createPeopleSoftLink({ url, token, emit = () => {}, timeoutMs = 
   // `deadline` (ms since epoch) is the call's single budget: connect, tools/list and the tool call all fit inside it.
   const left = (deadline) => Math.max(1, deadline - Date.now());
 
+  function lost(s) {
+    if (session !== s) return;
+    session = null;
+    s.client.close().catch(() => {});
+    if (warmStopped) return;
+    report('unreachable');
+    warm(warmOpts);
+  }
+
   function connect(deadline = Date.now() + timeoutMs) {
     if (session) return Promise.resolve(session);
     connecting ??= (async () => {
@@ -74,7 +85,14 @@ export function createPeopleSoftLink({ url, token, emit = () => {}, timeoutMs = 
         await client.connect(transport, { timeout: left(deadline) });
         const listed = await client.listTools({}, { timeout: left(deadline) });
         const s = { client, transport, tools: listed.tools.map((t) => t.name) };
-        client.onclose = () => { if (session === s) session = null; };
+        // The other process went away under a live session (its stream closed or errored): check with a ping, and if
+        // it does not answer the pill follows (unreachable) and the warm-up retries. No tool call is made.
+        client.onclose = () => lost(s);
+        client.onerror = () => {
+          if (session !== s || s.probing) return;
+          s.probing = true;
+          client.ping({ timeout: 2000 }).then(() => { s.probing = false; }, () => { s.probing = false; lost(s); });
+        };
         session = s;
         report('connected', { tools: s.tools.length });
         return s;
@@ -92,14 +110,19 @@ export function createPeopleSoftLink({ url, token, emit = () => {}, timeoutMs = 
   // later); stops once connected, on close(), and never keeps the process alive (unref'd timer).
   let warmTimer = null;
   let warmStopped = false;
-  function warm({ retryMs = 3000, maxMs = 60000 } = {}) {
+  let warmOpts = {};
+  function warm(opts = {}) {
+    if (warmTimer || warmStopped) return Promise.resolve(session ? 'connected' : 'unreachable');
+    warmOpts = opts;
+    const { retryMs = 3000, maxMs = 60000 } = opts;
     if (!token) return Promise.resolve('not_configured'); // no status of its own: the pill stays as it is
     const until = Date.now() + maxMs;
     const attempt = async () => {
       warmTimer = null;
       if (warmStopped || session) return;
       try {
-        await connect();
+        const s = await connect();
+        if (warmStopped) drop(s);
         return;
       } catch {
         if (warmStopped || Date.now() + retryMs > until) return;
@@ -190,7 +213,7 @@ export function createPeopleSoftLink({ url, token, emit = () => {}, timeoutMs = 
   return {
     warm,
     // The last session state reported (null before any): { status, tools? }. For a feed follower that connects later.
-    sessionStatus: () => (reported ? { status: reported, ...(reportedExtra ?? {}) } : null),
+    sessionStatus: () => (reported ? { status: reported, ...(reportedExtra ?? {}), at: reportedAt } : null),
     // → value { staffId, vacation, sick, personalHoliday }
     balances: (staffId, { runId } = {}) => call('balances', { staffId }, { runId }),
     // → value { requests: [...] } (newest first)

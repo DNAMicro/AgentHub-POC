@@ -64,3 +64,20 @@ for (const c of CASES) {
     assert.equal(rec.events.length, n);
   });
 }
+
+for (const c of CASES) {
+  test(`${c.name} link: a server crash under a warmed link reports unreachable; its restart reports connected again`, async (t) => {
+    const token = newToken();
+    const port = await unusedPort();
+    let server = await c.start(token, port);
+    const rec = recorder();
+    const link = c.make({ url: server.url, token, emit: rec.emit });
+    t.after(async () => { await link.close(); await stopProcess(server); });
+    assert.equal(await link.warm({ retryMs: 150, maxMs: 30000 }), 'connected');
+    await stopProcess(server);
+    await waitFor(() => rec.statuses(c.event).includes('unreachable'), { timeout: 10000, what: `${c.event} unreachable after the crash` });
+    server = await c.start(token, port);
+    await waitFor(() => rec.statuses(c.event).at(-1) === 'connected', { timeout: 15000, what: `${c.event} connected again` });
+    assert.deepEqual(rec.statuses(c.event), ['connected', 'unreachable', 'connected']);
+  });
+}
