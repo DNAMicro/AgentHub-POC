@@ -381,6 +381,8 @@ async function professorChat({ operationId, text, replyTo: replyToIn = null, ans
       } else if (!viaAssistant) {
         // A held message the professor chose to send to the class is no longer private (staff: false).
         Object.assign(s.chat.find((m) => m.id === target) ?? own, { postKey: result.post?.key ?? null, problem: result.post ? null : result.reply, ...(staff?.continueWith ? { staff: false } : {}) });
+        // The held message went to the class (the professor chose “class”, or said yes to the post offer): say so.
+        if (staff?.continueWith && result.post) s.chat.push({ id: `${operationId}:sent`, role: 'assistant', text: result.post.audience === 'all' || !result.post.audience ? 'Sent to your class.' : 'Sent.', at: new Date().toISOString(), action: 'sent', staff: false });
       }
       else s.chat.push({ id: `${operationId}:a`, role: 'assistant', text: result.reply, at: new Date().toISOString(), action: result.action, postKey: result.post?.key ?? null, model: result.model ?? null, ...(result.topics ? { quizTopics: { topics: result.topics, highlight: result.highlight ?? null } } : {}) });
       if (notice) {

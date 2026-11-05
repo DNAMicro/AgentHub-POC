@@ -83,6 +83,13 @@ const leadOf = (type, reason, appointment = false) => {
   if (type === 'SCK' && reason === 'SCK' && !appointment) return `Feel better soon. ${TEXT.intro}`; // Sick Personal only
   return TEXT.intro;
 };
+// A different request that replaces the open unsubmitted card says so first (owner, 2026-11-04). With no name yet,
+// the line follows HR's question so the question stays the lead.
+const introOf = (type, reason, appointment, replaces) => {
+  const lead = leadOf(type, reason, appointment);
+  return !replaces ? lead : type ? `${replaces} ${lead}` : `${lead} ${replaces}`;
+};
+const RELATIVE_WORDS = /\b(?:mother|father|mom|dad|mum|grand(?:mother|father|parents?|ma|pa)|brother|sister|wife|husband|spouse|son|daughter|child|aunt|uncle|cousin|niece|nephew|in-?laws?)\b/i;
 const QUESTIONS = {
   absenceReason: 'Which reason fits? Pick it on the card or tell me here.',
   dates: 'Which day or days?',
@@ -199,7 +206,7 @@ function cardFor(state) {
   const hrCard = {
     title, subtitle, when,
     why: state.quote && type ? `Picked from what you wrote: “${state.quote}”.` : null,
-    intro: leadOf(type, values.absenceReason, state.appointment),
+    intro: introOf(type, values.absenceReason, state.appointment, state.replaces),
     appointment: Boolean(state.appointment),
     question, problem, missing, credit,
     // No name: the names he can pick from (pills under the lead) — the words' choices, else his three leave balances.
@@ -454,6 +461,18 @@ const hrExecutor = {
       };
     // Choices when no single name fits: this message's, else the ones the open card already offered.
     // An appointment (no illness word) keeps the plain opening line; a later message that names an illness ends it.
+    // A different request (decided by code): the absence name changed from the card's own, or the dates changed in a
+    // message that also names a new leave reason, illness or relative. A plain edit gets no line.
+    if (followUp) {
+      const was = cardValues?.ok ? cardValues.values : open.data.values;
+      const wasType = validType(Array.isArray(was.absenceType) ? was.absenceType[0] : was.absenceType);
+      const datesMoved = (was.beginDate || '') !== state.values.beginDate || (was.endDate || '') !== state.values.endDate;
+      const newReason = Boolean(read.prefill.absenceType) || mentionsIllness(text) || RELATIVE_WORDS.test(text);
+      if (wasType && ((state.values.absenceType && state.values.absenceType !== wasType) || (datesMoved && newReason))) {
+        const dates = !was.beginDate ? '' : ` for ${was.beginDate === was.endDate ? shortDate(was.beginDate) : `${shortDate(was.beginDate)} to ${shortDate(was.endDate)}`}`;
+        state.replaces = `This replaces your unsubmitted ${nameOf(wasType)} request${dates}.`;
+      }
+    }
     state.ill = mentionsIllness(text) || (followUp && open.data.ill === true);
     state.appointment = !state.ill && (isAppointment(text) || (followUp && open.data.appointment === true));
     state.choices = read.choices?.length ? read.choices : followUp ? open.data.choices ?? [] : [];

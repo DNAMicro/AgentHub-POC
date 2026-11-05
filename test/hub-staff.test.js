@@ -208,7 +208,8 @@ test('fix round 1: a follow-up keeps a reason its OWN words establish; a bare na
   const sick = await ask("I'm sick", c1);
   assert.deepEqual([dataModel(sick.reply).absenceType, dataModel(sick.reply).absenceReason], [['SCK'], ['SCK']]);
   assert.deepEqual(sick.reply.hrCard.missing, []);
-  assert.equal(sick.reply.text, 'Feel better soon. Check it and submit.');
+  // The name changed from the open Vacation card, so the reply says it replaces that unsubmitted request (owner, 2026-11-04).
+  assert.match(sick.reply.text, /^This replaces your unsubmitted Vacation request for [A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2}\. Feel better soon\. Check it and submit\.$/);
   // Owner 2026-11-04: a doctor or dentist appointment with no illness word gets the plain lead.
   const appt = await ask('I have a doctor appointment on Friday', randomUUID());
   assert.equal(appt.reply.hrCard.title, 'Sick Leave');
@@ -221,7 +222,7 @@ test('fix round 1: a follow-up keeps a reason its OWN words establish; a bare na
   const bare = await ask('actually make it sick leave', c2);
   assert.deepEqual([dataModel(bare.reply).absenceType, dataModel(bare.reply).absenceReason], [['SCK'], []]);
   assert.deepEqual(bare.reply.hrCard.missing, ['absenceReason']);
-  assert.equal(bare.reply.text, 'Check it and submit. Which reason fits? Pick it on the card or tell me here.');
+  assert.match(bare.reply.text, /^This replaces your unsubmitted Vacation request for [A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2}\. Check it and submit\. Which reason fits\? Pick it on the card or tell me here\.$/); // name changed: owner 2026-11-04
   // A name with a default reason: “make it vacation” on a sick card → Vacation / Vacation.
   const vac = await ask('make it vacation', c2);
   assert.deepEqual([dataModel(vac.reply).absenceType, dataModel(vac.reply).absenceReason], [['VAC'], ['VAC']]);
@@ -430,4 +431,28 @@ test('review fix: the opening line follows the conversation, not the latest foll
   await ask('I am sick on Friday', c2);
   const appt = await ask('I have a doctor appointment', c2);
   assert.equal(appt.reply.text, 'Feel better soon. Check it and submit.', 'illness anywhere in the card keeps the kind words');
+});
+
+test('owner 2026-11-04: a different request that replaces an unsubmitted card says so; a plain edit does not', async () => {
+  const c1 = randomUUID();
+  const vac = await ask("I need Dec 4 off, it's a vacation day", c1);
+  assert.equal(vac.reply.hrCard.title, 'Vacation');
+  assert.doesNotMatch(vac.reply.text, /This replaces/, 'the first card replaces nothing');
+  const sick = await ask('I am sick on Nov 6', c1);
+  assert.equal(sick.reply.hrCard.title, 'Sick Leave');
+  assert.equal(sick.reply.text, 'This replaces your unsubmitted Vacation request for Fri, Dec 4. Feel better soon. Check it and submit.');
+  assert.equal(sick.reply.hrCard.intro, sick.reply.text);
+  // Plain edits of the same request: no line.
+  const c2 = randomUUID();
+  await ask("I need Dec 4 off, it's a vacation day", c2);
+  const moved = await ask('make it Dec 7 instead', c2);
+  assert.doesNotMatch(moved.reply.text, /This replaces/);
+  assert.equal(dataModel(moved.reply).beginDate, '2026-12-07');
+  const hours = await ask('4 hours', c2);
+  assert.doesNotMatch(hours.reply.text, /This replaces/);
+  // A new leave reason together with new dates is a different request too.
+  const c3 = randomUUID();
+  await ask("I need Dec 4 off, it's a vacation day", c3);
+  const funeral = await ask('My grandmother passed away, I need Nov 9 and Nov 10', c3);
+  assert.match(funeral.reply.text, /^This replaces your unsubmitted Vacation request for Fri, Dec 4\. /);
 });

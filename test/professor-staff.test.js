@@ -1342,3 +1342,11 @@ test('staff action failures: the faculty member reads plain words, never "agent"
   assert.doesNotMatch(JSON.stringify(r), /Agent|operation|PeopleSoft/);
   resetStaff();
 });
+
+test('owner 2026-11-04: choosing the class for a held message confirms “Sent to your class.”', async () => {
+  assert.equal((await say("I'm sick, cancel Friday's class")).reply, UNSURE);
+  await say('class');
+  const st = await state();
+  assert.equal(st.lessons.length, 1, 'the held message was posted');
+  assert.equal(lastOf(st.chat, 'assistant').text, 'Sent to your class.');
+});
