@@ -51,7 +51,6 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
   let pendingQuiz = null;
   let resetGen = 0; // bumped by reset(): a draft call that finishes after it must not leave a live draft
   const clock = () => (typeof now === 'function' ? now() : now);
-  const students = () => (typeof roster === 'function' ? roster() : roster) ?? [];
   const tell = (type, runId, data) => { try { emit(type, runId, data); } catch { /* telemetry must never break the desk */ } };
 
   // ---- topic list --------------------------------------------------------------------------------------------
