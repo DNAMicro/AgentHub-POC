@@ -83,6 +83,7 @@ const SAFE_FIELDS = new Set([
   'usage', 'inputTokens', 'outputTokens', 'cacheReadInputTokens', 'cacheCreationInputTokens', 'tutor', 'library',
   'tool', 'moment', 'recordId', 'stepCount', 'expected', // Part 15: PeopleSoft tool name (fixed list, schema-enum constrained), moment, record id, count
   'hrOutcome', // HR: card / refused / workflow_disabled … (an outcome code, never the staff member's words)
+  'quizId', 'questionCount', // Part 16: Canvas quiz number and a count (never a title, question or answer)
   'unknownOutcome', // a boolean: the issuer doesn't know whether its backend acted (Topology draws it as unknown, not rejected)
 ]);
 // Lists of field NAMES (never values) that may pass, e.g. which fields a form prefilled.
@@ -771,6 +772,10 @@ export function startHubServer({ port } = {}) {
       // HR (staff only): Submit / Cancel on the professor's open time-off card (the Professor agent then
       // sends it Professor → Hub → HR over the signed staff path; this proxy carries no staff authority).
       dev.post('/dev/agents/:agentId/author/hr-action', author('/hr-action', 'POST'));
+      // Canvas quiz card (Part 16): Approve / Publish / Keep / Discard / Draft one more, and the full draft (with the
+      // answer key) for the Faculty view only. The proxy carries no authority of its own.
+      dev.post('/dev/agents/:agentId/author/quiz-action', author('/quiz-action', 'POST'));
+      dev.get('/dev/agents/:agentId/author/quiz/:draftId', (req, res) => (/^[\w-]{6,80}$/.test(req.params.draftId) ? author(`/quiz/${req.params.draftId}`, 'GET')(req, res) : res.status(404).json({ error: 'Unknown draft.' })));
       // Manual "Refresh skills": re-fetch every specialist card from its configured URL (no model calls).
       dev.post('/dev/registry/refresh', (req, res) => {
         for (const peer of cfg.peers) registry.refresh(peer.agentId, 'manual');

@@ -32,6 +32,8 @@ import { createAgUiBridge } from './ag-ui-bridge.js';
 import { createProfessorAgUi } from './ag-ui-professor.js';
 import { cardValues } from './staff.js';
 import { ID } from './lessons.js';
+import { checkQuiz } from './quiz-rules.js';
+import { nowFn } from './test-clock.js';
 import { decideFill } from './form-fill.js';
 import { AGENT_CARD_PATH, A2A_PROTOCOL_VERSION } from '@a2a-js/sdk';
 import { DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
@@ -49,7 +51,7 @@ const SHARED_SCHEDULE_MODULE = fileURLToPath(new URL('./course-schedule.js', imp
 const SHARED_QUIZ_MODULE = fileURLToPath(new URL('./quiz-rules.js', import.meta.url));
 const ACTION_KEYS = ['name', 'surfaceId', 'sourceComponentId', 'timestamp', 'context'];
 const CONTEXT_ID_PATTERN = /^[\w-]{8,100}$/;
-const CONFIG_EVENTS = new Set(['skills_saved', 'card_notification', 'hub_registration', 'lesson_posted', 'lesson_publish_result', 'lessons_reset', 'staff_decision', 'peoplesoft_session']); // + Part 9: the Professor's own lesson events; + HR: the Professor's staff-desk decision (no words) // specialist events not tied to a run
+const CONFIG_EVENTS = new Set(['skills_saved', 'card_notification', 'hub_registration', 'lesson_posted', 'lesson_publish_result', 'lessons_reset', 'staff_decision', 'peoplesoft_session', 'canvas_session']); // + Part 9: the Professor's own lesson events; + HR: the Professor's staff-desk decision (no words) // specialist events not tied to a run
 // The Faculty view's own runs, started by the professor through this UI, so shown like this UI's runs on the
 // monitor (never in the student's AG-UI stream). The suffix is the professor's operation ID (src/lessons.js ID).
 //   staff-<operationId>: an HR staff request/action — emitted by the Professor, the Hub and HR only.
@@ -717,6 +719,40 @@ export async function startUiServer({ port = 4444 } = {}) {
       res.status(502).json({ error: `${hub.name} is not reachable, so the card wasn’t sent. Press the button again — it won’t file twice.` });
     }
     professorAgUi.refresh(); // the Faculty view's state (chat + card) changed
+  });
+  // Canvas quiz card (Part 16). Approve carries the whole final quiz, checked here with the shared rules (the Faculty
+  // agent checks again and is authoritative). The full draft, with the answer key, is fetched by the Faculty view only.
+  const QUIZ_ID = /^[\w-]{6,80}$/;
+  const quizNow = nowFn(); // PROFESSOR_NOW only with PROFESSOR_TEST_HOOKS=1
+  apiPost.post('/professor/quiz/actions', async (req, res) => {
+    const body = req.body ?? {};
+    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((k) => !['draftId', 'operationId', 'action', 'quiz'].includes(k))) return res.status(400).json({ errors: { _form: 'Unexpected request fields.' } });
+    const { operationId, draftId, action, quiz } = body;
+    if (typeof operationId !== 'string' || !/^[\w-]{8,100}$/.test(operationId)) return res.status(400).json({ errors: { _form: 'Missing or malformed operation ID.' } });
+    if (typeof draftId !== 'string' || !QUIZ_ID.test(draftId)) return res.status(400).json({ errors: { _form: 'Missing or malformed draft ID.' } });
+    if (!['approve', 'publish', 'keep_draft', 'discard', 'one_more'].includes(action)) return res.status(400).json({ errors: { _form: 'Unknown quiz action.' } });
+    if (quiz !== undefined && (action !== 'approve' || !quiz || typeof quiz !== 'object' || Array.isArray(quiz))) return res.status(400).json({ errors: { _form: 'Only Approve carries a quiz.' } });
+    if (action === 'approve') {
+      if (quiz === undefined) return res.status(400).json({ errors: { _form: 'Approve needs the quiz.' } });
+      const checked = checkQuiz(quiz, quizNow());
+      if (!checked.ok) return res.status(400).json({ errors: { _form: checked.problem }, code: checked.code, ...(checked.index === undefined ? {} : { index: checked.index }) });
+    }
+    try {
+      const r = await professorCall('/quiz-action', body);
+      res.status(r.status).json(r.json);
+    } catch {
+      res.status(502).json({ error: `${hub.name} is not reachable, so nothing was sent. Press the button again — it won’t post twice.` });
+    }
+    professorAgUi.refresh(); // the Faculty view's state (chat + quiz card) changed
+  });
+  app.get('/api/professor/quiz/:draftId', async (req, res) => {
+    if (!QUIZ_ID.test(req.params.draftId)) return res.status(404).json({ error: 'Unknown draft.' });
+    try {
+      const r = await professorCall(`/quiz/${req.params.draftId}`);
+      res.status(r.status).json(r.json);
+    } catch {
+      res.status(502).json({ error: `${hub.name} is not reachable, so the draft can’t be loaded.` });
+    }
   });
   apiPost.post('/agents/:agentId/skills/preview', (req, res) => proxySettings(req, res, '/preview', 'POST'));
   apiPost.put('/agents/:agentId/skills', (req, res) => proxySettings(req, res, '', 'PUT'));

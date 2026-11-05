@@ -165,7 +165,7 @@ export async function stopProcess(p) {
 // Hub never follows a real HR on the default port.
 // Part 15: hr: true also starts the PeopleSoft stand-in first, on its own pre-picked port with a random token
 // given to both PeopleSoft and HR (HR never points at the real 41246). It is killed with the stack.
-export async function startStack({ tutorEnv = {}, libraryEnv = {}, hubEnv = {}, uiEnv = {}, professorEnv = {}, hrEnv = {}, peoplesoftEnv = {}, library = true, professor = false, hr = false, tutorPort, libraryPort, professorPort, hrPort, uiPort, waitReady = true, readyAgents } = {}) {
+export async function startStack({ tutorEnv = {}, libraryEnv = {}, hubEnv = {}, uiEnv = {}, professorEnv = {}, hrEnv = {}, peoplesoftEnv = {}, canvasEnv = {}, library = true, professor = false, hr = false, canvas = false, now = null, tutorPort, libraryPort, professorPort, hrPort, uiPort, waitReady = true, readyAgents } = {}) {
   const tPort = tutorPort ?? (await unusedPort());
   const lPort = libraryPort ?? (await unusedPort());
   const pPort = professorPort ?? (await unusedPort());
@@ -175,16 +175,22 @@ export async function startStack({ tutorEnv = {}, libraryEnv = {}, hubEnv = {}, 
   const specialistEnv = { HUB_URL: hub.url, HEARTBEAT_INTERVAL_MS: '500' };
   const tutor = await startTutor({ ...specialistEnv, PORT: String(tPort), ...tutorEnv });
   const lib = library ? await startLibrary({ ...specialistEnv, PORT: String(lPort), ...libraryEnv }) : null;
-  const prof = professor ? await startProfessor({ ...specialistEnv, PORT: String(pPort), ...professorEnv }) : null;
+  // Part 16: canvas: true starts the Canvas stand-in first, on its own pre-picked port with a random token (both given to
+  // the Faculty agent). Without it the Faculty agent points at the closed port 9, never a real Canvas on 41247.
+  // now: an ISO instant that pins the Faculty agent's clock, the UI server's quiz check and Canvas's clock together.
+  const canvasToken = canvas ? (await import('node:crypto')).randomBytes(24).toString('base64url') : null;
+  const clockEnv = now ? { PROFESSOR_TEST_HOOKS: '1', PROFESSOR_NOW: now } : {};
+  const canvasProc = canvas ? await startCanvas({ PORT: String(await unusedPort()), CANVAS_TOKEN: canvasToken, CANVAS_TEST_HOOKS: '1', ...(now ? { CANVAS_NOW: now } : {}), ...canvasEnv }) : null;
+  const prof = professor ? await startProfessor({ ...specialistEnv, PORT: String(pPort), CANVAS_URL: canvasProc ? canvasProc.url : 'http://127.0.0.1:9', ...(canvasToken ? { CANVAS_TOKEN: canvasToken } : {}), ...clockEnv, ...professorEnv }) : null;
   const psToken = hr ? (await import('node:crypto')).randomBytes(24).toString('base64url') : null;
   const ps = hr ? await startPeopleSoft({ PORT: String(await unusedPort()), PEOPLESOFT_TOKEN: psToken, PEOPLESOFT_TEST_HOOKS: '1', ...peoplesoftEnv }) : null;
   const hrAgent = hr ? await startHr({ ...specialistEnv, PORT: String(hPort), HR_TEST_HOOKS: '1', PEOPLESOFT_URL: ps.url, PEOPLESOFT_TOKEN: psToken, ...hrEnv }) : null;
-  const ui = await startUi(hub.url, { UI_PORT: String(uPort), ...uiEnv });
+  const ui = await startUi(hub.url, { UI_PORT: String(uPort), ...clockEnv, ...uiEnv });
   const stack = {
-    hub, tutor, library: lib, professor: prof, hr: hrAgent, peoplesoft: ps, peoplesoftToken: psToken, ui, tutorPort: tPort, libraryPort: lPort, professorPort: pPort, hrPort: hPort, uiPort: uPort, specialistEnv,
+    hub, tutor, library: lib, professor: prof, hr: hrAgent, peoplesoft: ps, peoplesoftToken: psToken, canvas: canvasProc, canvasToken, ui, tutorPort: tPort, libraryPort: lPort, professorPort: pPort, hrPort: hPort, uiPort: uPort, specialistEnv,
     // Uses the stack's current processes, so a test that restarts one (stack.library = …) still cleans up.
     // kill() on a process that already exited (e.g. PeopleSoft stopped by a test) does nothing.
-    kill() { [this.ui, this.tutor, this.library, this.professor, this.hr, this.peoplesoft, this.hub].filter(Boolean).forEach((p) => p.proc.kill()); },
+    kill() { [this.ui, this.tutor, this.library, this.professor, this.hr, this.peoplesoft, this.canvas, this.hub].filter(Boolean).forEach((p) => p.proc.kill()); },
   };
   const mustBeReady = readyAgents ?? [...(library ? ['tutor', 'library'] : ['tutor']), ...(professor ? ['professor'] : []), ...(hr ? ['hr'] : [])];
   if (waitReady) {

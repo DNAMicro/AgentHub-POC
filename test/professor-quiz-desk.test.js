@@ -378,12 +378,12 @@ test('Review 5: card() and every entry carry no answer key at any depth; draft()
   all.push(s.desk.card(), a.entries);
   const p = await s.desk.action({ draftId, operationId: 'op-p', action: 'publish' });
   all.push(s.desk.card(), p.entries);
+  assert.ok(keys(s.desk.draft(draftId)).has('correct'));
   all.push(s.desk.reset().entries);
   for (const v of all) {
     const k = keys(v);
     for (const bad of ['correct', 'answers', 'questions', 'text_']) assert.ok(!k.has(bad), `${bad} leaked`);
   }
-  assert.ok(keys(s.desk.draft(draftId)).has('correct'));
   assert.deepEqual(Object.keys(s.desk.card()).sort(), ['canvasQuizId', 'deliveries', 'draftId', 'pointsTotal', 'questionCount', 'state', 'topic']);
 });
 
@@ -407,4 +407,62 @@ test('malformed action bodies are refused without touching Canvas', async () => 
     assert.equal(r.ok, false);
   }
   assert.equal(s.calls.create.length, 0);
+});
+
+test('7b minors: topics() before the term returns the before-term reply, not a crash', () => {
+  const s = setup({ now: new Date('2026-08-20T19:00:00Z') });
+  const r = s.desk.topics(8);
+  assert.equal(r.action, 'quiz_before_term');
+  assert.match(r.reply, /first class is Tue, Aug 25/);
+});
+
+test('7b minors: one more re-checks closed after the model call', async () => {
+  const s = setup();
+  const { draftId } = await drafted(s);
+  let release; const gate = new Promise((r) => { release = r; });
+  const slow = createQuizDesk({ canvas: {}, createPost: async () => ({}), now: () => NOW, draftQuiz: async ({ count }) => ({ questions: Array.from({ length: count }, (_, i) => mkQ(i + 1)), by: 'mock', short: 0 }), draftOne: async () => { await gate; return { question: mkQ(60), by: 'mock' }; } });
+  const t = await slow.turn('make a quiz on segmentation, 4 questions', { operationId: 'op-x1' });
+  const p = slow.action({ draftId: t.draftId, operationId: 'op-more1', action: 'one_more' });
+  await new Promise((r) => setImmediate(r));
+  slow.reset();
+  release();
+  const r = await p;
+  assert.equal(r.ok, false);
+  assert.equal(r.text, CLOSED_TEXT);
+  assert.equal(draftId.startsWith('qd-'), true);
+});
+
+test('7b minors: a reset during the draft call leaves no live draft', async () => {
+  let release; const gate = new Promise((r) => { release = r; });
+  const desk = createQuizDesk({ canvas: {}, createPost: async () => ({}), now: () => NOW, draftQuiz: async ({ count }) => { await gate; return { questions: Array.from({ length: count }, (_, i) => mkQ(i + 1)), by: 'mock', short: 0 }; } });
+  const p = desk.turn('make a quiz on segmentation, 4 questions', { operationId: 'op-y1' });
+  await new Promise((r) => setImmediate(r));
+  desk.reset();
+  release();
+  const r = await p;
+  assert.equal(r.action, 'quiz_draft_failed');
+  assert.equal(desk.card(), null);
+  assert.equal((await desk.turn('make a quiz on segmentation, 4 questions', { operationId: 'op-y2' })).action, 'quiz_draft');
+});
+
+test('7b minors: approve on a published card returns the published text; draft() is null for a closed card', async () => {
+  const s = setup();
+  const { draftId } = await drafted(s);
+  const quiz = fullQuiz(s, draftId);
+  await s.desk.action({ draftId, operationId: 'op-a', action: 'approve', quiz });
+  await s.desk.action({ draftId, operationId: 'op-p', action: 'publish' });
+  const again = await s.desk.action({ draftId, operationId: 'op-a-again', action: 'approve', quiz });
+  assert.equal(again.ok, true);
+  assert.match(again.text, /^Published — /);
+  assert.equal(s.calls.create.length, 1);
+  assert.ok(s.desk.draft(draftId));
+  s.desk.reset();
+  assert.equal(s.desk.draft(draftId), null);
+});
+
+test('7b: topics() (interpret path) holds the question; a draft open answers with the open-draft notice', async () => {
+  const s = setup();
+  assert.equal(s.desk.topics(8).action, 'quiz_topics');
+  assert.equal((await s.desk.turn('Topic 8 · Segmentation & targeting', { operationId: 'op-t1' })).action, 'quiz_draft');
+  assert.equal(s.desk.topics().action, 'quiz_draft_open');
 });

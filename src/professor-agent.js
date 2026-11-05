@@ -27,6 +27,11 @@ import { createJsonStore } from './json-store.js';
 import { AUDIENCE, ID, LESSON_PUBLISH_MEDIA_TYPE, LESSON_STATUS_MEDIA_TYPE, contentHash, validQuizNotice, validateLesson } from './lessons.js';
 import { resetStaff, staffAction, staffTurn, staffView } from './professor-staff.js';
 import { cardValues } from './staff.js';
+import { createCanvasLink } from './professor-canvas.js';
+import { createQuizDesk } from './professor-quiz.js';
+import { topicFromWords } from './course-schedule.js';
+import { TIMEOUTS } from './timeouts.js';
+import { nowFn } from './test-clock.js';
 
 const HOST = '127.0.0.1';
 const JSONRPC_PATH = '/a2a/jsonrpc';
@@ -248,7 +253,7 @@ async function createPost({ operationId, kind = 'lesson', title = '', text, audi
   if (prior) {
     // A repeat of the same operation: the same post — never a second one. Different content → refused.
     const l = outbox.get().lessons[prior];
-    if (l.title !== v.values.title || l.text !== v.values.text || l.kind !== v.values.kind || l.audience !== audience) return { http: 409, body: { errors: { _form: 'This post was already sent with different content.' } } };
+    if (l.title !== v.values.title || l.text !== v.values.text || l.kind !== v.values.kind || l.audience !== audience || JSON.stringify(l.quiz ?? null) !== JSON.stringify(quiz ?? null)) return { http: 409, body: { errors: { _form: 'This post was already sent with different content.' } } };
     return { http: 200, body: { lesson: l, duplicate: true } };
   }
   if (lessonId !== null && (typeof lessonId !== 'string' || !ID.test(lessonId))) return { http: 400, body: { errors: { _form: 'Malformed lesson id.' } } };
@@ -268,6 +273,15 @@ async function createPost({ operationId, kind = 'lesson', title = '', text, audi
   const ack = await publish(record);
   return { http: ack.status === 'rejected' ? 422 : 200, body: { lesson: outbox.get().lessons[lessonKey(record.lessonId, record.revision)], ack: { status: ack.status, reason: ack.reason ?? null, accepted: Array.isArray(ack.deliveries) && ack.deliveries.length > 0, deliveries: ack.deliveries ?? [] } } };
 }
+
+// ---- Canvas quiz desk (Part 16) -------------------------------------------------------------------------------
+// The Faculty agent's own MCP link to the Canvas stand-in. No CANVAS_TOKEN: the link answers not_configured and the
+// agent still starts. Without CANVAS_URL it uses the closed port 9, never a real :41247. Drafts and the Canvas card are
+// in memory only (Canvas forgets its quizzes on every start); the outbox chat keeps outcome text only.
+const CANVAS_URL = process.env.CANVAS_URL ?? 'http://127.0.0.1:9';
+const canvasLink = createCanvasLink({ url: CANVAS_URL, token: process.env.CANVAS_TOKEN, emit: (type, runId, data) => emitViz(type, runId, data), timeoutMs: Number(process.env.CANVAS_TIMEOUT_MS ?? TIMEOUTS.professorCanvasCallMs) });
+let lastRoster = []; // enrolled students as the Hub last reported them (for “your N students”)
+const quizDesk = createQuizDesk({ canvas: canvasLink, createPost: (a) => createPost({ ...a, source: 'chat', author: 'assistant' }), now: nowFn(), emit: (type, runId, data) => emitViz(type, runId, data), roster: () => lastRoster });
 
 // ---- the professor's chat ---------------------------------------------------------------------------------
 // Every decision the model makes is checked here before anything is sent:
@@ -308,11 +322,19 @@ async function professorChat({ operationId, text, replyTo = null, answers = null
     const toAssistant = ASSISTANT_TAG.test(said);
     const hub = await hubView();
     const roster = (hub?.courses?.find((c) => c.courseId === COURSE.courseId)?.enrolled ?? []).map((st) => ({ studentId: st.studentId, name: st.name ?? st.studentId, online: st.online }));
+    if (roster.length) lastRoster = roster;
     if (replyTo !== null && !roster.some((x) => x.studentId === replyTo)) return { http: 400, body: { error: 'That student isn’t in this class.' } };
     const reply = toAssistant ? null : replyTo; // "@assistant …" is a request to the assistant, whoever is being replied to
     const ownId = `${operationId}:p`;
     const entry = { id: ownId, role: 'professor', text: said, at, toAssistant, ...(reply ? { replyTo: reply } : {}) };
     outbox.update((s) => { s.chat.push(entry); });
+    // Canvas quiz desk (Part 16): runs BEFORE the staff desk for every message of the professor's own (with or without
+    // @assistant, even while an HR card is open). A match is answered here: no staff classifier, no HR, no direct post.
+    if (!reply) {
+      let quiz = null;
+      try { quiz = await quizDesk.turn(said, { operationId }); } catch { quiz = { action: 'quiz_error', reply: 'The quiz desk hit an error, so nothing was drafted or sent.' }; }
+      if (quiz) return quizAnswer({ operationId, ownId, entry, generation, quiz });
+    }
     // HR (staff only): is this a request for the professor himself as staff? (src/professor-staff.js)
     // @assistant messages and replies to one student are never staff turns. While an HR card is open, any
     // other message goes to HR as a follow-up that fills the card — even one that reads like a class message.
@@ -353,7 +375,7 @@ async function professorChat({ operationId, text, replyTo = null, answers = null
         // A held message the professor chose to send to the class is no longer private (staff: false).
         Object.assign(s.chat.find((m) => m.id === target) ?? own, { postKey: result.post?.key ?? null, problem: result.post ? null : result.reply, ...(staff?.continueWith ? { staff: false } : {}) });
       }
-      else s.chat.push({ id: `${operationId}:a`, role: 'assistant', text: result.reply, at: new Date().toISOString(), action: result.action, postKey: result.post?.key ?? null, model: result.model ?? null });
+      else s.chat.push({ id: `${operationId}:a`, role: 'assistant', text: result.reply, at: new Date().toISOString(), action: result.action, postKey: result.post?.key ?? null, model: result.model ?? null, ...(result.topics ? { quizTopics: { topics: result.topics, highlight: result.highlight ?? null } } : {}) });
       if (notice) {
         own.staff = true;
         s.chat.push({ id: `${operationId}:n`, role: 'assistant', text: notice, at: new Date().toISOString(), action: 'clarify', staff: true });
@@ -367,6 +389,51 @@ async function professorChat({ operationId, text, replyTo = null, answers = null
   } finally {
     chatBusy = false;
   }
+}
+
+// A quiz turn's answer: the professor's message stays his (addressed to the assistant), and the assistant's
+// reply is one chat entry. A drafted quiz carries only the draft id (the questions are fetched by the Faculty view).
+function quizAnswer({ operationId, ownId, entry, generation, quiz, extra = {} }) {
+  const stored = { action: quiz.action, reply: quiz.reply, post: null, check: null, kind: null, ...(quiz.draftId ? { draftId: quiz.draftId } : {}), ...(quiz.topics ? { topics: quiz.topics, highlight: quiz.highlight ?? null } : {}), ...extra };
+  outbox.update((s) => {
+    if (generation !== resetGeneration && !s.chat.some((m) => m.id === ownId)) s.chat.push(entry);
+    const own = s.chat.find((m) => m.id === ownId);
+    if (own) own.toAssistant = true;
+    s.chat.push({ id: `${operationId}:a`, role: 'assistant', text: quiz.reply, at: new Date().toISOString(), action: quiz.action, postKey: null, model: null, ...(quiz.draftId ? { quiz: { draftId: quiz.draftId } } : {}), ...(quiz.topics ? { quizTopics: { topics: quiz.topics, highlight: quiz.highlight ?? null } } : {}) });
+    s.chat = s.chat.slice(-200);
+    s.chatOps[operationId] = stored;
+  });
+  emitViz('professor_chat', null, { action: stored.action, check: null, kind: null, viaAssistant: true });
+  return { http: 200, body: stored };
+}
+
+// Approve / Publish / Keep / Discard / Draft-one-more on the quiz card (Faculty view → Hub proxy → here). The desk
+// checks the quiz again (authoritative) and dedupes by operationId for definite outcomes only. The card's state is
+// in memory; the chat gets outcome text only, once (a replayed duplicate never adds a second entry).
+const QUIZ_ID = /^[\w-]{6,80}$/;
+const QUIZ_ACTIONS = new Set(['approve', 'publish', 'keep_draft', 'discard', 'one_more']);
+async function quizAction(body) {
+  const keys = Object.keys(body ?? {});
+  if (!body || typeof body !== 'object' || Array.isArray(body) || keys.some((k) => !['draftId', 'operationId', 'action', 'quiz'].includes(k))) return { http: 400, body: { error: 'Unexpected request fields.' } };
+  const { draftId, operationId, action, quiz } = body;
+  if (typeof operationId !== 'string' || !ID.test(operationId)) return { http: 400, body: { error: 'Missing or malformed operation id.' } };
+  if (typeof draftId !== 'string' || !QUIZ_ID.test(draftId)) return { http: 400, body: { error: 'Missing or malformed draft id.' } };
+  if (!QUIZ_ACTIONS.has(action)) return { http: 400, body: { error: 'Unknown quiz action.' } };
+  if (quiz !== undefined && (action !== 'approve' || !quiz || typeof quiz !== 'object' || Array.isArray(quiz))) return { http: 400, body: { error: 'Only Approve carries a quiz.' } };
+  if (action === 'approve' && quiz === undefined) return { http: 400, body: { error: 'Approve needs the quiz.' } };
+  const generation = resetGeneration;
+  if (action === 'approve' || action === 'publish') { const hub = await hubView(); const r = hub?.courses?.find((c) => c.courseId === COURSE.courseId)?.enrolled; if (r?.length) lastRoster = r; }
+  const r = await quizDesk.action({ draftId, operationId, action, ...(quiz ? { quiz } : {}) });
+  const { entries, duplicate, ...rest } = r;
+  if (entries?.length && !duplicate && generation === resetGeneration) {
+    outbox.update((s) => {
+      const at = new Date().toISOString();
+      entries.forEach((e, i) => { const id = `${operationId}:q${i}`; s.chat = s.chat.filter((m) => m.id !== id); s.chat.push({ id, at, ...e }); });
+      s.chat = s.chat.slice(-200);
+    });
+  }
+  emitViz('professor_chat', null, { action: `quiz_${action}`, status: r.ok ? 'ok' : (r.code ?? r.outcome ?? 'not_done'), viaAssistant: false });
+  return { http: r.ok ? 200 : r.closed ? 409 : r.refused ? 422 : r.busy ? 409 : 503, body: rest };
 }
 
 // The professor said yes to the class cancellation (code-built from HR's receipt dates, no reason) — sent to
@@ -452,6 +519,12 @@ async function assistantTurn({ operationId, said, roster, hub }) {
     decision = { action: 'error', reply: `I couldn't work that out right now (${err.message ?? 'model error'}). Nothing was sent.` };
   }
   const result = { reply: decision.reply, action: decision.action, post: null, check: null, model: decision.model ?? null, kind: decision.kind ?? null };
+  if (decision.action === 'quiz') {
+    // The topic list only (never a draft in the same turn); the topic named, if any, is highlighted.
+    const named = pickQuizTopic(decision.topic ?? request);
+    const t = quizDesk.topics(named);
+    return { ...result, action: t.action, reply: t.reply, ...(t.topics ? { topics: t.topics, highlight: t.highlight } : {}), post: null };
+  }
   if (decision.action === 'schedule') {
     const aud = resolveAudience(decision, request, roster);
     if (aud.problem) return { ...result, action: 'clarify', reply: aud.problem, check: aud.code };
@@ -474,6 +547,12 @@ async function assistantTurn({ operationId, said, roster, hub }) {
     }
   }
   return result;
+}
+
+function pickQuizTopic(text) {
+  const bare = /^\s*#?\s*(\d{1,2})\s*$/.exec(String(text ?? ''));
+  const n = bare ? Number(bare[1]) : topicFromWords(String(text ?? ''));
+  return Number.isInteger(n) && n >= 1 && n <= 20 ? n : null;
 }
 
 // Who a post or a meeting is for: a tag the professor wrote wins; a single student the model picked must
@@ -548,7 +627,7 @@ function checkPost(d, said, roster, recentChat, privateWords = []) {
 
 function authorRouter() {
   const router = express.Router();
-  router.use(express.json({ limit: '32kb' }));
+  router.use(express.json({ limit: '64kb' }));
   // The professor's console state: course, roster (from the Hub's trusted data), seeded lessons, and every
   // posted lesson with its delivery state from the Hub.
   router.get('/author/state', async (req, res) => {
@@ -556,17 +635,29 @@ function authorRouter() {
     // Only posts the Hub never confirmed receiving; once accepted, delivery to the student is the Hub's job.
     for (const l of Object.values(outbox.get().lessons)) if (!l.hubAccepted && ['uncertain', 'not_delivered'].includes(l.hubStatus)) await publish(l);
     const hub = await hubView();
-    res.json({ course: COURSE, roster: hub?.courses?.find((c) => c.courseId === COURSE.courseId) ?? null, hubReachable: Boolean(hub), seeds: SEED_LESSONS, lessons: postsView(hub), chat: outbox.get().chat, hrCard: staffView() });
+    res.json({ course: COURSE, roster: hub?.courses?.find((c) => c.courseId === COURSE.courseId) ?? null, hubReachable: Boolean(hub), seeds: SEED_LESSONS, lessons: postsView(hub), chat: outbox.get().chat, hrCard: staffView(), quizCard: quizDesk.card() });
   });
   // Demo reset (requested through the Hub when the Student starts a new conversation): the posted list
   // and the remembered conversations go; the professor sends again. (The browser keeps any unsent draft.)
-  router.post('/author/reset', (req, res) => {
-    outbox.update((s) => { s.lessons = {}; s.operations = {}; s.chat = []; s.chatOps = {}; s.meetings = {}; s.pendingMeeting = null; });
+  router.post('/author/reset', async (req, res) => {
+    const closed = quizDesk.reset(); // the quiz card closes first, so a call in flight sees isClosed() and Canvas's reset generation
+    outbox.update((s) => {
+      s.lessons = {}; s.operations = {}; s.chat = []; s.chatOps = {}; s.meetings = {}; s.pendingMeeting = null;
+      for (const e of closed.entries) s.chat.push({ id: `reset-${e.quiz.draftId}`, at: new Date().toISOString(), ...e });
+    });
     resetGeneration += 1;
     recent.clear();
     resetStaff(); // HR: the open card, a held question or note offer; a new HR conversation
     emitViz('lessons_reset', null, {});
-    res.json({ status: 'reset' });
+    // Canvas forgets its quizzes too (best effort, bounded): a failure here never blocks the classroom reset.
+    let canvas = 'not_configured';
+    if (process.env.CANVAS_TOKEN) {
+      try {
+        const r = await fetch(`${CANVAS_URL.replace(/\/+$/, '')}/dev/reset`, { method: 'POST', headers: { Authorization: `Bearer ${process.env.CANVAS_TOKEN}` }, signal: AbortSignal.timeout(2500) });
+        canvas = r.ok ? 'reset' : `HTTP ${r.status}`;
+      } catch { canvas = 'unreachable'; }
+    }
+    res.json({ status: 'reset', canvas });
   });
   // Post one lesson or message to one student or to all enrolled students ('all' is resolved by the Hub
   // from its enrollment data). The typed API the chat below also uses; stable operation id per post.
@@ -584,6 +675,17 @@ function authorRouter() {
   router.post('/author/hr-action', async (req, res) => {
     const r = await hrAction(req.body ?? {});
     res.status(r.http).json(r.body);
+  });
+  // Canvas quiz card (Part 16): Approve / Publish / Keep / Discard / Draft one more.
+  router.post('/author/quiz-action', async (req, res) => {
+    const r = await quizAction(req.body ?? {});
+    res.status(r.http).json(r.body);
+  });
+  // The full draft WITH the answer key: only the Faculty view fetches it (the state and the streams never carry it).
+  router.get('/author/quiz/:draftId', (req, res) => {
+    const d = QUIZ_ID.test(req.params.draftId) ? quizDesk.draft(req.params.draftId) : null;
+    if (!d) return res.status(404).json({ error: 'That draft is closed or unknown.' });
+    return res.json(d);
   });
   return router;
 }
@@ -651,7 +753,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const { baseUrl } = await startProfessorServer({ port });
   for (const signal of ['SIGINT', 'SIGTERM']) {
     process.once(signal, async () => {
-      await Promise.race([hubLink?.stop(), new Promise((r) => setTimeout(r, 800))]);
+      await Promise.race([Promise.all([hubLink?.stop(), canvasLink.close()]), new Promise((r) => setTimeout(r, 800))]);
       process.exit(0);
     });
   }

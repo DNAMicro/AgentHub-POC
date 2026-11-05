@@ -36,6 +36,7 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
   const ops = new Map(); // operationId -> { sig, promise, done, result }
   let latest = null;
   let pendingQuiz = null;
+  let resetGen = 0; // bumped by reset(): a draft call that finishes after it must not leave a live draft
   const clock = () => (typeof now === 'function' ? now() : now);
   const students = () => (typeof roster === 'function' ? roster() : roster) ?? [];
   const tell = (type, runId, data) => { try { emit(type, runId, data); } catch { /* telemetry must never break the desk */ } };
@@ -86,8 +87,10 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
     }
     pendingQuiz = null;
     count = Math.min(20, Math.max(1, count));
+    const gen = resetGen;
     let res;
     try { res = await draftQuiz({ topic: n, count, emit: (type, data) => tell(type, runId, data) }); } catch { res = { questions: [], by: 'model_failed', short: count }; }
+    if (gen !== resetGen) { tell('quiz_turn', runId, { outcome: 'reset_during_draft', topic: n }); return { action: 'quiz_draft_failed', reply: 'The classroom was reset while the AI was drafting, so no draft was kept. Ask again.' }; }
     if (!res || (res.by === 'model_failed' && !res.questions?.length)) {
       tell('quiz_turn', runId, { outcome: 'draft_failed', topic: n });
       return { action: 'quiz_draft_failed', reply: "The AI couldn't draft questions just now. Ask again in a moment." };
@@ -107,7 +110,7 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
   const clean = (v) => structuredClone(v);
   function draft(draftId) {
     const d = drafts.get(draftId);
-    if (!d) return null;
+    if (!d || d.state === 'closed') return null;
     return { draftId: d.draftId, topic: d.topic, state: d.state, canvasQuizId: d.canvasQuizId, quiz: clean(d.quiz), drafted: { by: d.by, model: d.model, short: d.short, wanted: d.wanted } };
   }
   function card() {
@@ -124,6 +127,7 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
       if (d.state !== 'closed') { entries.push({ role: 'assistant', text: CLOSED_TEXT, quiz: { draftId: d.draftId } }); d.state = 'closed'; }
     }
     pendingQuiz = null;
+    resetGen += 1;
     return { closed: entries.length, entries };
   }
 
@@ -133,7 +137,7 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
   const refuse = (d, code, text) => ({ ok: false, refused: true, code, state: d.state, draftId: d.draftId, text });
 
   async function approve(d, quiz, operationId, runId) {
-    if (d.state === 'saved' || d.state === 'kept' || d.state === 'published') return { ok: true, already: true, state: d.state, draftId: d.draftId, canvasQuizId: d.canvasQuizId, text: "Saved in Canvas as an unpublished quiz — students can't see it yet." };
+    if (d.state === 'saved' || d.state === 'kept' || d.state === 'published') return { ok: true, already: true, state: d.state, draftId: d.draftId, canvasQuizId: d.canvasQuizId, text: d.state === 'published' ? publishedText(d) : "Saved in Canvas as an unpublished quiz — students can't see it yet." };
     if (d.state !== 'draft') return { ok: false, busy: true, state: d.state, draftId: d.draftId, text: 'Still working on this draft. Wait a moment.' };
     const checked = checkQuiz(quiz, clock());
     if (!checked.ok) return { ok: false, refused: true, code: checked.code, state: d.state, draftId: d.draftId, text: checked.problem, ...(checked.index === undefined ? {} : { index: checked.index }) };
@@ -213,6 +217,7 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
     const existing = list.map((q) => String(q?.text ?? ''));
     let r;
     try { r = await draftOne({ topic: d.topic, existing, emit: (type, data) => tell(type, runId, data) }); } catch { r = { question: null, by: 'model_failed' }; }
+    if (d.state === 'closed') return closedResult(d);
     if (!r?.question) {
       const failed = !r || r.by === 'model_failed';
       return { ok: false, retryable: failed, state: d.state, draftId: d.draftId, text: failed ? "The AI couldn't draft another question just now. Try again in a moment." : 'There are no more new questions in the notes for this topic.' };
@@ -270,5 +275,11 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
     return promise;
   }
 
-  return { turn, action, draft, card, reset, topics: (highlight = null) => topicsReply(null, highlight) };
+  return { turn, action, draft, card, reset, topics: (highlight = null) => {
+    if (!taughtTopics(clock()).length) return beforeTerm();
+    const open = openDraft();
+    if (open) return { action: 'quiz_draft_open', reply: `You have a draft open (Topic ${open.topic}). Approve or discard it first.` };
+    pendingQuiz = { count: 5 }; // the next topic number or name answers this list
+    return topicsReply(null, highlight);
+  } };
 }
