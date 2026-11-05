@@ -1040,7 +1040,7 @@ At CSUF, quizzes live in **Canvas**. The Faculty agent now reaches an eighth pro
 
 ### Tests
 
-`test/quiz-rules.test.js`, `canvas-store.test.js`, `canvas-model.test.js`, `canvas-mcp.test.js`, `quiz-model.test.js`, `quiz-model-live.test.js`, `professor-canvas.test.js`, `professor-canvas-live.test.js`, `professor-quiz-desk.test.js`, `professor-quiz.test.js`, `quiz-notice.test.js`, `topology-canvas.test.js`, `timeouts.test.js`. `scripts/browser-checks/canvas-quiz.js` (64 checks) runs on a separate rehearsal stack (`node scripts/demo/rehearsal-stack.js --ui 5544 --base 52340 --mock --now 2026-11-04T20:00:00Z`), never on the running demo. See [Steps/16](Steps/16-canvas-quiz-mcp.md).
+`test/quiz-rules.test.js`, `canvas-store.test.js`, `canvas-model.test.js`, `canvas-mcp.test.js`, `quiz-model.test.js`, `quiz-model-live.test.js`, `professor-canvas.test.js`, `professor-canvas-live.test.js`, `professor-quiz-desk.test.js`, `professor-quiz.test.js`, `quiz-notice.test.js`, `topology-canvas.test.js`, `timeouts.test.js`. `scripts/browser-checks/canvas-quiz.js` (71 checks) runs on a separate rehearsal stack (`node scripts/demo/rehearsal-stack.js --ui 5544 --base 52340 --mock --now 2026-11-04T20:00:00Z`), never on the running demo. See [Steps/16](Steps/16-canvas-quiz-mcp.md).
 
 ## Deliberately not included
 
