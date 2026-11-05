@@ -226,6 +226,15 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
   const follow = followLog(pv.log);
   const DRAFT_KEY = 'a2a-spike:professor-draft';
   let roster = [];
+  // Classmates' names (studentId → "First Last") come only from the Faculty view's own roster fetch, while the Faculty tab
+  // shows, and leave the page when another tab shows (like the quiz key) — never from the state the stream pushes to every
+  // page (final review finding 6). Unknown: a neutral “A student”, never the raw id.
+  const names = new Map();
+  let namesAsked = 0;
+  let namesLoading = false;
+  const namesTried = new Set(); // ids already asked about: a new unknown id is fetched at once, an id still unknown at most every 15 s
+  let namesToken = 0;
+  const knownName = (id) => names.get(id) ?? roster.find((r) => r.studentId === id)?.name ?? null;
   let posts = new Map(); // key → post with deliveries
   let chat = [];
   let pending = null; // { text, operationId } while a message is being worked on
@@ -252,12 +261,11 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
   };
   function studentState(d) {
     if (d.opened) return ['opened', when(d.openedAt)];
-    if (d.state === 'queued') return ['queued', d.lastError === 'student_offline' || /refused/.test(d.lastError ?? '') ? `${d.name ? d.name.split(' ')[0] : firstOf(d.studentId)} isn't online. It will arrive when they are.` : 'It will be retried.'];
+    if (d.state === 'queued') return ['queued', d.lastError === 'student_offline' || /refused/.test(d.lastError ?? '') ? `${knownName(d.studentId)?.split(' ')[0] ?? 'this student'} isn't online. It will arrive when they are.` : 'It will be retried.'];
     if (d.state === 'delivered') return ['delivered', when(d.deliveredAt)];
     return [d.state, null]; // the raw error code is for the technical views, not the faculty member
   }
-  const firstOf = (id) => (roster.find((r) => r.studentId === id)?.name ?? String(id)).split(' ')[0];
-  const nameOf = (id) => String(id).split(',').map((x) => roster.find((r) => r.studentId === x)?.name ?? x).join(', ');
+  const nameOf = (id) => String(id).split(',').map((x) => knownName(x) ?? 'A student').join(', ');
 
   function bubble({ dir, speaker, label, at, text }) {
     return el('li', { className: 'msg', dataset: { dir, speaker } },
@@ -298,7 +306,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
   // delivered. `notified` words a delivered row "Notified" (the quiz notice). The fold stays open across redraws.
   const BIG_AUDIENCE = 3;
   const foldOpen = new Set();
-  const personName = (d) => d.name ?? nameOf(d.studentId);
+  const personName = (d) => knownName(d.studentId) ?? 'A student';
   function deliveryRows(list, notified = false) {
     return el('ul', { className: 'per-student' }, ...list.map((d) => {
       const [k, detail] = studentState(d);
@@ -736,7 +744,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     if (hr && !items.includes(hr.li)) hrDispose(); // the card closed (submitted, cancelled, expired, reset)
     quiz.sync();
     rosterUi.sync(chat);
-    const signature = JSON.stringify([pv.view.hidden, quizCard, quizAsking, chat.length, pending?.text, [...handedOver.values()].map((m) => m.answeredAt ?? null), [...posts.values()].map((p) => [p.key, p.hubStatus, p.deliveries]), hrCard?.formRef ?? null, hrCard?.a2ui.length ?? 0, chat.at(-1)?.text, rosterCount]);
+    const signature = JSON.stringify([pv.view.hidden, quizCard, quizAsking, chat.length, pending?.text, [...handedOver.values()].map((m) => m.answeredAt ?? null), [...posts.values()].map((p) => [p.key, p.hubStatus, p.deliveries]), hrCard?.formRef ?? null, hrCard?.a2ui.length ?? 0, chat.at(-1)?.text, rosterCount, names.size]);
     if (signature === lastRendered) return;
     lastRendered = signature;
     // The open HR card and the quiz cards stay where they are in the page (never detached), so a field being
@@ -775,6 +783,23 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     const first = !lastRendered;
     renderProfessor();
     if (first) follow.pin(); // open on the newest message, like the student's chat
+    loadNames();
+  }
+  // Names for delivery rows the page can't label yet: one fetch at a time, only while the tab shows.
+  async function loadNames() {
+    if (pv.view.hidden || namesLoading) return;
+    const ids = [...[...posts.values()].flatMap((p) => p.deliveries ?? []), ...(quizCard?.deliveries ?? [])].map((d) => d?.studentId).filter((id) => id && !knownName(id));
+    if (!ids.length || (ids.every((id) => namesTried.has(id)) && Date.now() - namesAsked < 15000)) return;
+    namesLoading = true;
+    namesAsked = Date.now();
+    for (const id of ids) namesTried.add(id);
+    const token = namesToken;
+    const r = await api('/api/professor/roster/names').catch(() => null);
+    namesLoading = false;
+    if (token !== namesToken || pv.view.hidden) return; // the tab was left while the names were on their way
+    let changed = false;
+    for (const [id, name] of Object.entries(r?.json?.names ?? {})) if (typeof name === 'string' && names.get(id) !== name) { names.set(id, name); changed = true; }
+    if (changed) renderProfessor();
   }
 
   // @-tagging: suggestions from the class roster.
@@ -928,7 +953,8 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     pickSlot: ({ deliveryId, slot }) => { setAbout(null); return sendChat(`I’ll take ${slot.label}.`, { lessonDeliveryId: deliveryId, meetingSlot: slot.slotId }); },
     professorShown: () => refreshProfessor(),
     // Another tab is showing: the quiz cards (and the answer key in them) leave the page.
-    professorHidden: () => { if (lastRendered) { lastRendered = ''; renderProfessor(); } },
+    // Classmates' names leave too (they come back from the roster fetch when the tab shows again).
+    professorHidden: () => { names.clear(); namesTried.clear(); namesToken += 1; namesAsked = 0; namesLoading = false; if (lastRendered) { lastRendered = ''; renderProfessor(); } },
     attachProfessor,
   };
 }

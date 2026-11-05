@@ -79,7 +79,11 @@ export function createLessonService({ cfg, registry, roster = null, emit = () =>
   // A post goes to one enrolled student or to 'all' — every student enrolled in the course, from the
   // Hub's own configuration. Each recipient gets their own delivery (own id, state and receipt).
   const summaryOf = (ds) => (ds.every((d) => d.state === 'delivered') ? 'delivered' : ['uncertain', 'queued', 'failed'].find((st) => ds.some((d) => d.state === st)) ?? 'queued');
-  // `name` comes from the CHRS roster (kept in memory only; the persisted delivery has the student ID alone).
+  // `name` comes from the CHRS roster (kept in memory only; the persisted delivery has the student ID alone). The Hub
+  // remembers the name of every student it addressed a post to (`deliveredNames`, memory only, cleared by the classroom
+  // reset), so a delivery row keeps its name after the 60 s roster cache expires (final review finding 3).
+  const deliveredNames = new Map(); // studentId → "First Last"
+  const namesFor = (courseId) => ({ ...Object.fromEntries(deliveredNames), ...(roster?.cached(courseId)?.names ?? {}) });
   const deliveryView = (d, names = null) => ({ studentId: d.studentId, ...(names?.[d.studentId] ? { name: names[d.studentId] } : {}), deliveryId: d.deliveryId, state: d.state, reason: d.lastError, opened: Boolean(d.openedAt) });
   const isOnline = (sid) => sessions.has(sid) && !sessions.get(sid).unreachable;
   async function publish(msg) {
@@ -108,7 +112,7 @@ export function createLessonService({ cfg, registry, roster = null, emit = () =>
       if (!prior) return null;
       if (prior.hash !== hash || prior.lessonId !== msg.lessonId || prior.revision !== msg.revision || prior.audience !== msg.audience) return reject('operation_reused');
       const ds = prior.deliveryIds.map((id) => store.get().deliveries[id]);
-      return { status: summaryOf(ds), duplicate: true, lessonId: msg.lessonId, revision: msg.revision, deliveries: ds.map((d) => deliveryView(d, roster?.cached(msg.courseId)?.names)) };
+      return { status: summaryOf(ds), duplicate: true, lessonId: msg.lessonId, revision: msg.revision, deliveries: ds.map((d) => deliveryView(d, namesFor(msg.courseId))) };
     };
     const duplicate = priorResult();
     if (duplicate) return duplicate;
@@ -127,6 +131,7 @@ export function createLessonService({ cfg, registry, roster = null, emit = () =>
     const recipients = wanted ?? [...looked.roster.studentIds];
     if (!recipients.length) return reject('no_students_enrolled');
     const names = looked.roster.names;
+    for (const sid of recipients) if (typeof names?.[sid] === 'string') deliveredNames.set(sid, names[sid]);
     const racing = priorResult(); // the same operation may have been accepted while the lookup ran
     if (racing) return racing;
     const key = `${msg.lessonId}#${msg.revision}`;
@@ -240,7 +245,7 @@ export function createLessonService({ cfg, registry, roster = null, emit = () =>
         onlineCount: r ? r.studentIds.filter(isOnline).length : null,
       };
     });
-    const names = Object.assign({}, ...coursesOf(msg.professorId).map(([courseId]) => roster?.cached(courseId)?.names ?? {}));
+    const names = Object.assign({}, ...coursesOf(msg.professorId).map(([courseId]) => namesFor(courseId)));
     const deliveries = Object.values(store.get().deliveries).filter((d) => d.professorId === msg.professorId)
       .map(({ deliveryId, lessonId, revision, studentId, state, attempts, lastError, deliveredAt, openedAt }) => ({ deliveryId, lessonId, revision, studentId, ...(names[studentId] ? { name: names[studentId] } : {}), state, attempts, lastError, deliveredAt, openedAt }));
     return { status: 'ok', courses, deliveries };
@@ -287,6 +292,7 @@ export function createLessonService({ cfg, registry, roster = null, emit = () =>
   // sessions stay. The course is announced again (once) to students who are connected.
   function reset() {
     store.update((s) => { s.lessons = {}; s.operations = {}; s.deliveries = {}; s.notices = {}; });
+    deliveredNames.clear();
     emit('classroom_reset', {});
     setTimeout(() => announceCourses(), 300);
   }

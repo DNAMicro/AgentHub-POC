@@ -183,16 +183,34 @@ export function rearmStaff(rearm) {
 // A question (HR / class / both) or a note offer is waiting for its answer; a plain reply must reach staffTurn so it
 // is read as that answer. A cancellation offer alone does not block the roster desk.
 export const staffHolding = () => ({ question: fresh(pendingChoice), offer: fresh(pendingNote) ? pendingNote.kind ?? 'post' : null });
-// The privacy guard for a message that would go to the whole class (“notify everyone …”): a statement about HIMSELF with a
-// leave, illness or relative word is never posted on a guess. Returns the fixed question (and holds the message for
-// the answer, exactly like the open-card path) or null when the words are safe to post.
-export function guardClassPost({ text, entryId, emit = () => {} }) {
+// Part 17 final review: everything the roster desk would send to the whole class — the rest of “notify everyone that …” and
+// the reply to “What should I tell your class about …?” — gets the same check as a plain class message, so wrapping words
+// in the opening never weakens the Part 14 rule (“Notify everyone that Dr. Dabirian is sick today” was posted to 25).
+//   * an illness, leave or relative word (with or without I/my) → asked, never posted;
+//   * an HR card is open → the open-card rule: a statement about himself or words that edit the card are asked about;
+//   * otherwise the staff classifier (mock heuristic, live model) must say class_message; anything else is asked.
+// `text` is what would be posted; `held` is the whole message held for the answer (a held “notify everyone …” goes out as
+// its stripped text when he answers “class”). Returns the fixed question (holding the message) or null (safe to post).
+const CLASS_POST_PRIVATE = /\b(?:leave|sick|ill|illness|unwell|vacation|holiday|absent|absence|pto|bereavement|funeral|died|dying|passed\s+away|death|jury|witness|military|appointment|doctor|dentist|hospital|surgery|sabbatical|maternity|paternity|emergency|time\s+off|days?\s+off|day\s+off)\b/i;
+export async function checkClassPost({ text, held = text, entryId, emit = () => {} }) {
   const t = String(text ?? '');
-  if (!(FIRST_PERSON_WORDS.test(t) && (mentionsIllness(t) || LEAVE_WORDS.test(t) || RELATIVES.test(t) || absenceNameIn(t)))) return null;
-  pendingChoice = { text: t, entryId, at: Date.now() };
-  emit('staff_decision', { kind: 'unsure', decidedBy: 'class_post_guard' });
-  return { action: 'clarify', check: 'staff_or_class', reply: UNSURE_QUESTION, entries: [{ role: 'assistant', text: UNSURE_QUESTION, action: 'clarify' }] };
+  const ask = (decidedBy, extra = {}) => {
+    pendingChoice = { text: String(held ?? t), entryId, at: Date.now() };
+    emit('staff_decision', { kind: 'unsure', decidedBy, ...extra });
+    return { action: 'clarify', check: 'staff_or_class', reply: UNSURE_QUESTION, entries: [{ role: 'assistant', text: UNSURE_QUESTION, action: 'clarify' }] };
+  };
+  if (mentionsIllness(t) || CLASS_POST_PRIVATE.test(t) || RELATIVES.test(t) || (FIRST_PERSON_WORDS.test(t) && (LEAVE_WORDS.test(t) || absenceNameIn(t)))) return ask('class_post_guard');
+  if (cardOpen() && (FIRST_PERSON_WORDS.test(t) || EDIT_CUE.test(t))) return ask('open_card_words');
+  const c = await classifyStaff({ text: t, emit });
+  emit('staff_decision', { kind: c.kind, decidedBy: 'class_post_check', model: c.model ?? null, error: c.error ?? null });
+  if (c.kind === 'class_message') return null;
+  return ask('class_post_check', { model: c.model ?? null });
 }
+// While an HR card is open, a plain message code reads as about the time off (“make it Dec 7 instead”) belongs to HR, even
+// when the roster desk is waiting for “what should I tell your class about …?” (final review finding 8).
+export const openCardTakes = (text) => Boolean(cardOpen()) && !fresh(pendingChoice) && aboutOpenCard(text) === 'hr';
+// A reply that answers a waiting cancellation offer (starts with yes/no, or talks about cancelling): the offer's, not a class message.
+export const answersCancelOffer = (text) => fresh(pendingNote) && pendingNote.kind === 'cancel' && (ANSWER_START.test(String(text ?? '')) || CANCEL_WORD.test(String(text ?? '')));
 
 export function resetStaff() {
   conversationId = randomUUID();
@@ -260,6 +278,12 @@ export async function staffTurn({ operationId, text, entryId, hubLink, bypass = 
 
   let note = fresh(pendingNote) ? pendingNote : null;
   pendingNote = null;
+  // A class post the roster desk held for the HR / class / both question AFTER a cancellation offer: this reply answers
+  // that question first; the offer keeps waiting for its own yes or no.
+  if (note?.kind === 'cancel' && fresh(pendingChoice) && pendingChoice.at >= note.at) {
+    pendingNote = note;
+    note = null;
+  }
   // The cancellation offer follows every filed request, so the professor often just carries on (“I also need
   // Monday off”, “I need Friday off”, “Please read chapter 5”). An answer starts with yes or no, talks about
   // cancelling, or is short (4 words or fewer) with no new day or leave word; anything else is a NEW message:

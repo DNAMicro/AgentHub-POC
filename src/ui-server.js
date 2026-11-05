@@ -761,6 +761,16 @@ export async function startUiServer({ port = 4444 } = {}) {
       res.status(502).json({ error: `${hub.name} is not reachable, so the roster can’t be loaded.` });
     }
   });
+  // Final review (Ruling 5): classmates' names for the Faculty view's delivery rows — fetched only while that tab shows,
+  // never in the state the stream pushes to every page.
+  app.get('/api/professor/roster/names', async (req, res) => {
+    try {
+      const r = await professorCall('/roster/names');
+      res.status(r.status).json(r.json);
+    } catch {
+      res.status(502).json({ error: `${hub.name} is not reachable, so names can’t be loaded.` });
+    }
+  });
   app.get('/api/professor/quiz/:draftId', async (req, res) => {
     if (!QUIZ_ID.test(req.params.draftId)) return res.status(404).json({ error: 'Unknown draft.' });
     try {

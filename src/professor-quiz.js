@@ -43,7 +43,7 @@ const timeLabel = (iso) => new Intl.DateTimeFormat('en-US', { timeZone: 'America
 const dueLabel = (iso) => `${dayLabel(pacificDate(new Date(iso)))}, ${timeLabel(iso)}`;
 const plural = (v, w) => `${v} ${w}${v === 1 ? '' : 's'}`;
 
-export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, draftOne = realDraftOne, now = () => new Date(), emit = () => {}, roster = [], classCount = null } = {}) {
+export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, draftOne = realDraftOne, now = () => new Date(), emit = () => {}, classCount = null } = {}) {
   const drafts = new Map();
   const discarded = new Set(); // draft ids the professor discarded (approving one says so, not "restart")
   const ops = new Map(); // operationId -> { sig, promise, done, result }

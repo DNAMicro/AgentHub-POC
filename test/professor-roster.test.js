@@ -16,6 +16,8 @@ const FAILED_POST = "I couldn't get your class list just now, so nothing was sen
 const FAILED_ROSTER = "I couldn't get your class roster just now. Try again in a moment.";
 const SENT = 'Sent to all 25 students in Marketing 351.';
 const ROW_SECRET = /csu\.fullerton\.example|888\d{6}/;
+// Alex and Sam are the two configured Student-agent sessions (Part 9: their names were in the state before Part 17).
+const SESSION_STUDENTS = ['student-alex', 'student-sam'];
 
 // ---- the words (code) ------------------------------------------------------------------------------------------------
 test('asksRoster reads roster requests and leaves announcements, tags and long messages alone', () => {
@@ -39,6 +41,15 @@ test('notifyEveryone: the opening is stripped, the rest is capitalized with a pe
   assert.deepEqual(notifyEveryone('notify everyone'), { rest: '' });
   assert.deepEqual(notifyEveryone('Let everyone know'), { rest: '' });
   for (const t of ['Tell Sam the quiz is Friday', 'Please read chapter 5', 'everyone should read chapter 5', 'both', 'tell them']) assert.equal(notifyEveryone(t), null, t);
+});
+
+test('final review 5: "tell everyone to <verb> …" becomes "Please <verb> …." (never the fragment "To read …")', () => {
+  assert.deepEqual(notifyEveryone('Tell everyone to read chapter 5 before Thursday'), { rest: 'Please read chapter 5 before Thursday.' });
+  assert.deepEqual(notifyEveryone('let the class know to bring laptops'), { rest: 'Please bring laptops.' });
+  assert.deepEqual(notifyEveryone('Let all my students know to submit by Friday!'), { rest: 'Please submit by Friday!' });
+  // Only right after the opening: “that …” / “:” keep his own words.
+  assert.deepEqual(notifyEveryone('Tell the class: to be honest, the quiz was hard'), { rest: 'To be honest, the quiz was hard.' });
+  assert.deepEqual(notifyEveryone('notify everyone that to-do lists help'), { rest: 'To-do lists help.' });
 });
 
 test('the desk keeps the last known counts when the Hub has none, and forgets them on reset', () => {
@@ -171,7 +182,8 @@ test('Review Focus 4: roster emails and IDs never appear in the UI monitor strea
     });
     setTimeout(() => { abort.abort(); resolve(events); }, 600);
   });
-  // The state may name students on the delivery rows of a post (that is what the rows show); emails and IDs never.
+  // Emails and IDs never appear anywhere; classmates' names not in the state either (Ruling 5, checked below and in the
+  // final review test that reads the page stream).
   const everywhere = JSON.stringify(main.stream.events) + hubEvents.join('\n') + JSON.stringify(await state(main)) + main.hub.output() + main.professor.output() + main.ui.output();
   for (const row of rows) {
     assert.ok(!everywhere.includes(row.email), `email of ${row.studentId}`);
@@ -179,6 +191,11 @@ test('Review Focus 4: roster emails and IDs never appear in the UI monitor strea
   }
   const streams = JSON.stringify(main.stream.events) + hubEvents.join('\n') + main.hub.output() + main.professor.output() + main.ui.output();
   for (const name of ['Aguilar', 'Yamamoto']) assert.ok(!streams.includes(name), `${name} stays out of the monitor stream, telemetry and logs`);
+  const st = JSON.stringify(await state(main));
+  for (const row of rows.filter((x) => !SESSION_STUDENTS.includes(x.studentId))) {
+    const [last, first] = row.name.split(',');
+    for (const n of [row.name, `${first} ${last}`, last]) assert.ok(!st.includes(n), `${n} is not in /author/state`);
+  }
 });
 
 test('notify everyone (5 variants) posts the stripped text to all 25 and says how many', async () => {
@@ -206,13 +223,15 @@ test('notify everyone (5 variants) posts the stripped text to all 25 and says ho
   assert.equal(sentToAllText(25), SENT);
 });
 
-test('the count in the reply comes from the post’s actual deliveries; delivery names are passed through for roster-only students', async () => {
+test('the count in the reply comes from the post’s actual deliveries; names come only from the Faculty view’s roster fetch', async () => {
   await say(main, 'Notify everyone that class starts at ten');
   const l = (await state(main)).lessons[0];
   const mariana = l.deliveries.find((d) => d.studentId === 'student-mariana-aguilar');
-  assert.equal(mariana.name, 'Mariana Aguilar');
+  assert.equal(mariana.name, undefined, 'no classmate name in /author/state (Ruling 5)');
   assert.equal(mariana.state, 'queued');
   assert.equal(l.deliveries.find((d) => d.studentId === 'student-alex').state, 'delivered');
+  const r = await (await fetch(`${main.ui.url}/api/professor/roster`)).json();
+  assert.equal(r.names['student-mariana-aguilar'], 'Mariana Aguilar', 'the Faculty view maps ids to names from its roster fetch');
 });
 
 test('Review Focus 2: "notify everyone that I\'m sick, no class" asks the fixed question and posts nothing; "class" then posts it', async () => {
@@ -405,4 +424,174 @@ test('while "what should I tell your class about" waits: "never mind" drops it; 
   // "that …" keeps the strip-and-send behaviour.
   await main.reset();
   assert.equal((await say(main, 'notify everyone that the midterm review is Monday')).action, 'post');
+});
+
+// ---- final review (Part 17) -------------------------------------------------------------------------------------------
+// Reads the page's one stream (/api/ui/stream: monitor, student and professor channels) for a while, as raw text.
+async function pageStreamText(s, ms) {
+  const abort = new AbortController();
+  let text = '';
+  const res = await fetch(`${s.ui.url}/api/ui/stream`, { signal: abort.signal });
+  const reading = (async () => { try { for await (const chunk of res.body.pipeThrough(new TextDecoderStream())) text += chunk; } catch { /* aborted */ } })();
+  await new Promise((r) => setTimeout(r, ms));
+  abort.abort();
+  await reading;
+  return text;
+}
+async function fileSickFriday(s) {
+  assert.equal((await say(s, "I'm sick, cancel Friday's class")).reply, UNSURE);
+  assert.equal((await say(s, 'hr')).action, 'staff');
+  const card = (await state(s)).hrCard;
+  const surface = card.a2ui.find((m) => m.createSurface).createSurface.surfaceId;
+  const submit = await post(`${s.professor.url}/author/hr-action`, { operationId: `op-${randomUUID()}`, formRef: card.formRef, action: { name: 'submitTimeOff', surfaceId: surface, sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context: { note: '', absenceType: ['SCK'], absenceReason: ['SCK'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8' } } });
+  assert.equal((await submit.json()).status, 'accepted');
+  assert.match(lastOf((await state(s)).chat, 'assistant').text, /Would you like me to send a cancellation/);
+}
+
+test('final review 1: "notify everyone that …" gets the plain path’s privacy check — illness, family and funeral words are asked about', async () => {
+  for (const t of [
+    'Notify everyone that Dr. Dabirian is sick today, no class',
+    'Notify everyone that class is cancelled Friday because of a family emergency',
+    'Tell the class that the funeral is Friday so no class',
+    'Notify everyone that class is cancelled Friday, I am exhausted',
+  ]) {
+    await main.reset();
+    const r = await say(main, t);
+    assert.equal(r.reply, UNSURE, t);
+    const st = await state(main);
+    assert.equal(st.lessons.length, 0, `nothing posted: ${t}`);
+    assert.equal(st.chat.find((m) => m.role === 'professor').staff, true, 'held privately');
+  }
+  // The reply to “What should I tell your class about …?” gets the same check.
+  await main.reset();
+  assert.equal((await say(main, 'Inform the whole class about Friday')).reply, 'What should I tell your class about Friday?');
+  assert.equal((await say(main, 'Dr. Dabirian is sick, no class')).reply, UNSURE);
+  assert.equal((await state(main)).lessons.length, 0);
+  // Clean announcements still go out.
+  await main.reset();
+  const ok = await say(main, 'Notify everyone that the review session is Monday');
+  assert.equal(ok.action, 'post', JSON.stringify(ok));
+  assert.equal(lastOf((await state(main)).chat, 'assistant').text, SENT);
+});
+
+test('final review 2: with a cancellation offer waiting, "notify everyone that …" sends the stripped text and the offer stays open', async () => {
+  await fileSickFriday(main);
+  const r = await say(main, 'Notify everyone that the review session is in room 204');
+  assert.equal(r.action, 'post', JSON.stringify(r));
+  let st = await state(main);
+  assert.equal(st.lessons[0].text, 'The review session is in room 204.', 'never the opening words');
+  assert.equal(st.lessons[0].deliveries.length, 25);
+  assert.equal(lastOf(st.chat, 'assistant').text, SENT);
+  // The offer still waits for its yes.
+  const yes = await say(main, 'yes');
+  assert.equal(yes.action, 'post', JSON.stringify(yes));
+  st = await state(main);
+  assert.equal(st.lessons.filter((l) => l.title === 'Class cancelled').length, 1);
+  assert.equal(st.lessons.find((l) => l.title === 'Class cancelled').text, 'Marketing 351 is cancelled on Fri, Nov 6.');
+});
+
+test('final review 2b: a held class post after a cancellation offer is answered first; the offer keeps waiting', async () => {
+  await fileSickFriday(main);
+  assert.equal((await say(main, 'Notify everyone that Dr. Dabirian is sick, no class')).reply, UNSURE);
+  const c = await say(main, 'class');
+  assert.equal(c.action, 'post', JSON.stringify(c));
+  let st = await state(main);
+  assert.equal(st.lessons[0].text, 'Dr. Dabirian is sick, no class.');
+  assert.equal((await say(main, 'yes')).action, 'post');
+  st = await state(main);
+  assert.equal(st.lessons.filter((l) => l.title === 'Class cancelled').length, 1);
+});
+
+test('final review 5: "Tell everyone to read chapter 5 before Thursday" reaches students as "Please read chapter 5 before Thursday."', async () => {
+  for (const [said, text] of [['Tell everyone to read chapter 5 before Thursday', 'Please read chapter 5 before Thursday.'], ['let the class know to bring laptops', 'Please bring laptops.']]) {
+    const r = await say(main, said);
+    assert.equal(r.action, 'post', JSON.stringify(r));
+    const st = await state(main);
+    assert.equal(st.lessons[0].text, text);
+    assert.equal(lastOf(st.chat, 'assistant').text, SENT);
+  }
+});
+
+test('final review 8: while "what should I tell your class about …?" waits and an HR card is open, a card edit goes to HR', async () => {
+  const hr = await say(main, "I need Friday off, it's a vacation day");
+  assert.equal(hr.action, 'staff', JSON.stringify(hr));
+  assert.equal((await say(main, 'inform the class about the exam')).reply, 'What should I tell your class about the exam?');
+  const edit = await say(main, 'make it Dec 7 instead');
+  assert.equal(edit.action, 'staff', JSON.stringify(edit));
+  assert.equal((await state(main)).lessons.length, 0, 'nothing went to the class');
+});
+
+test('final review 6: classmates’ names are in neither /author/state nor the page stream; the roster fetch has them', async () => {
+  await say(main, 'show my class roster');
+  const rows = (await (await fetch(`${main.ui.url}/api/professor/roster`)).json()).roster.rows;
+  await say(main, 'Notify everyone that the reading is chapter 7');
+  const text = await pageStreamText(main, 3500) + JSON.stringify(await state(main)) + JSON.stringify(await (await fetch(`${main.professor.url}/author/state`)).json());
+  assert.match(text, /student-mariana-aguilar/, 'the stream and state did carry the post (ids only)');
+  for (const row of rows.filter((x) => !SESSION_STUDENTS.includes(x.studentId))) {
+    const [last, first] = row.name.split(','); // the roster row says "Aguilar,Mariana"; delivery names say "Mariana Aguilar"
+    for (const n of [row.name, `${first} ${last}`, last]) assert.ok(!text.includes(n), `${n} stays off the shared state and stream`);
+  }
+  const names = (await (await fetch(`${main.ui.url}/api/professor/roster`)).json()).names;
+  assert.equal(Object.keys(names).length, 25);
+});
+
+test('final review 3: delivery names survive the Hub’s 60 s roster cache (here 1.5 s); a reset forgets them', async () => {
+  const d = mkdtempSync(join(tmpdir(), 'a2a-roster-ttl-'));
+  const s = await startStack({
+    library: false, professor: true, hubEnv: { ROUTER_MODE: 'mock', HUB_STUDENTS: 'student-alex,student-sam', HUB_ROSTER_TTL_MS: '1500' }, tutorEnv: { TUTOR_MODE: 'mock', TUTOR_SCOPE_ENFORCEMENT: 'off' },
+    uiEnv: { STUDENT_INBOX_FILE: join(d, 'i.json') }, professorEnv: { PROFESSOR_OUTBOX_FILE: join(d, 'o.json') },
+  });
+  stacks.push(s);
+  await say(s, 'Notify everyone that the reading is chapter 5');
+  await new Promise((r) => setTimeout(r, 2500)); // the roster cache expired
+  const r = await fetch(`${s.ui.url}/api/professor/roster`);
+  assert.equal(r.status, 404, 'no roster card was asked for');
+  const { names } = await r.json();
+  assert.equal(names['student-mariana-aguilar'], 'Mariana Aguilar');
+  assert.equal(names['student-owen-bennett'], 'Owen Bennett');
+  assert.equal(Object.keys(names).length, 25);
+  assert.ok(!Object.values(names).some((n) => /^student-/.test(n)), 'never a raw id as a name');
+  // The names-only fetch the Faculty view uses for delivery rows (always 200, no roster card needed).
+  const only = await fetch(`${s.ui.url}/api/professor/roster/names`);
+  assert.equal(only.status, 200);
+  assert.deepEqual((await only.json()).names, names);
+  await post(`${s.hub.url}/dev/classroom/reset`, {});
+  assert.deepEqual((await (await fetch(`${s.ui.url}/api/professor/roster/names`)).json()).names, {});
+});
+
+test('final review 9: the 3-second state poll never waits for a re-publish, and re-sends one post once at a time', async () => {
+  const d = mkdtempSync(join(tmpdir(), 'a2a-roster-slow-'));
+  const s = await startStack({
+    library: false, professor: true, hubEnv: { ROUTER_MODE: 'mock', HUB_STUDENTS: 'student-alex,student-sam' }, tutorEnv: { TUTOR_MODE: 'mock', TUTOR_SCOPE_ENFORCEMENT: 'off' },
+    uiEnv: { STUDENT_INBOX_FILE: join(d, 'i.json') }, professorEnv: { PROFESSOR_OUTBOX_FILE: join(d, 'o.json'), PROFESSOR_PUBLISH_TIMEOUT_MS: '1500' },
+  });
+  stacks.push(s);
+  s.studentRecords.proc.kill('SIGSTOP'); // the class list hangs: the Hub's roster lookup waits, the publish times out
+  try {
+    const body = { operationId: `op-${randomUUID()}`, kind: 'message', title: 'Note', text: 'Class starts at ten.', audience: 'all' };
+    const first = await (await post(`${s.professor.url}/author/lessons`, body)).json();
+    assert.equal(first.lesson.hubAccepted, false);
+    assert.ok(['uncertain', 'not_delivered'].includes(first.lesson.hubStatus), first.lesson.hubStatus);
+    for (let i = 0; i < 2; i += 1) {
+      const t0 = Date.now();
+      const r = await fetch(`${s.professor.url}/author/state`);
+      assert.equal(r.status, 200);
+      await r.json();
+      assert.ok(Date.now() - t0 < 1000, `state answered in ${Date.now() - t0} ms (a re-publish waits up to 1.5 s)`);
+    }
+  } finally {
+    s.studentRecords.proc.kill('SIGCONT');
+  }
+  // Once the class list answers, a later poll's re-send gets it accepted (the same operation, never a second post).
+  await waitFor(async () => {
+    const st = await (await fetch(`${s.professor.url}/author/state`)).json();
+    return st.lessons.length === 1 && st.lessons[0].hubAccepted && st.lessons[0].deliveries.length === 25;
+  }, { what: 'the re-sent post accepted', timeout: 40000 });
+});
+
+test('final review 10: the quiz desk no longer takes the dead roster parameter', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const src = (f) => readFile(new URL(`../src/${f}`, import.meta.url), 'utf8');
+  assert.doesNotMatch(await src('professor-agent.js'), /lastRoster/);
+  assert.doesNotMatch((await src('professor-quiz.js')).match(/export function createQuizDesk\([^)]*\)/)[0], /\broster\b/);
 });

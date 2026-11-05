@@ -41,6 +41,7 @@ export function asksRoster(text) {
 // “Notify everyone that …”, “Tell the class: …”, “Let all my students know …”, “Inform the whole class about …”.
 const TARGET = String.raw`(?:everyone|everybody|all\s+(?:of\s+)?(?:my|the|our)?\s*students|(?:my|the|our)\s+(?:whole\s+|entire\s+)?class|the\s+whole\s+class)`;
 const NOTIFY = new RegExp(String.raw`^\s*(?:please\s+)?(?:(?:notify|tell|inform)|let)\s+${TARGET}(?:\s+know)?\b[\s,:;\-–—]*(?:(that|of|about)\b[\s,:;\-–—]*)?([\s\S]*)$`, 'i');
+const TO_VERB = new RegExp(String.raw`${TARGET}(?:\s+know)?\s+to\s+\S`, 'i'); // “tell everyone to …” (no “that”, no colon)
 // → null (not this) or { rest } with rest = the sentence to send. '' when he said nothing to tell, or when he only named a
 // subject (“… about the midterm review”, “… of the quiz”): { rest: '', about } — a fragment is never sent, the desk asks what to say.
 export function notifyEveryone(text) {
@@ -49,6 +50,9 @@ export function notifyEveryone(text) {
   const body = m[2].replace(/\s+/g, ' ').trim();
   if (!body) return { rest: '' };
   if (/^(?:of|about)$/i.test(m[1] ?? '')) return { rest: '', about: body.replace(/[.!?\s]+$/, '') };
+  // “Tell everyone to read chapter 5” is an instruction: students read “Please read chapter 5.”, never “To read chapter 5.”
+  const toVerb = !m[1] && TO_VERB.test(String(text)) ? /^to\s+(\S[\s\S]*)$/i.exec(body) : null;
+  if (toVerb) return { rest: /[.!?]$/.test(toVerb[1]) ? `Please ${toVerb[1]}` : `Please ${toVerb[1]}.` };
   const capital = body[0].toUpperCase() + body.slice(1);
   return { rest: /[.!?]$/.test(capital) ? capital : `${capital}.` };
 }

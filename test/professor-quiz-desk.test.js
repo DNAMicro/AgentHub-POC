@@ -33,7 +33,7 @@ function setup({ now = NOW, canvasScript = [], postResult } = {}) {
   };
   const draftQuiz = async ({ topic, count }) => { calls.draft += 1; return { questions: Array.from({ length: count }, (_, i) => mkQ(i + 1)), by: 'mock', model: 'mock-model', short: 0 }; };
   const draftOne = async ({ existing }) => { calls.one += 1; return { question: { ...mkQ(50 + existing.length), text: `A brand new question ${existing.length} here?` }, by: 'mock', model: 'mock-model' }; };
-  const desk = createQuizDesk({ canvas, createPost, draftQuiz, draftOne, now: () => now, emit: (type, runId, data) => events.push({ type, runId, data }), roster: [{}, {}] });
+  const desk = createQuizDesk({ canvas, createPost, draftQuiz, draftOne, now: () => now, emit: (type, runId, data) => events.push({ type, runId, data }) });
   return { desk, calls, events };
 }
 async function drafted(s, said = 'make a quiz on segmentation, 4 questions', op = 'op-turn-1') {
@@ -530,7 +530,7 @@ test('I-1 desk: only a number, "topic N", a chip or a short reply naming a topic
   let t = NOW.getTime();
   const clock = () => new Date(t); // a movable clock
   const { createQuizDesk } = await import('../src/professor-quiz.js');
-  const desk = createQuizDesk({ canvas: {}, createPost: async () => ({ http: 200, body: {} }), draftQuiz: async ({ count }) => ({ questions: Array.from({ length: count }, (_, i) => mkQ(i + 1)), by: 'mock', model: 'm', short: 0 }), now: clock, roster: [] });
+  const desk = createQuizDesk({ canvas: {}, createPost: async () => ({ http: 200, body: {} }), draftQuiz: async ({ count }) => ({ questions: Array.from({ length: count }, (_, i) => mkQ(i + 1)), by: 'mock', model: 'm', short: 0 }), now: clock });
   assert.equal((await desk.turn('make a quiz')).action, 'quiz_topics');
   for (const line of ['Reminder: read the pricing chapter before Friday', 'Great discussion on social media today, everyone', 'I liked the segmentation lecture a lot today', 'hello']) {
     assert.equal(await desk.turn(line), null, line);
@@ -538,7 +538,7 @@ test('I-1 desk: only a number, "topic N", a chip or a short reply naming a topic
   assert.equal(desk.pending(), true, 'the question still waits');
   assert.equal((await desk.turn('segmentation please')).action, 'quiz_draft'); // 3 words naming a topic
   // expiry
-  const d2 = createQuizDesk({ canvas: {}, createPost: async () => ({}), draftQuiz: async () => ({ questions: [mkQ(1)], by: 'mock', model: 'm', short: 0 }), now: clock, roster: [] });
+  const d2 = createQuizDesk({ canvas: {}, createPost: async () => ({}), draftQuiz: async () => ({ questions: [mkQ(1)], by: 'mock', model: 'm', short: 0 }), now: clock });
   assert.equal((await d2.turn('make a quiz')).action, 'quiz_topics');
   t += 14 * 60_000;
   assert.equal(d2.pending(), true);
