@@ -73,7 +73,7 @@ const HUB = {
   model_call_failed: (d) => MODEL_CALLS.model_call_failed('hub', d),
   message_received: () => hop('student', 'hub', 'request', 'accepted', 'Hub received the question'),
   request_repeat: () => inside('hub', 'request', 'processing', 'Repeat request — earlier result reused'),
-  route_decided: (d) => inside('hub', 'routing', d.decision === 'route' ? 'processing' : 'completed', d.decision === 'route' ? `Routed to ${d.destination}${{ student: ' (Student’s choice)', lesson: ' (inbox item record)', staff: ' (staff path)' }[d.decidedBy] ?? ''}` : `Not routed: ${d.decision}`),
+  route_decided: (d) => inside('hub', 'routing', d.decision === 'route' ? 'processing' : 'completed', d.decision === 'route' ? `Routed to ${{ hr: 'HR Agent', chrs: 'CHRS' }[d.destination] ?? d.destination}${{ student: ' (Student’s choice)', lesson: ' (inbox item record)', staff: ' (staff path)' }[d.decidedBy] ?? ''}` : `Not routed: ${d.decision}`),
   capability_rejected: () => inside('hub', 'routing', 'failed', 'Unknown capability ignored — Hub routed itself'),
   // Part 9: the reverse route, Professor → Hub → Student, and the student's receipts.
   lesson_publish_received: (d) => hop(d.agentId, 'hub', 'lesson', 'accepted', `${d.kind === 'message' ? 'Message' : 'Lesson'} received from the faculty member (verified${d.audience === 'all' ? `, for all ${d.recipients} students` : ''})`),

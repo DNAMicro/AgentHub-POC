@@ -85,7 +85,7 @@ test('the page: approved layout, indigo CHRS, model box, student records tile an
   assert.match(js, /'llm-hub': \{ x: 450, y: 355,/);
   assert.match(js, /chrs: \{ x: 710, y: 1115, r: 56, name: 'CHRS', role: 'Staff only' \}/);
   assert.match(js, /'llm-chrs': \{ x: 985, y: 1060,/);
-  assert.match(js, /studentdb: \{ x: 985, y: 1190, w: 176, h: 80, kind: 'system', name: 'PeopleSoft', role: 'Student records' \}/);
+  assert.match(js, /studentdb: \{ x: 985, y: 1190, w: 176, h: 80, kind: 'system', name: 'PeopleSoft', fullName: 'PeopleSoft student records', role: 'Student records' \}/);
   assert.match(js, /'hub-chrs': \['hub', 'chrs'\]/);
   assert.match(js, /'chrs-model': \['chrs', 'llm-chrs'\]/);
   assert.match(js, /'chrs-studentdb': \['chrs', 'studentdb'\]/);

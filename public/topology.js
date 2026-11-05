@@ -28,7 +28,7 @@ const NODES = {
   // Systems, not agents (design F: tile + icon + sparkle + sweep). Part 15 PeopleSoft, Part 16 Canvas LMS.
   canvas: { x: 985, y: 680, w: 176, h: 80, kind: 'system', name: 'Canvas LMS', role: 'MCP server' },
   peoplesoft: { x: 985, y: 935, w: 176, h: 80, kind: 'system', name: 'PeopleSoft', role: 'MCP server' },
-  studentdb: { x: 985, y: 1190, w: 176, h: 80, kind: 'system', name: 'PeopleSoft', role: 'Student records' },
+  studentdb: { x: 985, y: 1190, w: 176, h: 80, kind: 'system', name: 'PeopleSoft', fullName: 'PeopleSoft student records', role: 'Student records' },
   // One model box per agent (owner). Server labels say 'model'; the browser draws it at the caller's box.
   'llm-student': { x: 130, y: 355, w: 184, h: 74, owner: 'student', name: 'Student’s model' },
   'llm-hub': { x: 450, y: 355, w: 184, h: 74, owner: 'hub', name: 'Hub router’s model' },
@@ -499,7 +499,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
   }
   traceSelect.addEventListener('change', () => (traceSelect.value ? select({ kind: 'trace', id: traceSelect.value }) : select(null)));
 
-  const nodeName = (id) => { if (!NODES[id]) warnOnce(id); return NODES[id]?.name ?? id; }; // an agent this page doesn't draw yet (e.g. CHRS) is named by its id, never thrown on
+  const nodeName = (id) => { if (!NODES[id]) warnOnce(id); return NODES[id]?.fullName ?? NODES[id]?.name ?? id; }; // an agent this page doesn't draw yet (e.g. CHRS) is named by its id, never thrown on
   const route = (t) => (t.edge ? `${nodeName(t.from)} → ${nodeName(t.to)}` : `inside ${nodeName(t.node)}`);
   function listItem(ev) {
     const t = ev.topo;
