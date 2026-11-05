@@ -24,7 +24,7 @@ const NODES = {
   library: { x: 710, y: 350, r: 56, name: 'Library Agent', role: 'Library specialist' },
   professor: { x: 710, y: 605, r: 56, name: 'Faculty', role: 'Marketing 351' },
   hr: { x: 710, y: 860, r: 56, name: 'HR Agent', role: 'Staff only' },
-  chrs: { x: 710, y: 1115, r: 56, name: 'CHRS', role: 'Staff only' },
+  chrs: { x: 710, y: 1115, r: 56, name: 'CHRS Agent', role: 'Staff only' },
   // Systems, not agents (design F: tile + icon + sparkle + sweep). Part 15 PeopleSoft, Part 16 Canvas LMS.
   canvas: { x: 985, y: 680, w: 176, h: 80, kind: 'system', name: 'Canvas LMS', role: 'MCP server' },
   peoplesoft: { x: 985, y: 935, w: 176, h: 80, kind: 'system', name: 'PeopleSoft', role: 'MCP server' },
@@ -57,7 +57,7 @@ const SYSTEMS = {
   peoplesoft: { edge: 'hr-peoplesoft', sessionEvent: 'peoplesoft_session', color: '--ps', cls: '', icon: 'db', title: 'PeopleSoft — demo stand-in', reachedBy: 'the HR Agent', tools: ['get_leave_balances', 'list_absence_requests', 'create_absence_request'], saved: /^Saved/ },
   canvas: { edge: 'professor-canvas', sessionEvent: 'canvas_session', color: '--lms', cls: ' lms', icon: 'quiz', title: 'Canvas LMS — demo stand-in', reachedBy: 'the Faculty agent', tools: ['create_quiz', 'publish_quiz'], saved: /^(Saved|Published)/ },
   // Part 17: the same PeopleSoft look for its student records, reached only by CHRS. A roster read saves nothing: no “Saved” flash.
-  studentdb: { edge: 'chrs-studentdb', sessionEvent: 'studentdb_session', color: '--ps', cls: '', icon: 'db', title: 'PeopleSoft student records — demo stand-in', reachedBy: 'CHRS', tools: ['get_class_roster'], saved: /^(?!)/ },
+  studentdb: { edge: 'chrs-studentdb', sessionEvent: 'studentdb_session', color: '--ps', cls: '', icon: 'db', title: 'PeopleSoft student records — demo stand-in', reachedBy: 'the CHRS Agent', tools: ['get_class_roster'], saved: /^(?!)/ },
 };
 const SYSTEM_OF_EDGE = Object.fromEntries(Object.entries(SYSTEMS).map(([id, v]) => [v.edge, id]));
 const SESSION = { connected: ['✓ Connected', 'ok'], unreachable: ['✕ Unreachable', 'bad'], not_configured: ['○ Not configured', 'muted'], none: ['○ Not connected yet', 'muted'] };

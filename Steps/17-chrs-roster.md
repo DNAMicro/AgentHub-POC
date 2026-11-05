@@ -9,7 +9,7 @@
 ## Your decisions while designing and building it (merged into the instructions below)
 
 - The roster is look-only: *“just look at it”* — no Notify checkboxes, Select All, Photo or Printer Friendly.
-- The name on screen is **“CHRS”**.
+- The agent's name on screen is **“CHRS Agent”**, like “HR Agent” (owner, 2026-11-05: “name CHRS to CHRS Agent to be consistent with other agent naming”); short phrases keep “CHRS” the way HR's do (“CHRS’s model”, the roster card's “CHRS · Class roster”).
 - Make the roster look real: *“https://csuf-erp.screenstepslive.com/m/70024/l/754400-accessing-your-class-roster here is the instructions on how roster looks like and instructions for it lets make it a bit more realistic like this”* — so the card follows the CSUF Faculty Center Class Roster (header, enrollment status, grid with ID, Name, Email, Pronouns, Units, Program and Plan, Academic Level).
 - Notify: *“there should be an option for the faculty to say notify everyone of …. and it should then be sent to all of them”*.
 - Design approval and build: *“approved build it and once built do a full test look at it from the view point of the faculty make sure the copy makes sense. At least run through 50 various scenarios and fix any issues dont stop until its fully done and fixed”*.
@@ -94,7 +94,7 @@ Steps 1–11 and 14–16 are done and `npm test` passes. `npm run demo` starts e
 ## 6. Topology (`public/topology.js`, `public/index.html`, `src/topology.js`, `src/ui-server.js`, `public/app.js`)
 
 **Concrete specification** (approved mockup `docs/superpowers/specs/2026-11-05-chrs-roster-mockup.html`, screen 4; viewBox `0 0 1100 1285`)
-- Nodes: `chrs` (710, 1115; indigo `--chrs`, “CHRS” / “Staff only”), `llm-chrs` (985, 1060), system tile `studentdb` (985, 1190; PeopleSoft colours, database icon, “PeopleSoft” / “STUDENT RECORDS”; no “Saved” flash). Student and Hub move to y 605 and their models to y 355; the agents stay 255 apart; the picture grows taller. Edges `hub-chrs` (A2A), `chrs-model`, `chrs-studentdb` (MCP).
+- Nodes: `chrs` (710, 1115; indigo `--chrs`, “CHRS Agent” / “Staff only”), `llm-chrs` (985, 1060), system tile `studentdb` (985, 1190; PeopleSoft colours, database icon, “PeopleSoft” / “STUDENT RECORDS”; no “Saved” flash). Student and Hub move to y 605 and their models to y 355; the agents stay 255 apart; the picture grows taller. Edges `hub-chrs` (A2A), `chrs-model`, `chrs-studentdb` (MCP).
 - Labels (`src/topology.js`, counts only): “Hub asked CHRS for the class roster”, “Roster: 25 students” (Hub and CHRS legs), “tools/call get_class_roster”, “MCP session open”; `studentdb_session` is run-less, in `CONFIG_EVENTS` and the on-change filter. **Anti-goals:** no `llm-studentdb`, no circle or orbit on the tile, no step names. A label for a node the page doesn't draw is ignored (warn once), never thrown.
 
 ## 7. Ten processes (`scripts/start-all.js`, `package.json`, `scripts/demo/rehearsal-stack.js`, `src/timeouts.js`, `test/support/harness.js`)
@@ -123,7 +123,7 @@ Steps 1–11 and 14–16 are done and `npm test` passes. `npm run demo` starts e
 6. **No header chips before the count.** Show only “Marketing 351” until the real count arrives.
 7. **The Hub's roster request needs a `runId`.** Without it CHRS's own events (received, MCP call, reply) never reached the Topology.
 8. **Identical event rows.** Two PeopleSoft tiles produced rows that both read “→ PeopleSoft”. The student records rows say “Student records”.
-9. **No raw id in a route label.** Show the public name (“CHRS”), never the agent id.
+9. **No raw id in a route label.** Show the public name (“CHRS Agent”), never the agent id.
 10. **A node the page doesn't draw must not crash the stream.** An event for `chrs` before the node existed threw and put the live stream in a reconnect loop, which blocked the Faculty view. Ignore it and warn once per id.
 11. **Roster IDs in the Hub are names and ids only.** Never emails or 888 IDs in the Hub, its telemetry or logs; the rows reach only the Faculty view, only while it is shown.
 12. **A poll must not carry old rows.** Drop the roster rows from the page when another tab shows; a failed load retries on the next render.
@@ -165,6 +165,7 @@ Steps 1–11 and 14–16 are done and `npm test` passes. `npm run demo` starts e
 48. **“@assistant what topics have we covered so far?” got “nothing has been sent to students yet, so no topics have been posted through this console.”** Topics taught come from the term schedule, not from what was sent: answer it in code from the schedule (taught topics as a numbered list, then the next one), give the assistant's model the same schedule, and keep words like “console” and “data” out of its answers.
 49. **“anyone not a business major?” was POSTED to all 25 students** as a class message (“Asking whether non-business majors are enrolled”) and nothing answered him. The owner: “I asked the question and no response was given the faculty should be able to ask questions about the roster”. Only fixed phrasings were recognised. Recognise any question that names a roster attribute in code, let the model turn it into a query over the allowed values only (never an answer, never a row), check and run it in code, answer with counts and highlighted rows, and never post it.
 50. **Long replies were one wall of text** (the 4 Ps answer was a 900-character block; owner: “many of the messages that are sent in the bubbles are hard to read because there is no proper seperation and formatting … make sure everything is legibile to read”). The prompts said only “plain text, no Markdown”, and the bubble showed the text as one `pre-wrap` paragraph. Tell every answering model to write short paragraphs and list lines, and draw paragraphs and lists on screen (`public/rich-text.js`), splitting an agent's long single block at sentence ends — never a person's own words.
+51. **Renaming the agent broke every CHRS test** (they waited forever): the harness waits for the log line `[CHRS] listening on …`. When the log prefix changes (`[CHRS Agent]`), change `CHRS_READY` in `test/support/harness.js` with it — log lines are a test contract.
 
 ## Enhancements merged into this step
 
@@ -183,3 +184,4 @@ Steps 1–11 and 14–16 are done and `npm test` passes. `npm run demo` starts e
 - **Course progress from the schedule (owner, 2026-11-05: “yes fix it”):** “what topics have we covered so far?” and similar are answered in code from the term schedule; the assistant's model also gets the schedule.
 - **Roster questions in general (owner, 2026-11-05: “I asked the question and no response was given the faculty should be able to ask questions about the roster”):** after “anyone not a business major?” was posted to all 25, any question that names a roster attribute is recognised in code, read into a checked query by the model (allowed values only), answered from the roster by code (counts, highlighted rows) and never posted. Merged into section 4 and known problem 49.
 - **Readable bubbles (owner, 2026-11-05: “many of the messages that are sent in the bubbles are hard to read because there is no proper seperation and formatting”):** chat text is drawn as paragraphs and real lists, an agent's long single block is split into short paragraphs, short opening labels are bold, and every answering model is told to write short paragraphs and list lines. Merged into section 5 and known problem 50.
+- **“CHRS Agent” (owner, 2026-11-05: “name CHRS to CHRS Agent to be consistent with other agent naming”):** the agent card, the Hub's peer names, Topology, Agent activity, the route label and the log prefix say “CHRS Agent”. Merged into the decisions, sections 6 and 8 and known problem 51.

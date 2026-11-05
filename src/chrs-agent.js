@@ -37,7 +37,7 @@ useModel(CONFIG.model); // CHRS's own model and key variable (live mode: the too
 let hubLink = null;
 let skillService = null;
 
-const log = (...args) => console.log('[CHRS]', ...args);
+const log = (...args) => console.log('[CHRS Agent]', ...args);
 const vizEvents = new EventEmitter();
 const emitViz = (type, runId, data) => vizEvents.emit('event', { source: 'chrs', type, runId, at: new Date().toISOString(), data });
 
@@ -126,7 +126,7 @@ function serveVizEvents(req, res) {
 
 function buildAgentCard(port) {
   return {
-    name: 'CHRS',
+    name: 'CHRS Agent',
     description: 'Staff services (demo, synthetic records): the class roster for a course\'s own instructor, from PeopleSoft student records. University staff only.',
     version: '0.1.0',
     supportedInterfaces: [{ url: `http://${HOST}:${port}${JSONRPC_PATH}`, protocolBinding: 'JSONRPC', protocolVersion: A2A_PROTOCOL_VERSION, tenant: '' }],

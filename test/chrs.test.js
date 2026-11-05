@@ -193,7 +193,7 @@ test('the Hub config names CHRS as a staff-only destination, after HR', () => {
   assert.deepEqual(Object.keys(cfg.destinations).filter((d) => cfg.destinations[d].audience === 'staff'), ['hr', 'chrs']);
   assert.equal(cfg.destinations.chrs.name, 'CHRS');
   assert.equal(cfg.destinations.chrs.description, 'Staff services: student records and class rosters.');
-  assert.ok(cfg.peers.some((p) => p.agentId === 'chrs' && p.expectedName === 'CHRS'));
+  assert.ok(cfg.peers.some((p) => p.agentId === 'chrs' && p.expectedName === 'CHRS Agent'));
 });
 
 test('a stack with chrs: true: CHRS registers with the real Hub and becomes ready, never on a student route', async (t) => {

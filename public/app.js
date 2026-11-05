@@ -522,7 +522,7 @@ const errorText = (errors) => Object.entries(errors ?? {}).map(([field, msg]) =>
 
 // ---- Part 5: advertised skills, Student's cached view, propagation ---------
 
-const AGENT_NAMES = { tutor: 'Tutor Agent', library: 'Library Agent', professor: 'Marketing 351 Faculty', hr: 'HR Agent', chrs: 'CHRS', hub: 'University Hub', student: 'Student agent' };
+const AGENT_NAMES = { tutor: 'Tutor Agent', library: 'Library Agent', professor: 'Marketing 351 Faculty', hr: 'HR Agent', chrs: 'CHRS Agent', hub: 'University Hub', student: 'Student agent' };
 let universityName = 'California State University Fullerton';
 // Replies come from the university; the specialist that produced one is shown as attribution.
 const viaUniversity = (id) => (id && id !== 'hub' ? `${universityName} · ${AGENT_NAMES[id] ?? id}` : universityName);
