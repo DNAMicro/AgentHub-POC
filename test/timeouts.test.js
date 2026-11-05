@@ -94,3 +94,19 @@ test('Part 17: student records planner budget is 8 s and read from TIMEOUTS', as
   assert.equal(T.studentRecordsPlannerMs, 8000);
   assert.match(await readFile(new URL('../src/student-records-model.js', import.meta.url), 'utf8'), /STUDENT_RECORDS_MODEL_TIMEOUT_MS \?\? TIMEOUTS\.studentRecordsPlannerMs/);
 });
+
+test('Part 17 Task 2: the CHRS budget nests inside the Hub staff waits', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const src = async (f) => readFile(new URL(`../src/${f}`, import.meta.url), 'utf8');
+  assert.equal(T.chrsToolChoiceMs, 8000);
+  assert.equal(T.chrsRecordsCallMs, 12000);
+  assert.ok(T.studentRecordsPlannerMs < T.chrsRecordsCallMs);
+  // The call keeps planner + 2 s and at least 1 s is left for the connect (src/chrs-records.js CALL_FLOOR_MS).
+  assert.ok(T.chrsRecordsCallMs >= T.studentRecordsPlannerMs + 2000 + 1000);
+  // A roster request at CHRS: the tool choice, then the records call — inside the Hub's dispatch wait and the Professor's wait.
+  assert.ok(T.hubDispatchMs > T.chrsToolChoiceMs + T.chrsRecordsCallMs);
+  assert.ok(T.professorStaffMs > T.chrsToolChoiceMs + T.chrsRecordsCallMs);
+  assert.match(await src('chrs-model.js'), /CHRS_TOOL_CHOICE_TIMEOUT_MS \?\? TIMEOUTS\.chrsToolChoiceMs/);
+  assert.match(await src('chrs-agent.js'), /STUDENT_RECORDS_TIMEOUT_MS \?\? TIMEOUTS\.chrsRecordsCallMs/);
+  assert.match(await src('chrs-records.js'), /CALL_FLOOR_MS = TIMEOUTS\.studentRecordsPlannerMs \+ 2000/);
+});

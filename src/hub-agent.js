@@ -282,7 +282,9 @@ export function startHubServer({ port } = {}) {
     // The open card's current values (optional): checked with the form's own rules, passed on to HR as data.
     const card = value.formValues === undefined ? { values: null } : checkTimeOffValues(value.formValues);
     if (card.ok === false) return { ...staffReply('refused', { reason: 'Malformed card values.' }), retryable: true };
-    const ready = staffDestinations().filter((d) => registry.isReady(d.agentId));
+    // Part 17 (minimal; Task 3 finishes it): a staff request without a service is HR's, even with CHRS also configured.
+    const service = typeof value.service === 'string' ? value.service : 'hr';
+    const ready = staffDestinations().filter((d) => d.destination === service && registry.isReady(d.agentId));
     if (!ready.length) {
       emit('route_decided', runId, { operationId, decidedBy: 'staff', decision: 'unavailable', destination: null, agentId: null, skillId: null, reason: 'No staff service is ready.' });
       return staffReply('not_delivered', { reason: 'Staff services aren’t available right now. Please try again in a little while.' });

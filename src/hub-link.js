@@ -18,6 +18,12 @@ export const signStudent = (key, { studentId, contextId, operationId }) => creat
 // HR (staff only): the Hub signs a STAFF caller with a distinct prefix, so a student signature over the same
 // ids never verifies as staff (and the reverse). callerKind must say 'staff' as well.
 export const signStaff = (key, { staffId, contextId, operationId }) => createHmac('sha256', key).update(`staff|${staffId}|${contextId}|${operationId}`).digest('base64url');
+// Part 17 (CHRS): the Hub's OWN signature on a roster lookup, made with the callKey CHRS gave the Hub at registration
+// (the key the Hub also uses to sign student/staff contexts toward CHRS). A distinct prefix, so a student or staff
+// signature never verifies as a lookup. It covers the course, the course's instructor and the Hub's operation id
+// (not the contextId: the Hub's lookup has none of its own). The staff member's agent has a different key, so it
+// can't make one.
+export const signRosterLookup = (key, { courseId, instructorStaffId, operationId }) => createHmac('sha256', key).update(`roster-lookup|${courseId}|${instructorStaffId}|${operationId}`).digest('base64url');
 const sameSignature = (given, expected) => {
   const a = Buffer.from(given);
   const b = Buffer.from(expected);
@@ -28,6 +34,13 @@ export function verifyStaffSignature(key, metadata, contextId) {
   const { staffId, hubOperationId, hubSignature, callerKind } = metadata ?? {};
   if (callerKind !== 'staff' || typeof staffId !== 'string' || typeof hubOperationId !== 'string' || typeof hubSignature !== 'string') return null;
   return sameSignature(hubSignature, signStaff(key, { staffId, contextId, operationId: hubOperationId })) ? staffId : null;
+}
+// The lookup the Hub vouches for (pure: the key is passed in): { courseId, instructorStaffId } or null.
+export function verifyRosterLookupSignature(key, value, metadata) {
+  const { courseId, instructorStaffId } = value ?? {};
+  const { hubOperationId, hubSignature } = metadata ?? {};
+  if (![courseId, instructorStaffId, hubOperationId, hubSignature].every((v) => typeof v === 'string' && v)) return null;
+  return sameSignature(hubSignature, signRosterLookup(key, { courseId, instructorStaffId, operationId: hubOperationId })) ? { courseId, instructorStaffId } : null;
 }
 import { Role } from '@a2a-js/sdk';
 import { ClientFactory } from '@a2a-js/sdk/client';
@@ -126,6 +139,10 @@ export function createHubLink({ agentId, hubUrl, endpoint, cardUrl, enabled, hea
     // HR: the staff member the Hub vouches for on this request, or null (a student signature never counts).
     verifiedStaff(metadata, contextId) {
       return verifyStaffSignature(callKey, metadata, contextId);
+    },
+    // CHRS: the roster lookup the Hub vouches for with its own signature, or null.
+    verifiedRosterLookup(value, metadata) {
+      return verifyRosterLookupSignature(callKey, value, metadata);
     },
     async start() {
       await register();

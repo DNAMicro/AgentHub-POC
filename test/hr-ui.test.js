@@ -140,13 +140,18 @@ test('topology labels: HR is a node behind the Hub with its own model box', () =
   assert.equal(topologyLabel({ source: 'hub', type: 'relay_sent', data: { kind: 'answer' } }).edge, 'student-hub');
 });
 
-test('npm run demo starts eight processes, HR and PeopleSoft among them (each MCP token goes to its two processes only); the Hub snapshot labels HR as a staff service', async () => {
+test('npm run demo starts ten processes, HR and PeopleSoft among them (each MCP token goes to its two processes only); the Hub snapshot labels HR as a staff service', async () => {
   const src = readFileSync(new URL('../scripts/start-all.js', import.meta.url), 'utf8');
   assert.match(src, /\['hr', 'src\/hr-agent\.js', \{ HR_MODE: live \? 'live' : 'mock', PEOPLESOFT_TOKEN: peoplesoftToken \}\]/);
   assert.match(src, /\['psoft', 'src\/peoplesoft-mcp\.js', \{ PEOPLESOFT_MODE: live \? 'live' : 'mock', PEOPLESOFT_TOKEN: peoplesoftToken \}\]/);
   assert.equal((src.match(/PEOPLESOFT_TOKEN: peoplesoftToken/g) ?? []).length, 2, 'only HR and PeopleSoft get the token');
   assert.match(src, /randomBytes\(24\)\.toString\('hex'\)/);
-  assert.match(src, /eight/i);
+  assert.match(src, /ten/i);
+  // Part 17: the records server starts before CHRS; its token goes to those two only.
+  assert.match(src, /\['records', 'src\/student-records-mcp\.js', \{ STUDENT_RECORDS_MODE: live \? 'live' : 'mock', STUDENT_RECORDS_TOKEN: recordsToken \}\]/);
+  assert.match(src, /\['chrs', 'src\/chrs-agent\.js', \{ CHRS_MODE: live \? 'live' : 'mock', STUDENT_RECORDS_TOKEN: recordsToken \}\]/);
+  assert.equal((src.match(/STUDENT_RECORDS_TOKEN: recordsToken/g) ?? []).length, 2, 'only records and CHRS get the token');
+  assert.ok(src.indexOf("['records'") < src.indexOf("['chrs'"), 'records starts before CHRS');
   assert.match(src, /\['canvas', 'src\/canvas-mcp\.js', \{ CANVAS_MODE: live \? 'live' : 'mock', CANVAS_TOKEN: canvasToken \}\]/);
   assert.match(src, /\['prof', 'src\/professor-agent\.js', \{[^}]*CANVAS_URL: 'http:\/\/127\.0\.0\.1:41247', CANVAS_TOKEN: canvasToken \}\]/);
   assert.equal((src.match(/CANVAS_TOKEN: canvasToken/g) ?? []).length, 2, 'only Faculty and Canvas get the Canvas token');

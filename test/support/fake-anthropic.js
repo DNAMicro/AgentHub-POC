@@ -79,6 +79,19 @@ export function toolChoiceReply(body, picks = {}) {
   return messageReply(JSON.stringify({ tool: picks[moment] ?? tool }));
 }
 
+// Part 17: CHRS's student-records tool choice. Recognised by the single-`tool` enum schema and the plain words
+// "CHRS needs to: ..." in the system prompt. `picks` ({ roster: 'something_else' }) scripts a wrong pick. Plumbing only.
+const CHRS_PHRASES = [['roster', /class roster/i, 'get_class_roster']];
+export function rosterToolReply(body, picks = {}) {
+  if (!body?.output_config?.format?.schema?.properties?.tool) return null;
+  const needs = /CHRS needs to: (.*)/.exec(String(body.system ?? ''))?.[1];
+  if (needs === undefined) return null;
+  const found = CHRS_PHRASES.find(([, re]) => re.test(needs));
+  if (!found) return messageReply(JSON.stringify({ tool: '' }));
+  const [moment, , tool] = found;
+  return messageReply(JSON.stringify({ tool: picks[moment] ?? tool }));
+}
+
 // Part 16: the Faculty agent's Canvas tool choice. Recognised by the single-`tool` enum schema and the plain words
 // "The Faculty agent needs to: ..." in the system prompt. `picks` ({ approve: 'publish_quiz' }) scripts a wrong pick.
 // Not a Canvas tool choice -> null. Plumbing only.

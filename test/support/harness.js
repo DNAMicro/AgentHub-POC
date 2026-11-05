@@ -42,7 +42,8 @@ export async function startUi(hubUrl, env = {}) {
 
 export const HUB_READY = /\[Hub\] listening on (http:\/\/127\.0\.0\.1:\d+)/;
 export async function startHub(env = {}) {
-  const hub = startProcess('src/hub-agent.js', { PORT: '0', HUB_LESSON_FILE: tempFile('hub-lessons.json'), HUB_TEST_STUDENTS_WITHOUT_ENDPOINT: '1', ...env }, HUB_READY);
+  // CHRS_URL defaults to a closed port, so a test Hub never follows a real CHRS on 41248.
+  const hub = startProcess('src/hub-agent.js', { PORT: '0', CHRS_URL: 'http://127.0.0.1:9', HUB_LESSON_FILE: tempFile('hub-lessons.json'), HUB_TEST_STUDENTS_WITHOUT_ENDPOINT: '1', ...env }, HUB_READY);
   hub.url = await hub.ready;
   return hub;
 }
@@ -129,6 +130,15 @@ export async function startHr(env = {}) {
   return hr;
 }
 
+// CHRS (staff only, Part 17): class rosters; no records of its own. STUDENT_RECORDS_URL defaults to a closed port, so a
+// test CHRS never reaches a real student-records server on 41249.
+export const CHRS_READY = /\[CHRS\] listening on (http:\/\/127\.0\.0\.1:\d+)/;
+export async function startChrs(env = {}) {
+  const chrs = startProcess('src/chrs-agent.js', { PORT: '0', STUDENT_RECORDS_URL: 'http://127.0.0.1:9', ...env }, CHRS_READY);
+  chrs.url = await chrs.ready;
+  return chrs;
+}
+
 // PeopleSoft stand-in MCP server (Part 15): token required; records in memory.
 export const PEOPLESOFT_READY = /PeopleSoft MCP server \(demo stand-in\) listening on (http:\/\/127\.0\.0\.1:\d+)/;
 export async function startPeopleSoft(env = {}) {
@@ -173,13 +183,14 @@ export async function stopProcess(p) {
 // Hub never follows a real HR on the default port.
 // Part 15: hr: true also starts the PeopleSoft stand-in first, on its own pre-picked port with a random token
 // given to both PeopleSoft and HR (HR never points at the real 41246). It is killed with the stack.
-export async function startStack({ tutorEnv = {}, libraryEnv = {}, hubEnv = {}, uiEnv = {}, professorEnv = {}, hrEnv = {}, peoplesoftEnv = {}, canvasEnv = {}, library = true, professor = false, hr = false, canvas = false, now = null, tutorPort, libraryPort, professorPort, hrPort, uiPort, waitReady = true, readyAgents } = {}) {
+export async function startStack({ tutorEnv = {}, libraryEnv = {}, hubEnv = {}, uiEnv = {}, professorEnv = {}, hrEnv = {}, peoplesoftEnv = {}, canvasEnv = {}, chrsEnv = {}, studentRecordsEnv = {}, library = true, professor = false, hr = false, canvas = false, chrs = false, now = null, tutorPort, libraryPort, professorPort, hrPort, chrsPort, uiPort, waitReady = true, readyAgents } = {}) {
   const tPort = tutorPort ?? (await unusedPort());
   const lPort = libraryPort ?? (await unusedPort());
   const pPort = professorPort ?? (await unusedPort());
   const hPort = hrPort ?? (await unusedPort());
+  const cPort = chrsPort ?? (await unusedPort());
   const uPort = uiPort ?? (await unusedPort());
-  const hub = await startHub({ TUTOR_URL: `http://127.0.0.1:${tPort}`, LIBRARY_URL: `http://127.0.0.1:${lPort}`, PROFESSOR_URL: `http://127.0.0.1:${pPort}`, HR_URL: `http://127.0.0.1:${hPort}`, STUDENT_URL: `http://127.0.0.1:${uPort}`, HEARTBEAT_EXPIRY_MS: '3000', HUB_DELIVER_RETRY_MS: '500', ...hubEnv });
+  const hub = await startHub({ TUTOR_URL: `http://127.0.0.1:${tPort}`, LIBRARY_URL: `http://127.0.0.1:${lPort}`, PROFESSOR_URL: `http://127.0.0.1:${pPort}`, HR_URL: `http://127.0.0.1:${hPort}`, CHRS_URL: `http://127.0.0.1:${cPort}`, STUDENT_URL: `http://127.0.0.1:${uPort}`, HEARTBEAT_EXPIRY_MS: '3000', HUB_DELIVER_RETRY_MS: '500', ...hubEnv });
   const specialistEnv = { HUB_URL: hub.url, HEARTBEAT_INTERVAL_MS: '500' };
   const tutor = await startTutor({ ...specialistEnv, PORT: String(tPort), ...tutorEnv });
   const lib = library ? await startLibrary({ ...specialistEnv, PORT: String(lPort), ...libraryEnv }) : null;
@@ -193,14 +204,19 @@ export async function startStack({ tutorEnv = {}, libraryEnv = {}, hubEnv = {}, 
   const psToken = hr ? (await import('node:crypto')).randomBytes(24).toString('base64url') : null;
   const ps = hr ? await startPeopleSoft({ PORT: String(await unusedPort()), PEOPLESOFT_TOKEN: psToken, PEOPLESOFT_TEST_HOOKS: '1', ...peoplesoftEnv }) : null;
   const hrAgent = hr ? await startHr({ ...specialistEnv, PORT: String(hPort), HR_TEST_HOOKS: '1', PEOPLESOFT_URL: ps.url, PEOPLESOFT_TOKEN: psToken, ...hrEnv }) : null;
+  // Part 17: chrs: true starts the student-records stand-in first (own pre-picked port, random token given to it and CHRS only),
+  // then CHRS. Without it the Hub still names CHRS's pre-picked port (nothing listens there; it never follows a real CHRS).
+  const srToken = chrs ? (await import('node:crypto')).randomBytes(24).toString('base64url') : null;
+  const sr = chrs ? await startStudentRecords({ PORT: String(await unusedPort()), STUDENT_RECORDS_TOKEN: srToken, STUDENT_RECORDS_TEST_HOOKS: '1', ...studentRecordsEnv }) : null;
+  const chrsAgent = chrs ? await startChrs({ ...specialistEnv, PORT: String(cPort), CHRS_TEST_HOOKS: '1', STUDENT_RECORDS_URL: sr.url, STUDENT_RECORDS_TOKEN: srToken, ...chrsEnv }) : null;
   const ui = await startUi(hub.url, { UI_PORT: String(uPort), ...clockEnv, ...uiEnv });
   const stack = {
-    hub, tutor, library: lib, professor: prof, hr: hrAgent, peoplesoft: ps, peoplesoftToken: psToken, canvas: canvasProc, canvasToken, ui, tutorPort: tPort, libraryPort: lPort, professorPort: pPort, hrPort: hPort, uiPort: uPort, specialistEnv,
+    hub, tutor, library: lib, professor: prof, hr: hrAgent, peoplesoft: ps, peoplesoftToken: psToken, chrs: chrsAgent, studentRecords: sr, studentRecordsToken: srToken, canvas: canvasProc, canvasToken, ui, tutorPort: tPort, libraryPort: lPort, professorPort: pPort, hrPort: hPort, chrsPort: cPort, uiPort: uPort, specialistEnv,
     // Uses the stack's current processes, so a test that restarts one (stack.library = …) still cleans up.
     // kill() on a process that already exited (e.g. PeopleSoft stopped by a test) does nothing.
-    kill() { [this.ui, this.tutor, this.library, this.professor, this.hr, this.peoplesoft, this.canvas, this.hub].filter(Boolean).forEach((p) => p.proc.kill()); },
+    kill() { [this.ui, this.tutor, this.library, this.professor, this.hr, this.peoplesoft, this.chrs, this.studentRecords, this.canvas, this.hub].filter(Boolean).forEach((p) => p.proc.kill()); },
   };
-  const mustBeReady = readyAgents ?? [...(library ? ['tutor', 'library'] : ['tutor']), ...(professor ? ['professor'] : []), ...(hr ? ['hr'] : [])];
+  const mustBeReady = readyAgents ?? [...(library ? ['tutor', 'library'] : ['tutor']), ...(professor ? ['professor'] : []), ...(hr ? ['hr'] : []), ...(chrs ? ['chrs'] : [])];
   if (waitReady) {
     await waitFor(async () => {
       const s = await status(ui);
@@ -300,4 +316,35 @@ export async function professorStandIn(stack) {
     throw new Error(`professor stand-in not registered: ${link.state.lastError}`);
   }
   return { link, close: async () => { await link.stop(); server.closeAllConnections?.(); await new Promise((r) => server.close(r)); } };
+}
+
+// Part 17: a stand-in Hub (a real A2A server) whose only job is to accept a specialist's registration and keep the
+// per-process key it gave, so a test can sign exactly what the real Hub would (staff parts, roster lookups).
+// keyOf(agentId) -> the callKey, or null before it registered.
+export async function standInHub() {
+  const { randomUUID: uuid } = await import('node:crypto');
+  const { default: express } = await import('express');
+  const { Role } = await import('@a2a-js/sdk');
+  const { AGENT_CARD_PATH, A2A_PROTOCOL_VERSION } = await import('@a2a-js/sdk');
+  const { AgentEvent, DefaultRequestHandler, InMemoryTaskStore } = await import('@a2a-js/sdk/server');
+  const { agentCardHandler, jsonRpcHandler, UserBuilder } = await import('@a2a-js/sdk/server/express');
+  const keys = new Map();
+  const executor = {
+    async execute(ctx, bus) {
+      const v = ctx.userMessage.parts.find((p) => p.content?.$case === 'data')?.content.value;
+      if (v?.callKey) keys.set(v.agentId, v.callKey);
+      const status = v?.type === 'agent_register' ? 'registered' : 'ok';
+      bus.publish(AgentEvent.message({ messageId: uuid(), contextId: ctx.contextId, taskId: '', role: Role.ROLE_AGENT, parts: [{ content: { $case: 'data', value: { status } }, metadata: undefined, filename: '', mediaType: 'application/json' }], metadata: undefined, extensions: [], referenceTaskIds: [] }));
+      bus.finished();
+    },
+    async cancelTask() {},
+  };
+  const app = express();
+  const server = await new Promise((resolve, reject) => { const s = app.listen(0, '127.0.0.1', (err) => (err ? reject(err) : resolve(s))); });
+  const url = `http://127.0.0.1:${server.address().port}`;
+  const card = { name: 'Stand-in Hub', description: 'test', version: '0', supportedInterfaces: [{ url: `${url}/a2a/jsonrpc`, protocolBinding: 'JSONRPC', protocolVersion: A2A_PROTOCOL_VERSION, tenant: '' }], capabilities: { streaming: false, pushNotifications: false, extensions: [] }, securitySchemes: {}, securityRequirements: [], defaultInputModes: ['text/plain'], defaultOutputModes: ['text/plain'], skills: [], signatures: [] };
+  const handler = new DefaultRequestHandler(card, new InMemoryTaskStore(), executor);
+  app.use(`/${AGENT_CARD_PATH}`, agentCardHandler({ agentCardProvider: handler, cache: { maxAge: 0 } }));
+  app.use('/a2a/jsonrpc', jsonRpcHandler({ requestHandler: handler, userBuilder: UserBuilder.noAuthentication }));
+  return { url, keyOf: (agentId) => keys.get(agentId) ?? null, close: () => { server.closeAllConnections?.(); return new Promise((r) => server.close(r)); } };
 }

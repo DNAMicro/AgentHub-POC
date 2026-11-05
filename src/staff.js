@@ -21,6 +21,15 @@ import { checkTimeOffValues } from './forms.js';
 
 export const STAFF_REQUEST_MEDIA_TYPE = 'application/vnd.a2a-spike.staff-request+json';
 export const STAFF_ACTION_MEDIA_TYPE = 'application/vnd.a2a-spike.staff-action+json';
+// Part 17 (CHRS): the Hub -> CHRS typed parts (sent with sendData; the Hub signs them toward CHRS).
+//   roster request: { type: 'roster_request', kind: 'roster', courseId? } + metadata { hubOperationId, via, staffId,
+//     callerKind: 'staff', hubSignature } (the same staff signature HR verifies). Reply data part { roster } or { text }.
+//   roster lookup:  { type: 'roster_lookup', courseId, instructorStaffId } + metadata { hubOperationId, hubSignature }
+//     (signRosterLookup, the Hub's own). Reply data part { studentIds, names, count } or { error, text }; never emails or IDs.
+export const ROSTER_REQUEST_MEDIA_TYPE = 'application/vnd.a2a-spike.roster-request+json';
+export const ROSTER_LOOKUP_MEDIA_TYPE = 'application/vnd.a2a-spike.roster-lookup+json';
+export const ROSTER_FAILED_TEXT = "I couldn't get your class roster just now. Try again in a moment.";
+export const CHRS_REFUSED_TEXT = 'CHRS serves university staff only.';
 export const HUB_STAFF_MEDIA_TYPES = new Set([STAFF_REQUEST_MEDIA_TYPE, STAFF_ACTION_MEDIA_TYPE]);
 export const STAFF_STATUSES = ['ok', 'refused', 'not_delivered', 'outcome_unknown'];
 

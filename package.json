@@ -17,6 +17,8 @@
     "professor:live": "PROFESSOR_MODE=live node src/professor-agent.js",
     "hr": "node src/hr-agent.js",
     "hr:live": "HR_MODE=live node src/hr-agent.js",
+    "chrs": "node src/chrs-agent.js",
+    "chrs:live": "CHRS_MODE=live node src/chrs-agent.js",
     "peoplesoft": "node src/peoplesoft-mcp.js",
     "peoplesoft:live": "PEOPLESOFT_MODE=live node src/peoplesoft-mcp.js",
     "records": "node src/student-records-mcp.js",
