@@ -45,7 +45,7 @@ async (page) => {
   check('database icon, sparkle and sweep present', await ps.locator('.db').count() >= 2 && await ps.locator('.spark').count() === 1 && await ps.locator('.sweep').count() === 1);
   check('name and role', (await ps.locator('.node-name').textContent().catch(() => '')) === 'PeopleSoft' && /MCP server/i.test(await ps.locator('.node-sub').textContent().catch(() => '')));
   check('MCP edge HR ↔ PeopleSoft', await topo.locator('[data-edge="hr-peoplesoft"][data-kind="mcp"]').count() === 1 && (await topo.locator('[data-edge="hr-peoplesoft"] .edge-label').textContent().catch(() => '')) === 'MCP');
-  check('viewBox 0 0 1100 1029', (await topo.locator('#topo').getAttribute('viewBox')) === '0 0 1100 1029');
+  check('viewBox 0 0 1100 1285', (await topo.locator('#topo').getAttribute('viewBox')) === '0 0 1100 1285');
   check('aria-label mentions PeopleSoft', /PeopleSoft/.test(await topo.locator('#topo').getAttribute('aria-label')));
   check('legend row for MCP tool calls', await topo.locator('.legend li', { hasText: 'MCP tool call (dash-dot line = MCP to Canvas LMS or PeopleSoft)' }).count() === 1);
   // Layout (SVG user units): the tile, its pill and the MCP lanes stay clear of the HR node and inside the drawing.
@@ -63,7 +63,7 @@ async (page) => {
   const xs = geo.lanes.flatMap((l) => [l[0], l[2]]);
   const ys = geo.lanes.flatMap((l) => [l[1], l[3]]);
   check('PeopleSoft sits under HR’s model, no overlap', geo.ps.y >= geo.llmHr.y + geo.llmHr.h && Math.abs((geo.ps.x + geo.ps.w / 2) - (geo.llmHr.x + geo.llmHr.w / 2)) < 2, { ps: geo.ps, llmHr: geo.llmHr });
-  check('PeopleSoft (tile and pill) inside the viewBox', geo.ps.y + geo.ps.h <= 1029 && geo.ps.x >= 0 && geo.ps.x + geo.ps.w <= 1100, geo.ps);
+  check('PeopleSoft (tile and pill) inside the viewBox', geo.ps.y + geo.ps.h <= 1285 && geo.ps.x >= 0 && geo.ps.x + geo.ps.w <= 1100, geo.ps);
   const inPill = (x, y) => x >= geo.hrPill.x && x <= geo.hrPill.x + geo.hrPill.w && y >= geo.hrPill.y && y <= geo.hrPill.y + geo.hrPill.h;
   check('MCP lanes leave HR clear of its pill and end left of the tile (halo 7 outside it)', geo.lanes.every((l) => !inPill(l[0], l[1]) && !inPill(l[2], l[3])) && Math.max(...xs) < geo.ps.x + 7, { lanes: geo.lanes, hrPill: geo.hrPill, ps: geo.ps });
   check('MCP label just below the middle of the lanes, between HR and the tile', geo.label.x > Math.min(...xs) && geo.label.x < Math.max(...xs) && geo.label.y > Math.min(...ys) && geo.label.y < Math.max(...ys) + 40, { label: geo.label, xs, ys });
@@ -152,16 +152,19 @@ async (page) => {
     await ps.evaluate((g) => g.classList.remove('busy'));
     return { names, stillBusy };
   };
-  const moving = await busyAnimations();
+  // A heartbeat from any of the agents can re-render the node between the add and the read (it drops a hand-set `busy`),
+  // and there are more agents since Part 17: sample again when that happened.
+  const busySample = async () => { let r = await busyAnimations(); for (let i = 0; i < 4 && !r.stillBusy; i += 1) r = await busyAnimations(); return r; };
+  const moving = await busySample();
   check('motion allowed: busy animates sparkle and sweep', moving.stillBusy && moving.names.every((n) => n !== 'none'), moving);
   await topo.locator('#topo-reduce').check();
-  const still = await busyAnimations();
+  const still = await busySample();
   check('Reduce motion checkbox: busy, but no animation', still.stillBusy && still.names.every((n) => n === 'none'), still);
   await topo.locator('#topo-reduce').uncheck();
-  const again = await busyAnimations();
+  const again = await busySample();
   check('checkbox off again: busy animates', again.stillBusy && again.names.every((n) => n !== 'none'), again);
   await topo.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
-  const osStill = await busyAnimations();
+  const osStill = await busySample();
   check('prefers-reduced-motion: busy, but no animation', osStill.stillBusy && osStill.names.every((n) => n === 'none'), osStill);
   await topo.emulateMedia({ colorScheme: 'light', reducedMotion: 'no-preference' });
   await topo.waitForTimeout(100);

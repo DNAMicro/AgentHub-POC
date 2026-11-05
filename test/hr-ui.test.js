@@ -163,7 +163,7 @@ test('npm run demo starts ten processes, HR and PeopleSoft among them (each MCP 
 });
 
 test('professor-view runs: staff-* only from the Hub, HR and the Professor; prof-* only from the Professor; IDs follow the operation-ID rule', () => {
-  for (const source of ['hub', 'hr', 'professor']) assert.equal(professorViewRun(source, 'staff-op-123'), 'staff', source);
+  for (const source of ['hub', 'hr', 'professor', 'chrs']) assert.equal(professorViewRun(source, 'staff-op-123'), 'staff', source);
   for (const source of ['tutor', 'library', 'student', 'system']) assert.equal(professorViewRun(source, 'staff-op-123'), null, `${source}: a foreign source is dropped`);
   assert.equal(professorViewRun('professor', 'prof-op-123'), 'prof');
   for (const source of ['hub', 'hr', 'tutor']) assert.equal(professorViewRun(source, 'prof-op-123'), null, `${source}: prof-* only from the Professor`);

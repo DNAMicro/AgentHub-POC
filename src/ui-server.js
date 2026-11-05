@@ -51,12 +51,13 @@ const SHARED_SCHEDULE_MODULE = fileURLToPath(new URL('./course-schedule.js', imp
 const SHARED_QUIZ_MODULE = fileURLToPath(new URL('./quiz-rules.js', import.meta.url));
 const ACTION_KEYS = ['name', 'surfaceId', 'sourceComponentId', 'timestamp', 'context'];
 const CONTEXT_ID_PATTERN = /^[\w-]{8,100}$/;
-const CONFIG_EVENTS = new Set(['skills_saved', 'card_notification', 'hub_registration', 'lesson_posted', 'lesson_publish_result', 'lessons_reset', 'staff_decision', 'peoplesoft_session', 'canvas_session']); // + Part 9: the Professor's own lesson events; + HR: the Professor's staff-desk decision (no words) // specialist events not tied to a run
+const SESSION_EVENTS = new Set(['peoplesoft_session', 'canvas_session', 'studentdb_session']); // an MCP system's session state
+const CONFIG_EVENTS = new Set(['skills_saved', 'card_notification', 'hub_registration', 'lesson_posted', 'lesson_publish_result', 'lessons_reset', 'staff_decision', 'peoplesoft_session', 'canvas_session', 'studentdb_session']); // + Part 9: the Professor's own lesson events; + HR: the Professor's staff-desk decision (no words) // specialist events not tied to a run
 // The Faculty view's own runs, started by the professor through this UI, so shown like this UI's runs on the
 // monitor (never in the student's AG-UI stream). The suffix is the professor's operation ID (src/lessons.js ID).
 //   staff-<operationId>: an HR staff request/action — emitted by the Professor, the Hub and HR only.
 //   prof-<operationId>:  a Faculty view chat turn (its model calls: naming a post, the @assistant) — the Professor only.
-const RUN_SOURCES = { staff: new Set(['professor', 'hub', 'hr']), prof: new Set(['professor']) };
+const RUN_SOURCES = { staff: new Set(['professor', 'hub', 'hr', 'chrs']), prof: new Set(['professor']) };
 export function professorViewRun(source, runId) {
   const m = typeof runId === 'string' ? /^(staff|prof)-(.*)$/s.exec(runId) : null;
   return m && ID.test(m[2]) && RUN_SOURCES[m[1]].has(source) ? m[1] : null;
@@ -233,8 +234,8 @@ export async function startUiServer({ port = 4444 } = {}) {
     }
     if (event.runId == null) {
       // Hub configuration/registry events, and specialists' configuration events.
-      if ((type === 'peoplesoft_session' || type === 'canvas_session') && lastSessionStatus.get(`${source}:${type}`) === event.data?.status) return; // only on a change
-      if (type === 'peoplesoft_session' || type === 'canvas_session') lastSessionStatus.set(`${source}:${type}`, event.data?.status);
+      if (SESSION_EVENTS.has(type) && lastSessionStatus.get(`${source}:${type}`) === event.data?.status) return; // only on a change
+      if (SESSION_EVENTS.has(type)) lastSessionStatus.set(`${source}:${type}`, event.data?.status);
       if (source === 'hub' || CONFIG_EVENTS.has(type)) publish({ source, type, runId: null, data: event.data, at: event.at });
       return;
     }

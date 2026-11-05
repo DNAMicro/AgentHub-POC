@@ -351,7 +351,7 @@ export function startHubServer({ port } = {}) {
     if (!courseId) return { ...staffReply('refused', { reason: 'You have no class to show a roster for.' }), retryable: true };
     const r = await sendData(peer.baseUrl, {
       mediaType: ROSTER_REQUEST_MEDIA_TYPE, value: { type: 'roster_request', kind: 'roster', courseId }, contextId, timeoutMs: cfg.timeouts.dispatchMs,
-      metadata: { hubOperationId, via: cfg.agentId, staffId: staff.staffId, callerKind: 'staff', hubSignature: registry.signStaffFor(agentId, { staffId: staff.staffId, contextId, operationId: hubOperationId }) },
+      metadata: { ...(runId ? { runId } : {}), hubOperationId, via: cfg.agentId, staffId: staff.staffId, callerKind: 'staff', hubSignature: registry.signStaffFor(agentId, { staffId: staff.staffId, contextId, operationId: hubOperationId }) },
     });
     if (!r.ok) {
       registry.markReachable(agentId, r.outcome === 'uncertain' ? null : false, r.error);
@@ -655,7 +655,7 @@ export function startHubServer({ port } = {}) {
   // Relay each specialist's own visualization feed (trusted URLs from configuration), redacted.
   const feedAbort = new AbortController();
   const feeds = Object.fromEntries(cfg.peers.map((p) => [p.agentId, false]));
-  const lastSession = {}; // `${agentId}:${type}` → the latest MCP session state (peoplesoft_session / canvas_session), for viewers that connect after it
+  const lastSession = {}; // `${agentId}:${type}` → the latest MCP session state (peoplesoft_session / canvas_session / studentdb_session), for viewers that connect after it
   const lastStatus = {}; // agentId → the specialist's latest 'status' event (mode, skills), for new viewers
   for (const peer of cfg.peers) {
     (async function follow() {
@@ -677,7 +677,7 @@ export function startHubServer({ port } = {}) {
               const ev = JSON.parse(line.slice(6));
               if (ev.type === 'status') lastStatus[peer.agentId] = { source: peer.agentId, type: 'status', runId: null, at: ev.at, data: ev.data };
               const relayed = { source: peer.agentId, type: ev.type, runId: ev.runId ?? null, at: ev.at, data: redactTelemetry(ev) };
-              if (ev.type === 'peoplesoft_session' || ev.type === 'canvas_session') {
+              if (ev.type === 'peoplesoft_session' || ev.type === 'canvas_session' || ev.type === 'studentdb_session') {
                 const key = `${peer.agentId}:${ev.type}`;
                 if (lastSession[key]?.data?.status === relayed.data?.status) continue; // only on a change (a reconnecting feed replays the state)
                 lastSession[key] = relayed;

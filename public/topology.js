@@ -15,35 +15,38 @@
 // short fixed labels are shown here — never message text, emails, notes or form values.
 const SVG = 'http://www.w3.org/2000/svg';
 
-// Four specialists in a column at x 710, evenly spaced (viewBox 0 0 1100 1029; owner-approved layout): each agent's
+// Four specialists in a column at x 710, evenly spaced (viewBox 0 0 1100 1285; owner-approved layout; Part 17 adds CHRS as the fifth): each agent's
 // HTTPS line goes up-right to its model, its MCP line goes down-right to its system (Faculty → Canvas, HR → PeopleSoft).
 const NODES = {
-  student: { x: 130, y: 478, r: 60, name: 'Student agent', role: 'You' },
-  hub: { x: 450, y: 478, r: 76, name: 'University Hub', role: 'Front door and router' },
+  student: { x: 130, y: 605, r: 60, name: 'Student agent', role: 'You' },
+  hub: { x: 450, y: 605, r: 76, name: 'University Hub', role: 'Front door and router' },
   tutor: { x: 710, y: 95, r: 56, name: 'Tutor Agent', role: 'Tutoring specialist' },
   library: { x: 710, y: 350, r: 56, name: 'Library Agent', role: 'Library specialist' },
   professor: { x: 710, y: 605, r: 56, name: 'Faculty', role: 'Marketing 351' },
   hr: { x: 710, y: 860, r: 56, name: 'HR Agent', role: 'Staff only' },
+  chrs: { x: 710, y: 1115, r: 56, name: 'CHRS', role: 'Staff only' },
   // Systems, not agents (design F: tile + icon + sparkle + sweep). Part 15 PeopleSoft, Part 16 Canvas LMS.
   canvas: { x: 985, y: 680, w: 176, h: 80, kind: 'system', name: 'Canvas LMS', role: 'MCP server' },
   peoplesoft: { x: 985, y: 935, w: 176, h: 80, kind: 'system', name: 'PeopleSoft', role: 'MCP server' },
+  studentdb: { x: 985, y: 1190, w: 176, h: 80, kind: 'system', name: 'PeopleSoft', role: 'Student records' },
   // One model box per agent (owner). Server labels say 'model'; the browser draws it at the caller's box.
-  'llm-student': { x: 130, y: 228, w: 184, h: 74, owner: 'student', name: 'Student’s model' },
-  'llm-hub': { x: 450, y: 228, w: 184, h: 74, owner: 'hub', name: 'Hub router’s model' },
+  'llm-student': { x: 130, y: 355, w: 184, h: 74, owner: 'student', name: 'Student’s model' },
+  'llm-hub': { x: 450, y: 355, w: 184, h: 74, owner: 'hub', name: 'Hub router’s model' },
   'llm-tutor': { x: 985, y: 95, w: 184, h: 70, owner: 'tutor', name: 'Tutor’s model' },
   'llm-library': { x: 985, y: 350, w: 184, h: 70, owner: 'library', name: 'Library’s model' },
   'llm-professor': { x: 985, y: 550, w: 184, h: 70, owner: 'professor', name: 'Faculty’s model' },
   'llm-hr': { x: 985, y: 805, w: 184, h: 70, owner: 'hr', name: 'HR’s model' },
+  'llm-chrs': { x: 985, y: 1060, w: 184, h: 70, owner: 'chrs', name: 'CHRS’s model' },
 };
 const EDGES = {
-  'student-hub': ['student', 'hub'], 'hub-tutor': ['hub', 'tutor'], 'hub-professor': ['hub', 'professor'], 'hub-library': ['hub', 'library'], 'hub-hr': ['hub', 'hr'],
-  'student-model': ['student', 'llm-student'], 'hub-model': ['hub', 'llm-hub'], 'tutor-model': ['tutor', 'llm-tutor'], 'professor-model': ['professor', 'llm-professor'], 'library-model': ['library', 'llm-library'], 'hr-model': ['hr', 'llm-hr'],
-  'hr-peoplesoft': ['hr', 'peoplesoft'], 'professor-canvas': ['professor', 'canvas'],
+  'student-hub': ['student', 'hub'], 'hub-tutor': ['hub', 'tutor'], 'hub-professor': ['hub', 'professor'], 'hub-library': ['hub', 'library'], 'hub-hr': ['hub', 'hr'], 'hub-chrs': ['hub', 'chrs'],
+  'student-model': ['student', 'llm-student'], 'hub-model': ['hub', 'llm-hub'], 'tutor-model': ['tutor', 'llm-tutor'], 'professor-model': ['professor', 'llm-professor'], 'library-model': ['library', 'llm-library'], 'hr-model': ['hr', 'llm-hr'], 'chrs-model': ['chrs', 'llm-chrs'],
+  'hr-peoplesoft': ['hr', 'peoplesoft'], 'professor-canvas': ['professor', 'canvas'], 'chrs-studentdb': ['chrs', 'studentdb'],
 };
-const MODEL_USES = { student: 'clarifying unclear questions and choosing which university capability a non-obvious one needs', hub: 'deciding where each question goes', tutor: 'answers, scope checks and form review', library: 'answers from saved content and form review', professor: 'answering questions from the course pack and its lessons, and telling the faculty member’s own HR requests from class messages', hr: 'reading the absence name from a staff member’s words (code checks it and decides dates and hours)' };
-const SPECIALIST_IDS = ['tutor', 'library', 'professor', 'hr'];
+const MODEL_USES = { student: 'clarifying unclear questions and choosing which university capability a non-obvious one needs', hub: 'deciding where each question goes', tutor: 'answers, scope checks and form review', library: 'answers from saved content and form review', professor: 'answering questions from the course pack and its lessons, and telling the faculty member’s own HR requests from class messages', hr: 'reading the absence name from a staff member’s words (code checks it and decides dates and hours)', chrs: 'choosing which student-records tool to call for a class roster (code builds the arguments and checks the answer)' };
+const SPECIALIST_IDS = ['tutor', 'library', 'professor', 'hr', 'chrs'];
 const relaying = (active) => SPECIALIST_IDS.reduce((n, id) => n + (active[id] ?? 0), 0);
-const EDGE_KIND = (id) => (id.endsWith('-model') ? 'model' : id === 'hr-peoplesoft' || id === 'professor-canvas' ? 'mcp' : 'a2a');
+const EDGE_KIND = (id) => (id.endsWith('-model') ? 'model' : id === 'hr-peoplesoft' || id === 'professor-canvas' || id === 'chrs-studentdb' ? 'mcp' : 'a2a');
 const EDGE_TEXT = { model: 'HTTPS', mcp: 'MCP', a2a: 'A2A' };
 const LANE = 9; // each connection has one lane per direction
 const LANE_MCP = 7; // the short MCP lines (mockup)
@@ -53,6 +56,8 @@ const PILL_CLEAR = 43;
 const SYSTEMS = {
   peoplesoft: { edge: 'hr-peoplesoft', sessionEvent: 'peoplesoft_session', color: '--ps', cls: '', icon: 'db', title: 'PeopleSoft — demo stand-in', reachedBy: 'the HR Agent', tools: ['get_leave_balances', 'list_absence_requests', 'create_absence_request'], saved: /^Saved/ },
   canvas: { edge: 'professor-canvas', sessionEvent: 'canvas_session', color: '--lms', cls: ' lms', icon: 'quiz', title: 'Canvas LMS — demo stand-in', reachedBy: 'the Faculty agent', tools: ['create_quiz', 'publish_quiz'], saved: /^(Saved|Published)/ },
+  // Part 17: the same PeopleSoft look for its student records, reached only by CHRS. A roster read saves nothing: no “Saved” flash.
+  studentdb: { edge: 'chrs-studentdb', sessionEvent: 'studentdb_session', color: '--ps', cls: '', icon: 'db', title: 'PeopleSoft student records — demo stand-in', reachedBy: 'CHRS', tools: ['get_class_roster'], saved: /^(?!)/ },
 };
 const SYSTEM_OF_EDGE = Object.fromEntries(Object.entries(SYSTEMS).map(([id, v]) => [v.edge, id]));
 const SESSION = { connected: ['✓ Connected', 'ok'], unreachable: ['✕ Unreachable', 'bad'], not_configured: ['○ Not configured', 'muted'], none: ['○ Not connected yet', 'muted'] };
@@ -151,9 +156,9 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     specialists: {}, // agentId → snapshot entry (status, heartbeat, skills…)
     // Each system (demo stand-in): the MCP session its agent reported, calls in flight (from the live pulses) and the last call.
     sys: Object.fromEntries(Object.keys(SYSTEMS).map((id) => [id, { session: null, inFlight: 0, since: 0, savedUntil: 0, last: null, maxTimer: null, savedTimer: null }])),
-    active: { tutor: 0, professor: 0, library: 0, hr: 0 },
+    active: { tutor: 0, professor: 0, library: 0, hr: 0, chrs: 0 },
     // Each agent's own model: its reported mode, and the calls we saw it make.
-    modes: { student: null, hub: null, tutor: null, professor: null, library: null, hr: null }, // { mode, model, keyConfigured }
+    modes: { student: null, hub: null, tutor: null, professor: null, library: null, hr: null, chrs: null }, // { mode, model, keyConfigured }
     provider: Object.fromEntries(['student', 'hub', ...SPECIALIST_IDS].map((a) => [a, { inFlight: 0, calls: 0, failures: 0, last: null }])),
     traces: new Map(), // runId → { n, kind, at, destination, outcome, edges:Set, nodes:Set, events:[] }
     edgeEvents: Object.fromEntries(Object.keys(EDGES).map((id) => [id, []])),
