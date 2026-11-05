@@ -209,8 +209,9 @@ async (page) => {
   await page.waitForFunction(() => /Published/.test(document.querySelector('#prof-log .lms-card .state-badge')?.textContent ?? ''), null, { timeout: 30000 });
   const pub = await lms.textContent();
   check('Published card: ● Published, quiz #4821, due date', /● Published/.test(pub) && /Topic 8 Quiz: Segmentation & Targeting is open in Canvas \(quiz #4821\), due Mon, Nov 9, 11:59 PM\./.test(pub), pub);
-  await page.waitForFunction(() => document.querySelectorAll('#prof-log .lms-card .per-student li').length === 2, null, { timeout: 15000 });
+  await page.waitForFunction(() => document.querySelectorAll('#prof-log .lms-card .per-student li').length === 25, null, { timeout: 15000 });
   const rows = await lms.locator('.per-student li').evaluateAll((l) => l.map((x) => x.textContent));
+  check('Published card: 25 deliveries as a summary (Delivered to 1 · 24 not online yet) with the rows folded', rows.length === 25 && (await lms.locator('.dsum .pill').allTextContents()).join(' | ') === "Delivered to 1 | 24 not online yet — they'll get it when they are" && (await lms.locator('details.dlist').count()) === 1, rows.length);
   check('Alex Student: Notified (his tab is in the background, so not opened)', rows.some((r) => /^Alex StudentNotified — /.test(r)), rows);
   check('Sam Student: Not delivered yet — Sam isn\'t online (plain words, no Hub or agent talk)', rows.some((r) => /^Sam StudentNot delivered yet — Sam isn't online\. It will arrive when they are\./.test(r)) && !rows.some((r) => /Hub|agent/i.test(r)), rows);
   check('no publish buttons left after publishing', await lms.locator('[data-act]').count() === 0);
@@ -237,7 +238,7 @@ async (page) => {
   await student.screenshot({ path: `${SHOTS}/t9-5-student.png` });
   // Looking at it counts as opening: the faculty's per-student line changes from Notified to Opened.
   await student.evaluate(() => { delete document.visibilityState; document.dispatchEvent(new Event('visibilitychange')); });
-  await page.waitForFunction(() => /^Alex StudentOpened/.test(document.querySelector('#prof-log .lms-card .per-student li')?.textContent ?? ''), null, { timeout: 20000 });
+  await page.waitForFunction(() => [...document.querySelectorAll('#prof-log .lms-card .per-student li')].some((li) => /^Alex StudentOpened/.test(li.textContent ?? '')), null, { timeout: 20000 });
   check('once the student looks at it, Alex Student shows Opened', true);
   // The same Conversation tab of the Faculty window, after visiting the Faculty view, holds no answer key either.
   await page.getByRole('tab', { name: 'Conversation' }).click();

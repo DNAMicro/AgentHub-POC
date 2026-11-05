@@ -18,6 +18,7 @@
 // Buttons post the renderer's action to /api/professor/hr/actions → Hub → Professor agent → Hub → HR.
 import { MessageProcessor, basicCatalog } from './vendor/a2ui.js';
 import { createQuizUi, dueDay } from './quiz-ui.js';
+import { createRosterUi } from './roster-ui.js';
 import { A2UI_VERSION, reasonPicker, validateFinal } from '/shared/forms.js';
 import { CREDIT_LABEL, CREDIT_OF_TYPE, NOTE_PRIVACY, PROOF, STANDARD_DAY, daysText, defaultReason, isPair, nameOf as absenceName, shortDate, spreadOf, titleOf, whenText, workdays } from '/shared/absence-types.js';
 const $ = (id) => document.getElementById(id);
@@ -251,7 +252,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
   };
   function studentState(d) {
     if (d.opened) return ['opened', when(d.openedAt)];
-    if (d.state === 'queued') return ['queued', d.lastError === 'student_offline' || /refused/.test(d.lastError ?? '') ? `${firstOf(d.studentId)} isn't online. It will arrive when they are.` : 'It will be retried.'];
+    if (d.state === 'queued') return ['queued', d.lastError === 'student_offline' || /refused/.test(d.lastError ?? '') ? `${d.name ? d.name.split(' ')[0] : firstOf(d.studentId)} isn't online. It will arrive when they are.` : 'It will be retried.'];
     if (d.state === 'delivered') return ['delivered', when(d.deliveredAt)];
     return [d.state, null]; // the raw error code is for the technical views, not the faculty member
   }
@@ -291,11 +292,36 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
   function deliveryLines(p) {
     if (p.hubStatus === 'rejected') return el('p', { className: 'post-origin', dataset: { verbatim: 'false' }, textContent: notSentText(p.hubReason) });
     if (!p.deliveries.length) return el('p', { className: 'post-origin', textContent: p.hubAccepted ? 'Sending…' : 'Not confirmed yet — it will be retried.' });
-    return el('ul', { className: 'per-student' }, ...p.deliveries.map((d) => {
+    return deliveryList(p.deliveries, p.key);
+  }
+  // One row per student; for a big audience (more than 3) a one-line summary and the rows folded away. "Opened" counts as
+  // delivered. `notified` words a delivered row "Notified" (the quiz notice). The fold stays open across redraws.
+  const BIG_AUDIENCE = 3;
+  const foldOpen = new Set();
+  const personName = (d) => d.name ?? nameOf(d.studentId);
+  function deliveryRows(list, notified = false) {
+    return el('ul', { className: 'per-student' }, ...list.map((d) => {
       const [k, detail] = studentState(d);
-      const [label, tone] = DELIVERY[k] ?? [k, 'warn'];
-      return el('li', { dataset: { tone } }, el('span', { className: 'who', textContent: nameOf(d.studentId) }), el('span', { className: 'what', textContent: `${label}${detail ? ` — ${detail}` : ''}` }));
+      const [label, tone] = notified && k === 'delivered' ? ['Notified', 'ok'] : (DELIVERY[k] ?? [k, 'warn']);
+      return el('li', { dataset: { tone } }, el('span', { className: 'who', textContent: personName(d) }), el('span', { className: 'what', textContent: `${label}${detail ? ` — ${detail}` : ''}` }));
     }));
+  }
+  function deliveryList(list, key, notified = false) {
+    if (list.length <= BIG_AUDIENCE) return deliveryRows(list, notified);
+    const kinds = list.map((d) => studentState(d)[0]);
+    const delivered = kinds.filter((k) => k === 'delivered' || k === 'opened').length;
+    const waiting = kinds.filter((k) => k === 'queued').length;
+    const other = list.length - delivered - waiting;
+    const details = el('details', { className: 'dlist', dataset: { count: String(list.length) } },
+      el('summary', { textContent: `Show all ${list.length} students` }), deliveryRows(list, notified));
+    details.open = foldOpen.has(key);
+    details.addEventListener('toggle', () => { if (details.open) foldOpen.add(key); else foldOpen.delete(key); });
+    return el('div', { className: 'dlist-wrap' },
+      el('div', { className: 'dsum' },
+        el('span', { className: 'pill ok', textContent: `Delivered to ${delivered}` }),
+        ...(waiting ? [el('span', { className: 'pill', textContent: `${waiting} not online yet — they'll get it when they are` })] : []),
+        ...(other ? [el('span', { className: 'pill', textContent: `${other} still sending or not confirmed` })] : [])),
+      details);
   }
   // A student's reply to a post: who wrote it, to what, and a Reply button (to that student only).
   function studentReply(m) {
@@ -323,15 +349,17 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     return li;
   }
   // ---- Part 16: the Canvas quiz (topic chips, the draft card, the Canvas cards) — see quiz-ui.js ----------
+  let rosterCount = null; // professorState.professor.roster.count: how many students CHRS says are enrolled (null until the Hub has asked)
   let quizAsking = false; // professorState.professor.quizAsking: the assistant is still waiting for a topic
   let quizCard = null; // professorState.professor.quizCard: draft id, state, Canvas quiz number, counts (never questions or answers)
   const quiz = createQuizUi({
-    el, api, bubble, nameOf: (id) => nameOf(id), posts: () => [...posts.values()], studentCount: () => roster.length, studentState, DELIVERY,
+    el, api, bubble, nameOf: (id) => nameOf(id), posts: () => [...posts.values()], studentCount: () => rosterCount ?? roster.length, deliveryList,
     isShowing: () => !pv.view.hidden,
     sendTopic: (n, text) => sendTopicPick(n, text), // a chip tap is a structured pick: never typed text, never a reply to one student
     redraw: () => { lastRendered = ''; renderProfessor(); },
     pin: () => follow.pin(),
   });
+  const rosterUi = createRosterUi({ el, api, bubble, isShowing: () => !pv.view.hidden });
   // ---- HR (staff only): the open time-off card ------------------------------------------------------
   // One card at a time (HR re-issues it with a new formRef after a follow-up message). The rendered card
   // is kept across re-renders (same element, same renderer) so what the professor typed is never lost.
@@ -663,6 +691,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
       else if (m.role === 'student') items.push(studentReply(m));
       else if (m.role === 'assistant' && m.needsProfessor && chat.some((s) => s.id === m.id.replace(/:r$/, ':s'))) continue; // shown on its card
       else if (m.role === 'assistant' && m.action === 'answer_student') items.push(assistantAnswer(m));
+      else if (m.role === 'assistant' && m.action === 'roster' && m.roster?.rosterId) items.push(rosterUi.entry(m)); // Part 17: the CHRS class roster card
       else if (m.role === 'assistant' && m.quiz?.draftId && Array.isArray(qz = quiz.entry(m, quizCard, chat))) items.push(...qz); // Part 16: the quiz card, the Canvas cards
       else if (m.role === 'hr') {
         // HR (staff only): the open card where HR sent it; every other HR reply (a receipt, a question,
@@ -704,12 +733,13 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     pv.waiting.title = `${waiting} question${waiting === 1 ? '' : 's'} waiting for your answer`;
     if (hr && !items.includes(hr.li)) hrDispose(); // the card closed (submitted, cancelled, expired, reset)
     quiz.sync();
-    const signature = JSON.stringify([pv.view.hidden, quizCard, quizAsking, chat.length, pending?.text, [...handedOver.values()].map((m) => m.answeredAt ?? null), [...posts.values()].map((p) => [p.key, p.hubStatus, p.deliveries]), hrCard?.formRef ?? null, hrCard?.a2ui.length ?? 0, chat.at(-1)?.text]);
+    rosterUi.sync(chat);
+    const signature = JSON.stringify([pv.view.hidden, quizCard, quizAsking, chat.length, pending?.text, [...handedOver.values()].map((m) => m.answeredAt ?? null), [...posts.values()].map((p) => [p.key, p.hubStatus, p.deliveries]), hrCard?.formRef ?? null, hrCard?.a2ui.length ?? 0, chat.at(-1)?.text, rosterCount]);
     if (signature === lastRendered) return;
     lastRendered = signature;
     // The open HR card and the quiz cards stay where they are in the page (never detached), so a field being
     // edited keeps focus and a half-typed question survives.
-    const keepSet = new Set([hr?.li, ...quiz.kept()].filter((x) => x && items.includes(x) && x.parentNode === pv.log));
+    const keepSet = new Set([hr?.li, ...quiz.kept(), ...rosterUi.kept()].filter((x) => x && items.includes(x) && x.parentNode === pv.log));
     if (!keepSet.size) return pv.log.replaceChildren(...items);
     for (const c of [...pv.log.children]) if (!keepSet.has(c)) c.remove();
     let head = null; // last item placed before the first kept one
@@ -730,7 +760,11 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     if (!s) return;
     pv.course.textContent = `${s.course.title} — ${s.course.note}`;
     roster = (s.roster?.enrolled ?? []).map((x) => ({ ...x, name: x.name ?? x.studentId }));
-    pv.roster.replaceChildren(...roster.map((x) => el('span', { className: 'presence', dataset: { online: String(Boolean(x.online)) }, textContent: x.name, title: x.online ? 'Online' : 'Not online — posts arrive when they are' })));
+    rosterCount = Number.isInteger(s.roster?.count) ? s.roster.count : null;
+    if (rosterCount !== null) {
+      const online = Number.isInteger(s.roster.online) ? s.roster.online : null;
+      pv.roster.replaceChildren(el('span', { className: 'roster-count', textContent: `${rosterCount} ${rosterCount === 1 ? 'student' : 'students'}${online === null ? '' : ` · ${online} online`}` }));
+    } else pv.roster.replaceChildren(...roster.map((x) => el('span', { className: 'presence', dataset: { online: String(Boolean(x.online)) }, textContent: x.name, title: x.online ? 'Online' : 'Not online — posts arrive when they are' })));
     posts = new Map(s.lessons.map((p) => [p.key, p]));
     chat = s.chat ?? [];
     hrCard = s.hrCard ?? null;

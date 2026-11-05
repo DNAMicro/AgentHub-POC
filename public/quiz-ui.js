@@ -50,7 +50,7 @@ export function quizFactsLine(q, el) {
     el('b', { textContent: dueText(q.dueAt) }));
 }
 
-export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, studentState, DELIVERY, isShowing, sendTopic, redraw, pin }) {
+export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, deliveryList, isShowing, sendTopic, redraw, pin }) {
   const views = new Map(); // draftId -> view
   let seq = 0;
   let pass = 0; // one render pass of the chat; views not drawn in a pass are forgotten
@@ -350,11 +350,7 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, stu
     const post = posts().find((p) => p.quiz && p.quiz.canvasQuizId === (v.canvasQuizId ?? card?.canvasQuizId));
     const list = post?.deliveries?.length ? post.deliveries : (card?.deliveries ?? []).map((d) => ({ studentId: d.studentId, state: d.status }));
     if (!list.length) return el('p', { className: 'post-origin', textContent: post || v.after === 'published' ? 'Sending…' : '' });
-    return el('ul', { className: 'per-student' }, ...list.map((d) => {
-      const [k, detail] = studentState(d);
-      const [label, tone] = k === 'delivered' ? ['Notified', 'ok'] : (DELIVERY[k] ?? [k, 'warn']);
-      return el('li', { dataset: { tone } }, el('span', { className: 'who', textContent: nameOf(d.studentId) }), el('span', { className: 'what', textContent: `${label}${detail ? ` — ${detail}` : ''}` }));
-    }));
+    return deliveryList(list, `quiz:${v.canvasQuizId ?? card?.canvasQuizId}`, true); // more than 3 students: a summary and a fold
   }
   function effective(v, card) {
     const a = RANK[card?.state] ?? 0;

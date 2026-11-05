@@ -37,6 +37,8 @@
   --lms: #4d7c0f;         /* moss — Canvas LMS (demo stand-in, MCP server; Part 16) */
   --lms-tint: #eef6dc;
   --lms-ink: #365a09;
+  --chrs: #4338ca;        /* indigo — CHRS, the staff-only class-roster agent (Part 17) */
+  --chrs-tint: #eef0ff;
   --amber: #b7791f;       /* the HR card: missing, and what this request uses */
   --amber-tint: #fdf3e1;
   --amber-ink: #7a4f0e;
@@ -78,6 +80,8 @@
     --lms: #a3d65c;
     --lms-tint: #24301a;
     --lms-ink: #c8ec98;
+    --chrs: #a5b4fc;
+    --chrs-tint: #23264a;
     --amber: #e0a23a;
     --amber-tint: #3a2c12;
     --amber-ink: #f3c879;
@@ -194,6 +198,7 @@ h2 { margin: 0; font-size: 1.07rem; font-weight: 700; color: var(--agent, var(--
 .msg[data-speaker="router"] { --who: var(--router); }
 .msg[data-speaker="hub"] { --who: var(--hub); }
 .msg[data-speaker="hr"] { --who: var(--hr); }
+.msg[data-speaker="chrs"] { --who: var(--chrs); }
 .chat-log .msg[data-dir="info"] { background: var(--field); }
 .msg-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 0.8rem; color: var(--muted); }
 .msg-dir { font-weight: 600; color: var(--who); }
@@ -995,3 +1000,35 @@ body:has(#view-conversation:not([hidden]), #view-professor:not([hidden])) { heig
 .q.editing .fld { margin-top: 8px; }
 @media (prefers-color-scheme: dark) { .btn-primary { color: #1f0b14; } .btn-primary.lms { color: #12200a; } }
 .lms-card .per-student { margin-top: 10px; }
+
+/* Part 17: CHRS class roster card (approved mockup 2026-11-05-chrs-roster-mockup.html, screen 1) and the delivery summary */
+.chat-log .msg.roster-card { max-width: 100%; width: 100%; border-left: 4px solid var(--chrs); border-radius: 4px 14px 14px 14px; padding: 12px 18px 14px; }
+.roster-card .msg-dir { color: var(--chrs); font-weight: 700; }
+.cr-head { margin: 4px 0 10px; }
+.cr-title { font-size: 1.15rem; font-weight: 700; }
+.cr-term { color: var(--muted); font-size: .82rem; margin: 2px 0 8px; }
+.cr-class { font-size: .95rem; margin-bottom: 6px; }
+table.cr-meet { border-collapse: collapse; font-size: .82rem; margin-bottom: 8px; }
+table.cr-meet th { text-align: left; color: var(--muted); font-weight: 600; padding: 2px 14px 2px 0; }
+table.cr-meet td { padding: 2px 14px 2px 0; }
+.cr-counts { display: flex; gap: 22px; font-size: .88rem; flex-wrap: wrap; }
+.cr-counts b { color: var(--muted); font-weight: 600; margin-right: 6px; }
+.cr-grid-title { font-weight: 700; color: var(--amber-ink); margin: 10px 0 6px; }
+.roster-scroll { max-height: 520px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; }
+table.roster { width: 100%; border-collapse: collapse; font-size: .88rem; }
+table.roster th { text-align: left; font-size: .74rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); border-bottom: 1px solid var(--border); padding: 6px 8px; position: sticky; top: 0; background: var(--surface); white-space: nowrap; }
+table.roster td { padding: 5px 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); vertical-align: middle; }
+table.roster tr:nth-child(even) td { background: color-mix(in srgb, var(--chrs-tint) 45%, transparent); }
+table.roster td.n { color: var(--muted); font-family: var(--mono); width: 2.2em; }
+table.roster td.mono { font-family: var(--mono); font-size: .8rem; }
+table.roster td.r, table.roster th.r { text-align: right; }
+table.roster td:nth-child(7) { white-space: nowrap; font-size: .8rem; line-height: 1.3; }
+table.roster .lnk { color: var(--student); }
+table.roster .deg { margin-left: 18px; color: var(--muted); }
+.roster-foot { margin: 8px 0 0; color: var(--muted); font-size: .8rem; }
+.dsum { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 6px; }
+.dsum .pill { border-radius: 999px; padding: 3px 10px; font-size: .82rem; border: 1px solid var(--border); }
+.dsum .pill.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+details.dlist summary { cursor: pointer; color: var(--muted); font-size: .85rem; }
+details.dlist .per-student { margin-top: 8px; }
+.class-roster .roster-count { color: var(--text); font-size: 0.82rem; }

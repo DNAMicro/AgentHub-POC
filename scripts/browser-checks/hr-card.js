@@ -250,6 +250,10 @@ async (page) => {
   await say('yes');
   const sent = ((await page.locator('#prof-log').textContent()) ?? '').replace(/\s+/g, ' ');
   check('cancellation: “yes” sends it to the students', /Sent to your students: “Marketing 351 is cancelled on Thu, Nov 5, Fri, Nov 6, Thu, Nov 12 and Fri, Nov 13\.”/.test(sent), sent.slice(-300));
+  // Part 17: the cancellation goes to all 25 students, so its card is a summary with the rows folded away.
+  const cancelPost = page.locator('#prof-log .sent-post, #prof-log .post-card').last();
+  const cancelSum = await cancelPost.locator('.dsum .pill').allTextContents();
+  check('cancellation: delivery summary "Delivered to 1" · "24 not online yet — they\'ll get it when they are", fold of 25', cancelSum[0] === 'Delivered to 1' && cancelSum[1] === "24 not online yet — they'll get it when they are" && await cancelPost.locator('details.dlist li').count() === 25, cancelSum);
   await page.locator('#prof-log').screenshot({ path: `${SHOTS}/hr-14-cancellation-sent.png` });
   await page.goto(`${origin}/conversation`);
   const studentSaw = await page.waitForFunction(() => /Marketing 351 is cancelled on Thu, Nov 5, Fri, Nov 6, Thu, Nov 12 and Fri, Nov 13\./.test(document.body.textContent), null, { timeout: 15000 }).then(() => true).catch(() => false);

@@ -366,6 +366,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
 
   function caption(node, text) {
     const n = nodeEls[node];
+    if (!n) return; // a node this page doesn't draw yet (CHRS before its Topology tile): nothing to caption
     n.caption.textContent = text;
     n.g.classList.add('flash');
     clearTimeout(n.captionTimer);
@@ -491,7 +492,8 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
   }
   traceSelect.addEventListener('change', () => (traceSelect.value ? select({ kind: 'trace', id: traceSelect.value }) : select(null)));
 
-  const route = (t) => (t.edge ? `${NODES[t.from].name} → ${NODES[t.to].name}` : `inside ${NODES[t.node].name}`);
+  const nodeName = (id) => NODES[id]?.name ?? id; // an agent this page doesn't draw yet (e.g. CHRS) is named by its id, never thrown on
+  const route = (t) => (t.edge ? `${nodeName(t.from)} → ${nodeName(t.to)}` : `inside ${nodeName(t.node)}`);
   function listItem(ev) {
     const t = ev.topo;
     const li = html('li', { dataset: { phase: t.phase, category: t.category, run: ev.runId ?? '' } },
