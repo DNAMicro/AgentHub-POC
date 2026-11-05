@@ -265,9 +265,12 @@ export function readPartial(text) {
 // please”): the edit words around the one hour value are not a correction of it. Anything else (“4 or 5 hours”,
 // “make it 4 hours or maybe 6”) still reads as nothing.
 const EDIT_LEAD = /^\s*(?:(?:ok(?:ay)?|sorry|actually)[,\s]+)?(?:(?:please|can\s+you|could\s+you)\s+)?(?:(?:make|change|switch|set|put|update)\s+(?:it|that|the\s+hours|my\s+hours)\s+(?:to\s+)?|(?:just|only)\s+)?/i;
-const EDIT_TAIL = /(?:\s*,?\s*(?:instead|please|then|thanks|thank\s+you))*[\s.!]*$/i;
+const EDIT_TAIL_WORDS = new Set(['instead', 'please', 'then', 'thanks', 'thank', 'you']);
 export function readEditHours(text) {
-  const core = String(text ?? '').replace(EDIT_LEAD, '').replace(EDIT_TAIL, '').trim();
+  const t = String(text ?? '').slice(0, 200).replace(/\s+/g, ' ').trim(); // a short edit; collapsed spaces keep the regexes linear
+  const words = t.replace(EDIT_LEAD, '').split(' ');
+  while (words.length && EDIT_TAIL_WORDS.has(words.at(-1).replace(/[,.!]+$/, '').toLowerCase())) words.pop();
+  const core = words.join(' ').replace(/[,.!]+$/, '').trim();
   return core ? readPartial(core) : null;
 }
 // Rule A's one readable cue: { hours, kind, end } — kind 'leave' (a leaving clock time or "N hours early": the
