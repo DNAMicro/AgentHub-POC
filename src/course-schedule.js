@@ -229,11 +229,14 @@ export function asksCovered(text) {
   if (/(^|\s)@[\w-]+/.test(s) || asksQuiz(s) || ANNOUNCING.test(s)) return false;
   return COVERED.test(s);
 }
-export function coveredText(now) {
+// “What's the next topic?” gets the short answer (the next topic, then the last one); other questions get the list.
+export const asksNextTopic = (text) => /\bnext\s+(?:topic|chapter|unit|lecture)\b/i.test(String(text ?? ''));
+export function coveredText(now, { nextOnly = false } = {}) {
   const taught = taughtTopics(now);
   if (!taught.length) return `No Marketing 351 topics have been taught yet this term — the first class is ${dayLabel(TERM.start)}.`;
   const last = taught[taught.length - 1];
   const next = TOPICS.find((x) => x.taught > pacificDate(now));
+  if (nextOnly) return next ? `Next up is Topic ${next.n}, ${next.name}, on ${dayLabel(next.taught)}. The last topic taught was Topic ${last.n}, ${last.name}, on ${dayLabel(last.taught)}.` : `Marketing 351 has covered all ${TOPICS.length} topics this term — there's no next topic.`;
   const head = taught.length === TOPICS.length
     ? `Marketing 351 has covered all ${TOPICS.length} topics this term.`
     : `Marketing 351 has covered ${taught.length === 1 ? 'Topic 1' : `Topics 1–${last.n}`} so far, most recently ${last.name} on ${dayLabel(last.taught)}.`;
