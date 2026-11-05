@@ -1,5 +1,5 @@
 // Browser check: the CHRS class roster (Part 17) — the "CHRS · Class roster" card, the header count, and the delivery
-// summary + fold for big audiences (approved mockup docs/superpowers/specs/2026-11-05-chrs-roster-mockup.html, screens 1-3).
+// summary + fold for big audiences, and roster questions in general (section 7b2, 2026-11-05) (approved mockup docs/superpowers/specs/2026-11-05-chrs-roster-mockup.html, screens 1-3).
 // Run it on a SEPARATE mock stack with "today" pinned to 2026-11-04 (it presses New conversation, which resets the classroom):
 //   node scripts/demo/rehearsal-stack.js --ui 5544 --base 52340 --mock --now 2026-11-04T20:00:00Z
 //   playwright-cli -s=cr open http://127.0.0.1:5544/faculty
@@ -183,6 +183,24 @@ async (page) => {
   await sCard.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${SHOTS}/s2-r4-seniors.png` });
   await sCard.screenshot({ path: `${SHOTS}/s2-r4-seniors-card.png` });
+
+  // 7b2. Roster questions in general (owner, 2026-11-05: "anyone not a business major?" was posted to all 25): the answer
+  // highlights the matching rows, the chat says the count only, and nothing goes to the class.
+  const postsBefore = (await (await page.request.get(`${origin}/api/professor/state`)).json()).lessons.length;
+  await say('anyone not a business major?');
+  await page.waitForFunction(() => { const c = [...document.querySelectorAll('#prof-log .roster-card')].at(-1); return c?.dataset.state === 'ready' && c.querySelectorAll('tr.cr-hi').length > 0 && c.querySelectorAll('tr.cr-hi').length < 10; }, null, { timeout: 30000 });
+  const qCard = page.locator('#prof-log .roster-card').last();
+  const qPlans = await qCard.locator('tr.cr-hi td:nth-last-child(2)').allTextContents();
+  const allPlans = await qCard.locator('tbody tr td:nth-last-child(2)').allTextContents();
+  check('S3: "anyone not a business major?" highlights exactly the rows outside Business Admin', qPlans.length === allPlans.filter((t) => !/Business Admin/.test(t)).length && qPlans.every((t) => !/Business Admin/.test(t)), qPlans);
+  check(`S3: the reply is "Yes — ${qPlans.length} students match; they're highlighted on your roster below."`, await page.locator('#prof-log').evaluate((l, n) => [...l.querySelectorAll(':scope > li')].some((li) => (li.querySelector('.msg-text')?.textContent ?? '') === `Yes — ${n} students match; they're highlighted on your roster below.`), qPlans.length));
+  const postsAfter = (await (await page.request.get(`${origin}/api/professor/state`)).json()).lessons.length;
+  check('S3: nothing was posted to the class', postsAfter === postsBefore, { postsBefore, postsAfter });
+  check('S3: no major in the chat bubbles outside the roster cards', await page.locator('#prof-log').evaluate((l) => ![...l.querySelectorAll(':scope > li:not(.roster-card)')].some((li) => /Communications -|Graphic Design|Business Admin/.test(li.textContent))));
+  await page.waitForTimeout(400);
+  await qCard.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `${SHOTS}/s3-not-business.png` });
+  await qCard.screenshot({ path: `${SHOTS}/s3-not-business-card.png` });
 
   // 7c. Round 2, R2: @-suggestions come from the roster (names only), and @mariana reaches Mariana Aguilar.
   const box = page.locator('#prof-message');

@@ -40,6 +40,9 @@ test('the default budgets nest: each outer timeout is longer than the sum of wha
   assert.ok(T.hubAuthorProxyMs > T.professorModelMs + T.professorPublishMs);
   assert.ok(T.hubAuthorProxyMs > T.professorStaffClassifierMs + T.professorModelMs + T.professorPublishMs);
   assert.ok(T.uiProfessorCallMs > T.hubAuthorProxyMs);
+  // A roster question in general (2026-11-05): one roster lookup (the staff request wait), then the query model.
+  assert.equal(T.professorRosterQueryMs, 10000);
+  assert.ok(T.hubAuthorProxyMs > T.professorStaffMs + T.professorRosterQueryMs);
   // Students keep their short form-action wait.
   assert.equal(T.hubFormActionMs, 8000);
 });

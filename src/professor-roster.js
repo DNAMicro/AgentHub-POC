@@ -116,6 +116,100 @@ export const noneText = (f) => `None of your students are ${groupLabel(f, 2)}.`;
 export const filterCountText = (f, n, total) => (n === 0 ? noneText(f) : n === 1 ? `1 of your ${total} students is ${article(groupLabel(f, 1))} ${groupLabel(f, 1)}.` : `${n} of your ${total} students are ${groupLabel(f, n)}.`);
 export const filterHighlightText = (f, n) => (n === 0 ? noneText(f) : `${n} ${groupLabel(f, n)} ${n === 1 ? 'is' : 'are'} highlighted on your roster below.`);
 
+// ---- roster questions in general (owner, 2026-11-05: “anyone not a business major?” was POSTED to all 25 students; “the
+// faculty should be able to ask questions about the roster”). Code recognises a question about the roster (no model); the
+// Faculty agent's model (live) or a labelled heuristic (mock) turns it into a QUERY only — never an answer — from the
+// question and the roster's allowed values (field names, level words, plan / program phrases, pronoun and units values),
+// never a row, name, email or ID. Code checks every filter, runs the query on the fresh roster and writes the reply
+// (counts only). 'none' or anything invalid → ROSTER_UNCLEAR_TEXT; a failed model call → ROSTER_QUERY_FAILED_TEXT. Never posted.
+export const ROSTER_UNCLEAR_TEXT = "I couldn't tell what to look up on your roster. Try “who are my seniors?” or “how many marketing majors do I have?”";
+export const ROSTER_QUERY_FAILED_TEXT = "I couldn't look that up just now, so nothing was sent. Try again in a moment.";
+const RQ_START = /^\s*(?:who|whom|which|what|how\s+many|how|is|are|does|do|any|anyone|anybody|list|show|count|find)\b/i;
+const RQ_STRONG_START = /^\s*(?:who|whom|which|what|how\s+many|list|show|count|find)\b/i;
+// An attribute that only a roster question names.
+const RQ_STRONG = /\b(?:majors?|majoring|concentrations?|emphas[ie]s|freshm[ae]n|first[-\s]years?|sophomores?|juniors?|seniors?|class\s+standing|pronouns?|they\/them|she\/her|he\/him|cwids?|enrolled|roster|class\s+list|registered)\b|\b\d+(?:\.\d+)?\s+units?\b/i;
+// An attribute word that is also everyday class talk (“Did everyone get my email?”, “what year did …”): it counts only with
+// a who / which / what / how many / list / show / count / find opening AND a word for people.
+const RQ_WEAK = /\b(?:(?:academic|degree|study|program)\s+plans?|plans?\s+of\s+study|(?:which|what)\s+(?:degree\s+)?programs?|(?:degree|academic|undergraduate)\s+programs?|degrees?|(?:academic|class|school)\s+levels?|(?:what|which)\s+levels?|(?:what|which)\s+year|years?\s+in\s+school|(?:student\s+)?ids?|student\s+numbers?|e-?mails?(?:\s+address(?:es)?)?|units)\b/i;
+const RQ_PEOPLE = /\b(?:anyone|anybody|someone|somebody|everyone|everybody|who|whom|students?|people|classmates)\b/i;
+const RQ_IN_CLASS = /\b(?:students?|anyone|anybody|who|people)\b[\s\S]*?\bin\s+(?:my|the|our)\s+(?:class|section|course)\b/i;
+export function asksRosterQuestion(text) {
+  const t = String(text ?? '').trim();
+  if (!t || /(^|\s)@\w/.test(t) || ANNOUNCING.test(t) || notifyEveryone(t)) return false; // a student tag, or an announcement
+  if (t.split(/\s+/).length > 25 || /!\s*$/.test(t) || /^\s*what\s+an?\b/i.test(t)) return false; // praise is a post
+  if (!/\?\s*$/.test(t) && !RQ_START.test(t)) return false; // phrased as a question
+  if (RQ_STRONG.test(t) || RQ_IN_CLASS.test(t)) return true;
+  return RQ_WEAK.test(t) && !/\bmy\s+e-?mails?\b/i.test(t) && RQ_STRONG_START.test(t) && RQ_PEOPLE.test(t);
+}
+// What the query may use: field names, and the values the roster really has (+ the four standard levels, so “any
+// freshmen?” is a valid query that matches nobody). '' in pronouns means none listed. Never a name, email or ID.
+export const ROSTER_QUERY_FIELDS = ['level', 'plan', 'program', 'pronouns', 'units', 'name'];
+export const ROSTER_QUERY_OPS = ['is', 'is_not', 'contains', 'not_contains', 'lt', 'gt', 'eq'];
+const STANDARD_LEVELS = ['Freshman', 'Sophomore', 'Junior', 'Senior'];
+export function rosterAllowedValues(rows) {
+  const uniq = (xs) => [...new Set(xs.map((x) => String(x ?? '').trim()))].sort();
+  return {
+    level: uniq([...STANDARD_LEVELS, ...rows.map((r) => r.level)]).filter(Boolean),
+    plan: uniq(rows.map((r) => r.plan)).filter(Boolean),
+    program: uniq(rows.map((r) => r.program)).filter(Boolean),
+    pronouns: uniq(rows.map((r) => r.pronouns)),
+    units: uniq(rows.map((r) => r.units)).filter(Boolean),
+  };
+}
+// → { kind: 'count' | 'list', filters: [{ field, op, value }], match } or null (none, or ANY filter invalid: the query is dropped).
+export function checkRosterQuery(q, allowed, question) {
+  if (!q || typeof q !== 'object' || !['count', 'list'].includes(q.kind) || !['all', 'any'].includes(q.match ?? 'all')) return null;
+  if (!Array.isArray(q.filters) || !q.filters.length || q.filters.length > 6) return null;
+  const asked = ` ${String(question ?? '').toLowerCase().replace(/[^a-z'’\s-]/g, ' ').replace(/\s+/g, ' ')} `;
+  const filters = [];
+  for (const f of q.filters) {
+    if (!f || typeof f !== 'object' || !ROSTER_QUERY_FIELDS.includes(f.field) || !ROSTER_QUERY_OPS.includes(f.op)) return null;
+    const value = typeof f.value === 'number' ? String(f.value) : typeof f.value === 'string' ? f.value.trim() : null;
+    if (value === null || value.length > 80) return null;
+    if (f.field === 'units') {
+      if (!/^\d{1,2}(?:\.\d{1,2})?$/.test(value) || !['lt', 'gt', 'eq', 'is', 'is_not'].includes(f.op)) return null;
+      filters.push({ field: 'units', op: f.op, value: Number(value) });
+      continue;
+    }
+    if (['lt', 'gt', 'eq'].includes(f.op)) return null;
+    const v = value.toLowerCase();
+    if (f.field === 'name') {
+      // The model never sees a name: a name filter must spell out a name the faculty member typed himself.
+      if (!/^[a-z][a-z'’ -]{1,39}$/i.test(value) || !asked.includes(` ${v} `)) return null;
+      filters.push({ field: 'name', op: f.op, value: v });
+      continue;
+    }
+    const list = allowed[f.field] ?? [];
+    if (f.op === 'is' || f.op === 'is_not') {
+      const hit = list.find((x) => x.toLowerCase() === v);
+      if (hit === undefined) return null;
+      filters.push({ field: f.field, op: f.op, value: hit });
+    } else {
+      if (v.length < 2 || !list.some((x) => x.toLowerCase().includes(v))) return null; // a part of an allowed value only
+      filters.push({ field: f.field, op: f.op, value });
+    }
+  }
+  return { kind: q.kind, filters, match: q.match === 'any' ? 'any' : 'all' };
+}
+function rowMatches(r, f) {
+  if (f.field === 'units') {
+    const n = Number(r.units);
+    return f.op === 'lt' ? n < f.value : f.op === 'gt' ? n > f.value : f.op === 'is_not' ? n !== f.value : n === f.value;
+  }
+  const s = (f.field === 'name' ? `${displayName(r)}` : String(r[f.field] ?? '')).toLowerCase();
+  const v = String(f.value).toLowerCase();
+  if (f.op === 'is') return s === v;
+  if (f.op === 'is_not') return s !== v;
+  const has = f.field === 'name' ? ` ${s} `.includes(` ${v} `) : s.includes(v);
+  return f.op === 'contains' ? has : !has;
+}
+export const queryMatches = (q, rows) => rows.filter((r) => (q.match === 'any' ? q.filters.some((f) => rowMatches(r, f)) : q.filters.every((f) => rowMatches(r, f))));
+// “anyone …?”, “are there any …?”, “is anybody …?”: answered yes / no with the rows highlighted (he can see who).
+const YES_NO = /^\s*(?:any|anyone|anybody|is|are|does|do|has|have)\b/i;
+export const queryListText = (n) => (n === 0 ? `No students on your ${COURSE.title} roster match that.` : n === 1 ? '1 student matches — highlighted on your roster below.' : `${n} students match — they're highlighted on your roster below.`);
+export const queryCountText = (n, total) => (n === 0 ? `None of your ${total} students match that.` : n === 1 ? `1 of your ${total} students matches.` : `${n} of your ${total} students match.`);
+export const queryYesNoText = (n, total) => (n === 0 ? `No — none of your ${total} students match that.` : `Yes — ${n} ${n === 1 ? 'student matches' : 'students match'}; they're highlighted on your roster below.`);
+
 // R2 (round 2): @-tags resolve against the class roster: @first, @last, @first-last (case-insensitive), or the student id.
 // → { tagged: [{ studentId, name }], ambiguous: [{ tag, names }], unknown: [tag] }. A tag starts the message or follows a
 // space and starts with a letter (alex@example.com and “@ 3pm” are not tags); @assistant is not a student.
@@ -243,7 +337,7 @@ export function tellText(about, reply) {
 }
 
 // ---- the roster in memory + the staff request --------------------------------------------------------------------
-export function createRosterDesk({ hubLink, conversationId, emit = () => {}, now = () => Date.now() }) {
+export function createRosterDesk({ hubLink, conversationId, emit = () => {}, now = () => Date.now(), readQuery = async () => ({ kind: 'none', filters: [], match: 'all' }) }) {
   let card = null; // { rosterId, roster, at, highlight } — the rows (and which ones are highlighted) live here and nowhere else
   let people = null; // [{ studentId, name: "First Last" }] from the last roster lookup — names only, memory only (tags, suggestions)
   let peopleLookup = null; // one lookup at a time for the names
@@ -328,6 +422,35 @@ export function createRosterDesk({ hubLink, conversationId, emit = () => {}, now
     return { action: 'roster', check: 'filter', reply: text, classSafe: true, roster: { rosterId: ref.rosterId, count: ref.count }, entries: [{ role: 'assistant', text, action: 'roster_fact' }, { role: 'assistant', text: rosterCardText(ref.count), action: 'roster', roster: ref }] };
   }
 
+  // A roster question in general (asksRosterQuestion): a fresh lookup, then the query (model in live, labelled heuristic in
+  // mock) from the question and the allowed values only, checked by code, run by code. Counts only in the chat; which rows
+  // matched stays in this desk (card.highlight). `emitRun` carries the run's events: counts and filter FIELD names only.
+  async function question({ operationId, hub, question: asked, emitRun = () => {} }) {
+    const got = await lookup({ operationId, hub });
+    if (got.fail) return got.fail;
+    const say = (text, check) => ({ action: 'roster_fact', check, reply: text, classSafe: true, entries: [{ role: 'assistant', text, action: 'roster_fact' }] });
+    const allowed = rosterAllowedValues(got.rows);
+    let raw;
+    try { raw = await readQuery({ question: asked, allowed, emit: emitRun }); } catch {
+      emitRun('roster_query', { status: 'failed', rosterCount: got.rows.length });
+      return say(ROSTER_QUERY_FAILED_TEXT, 'query_failed');
+    }
+    const q = checkRosterQuery(raw, allowed, asked);
+    if (!q) {
+      emitRun('roster_query', { status: 'unclear', by: raw?.by ?? null, rosterCount: got.rows.length });
+      return say(ROSTER_UNCLEAR_TEXT, 'query_unclear');
+    }
+    const hits = queryMatches(q, got.rows);
+    const total = got.rows.length;
+    const yesNo = YES_NO.test(asked);
+    emitRun('roster_query', { status: 'answered', by: raw?.by ?? null, kind: yesNo ? 'yes_no' : q.kind, rosterCount: total, matchCount: hits.length, filterFields: [...new Set(q.filters.map((f) => f.field))] });
+    if (!yesNo && q.kind === 'count') return say(queryCountText(hits.length, total), 'query_count');
+    if (!hits.length) return say(yesNo ? queryYesNoText(0, total) : queryListText(0), 'query_none');
+    const ref = newCard(got.roster, null, hits.map((r) => r.studentId));
+    const text = yesNo ? queryYesNoText(hits.length, total) : queryListText(hits.length);
+    return { action: 'roster', check: 'query', reply: text, classSafe: true, roster: { rosterId: ref.rosterId, count: ref.count }, entries: [{ role: 'assistant', text, action: 'roster_fact' }, { role: 'assistant', text: rosterCardText(ref.count), action: 'roster', roster: ref }] };
+  }
+
   // R3: “email / export / print my roster” — nothing here can; the card to look at and one plain sentence.
   async function exportAsk({ operationId, hub }) {
     const got = await lookup({ operationId, hub });
@@ -365,5 +488,5 @@ export function createRosterDesk({ hubLink, conversationId, emit = () => {}, now
   const clearTell = () => { tell = null; };
   const rearmTell = (about = null) => { tell = { at: now(), about }; };
   const reset = () => { card = null; known = null; tell = null; people = null; gen += 1; };
-  return { request, fact, filter, exportAsk, names, known: () => (people ? [...people] : null), view, state, counts, noteCourse, reset, waitingTell, askTell, clearTell, rearmTell };
+  return { request, fact, filter, question, exportAsk, names, known: () => (people ? [...people] : null), view, state, counts, noteCourse, reset, waitingTell, askTell, clearTell, rearmTell };
 }

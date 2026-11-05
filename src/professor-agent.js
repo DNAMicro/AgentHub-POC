@@ -20,14 +20,14 @@ import { loadSpecialistConfig } from './config.js';
 import { createHubLink } from './hub-link.js';
 import { LlmError, apiHost, keyEnvName, useModel } from './llm.js';
 import { COURSE, PROFESSOR_DEFAULT_SKILLS, SEED_LESSONS } from './course-pack.js';
-import { PROFESSOR_MODE, classifyPost, interpretProfessor, professorReply, professorStatus, tagsIn } from './professor-model.js';
+import { PROFESSOR_MODE, classifyPost, interpretProfessor, professorReply, professorStatus, readRosterQuery, tagsIn } from './professor-model.js';
 import { datesIn } from './a2ui-catalog.js';
 import { slotsIn } from './meeting-times.js';
 import { createJsonStore } from './json-store.js';
 import { AUDIENCE, ID, LESSON_PUBLISH_MEDIA_TYPE, LESSON_STATUS_MEDIA_TYPE, contentHash, validQuizNotice, validateLesson } from './lessons.js';
 import { answersCancelOffer, checkClassPost, isThanks, privateLeaveWords, rearmStaff, tellGoesToCard, resetStaff, staffAction, staffConversation, staffHolding, staffTurn, staffView } from './professor-staff.js';
 import { cardValues, ROSTER_POST_FAILED_TEXT, ROSTER_UNAVAILABLE_CODE } from './staff.js';
-import { ROSTER_GONE, ROSTER_QUESTION_TEXT, TELL_DROPPED, asksAboutRoster, asksRoster, asksRosterExport, createRosterDesk, dropsTell, notInClassText, notifyEveryone, notifyIsNew, resolveTags, rosterFact, rosterFilter, sentToAllText, tagFor, tellText, whichStudentText } from './professor-roster.js';
+import { ROSTER_GONE, ROSTER_QUESTION_TEXT, TELL_DROPPED, asksAboutRoster, asksRoster, asksRosterExport, asksRosterQuestion, createRosterDesk, dropsTell, notInClassText, notifyEveryone, notifyIsNew, resolveTags, rosterFact, rosterFilter, sentToAllText, tagFor, tellText, whichStudentText } from './professor-roster.js';
 import { createCanvasLink } from './professor-canvas.js';
 import { createQuizDesk, chipTopicOf } from './professor-quiz.js';
 import { validExisting } from './quiz-rules.js';
@@ -307,7 +307,7 @@ function postResult(record, ack) {
 const CANVAS_URL = process.env.CANVAS_URL ?? 'http://127.0.0.1:9';
 const canvasLink = createCanvasLink({ url: CANVAS_URL, token: process.env.CANVAS_TOKEN, emit: (type, runId, data) => emitViz(type, runId, data), timeoutMs: Number(process.env.CANVAS_TIMEOUT_MS ?? TIMEOUTS.professorCanvasCallMs) });
 // Part 17: the class roster (CHRS) lives in this process's memory only; the outbox keeps the chat line.
-const rosterDesk = createRosterDesk({ hubLink: { sendSigned: (...a) => hubLink.sendSigned(...a) }, conversationId: () => staffConversation(), emit: (type, data) => emitViz(type, null, data) });
+const rosterDesk = createRosterDesk({ hubLink: { sendSigned: (...a) => hubLink.sendSigned(...a) }, conversationId: () => staffConversation(), emit: (type, data) => emitViz(type, null, data), readQuery: readRosterQuery });
 const quizDesk = createQuizDesk({ canvas: canvasLink, createPost: (a) => createPost({ ...a, source: 'chat', author: 'professor' }), now: nowFn(), emit: (type, runId, data) => emitViz(type, runId, data), classCount: () => rosterDesk.counts()?.count ?? null });
 
 // ---- the professor's chat ---------------------------------------------------------------------------------
@@ -403,6 +403,11 @@ async function professorChat({ operationId, text, replyTo: replyToIn = null, ans
       staff = exporting ? await rosterDesk.exportAsk({ operationId, hub })
         : filter ? await rosterDesk.filter({ operationId, hub, filter })
           : fact ? await rosterDesk.fact({ operationId, hub, fact }) : await rosterDesk.request({ operationId, hub });
+    } else if (rosterOk && asksRosterQuestion(asked) && !privateLeaveWords(asked)) {
+      // Any other question about the roster (owner, 2026-11-05: “anyone not a business major?” was posted to all 25): the
+      // model reads it into a query only (never an answer, never a row), code checks and runs it on a fresh lookup. Never
+      // posted; a waiting HR / class / both question keeps waiting; an open HR card is not edited.
+      staff = await rosterDesk.question({ operationId, hub, question: asked, emitRun: (type, data) => emitViz(type, `prof-${operationId}`, data) });
     } else if (rosterOk && !toAssistant && asksAboutRoster(said) && !privateLeaveWords(said)) {
       // R3: any other question about the roster or “my students” is for the assistant, never a post (and never the HR /
       // class / both question): one plain sentence, nothing sent. A waiting question keeps waiting.
@@ -605,7 +610,7 @@ async function directPost({ operationId, said, roster, to = null, hub = null, gu
     return { action: 'post', reply: null, post: { key: lessonKey(r.body.lesson.lessonId, r.body.lesson.revision) }, kind: 'message' };
   }
   // R3 (round 2): a question about the roster or “my students” is for the assistant — never posted to the class.
-  if (guard && asksAboutRoster(said)) return { action: 'error', reply: ROSTER_QUESTION_TEXT, post: null };
+  if (guard && (asksAboutRoster(said) || asksRosterQuestion(said))) return { action: 'error', reply: ROSTER_QUESTION_TEXT, post: null };
   // R2 (round 2): tags resolve against the class roster (@first, @last, @first-last), not the two Student-agent sessions. A
   // tag starts the message or follows a space — the @ inside an email address (alex@example.com) isn't one.
   const found = await classPeople({ said, roster, operationId, hub });

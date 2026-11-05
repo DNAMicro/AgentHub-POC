@@ -86,11 +86,12 @@ const SAFE_FIELDS = new Set([
   'tool', 'moment', 'recordId', 'stepCount', 'expected', // Part 15: PeopleSoft tool name (fixed list, schema-enum constrained), moment, record id, count
   'hrOutcome', // HR: card / refused / workflow_disabled … (an outcome code, never the staff member's words)
   'quizId', 'questionCount', // Part 16: Canvas quiz number and a count (never a title, question or answer)
+  'matchCount', // Part 17 roster questions: how many roster rows a query matched (a count, never who)
   'rosterCount', 'service', // Part 17: a count of roster students and the staff service (hr | chrs) — never a name, ID or email
   'unknownOutcome', // a boolean: the issuer doesn't know whether its backend acted (Topology draws it as unknown, not rejected)
 ]);
 // Lists of field NAMES (never values) that may pass, e.g. which fields a form prefilled.
-const NAME_LIST_FIELDS = new Set(['prefilled']);
+const NAME_LIST_FIELDS = new Set(['prefilled', 'filterFields']); // filterFields: which roster FIELDS a query used (level, plan …), never values
 const isNameList = (v) => Array.isArray(v) && v.length <= 30 && v.every((x) => typeof x === 'string' && /^[A-Za-z][\w-]{0,40}$/.test(x));
 const mask = (v) => (typeof v === 'string' ? `[${v.length} chars redacted]` : Array.isArray(v) ? `[${v.length} items redacted]`
   : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).map((f) => [f, '[redacted]'])) : v === null || v === undefined ? v : '[redacted]');

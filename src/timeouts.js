@@ -25,6 +25,7 @@ export const TIMEOUTS = Object.freeze({
   hubFormActionMs: 8000, // Hub → specialist STUDENT form action, unchanged (HUB_FORM_TIMEOUT_MS)
   hubDispatchMs: 60000, // Hub → specialist chat / staff request, > absence name + tool choice + balances call (HUB_DISPATCH_TIMEOUT_MS)
   professorStaffClassifierMs: 10000, // Professor's own staff-or-class model call, before it asks the Hub (PROFESSOR_STAFF_CLASSIFIER_TIMEOUT_MS)
+  professorRosterQueryMs: 10000, // Faculty's model reading a roster question into a query (PROFESSOR_ROSTER_QUERY_TIMEOUT_MS); runs after the roster lookup (professorStaffMs): 65 + 10 s < the Hub's author proxy
   professorModelMs: 45000, // Professor's own model naming a post (classifyPost) or reading an @assistant message (interpretProfessor) (PROFESSOR_MODEL_TIMEOUT_MS)
   professorStaffMs: 65000, // Professor → Hub staff request or action, > both Hub waits above
   hubAuthorProxyMs: 100000, // Hub dev proxy → Professor /author/*, > the classifier + the Professor's staff wait, and > a chat post: staff classifier + post model + publish (10 + 45 + 40 = 95 s)
