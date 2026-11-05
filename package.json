@@ -19,6 +19,8 @@
     "hr:live": "HR_MODE=live node src/hr-agent.js",
     "peoplesoft": "node src/peoplesoft-mcp.js",
     "peoplesoft:live": "PEOPLESOFT_MODE=live node src/peoplesoft-mcp.js",
+    "records": "node src/student-records-mcp.js",
+    "records:live": "STUDENT_RECORDS_MODE=live node src/student-records-mcp.js",
     "canvas": "node src/canvas-mcp.js",
     "canvas:live": "CANVAS_MODE=live node src/canvas-mcp.js",
     "ui:live": "npm run build:ui && STUDENT_MODE=live node src/ui-server.js",

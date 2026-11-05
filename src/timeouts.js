@@ -7,6 +7,7 @@
 //   PeopleSoft (planner model)]
 export const TIMEOUTS = Object.freeze({
   peoplesoftPlannerMs: 8000, // PeopleSoft's own model, inside one create_absence_request (PEOPLESOFT_MODEL_TIMEOUT_MS)
+  studentRecordsPlannerMs: 8000, // Student records' own model, inside one get_class_roster (STUDENT_RECORDS_MODEL_TIMEOUT_MS)
   canvasPlannerMs: 8000, // Canvas's own model, inside one create_quiz (CANVAS_MODEL_TIMEOUT_MS)
   professorCanvasToolChoiceMs: 8000, // Faculty's AI choosing the Canvas tool (PROFESSOR_CANVAS_TOOL_CHOICE_TIMEOUT_MS)
   professorCanvasCallMs: 12000, // Canvas connect + one MCP call share this (CANVAS_TIMEOUT_MS); the call keeps at least canvasPlannerMs + 2 s (src/professor-canvas.js CALL_FLOOR_MS)

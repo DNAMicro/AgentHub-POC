@@ -88,3 +88,9 @@ test('Part 16 Task 4: Faculty reads its Canvas budgets from the shared defaults'
   assert.match(await src('professor-canvas.js'), /timeoutMs = TIMEOUTS\.professorCanvasCallMs/);
   assert.match(await src('professor-canvas.js'), /CALL_FLOOR_MS = TIMEOUTS\.canvasPlannerMs \+ 2000/);
 });
+
+test('Part 17: student records planner budget is 8 s and read from TIMEOUTS', async () => {
+  const { readFile } = await import('node:fs/promises');
+  assert.equal(T.studentRecordsPlannerMs, 8000);
+  assert.match(await readFile(new URL('../src/student-records-model.js', import.meta.url), 'utf8'), /STUDENT_RECORDS_MODEL_TIMEOUT_MS \?\? TIMEOUTS\.studentRecordsPlannerMs/);
+});

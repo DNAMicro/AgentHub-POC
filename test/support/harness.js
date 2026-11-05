@@ -137,6 +137,14 @@ export async function startPeopleSoft(env = {}) {
   return ps;
 }
 
+// PeopleSoft student records stand-in MCP server (Part 17): token required; roster in memory.
+export const STUDENT_RECORDS_READY = /PeopleSoft student records MCP server \(demo stand-in\) listening on (http:\/\/127\.0\.0\.1:\d+)/;
+export async function startStudentRecords(env = {}) {
+  const sr = startProcess('src/student-records-mcp.js', { PORT: '0', ...env }, STUDENT_RECORDS_READY);
+  sr.url = await sr.ready;
+  return sr;
+}
+
 // Canvas LMS stand-in MCP server (Part 16): token required; quizzes in memory.
 export const CANVAS_READY = /Canvas LMS MCP server \(demo stand-in\) listening on (http:\/\/127\.0\.0\.1:\d+)/;
 export async function startCanvas(env = {}) {
