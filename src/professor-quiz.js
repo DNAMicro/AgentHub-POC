@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { TOPICS, TERM, taughtTopics, isTaught, topicFromWords, countFromWords, asksQuiz, dayLabel, pacificDate } from './course-schedule.js';
 import { defaultSettings, checkQuiz, validExisting } from './quiz-rules.js';
 import { draftQuiz as realDraftQuiz, draftOne as realDraftOne } from './quiz-model.js';
-import { ROSTER_POST_FAILED_TEXT, ROSTER_UNAVAILABLE_CODE } from './staff.js';
+import { ROSTER_UNAVAILABLE_CODE } from './staff.js';
 
 export const CLOSED_TEXT = 'This draft was closed when the app restarted.';
 export const NOT_CONNECTED_TEXT = "Canvas isn't connected, so nothing was sent.";
@@ -240,7 +240,7 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
     const sent = await sendNotice(d);
     if (d.state === 'closed') return closedResult(d);
     if (!sent) {
-      return { ok: false, retryable: true, published: true, state: 'published', draftId: d.draftId, canvasQuizId: d.canvasQuizId, text: d.noticeNoList ? ROSTER_POST_FAILED_TEXT : 'Published in Canvas, but the class notice did not go out. Press Publish again to send it; students are notified only once.' };
+      return { ok: false, retryable: true, published: true, state: 'published', draftId: d.draftId, canvasQuizId: d.canvasQuizId, text: d.noticeNoList ? "Published in Canvas, but I couldn't get your class list, so students weren't told yet. Press Publish again in a moment — they're notified only once." : 'Published in Canvas, but the class notice did not go out. Press Publish again to send it; students are notified only once.' };
     }
     return { ok: true, state: 'published', draftId: d.draftId, canvasQuizId: d.canvasQuizId, deliveries: card()?.deliveries ?? [], text: publishedText(d), entries: [entry(d, `Published in Canvas (quiz #${d.canvasQuizId}). Students notified.`)] };
   }

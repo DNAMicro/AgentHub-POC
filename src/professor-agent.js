@@ -25,9 +25,9 @@ import { datesIn } from './a2ui-catalog.js';
 import { slotsIn } from './meeting-times.js';
 import { createJsonStore } from './json-store.js';
 import { AUDIENCE, ID, LESSON_PUBLISH_MEDIA_TYPE, LESSON_STATUS_MEDIA_TYPE, contentHash, validQuizNotice, validateLesson } from './lessons.js';
-import { guardClassPost, resetStaff, staffAction, staffConversation, staffHolding, staffTurn, staffView } from './professor-staff.js';
+import { guardClassPost, rearmStaff, resetStaff, staffAction, staffConversation, staffHolding, staffTurn, staffView } from './professor-staff.js';
 import { cardValues, ROSTER_POST_FAILED_TEXT, ROSTER_UNAVAILABLE_CODE } from './staff.js';
-import { NOTIFY_EMPTY, ROSTER_GONE, asksRoster, createRosterDesk, notifyEveryone, sentToAllText } from './professor-roster.js';
+import { NOTIFY_EMPTY, ROSTER_GONE, TELL_DROPPED, asksRoster, createRosterDesk, dropsTell, notifyEveryone, sentToAllText } from './professor-roster.js';
 import { createCanvasLink } from './professor-canvas.js';
 import { createQuizDesk, chipTopicOf } from './professor-quiz.js';
 import { validExisting } from './quiz-rules.js';
@@ -368,16 +368,32 @@ async function professorChat({ operationId, text, replyTo: replyToIn = null, ans
     // (a statement about himself with a leave word is asked about, never posted). Neither runs for @assistant messages
     // or replies to one student, nor while the staff desk is waiting for an answer (that reply belongs to it).
     let notify = null;
+    let tellReply = false;
     let staff;
     const held = staffHolding();
     const free = !toAssistant && !reply && !held.question;
     if (free && (!held.offer || held.offer === 'cancel') && asksRoster(said)) {
       staff = await rosterDesk.request({ operationId, hub });
     } else if (free && !held.offer && (notify = notifyEveryone(said))) {
-      if (!notify.rest) { staff = { action: 'clarify', check: 'notify_empty', reply: NOTIFY_EMPTY, open: true, entries: [{ role: 'assistant', text: NOTIFY_EMPTY, action: 'clarify' }] }; notify = null; }
+      rosterDesk.clearTell();
+      // Only a subject (“… about the midterm review”) is never sent as a fragment: ask what to say, and his next plain reply goes out.
+      if (notify.about) { staff = rosterDesk.askTell(notify.about); notify = null; }
+      else if (!notify.rest) { staff = { action: 'clarify', check: 'notify_empty', reply: NOTIFY_EMPTY, classSafe: true, entries: [{ role: 'assistant', text: NOTIFY_EMPTY, action: 'clarify' }] }; notify = null; }
       else staff = guardClassPost({ text: said, entryId: ownId, emit: (type, data) => emitViz(type, `staff-${operationId}`, data) });
       if (staff) notify = null;
       else staff = null; // safe to post: the staff desk is not asked
+    } else if (free && !held.offer && !/^\s*@/.test(said) && rosterDesk.waitingTell()) {
+      // The answer to “What should I tell your class about …?”: it goes to the class, not to the staff desk — unless it is a
+      // statement about himself with a leave word (then the usual question), or he drops it.
+      rosterDesk.clearTell();
+      tellReply = true;
+      if (dropsTell(said)) staff = { action: 'clarify', check: 'notify_dropped', reply: TELL_DROPPED, classSafe: true, entries: [{ role: 'assistant', text: TELL_DROPPED, action: 'clarify' }] };
+      else {
+        notify = { rest: said.replace(/\s+/g, ' ').trim() };
+        staff = guardClassPost({ text: said, entryId: ownId, emit: (type, data) => emitViz(type, `staff-${operationId}`, data) });
+        if (staff) notify = null;
+        else staff = null;
+      }
     }
     if (staff === undefined) staff = await staffTurn({ operationId, text: said, entryId: ownId, hubLink, bypass: toAssistant || Boolean(reply), card: card.fields, emit: (type, data) => emitViz(type, `staff-${operationId}`, data) });
     // The professor answered “class” to the unsure question: the HELD message goes out as today (a held “notify everyone …” as the class post it was).
@@ -396,7 +412,12 @@ async function professorChat({ operationId, text, replyTo: replyToIn = null, ans
       result = times.length ? await offerMeeting({ operationId, audience: waiting.audience, slots: times, roster })
         : toAssistant ? await assistantTurn({ operationId, said, roster, hub }) : notify ? await notifyPost({ operationId, text: notify.rest }) : await directPost({ operationId, said: sendText, roster, to: reply });
     }
-    const { entries = null, continueWith, entryId, note, notice: _n, open = false, confirm = null, ...stored } = result;
+    // The class list wasn't available, so nothing went out: whatever the yes / “class” / reply took off the desk is waiting again.
+    if (result.action === 'error' && result.reply === ROSTER_POST_FAILED_TEXT) {
+      rearmStaff(staff?.rearm);
+      if (tellReply && notify) rosterDesk.rearmTell();
+    }
+    const { entries = null, continueWith, entryId, note, notice: _n, classSafe = false, confirm = null, ...stored } = result;
     // A reply to a pending question that also carried NEW content: the answer was acted on, the new part was not
     // sent (src/professor-staff.js, NOT_SENT) — say so in the chat and keep the professor's message private.
     const notice = staff?.notice ?? null;
@@ -408,9 +429,9 @@ async function professorChat({ operationId, text, replyTo: replyToIn = null, ans
       own.toAssistant = viaAssistant;
       if (entries) {
         // A staff turn (HR's reply, the unsure question, the note): each as its own chat entry, text only.
-        own.staff = !open; // the roster desk's answers are the professor's own business, not an HR secret
+        own.staff = !classSafe; // the roster desk's answers are the professor's own business, not an HR secret
         const now = new Date().toISOString();
-        for (const e of entries) s.chat.push({ id: `${operationId}:${e.role === 'hr' ? 'h' : 'a'}`, at: now, staff: !open, ...e });
+        for (const e of entries) s.chat.push({ id: `${operationId}:${e.role === 'hr' ? 'h' : 'a'}`, at: now, staff: !classSafe, ...e });
       } else if (!viaAssistant) {
         // A held message the professor chose to send to the class is no longer private (staff: false).
         Object.assign(s.chat.find((m) => m.id === target) ?? own, { postKey: result.post?.key ?? null, problem: result.post ? null : result.reply, ...(staff?.continueWith ? { staff: false } : {}) });

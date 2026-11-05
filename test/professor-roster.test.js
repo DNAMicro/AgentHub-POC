@@ -28,10 +28,14 @@ test('notifyEveryone: the opening is stripped, the rest is capitalized with a pe
     ['Notify everyone that the quiz is on Friday', 'The quiz is on Friday.'],
     ['tell everybody: bring your laptop', 'Bring your laptop.'],
     ['Let all my students know the reading is chapter 5', 'The reading is chapter 5.'],
-    ['Inform the whole class about the midterm review', 'The midterm review.'],
+    ['Inform the whole class that the midterm review is Monday', 'The midterm review is Monday.'],
     ['Tell the class that office hours moved to 3 pm!', 'Office hours moved to 3 pm!'],
   ];
   for (const [said, rest] of variants) assert.deepEqual(notifyEveryone(said), { rest }, said);
+  // A subject only (about / of) is never a message: the desk asks what to say.
+  assert.deepEqual(notifyEveryone('Inform the whole class about the midterm review.'), { rest: '', about: 'the midterm review' });
+  assert.deepEqual(notifyEveryone('tell everyone of the quiz'), { rest: '', about: 'the quiz' });
+  assert.deepEqual(notifyEveryone('notify everyone about'), { rest: '' });
   assert.deepEqual(notifyEveryone('notify everyone'), { rest: '' });
   assert.deepEqual(notifyEveryone('Let everyone know'), { rest: '' });
   for (const t of ['Tell Sam the quiz is Friday', 'Please read chapter 5', 'everyone should read chapter 5', 'both', 'tell them']) assert.equal(notifyEveryone(t), null, t);
@@ -46,6 +50,24 @@ test('the desk keeps the last known counts when the Hub has none, and forgets th
   assert.deepEqual(desk.counts(), { count: 25, online: 1 });
   desk.reset();
   assert.equal(desk.counts(), null);
+});
+
+const rows = Array.from({ length: 3 }, (_, i) => ({ studentId: i === 0 ? 'student-alex' : `student-x${i}` }));
+const okLink = (before = () => {}) => ({ sendSigned: async () => { await before(); return { status: 'ok', reply: { roster: { class: { code: 'X' }, rows } } }; } });
+test('a roster fetched while the Hub view is missing keeps the last known online count (not 0)', async () => {
+  const desk = createRosterDesk({ hubLink: okLink(), conversationId: () => 'c' });
+  desk.noteCourse({ rosterCount: 3, onlineCount: 1 });
+  await desk.request({ operationId: 'op-1', hub: null });
+  assert.deepEqual(desk.counts(), { count: 3, online: 1 });
+});
+
+test('a classroom reset while a roster request is in flight leaves no roster card', async () => {
+  let desk;
+  desk = createRosterDesk({ hubLink: okLink(() => desk.reset()), conversationId: () => 'c' });
+  const r = await desk.request({ operationId: 'op-2', hub: null });
+  assert.equal(r.reply, ROSTER_GONE);
+  assert.equal(desk.state(), null);
+  assert.equal(desk.view(null, null), null);
 });
 
 // ---- the running Faculty agent ---------------------------------------------------------------------------------------
@@ -72,6 +94,16 @@ const say = async (s, text, operationId = `op-${randomUUID()}`) => {
   return { http: res.status, ...(await res.json()) };
 };
 const state = async (s) => (await fetch(`${s.ui.url}/api/professor/state`)).json();
+// CHRS (and its records stand-in) start after the stack did, on the ports the Hub already names, and the Hub marks it ready.
+async function bringBackChrs(s) {
+  const { randomBytes } = await import('node:crypto');
+  const { startChrs, startStudentRecords, hubEntry } = await import('./support/harness.js');
+  const token = randomBytes(24).toString('base64url');
+  const { unusedPort } = await import('./support/harness.js');
+  s.studentRecords = await startStudentRecords({ PORT: String(await unusedPort()), STUDENT_RECORDS_TOKEN: token });
+  s.chrs = await startChrs({ ...s.specialistEnv, PORT: String(s.chrsPort), STUDENT_RECORDS_URL: s.studentRecords.url, STUDENT_RECORDS_TOKEN: token });
+  await waitFor(async () => (await hubEntry(s.hub, 'chrs'))?.status === 'ready', { what: 'chrs ready', timeout: 10000 });
+}
 const lastOf = (chat, role) => chat.filter((m) => m.role === role).at(-1);
 
 let main;
@@ -154,7 +186,7 @@ test('notify everyone (5 variants) posts the stripped text to all 25 and says ho
     ['Notify everyone that the quiz is on Friday', 'The quiz is on Friday.'],
     ['tell everybody: bring your laptop', 'Bring your laptop.'],
     ['Let all my students know the reading is chapter 5', 'The reading is chapter 5.'],
-    ['Inform the whole class about the midterm review', 'The midterm review.'],
+    ['Inform the whole class that the midterm review is Monday', 'The midterm review is Monday.'],
     ['Tell the class that office hours moved to 3 pm', 'Office hours moved to 3 pm.'],
   ];
   for (const [said, text] of variants) {
@@ -317,4 +349,60 @@ test('CHRS down: the class cancellation uses the same sentence, and the offer ca
   const yes = await say(s, 'yes');
   assert.equal(yes.reply, FAILED_POST, JSON.stringify(yes));
   assert.equal((await state(s)).lessons.reduce((n, l) => n + l.deliveries.length, 0), 0);
+  // The list comes back: the offer is waiting again, so a second yes sends the cancellation, once.
+  await bringBackChrs(s);
+  const again = await say(s, 'yes');
+  assert.equal(again.action, 'post', JSON.stringify(again));
+  let st = await state(s);
+  const sent = st.lessons.filter((l) => l.title === 'Class cancelled' && l.deliveries.length === 25);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].text, 'Marketing 351 is cancelled on Fri, Nov 6.');
+  const third = await say(s, 'yes'); // the offer is used up: no second cancellation
+  assert.ok(third.http === 200 || third.http === 409);
+  st = await state(s);
+  assert.equal(st.lessons.filter((l) => l.title === 'Class cancelled' && l.deliveries.length === 25).length, 1);
+});
+
+test('CHRS down: a held "class" answer is held again, and works once the list is back', async () => {
+  const s = await classroom({ chrs: false });
+  assert.equal((await say(s, "notify everyone that I'm sick, no class")).reply, UNSURE);
+  assert.equal((await say(s, 'class')).reply, FAILED_POST);
+  await bringBackChrs(s);
+  const r = await say(s, 'class');
+  assert.equal(r.action, 'post', JSON.stringify(r));
+  assert.equal((await state(s)).lessons.filter((l) => l.deliveries.length === 25).length, 1);
+});
+
+// ---- "… about X": ask what to say -------------------------------------------------------------------------------------
+test('"inform the class about the midterm review" asks what to say; his next plain reply goes to all 25, not to the staff desk', async () => {
+  const r = await say(main, 'Inform the whole class about the midterm review');
+  assert.equal(r.reply, 'What should I tell your class about the midterm review?');
+  assert.equal((await state(main)).lessons.length, 0, 'no fragment is posted');
+  // A reply that would look like an HR matter to the desk ("Friday") still goes to the class.
+  const a = await say(main, 'It is on Friday at 2pm in room 101');
+  assert.equal(a.action, 'post', JSON.stringify(a));
+  const st = await state(main);
+  assert.equal(st.hrCard, null);
+  assert.equal(st.lessons[0].text, 'It is on Friday at 2pm in room 101');
+  assert.equal(st.lessons[0].deliveries.length, 25);
+  assert.equal(lastOf(st.chat, 'assistant').text, SENT);
+  // It was used up: the next plain message is a normal message again.
+  const b = await say(main, 'Read chapter 6');
+  assert.equal(b.action, 'post');
+});
+
+test('while "what should I tell your class about" waits: "never mind" drops it; a first-person leave reply is asked about; the wait expires only by time', async () => {
+  await say(main, 'tell everyone about the quiz');
+  const d = await say(main, 'never mind');
+  assert.equal(d.reply, 'Okay, I won’t send anything to your class.');
+  assert.equal((await state(main)).lessons.length, 0);
+  assert.notEqual((await say(main, 'Read chapter 6')).reply, 'Okay, I won’t send anything to your class.');
+  await main.reset();
+  await say(main, 'notify everyone of the schedule change');
+  const g = await say(main, "I'm sick on Friday");
+  assert.equal(g.reply, UNSURE);
+  assert.equal((await state(main)).lessons.length, 0);
+  // "that …" keeps the strip-and-send behaviour.
+  await main.reset();
+  assert.equal((await say(main, 'notify everyone that the midterm review is Monday')).action, 'post');
 });

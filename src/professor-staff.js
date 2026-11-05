@@ -173,6 +173,13 @@ export const staffView = () => (cardOpen() ? { formRef: openCard.formRef, a2ui: 
 
 // Part 17 (roster desk): the Faculty agent's other desks need the staff desk's state without owning it.
 export const staffConversation = () => conversationId;
+// The professor said yes (or “class”), the offer / held message was taken off the desk, and then the post to the class
+// failed because the class list wasn't available: nothing went out, so the same offer / question is waiting again
+// (a second yes works once the list is back). Only what the result says it took is put back.
+export function rearmStaff(rearm) {
+  if (rearm?.note && !pendingNote && !pendingChoice) pendingNote = { ...rearm.note, at: Date.now() };
+  if (rearm?.choice && !pendingNote && !pendingChoice) pendingChoice = { ...rearm.choice, at: Date.now() };
+}
 // A question (HR / class / both) or a note offer is waiting for its answer; a plain reply must reach staffTurn so it
 // is read as that answer. A cancellation offer alone does not block the roster desk.
 export const staffHolding = () => ({ question: fresh(pendingChoice), offer: fresh(pendingNote) ? pendingNote.kind ?? 'post' : null });
@@ -286,7 +293,7 @@ export async function staffTurn({ operationId, text, entryId, hubLink, bypass = 
     if (YES.test(text) && !pureYes) return reaskNote();
     // A long class message offered while a message was held (“Should I post this to the class: …?”) goes out as
     // the professor's own message (today's path); the neutral HR note goes out as the note.
-    if (pureYes) return told(note.kind === 'post' ? { continueWith: note.text, entryId: note.entryId } : { note: note.text });
+    if (pureYes) return told(note.kind === 'post' ? { continueWith: note.text, entryId: note.entryId, rearm: { note } } : { note: note.text, rearm: { note } });
     // Not a clear yes or no: ask once more; a second unclear reply declines. Never posted either way. A reply with
     // new content is an answer attempt too (never dropped silently).
     if (SHORT(text) || fresh) return reaskNote();
@@ -317,7 +324,7 @@ export async function staffTurn({ operationId, text, entryId, hubLink, bypass = 
         return fresh ? withNotice(r) : r;
       }
       emit('staff_decision', { kind: 'class_message', decidedBy: 'professor_choice' });
-      const r = { continueWith: held.text, entryId: held.entryId };
+      const r = { continueWith: held.text, entryId: held.entryId, rearm: { choice: held } };
       return fresh ? withNotice(r) : r;
     };
     const dropped = () => say(fresh ? `${NOTHING_DONE} ${NOT_SENT}` : NOTHING_DONE, { check: 'staff_or_class_dropped' });

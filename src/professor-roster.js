@@ -13,6 +13,11 @@ import { TIMEOUTS } from './timeouts.js';
 
 export const ROSTER_GONE = 'Ask again to see your roster.';
 export const NOTIFY_EMPTY = 'What should I tell your class?';
+export const tellAboutText = (about) => `What should I tell your class about ${about}?`;
+export const TELL_DROPPED = 'Okay, I won’t send anything to your class.';
+const TELL_EXPIRES_MS = 15 * 60_000; // like the quiz desk's waiting question
+const TELL_DROP = /^\s*(?:never\s?mind|nvm|cancel|forget\s+it|skip\s+it|drop\s+it|no\s+thanks?)\b[\s.!]*$/i;
+export const dropsTell = (text) => TELL_DROP.test(String(text ?? ''));
 export const rosterCardText = (n) => `Class roster · ${n} ${n === 1 ? 'student' : 'students'}`;
 export const sentToAllText = (n) => `Sent to all ${n} students in ${COURSE.title}.`;
 
@@ -35,13 +40,15 @@ export function asksRoster(text) {
 
 // “Notify everyone that …”, “Tell the class: …”, “Let all my students know …”, “Inform the whole class about …”.
 const TARGET = String.raw`(?:everyone|everybody|all\s+(?:of\s+)?(?:my|the|our)?\s*students|(?:my|the|our)\s+(?:whole\s+|entire\s+)?class|the\s+whole\s+class)`;
-const NOTIFY = new RegExp(String.raw`^\s*(?:please\s+)?(?:(?:notify|tell|inform)|let)\s+${TARGET}(?:\s+know)?\b[\s,:;\-–—]*(?:(?:that|of|about)\b[\s,:;\-–—]*)?([\s\S]*)$`, 'i');
-// → null (not this) or { rest } with rest = the sentence to send ('' when he said nothing to tell).
+const NOTIFY = new RegExp(String.raw`^\s*(?:please\s+)?(?:(?:notify|tell|inform)|let)\s+${TARGET}(?:\s+know)?\b[\s,:;\-–—]*(?:(that|of|about)\b[\s,:;\-–—]*)?([\s\S]*)$`, 'i');
+// → null (not this) or { rest } with rest = the sentence to send. '' when he said nothing to tell, or when he only named a
+// subject (“… about the midterm review”, “… of the quiz”): { rest: '', about } — a fragment is never sent, the desk asks what to say.
 export function notifyEveryone(text) {
   const m = NOTIFY.exec(String(text ?? ''));
   if (!m) return null;
-  const body = m[1].replace(/\s+/g, ' ').trim();
+  const body = m[2].replace(/\s+/g, ' ').trim();
   if (!body) return { rest: '' };
+  if (/^(?:of|about)$/i.test(m[1] ?? '')) return { rest: '', about: body.replace(/[.!?\s]+$/, '') };
   const capital = body[0].toUpperCase() + body.slice(1);
   return { rest: /[.!?]$/.test(capital) ? capital : `${capital}.` };
 }
@@ -49,6 +56,8 @@ export function notifyEveryone(text) {
 // ---- the roster in memory + the staff request --------------------------------------------------------------------
 export function createRosterDesk({ hubLink, conversationId, emit = () => {}, now = () => Date.now() }) {
   let card = null; // { rosterId, roster, at, onlineIds } — the rows live here and nowhere else
+  let tell = null; // { at } — “what should I tell your class about …?” is waiting for his next plain reply
+  let gen = 0; // a reset while a roster request is in flight leaves no card
   let known = null; // last known { count, online }: the Hub's counts are empty until it has asked CHRS, and empty again after 60 s
 
   function remember(count, online) {
@@ -63,19 +72,21 @@ export function createRosterDesk({ hubLink, conversationId, emit = () => {}, now
 
   // Faculty chat: "show my roster". Returns { reply, entries, ... } for the Professor agent's staff-style result.
   async function request({ operationId, hub }) {
+    const asked = gen;
     const value = { type: 'staff_request', operationId, conversationId: conversationId(), text: 'Show my class roster.', service: 'chrs' };
     const r = await hubLink.sendSigned(STAFF_REQUEST_MEDIA_TYPE, value, staffRequestFields(value), { timeoutMs: TIMEOUTS.professorStaffMs });
     const rows = r.status === 'ok' ? r.reply?.roster?.rows : null;
     emit('roster_relayed', { status: r.status, rosterCount: Array.isArray(rows) ? rows.length : 0 });
     if (!Array.isArray(rows) || !rows.length || !r.reply.roster.class || typeof r.reply.roster.class !== 'object') {
-      return { action: 'roster_failed', reply: ROSTER_FAILED_TEXT, open: true, entries: [{ role: 'assistant', text: ROSTER_FAILED_TEXT, action: 'error', failed: true }] };
+      return { action: 'roster_failed', reply: ROSTER_FAILED_TEXT, classSafe: true, entries: [{ role: 'assistant', text: ROSTER_FAILED_TEXT, action: 'error', failed: true }] };
     }
+    if (asked !== gen) return { action: 'roster_failed', reply: ROSTER_GONE, classSafe: true, entries: [{ role: 'assistant', text: ROSTER_GONE, action: 'error', failed: true }] }; // the classroom was reset while CHRS answered
     const course = hub?.courses?.find((c) => c.courseId === COURSE.courseId);
     const onlineIds = new Set((course?.enrolled ?? []).filter((s) => s.online).map((s) => s.studentId));
     card = { rosterId: `ro-${randomUUID().slice(0, 12)}`, roster: r.reply.roster, at: new Date(now()).toISOString() };
-    remember(rows.length, rows.filter((x) => onlineIds.has(x.studentId)).length);
+    remember(rows.length, course ? rows.filter((x) => onlineIds.has(x.studentId)).length : undefined); // no Hub view: keep the last known online count
     const text = rosterCardText(rows.length);
-    return { action: 'roster', reply: text, open: true, roster: { rosterId: card.rosterId, count: rows.length }, entries: [{ role: 'assistant', text, action: 'roster', roster: { rosterId: card.rosterId, count: rows.length, at: card.at } }] };
+    return { action: 'roster', reply: text, classSafe: true, roster: { rosterId: card.rosterId, count: rows.length }, entries: [{ role: 'assistant', text, action: 'roster', roster: { rosterId: card.rosterId, count: rows.length, at: card.at } }] };
   }
 
   // GET /author/roster: the full roster for the Faculty view, with who is online right now (Hub-reported).
@@ -86,6 +97,10 @@ export function createRosterDesk({ hubLink, conversationId, emit = () => {}, now
     if (course) noteCourse(course);
     return { rosterId: card.rosterId, at: card.at, roster: card.roster, online };
   }
-  const reset = () => { card = null; known = null; };
-  return { request, view, state, counts, noteCourse, reset };
+  const waitingTell = () => { if (tell && now() - tell.at > TELL_EXPIRES_MS) tell = null; return tell; };
+  const askTell = (about) => { tell = { at: now() }; return { action: 'clarify', check: 'notify_about', reply: tellAboutText(about), classSafe: true, entries: [{ role: 'assistant', text: tellAboutText(about), action: 'clarify' }] }; };
+  const clearTell = () => { tell = null; };
+  const rearmTell = () => { tell = { at: now() }; };
+  const reset = () => { card = null; known = null; tell = null; gen += 1; };
+  return { request, view, state, counts, noteCourse, reset, waitingTell, askTell, clearTell, rearmTell };
 }

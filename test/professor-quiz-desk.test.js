@@ -336,7 +336,7 @@ test('Review Focus 1: the class list is unavailable when the notice goes out: th
   const r = await s.desk.action({ draftId, operationId: 'op-p', action: 'publish' });
   assert.equal(r.ok, false);
   assert.equal(r.published, true);
-  assert.equal(r.text, "I couldn't get your class list just now, so nothing was sent. Try again in a moment.");
+  assert.equal(r.text, "Published in Canvas, but I couldn't get your class list, so students weren't told yet. Press Publish again in a moment — they're notified only once.");
   assert.ok(!/roster_unavailable|CHRS|Hub/i.test(r.text));
   down = false;
   const again = await s.desk.action({ draftId, operationId: 'op-p2', action: 'publish' });
