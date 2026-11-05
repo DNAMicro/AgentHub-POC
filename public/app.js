@@ -10,6 +10,7 @@ import { createFormsUi } from './forms-ui.js';
 import { createTopology } from './topology.js';
 import { createClassroom } from './classroom.js';
 import { quizFactsLine } from './quiz-ui.js';
+import { renderRichText } from './rich-text.js';
 import { WORKFLOWS, prettyDate } from '/shared/forms.js';
 
 const $ = (id) => document.getElementById(id);
@@ -184,7 +185,7 @@ function definitionList(className, entries) {
 
 // speaker: who produced the line (student | tutor | library | router) — it sets the line's color.
 // kind "note": a routing/system line, shown small and centered in the chat.
-function messageItem({ dir, label, at, text, values, ids, speaker, kind }) {
+function messageItem({ dir, label, at, text, values, ids, speaker, kind, split = dir === 'received' && kind !== 'note' }) {
   const li = document.createElement('li');
   li.className = kind === 'note' ? 'msg note' : 'msg';
   li.dataset.dir = dir;
@@ -200,9 +201,11 @@ function messageItem({ dir, label, at, text, values, ids, speaker, kind }) {
   timeEl.textContent = shortTime(at);
   head.append(dirEl, timeEl);
 
-  const body = document.createElement('p');
+  // Paragraphs and lists, never one wall of text; a reply someone else wrote is also split into short
+  // paragraphs, the student's own words are shown as typed (rich-text.js).
+  const body = document.createElement('div');
   body.className = 'msg-text';
-  body.textContent = text;
+  renderRichText(body, text, { split });
   li.append(head, body);
 
   if (values) li.append(definitionList('values', Object.entries(values)));
@@ -955,7 +958,7 @@ function handle(event, { live = true } = {}) {
         // its own bubble with a Reply button; a lesson stays in the inbox.
         if (data.kind === 'message' && typeof data.text === 'string') {
           const from = `${data.professorName ?? 'Your faculty member'}${data.author === 'assistant' && !data.quiz ? ' · course assistant' : ''}`; // a quiz notice is always from the faculty member
-          const item = messageItem({ at, dir: 'received', speaker: 'professor', label: `${from} → ${data.toAll ? 'the whole class' : 'you'}`, text: data.text, ids: { course: data.courseTitle, delivery: data.deliveryId, lesson: data.lessonId, note: 'Delivered by the university to your Student agent (a new A2A message the faculty member started).' } });
+          const item = messageItem({ at, dir: 'received', speaker: 'professor', split: data.author === 'assistant', label: `${from} → ${data.toAll ? 'the whole class' : 'you'}`, text: data.text, ids: { course: data.courseTitle, delivery: data.deliveryId, lesson: data.lessonId, note: 'Delivered by the university to your Student agent (a new A2A message the faculty member started).' } });
           item.dataset.delivery = data.deliveryId;
           item.classList.add('incoming-message');
           // Part 16: a quiz notice is facts only — no Reply, nothing to take here; the quiz lives in Canvas.

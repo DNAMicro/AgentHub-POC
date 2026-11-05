@@ -19,6 +19,7 @@
 import { MessageProcessor, basicCatalog } from './vendor/a2ui.js';
 import { createQuizUi, dueDay } from './quiz-ui.js';
 import { createRosterUi } from './roster-ui.js';
+import { renderRichText } from './rich-text.js';
 import { A2UI_VERSION, reasonPicker, validateFinal } from '/shared/forms.js';
 import { CREDIT_LABEL, CREDIT_OF_TYPE, NOTE_PRIVACY, PROOF, STANDARD_DAY, daysText, defaultReason, isPair, nameOf as absenceName, shortDate, spreadOf, titleOf, whenText, workdays } from '/shared/absence-types.js';
 const $ = (id) => document.getElementById(id);
@@ -117,7 +118,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     // A message has nothing to "start"; both can be asked about and saved.
     els.start.hidden = isMessage(showing);
     els.ask.textContent = isMessage(showing) ? 'Ask about this message' : 'Ask about this lesson';
-    els.dText.textContent = showing.text;
+    renderRichText(els.dText, showing.text); // the course pack's paragraphs and lists, as written
     els.save.disabled = Boolean(showing.savedAt);
     els.save.textContent = showing.savedAt ? 'Saved' : 'Save for later';
     showConversation();
@@ -270,7 +271,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
   function bubble({ dir, speaker, label, at, text }) {
     return el('li', { className: 'msg', dataset: { dir, speaker } },
       el('div', { className: 'msg-head' }, el('span', { className: 'msg-dir', textContent: label }), el('time', { dateTime: at ?? '', textContent: at ? new Date(at).toLocaleTimeString([], { hour12: false }) : '' })),
-      el('p', { className: 'msg-text', textContent: text }));
+      renderRichText(el('div', { className: 'msg-text' }), text, { split: dir !== 'sent' && speaker !== 'student' })); // a person's own words are never split
   }
   // What was sent, to whom, whose words, and each student's state.
   function postCard(p) {
@@ -280,7 +281,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
       el('div', { className: 'msg-head' },
         el('span', { className: 'msg-dir' }, el('span', { className: 'kind-tag', textContent: isMsg ? 'Message' : 'Lesson' }), ` ${p.title || (isMsg ? 'Message' : 'Lesson')}`),
         el('time', { textContent: `to ${p.audience === 'all' ? `the whole class (${p.deliveries.length || '…'})` : p.audience.split(',').map(nameOf).join(', ')}` })),
-      el('p', { className: 'msg-text post-text', textContent: p.text }),
+      renderRichText(el('div', { className: 'msg-text post-text' }), p.text, { split: p.verbatim === false }),
       el('p', { className: 'post-origin', dataset: { verbatim: String(p.verbatim !== false) }, textContent: origin }),
       p.meetingState ? el('ul', { className: 'per-student meeting-state' }, ...p.meetingState.map((x) => el('li', { dataset: { tone: x.bookedBy ? 'ok' : 'busy' } }, el('span', { className: 'who', textContent: x.label }), el('span', { className: 'what', textContent: x.bookedBy ? `Booked by ${nameOf(x.bookedBy)}` : 'Open' })))) : null,
       deliveryLines(p));

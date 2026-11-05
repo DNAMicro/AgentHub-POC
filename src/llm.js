@@ -155,4 +155,7 @@ export function briefReply(text, head = 200, tail = 300) {
 }
 
 // Added to every prompt whose output talks about people: models must not guess pronouns.
+// Owner, 2026-11-05: replies were "hard to read because there is no proper separation and formatting". The
+// screen (public/rich-text.js) shows blank-line paragraphs and "- " / "1. " lines as real paragraphs and lists.
+export const LAYOUT_RULE = 'Make every answer easy to read at a glance: plain text, no Markdown (no **bold**, # headings or backticks). Keep paragraphs short (one to three sentences) and leave a blank line between paragraphs. When you give several items, steps or examples, write a one-line lead-in, then put each item on its own line starting with "- " (or "1. ", "2. " for steps in order).';
 export const PEOPLE_RULE = 'Never guess a person’s pronouns or gender: refer to people (a faculty member, a student, a librarian) by name or role, or with “they/them”, and use he/she/him/her/his/hers only if the data states them.';

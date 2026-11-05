@@ -204,6 +204,22 @@ h2 { margin: 0; font-size: 1.07rem; font-weight: 700; color: var(--agent, var(--
 .msg-dir { font-weight: 600; color: var(--who); }
 .msg-head time { font-family: var(--mono); font-size: 0.74rem; }
 .msg-text { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; max-width: 72ch; }
+/* Paragraphs and lists inside a reply (public/rich-text.js): clear gaps between ideas, real list markers. */
+.msg-text { line-height: 1.5; }
+.msg-text.rich { white-space: normal; }
+.msg-text.rich > p { margin: 0 0 0.7em; white-space: pre-wrap; }
+.msg-text.rich > ul, .msg-text.rich > ol { margin: 0.1em 0 0.7em; padding-left: 1.4em; }
+.msg-text.rich > ul { list-style: disc; }
+.msg-text.rich > ol { list-style: decimal; padding-left: 1.9em; }
+.msg-text.rich > ul > li, .msg-text.rich > ol > li { margin: 0.2em 0; padding-left: 0.15em; }
+.msg-text .rt-label { font-weight: 700; }
+.msg-text.rich > :last-child { margin-bottom: 0; }
+.lesson-text.rich { white-space: normal; }
+.lesson-text.rich > p { margin: 0 0 0.8em; white-space: pre-wrap; }
+.lesson-text.rich > ul, .lesson-text.rich > ol { margin: 0.1em 0 0.8em; padding-left: 1.6em; }
+.lesson-text.rich > ul { list-style: disc; }
+.lesson-text.rich > ol { list-style: decimal; }
+.lesson-text.rich > ul > li, .lesson-text.rich > ol > li { margin: 0.25em 0; }
 .msg details { margin-top: 4px; }
 .msg summary, .form-card summary { font-size: 0.78rem; color: var(--muted); cursor: pointer; width: fit-content; }
 .values { margin: 6px 0 0; display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; font-size: 0.9rem; }
