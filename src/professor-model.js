@@ -269,10 +269,10 @@ const SOFT = String.raw`\blate\b|\bearly\b|\bappointment\b|\bdentist\b|\bdoctor\
 const LEAVE = new RegExp(String.raw`(time off|days? off|\w+day off|\bsick\b|passed away|\bbereavement\b|\bvacation\b|personal day|\bpto\b|\b(on|take|taking|my|medical|personal|family) leave\b|\b(i['’]m|i am|i['’]ll be|i will be|be) out\b(?! of)|${STRONG})`, 'i');
 const OFF_DAY = /\boff\s+(?:on\s+)?(?:(?:this|next)\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|today|tomorrow|tonight|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\.?\s+\d|\d{1,2}\/\d)/i;
 const CLASS_WORDS = /\b(class|classes|lecture|students|cancel\w*)\b/i;
-// Any leave word at all, with or without “I/my” (“Out sick tomorrow”, “Taking Friday off for a funeral”).
+// Any leave word at all, with or without “I/my” (“leave” as a verb of going — “we leave from the main entrance” — is not one) (“Out sick tomorrow”, “Taking Friday off for a funeral”).
 // Without the first-person + leave pattern above it is not clearly the professor's own request, but it is
 // not clearly a class message either: ask. The heuristic fails toward asking, never toward posting.
-const ANY_LEAVE = new RegExp(String.raw`(time off|days? off|\w+day off|\bsick\b|\bill\b|passed away|\bbereavement\b|\bvacation\b|personal day|\bpto\b|\bleave\b|\bhospital\b|${STRONG}|${SOFT})`, 'i');
+const ANY_LEAVE = new RegExp(String.raw`(time off|days? off|\w+day off|\bsick\b|\bill\b|passed away|\bbereavement\b|\bvacation\b|personal day|\bpto\b|\bleave\b(?!\s+(?:from|at|for\s+the|by|together|campus|the\s+(?:room|building|campus|parking))\b)|\bhospital\b|${STRONG}|${SOFT})`, 'i');
 export function mockClassifyStaff(text) {
   if (FIRST_PERSON.test(text) && LEAVE.test(text)) return CLASS_WORDS.test(text) ? 'unsure' : 'staff_request';
   const me = FIRST_PERSON.test(text);

@@ -25,9 +25,9 @@ import { datesIn } from './a2ui-catalog.js';
 import { slotsIn } from './meeting-times.js';
 import { createJsonStore } from './json-store.js';
 import { AUDIENCE, ID, LESSON_PUBLISH_MEDIA_TYPE, LESSON_STATUS_MEDIA_TYPE, contentHash, validQuizNotice, validateLesson } from './lessons.js';
-import { answersCancelOffer, checkClassPost, openCardTakes, rearmStaff, resetStaff, staffAction, staffConversation, staffHolding, staffTurn, staffView } from './professor-staff.js';
+import { answersCancelOffer, checkClassPost, isThanks, rearmStaff, tellGoesToCard, resetStaff, staffAction, staffConversation, staffHolding, staffTurn, staffView } from './professor-staff.js';
 import { cardValues, ROSTER_POST_FAILED_TEXT, ROSTER_UNAVAILABLE_CODE } from './staff.js';
-import { NOTIFY_EMPTY, ROSTER_GONE, TELL_DROPPED, asksRoster, createRosterDesk, dropsTell, notifyEveryone, sentToAllText } from './professor-roster.js';
+import { ROSTER_GONE, TELL_DROPPED, asksRoster, createRosterDesk, dropsTell, notifyEveryone, rosterFact, sentToAllText, tellText } from './professor-roster.js';
 import { createCanvasLink } from './professor-canvas.js';
 import { createQuizDesk, chipTopicOf } from './professor-quiz.js';
 import { validExisting } from './quiz-rules.js';
@@ -385,28 +385,38 @@ async function professorChat({ operationId, text, replyTo: replyToIn = null, ans
     // message (the offer stays open for its yes or no); a bare “notify everyone” / “yes” is the offer's answer (staff desk).
     const offerFree = (n) => !held.offer || (held.offer === 'cancel' && n);
     const announced = free ? notifyEveryone(said) : null;
-    const classCheck = (text) => checkClassPost({ text, held: said, entryId: ownId, emit: (type, data) => emitViz(type, `staff-${operationId}`, data) });
-    if (free && offerFree(true) && asksRoster(said)) {
-      staff = await rosterDesk.request({ operationId, hub });
+    const classCheck = (text, heldText = said) => checkClassPost({ text, held: heldText, entryId: ownId, forClass: true, emit: (type, data) => emitViz(type, `staff-${operationId}`, data) });
+    // Roster requests and roster facts (F3: a count, “is X in my class?”, a student's email / ID / major / year) are read by
+    // code and answered from a fresh roster lookup. They run even while the HR / class / both question waits (F4): that
+    // question keeps waiting, unchanged, and they never count as its answer.
+    const plain = !toAssistant && !reply && offerFree(true);
+    const fact = plain ? rosterFact(said) : null;
+    if (plain && (asksRoster(said) || fact)) {
+      staff = fact ? await rosterDesk.fact({ operationId, hub, fact }) : await rosterDesk.request({ operationId, hub });
+    } else if (!toAssistant && !reply && held.question && isThanks(said)) {
+      // F4: “Thanks” while the held question waits is not its answer (and never counts toward the re-ask): the question keeps waiting.
+      staff = { action: 'clarify', check: 'ack', reply: "You're welcome.", classSafe: true, entries: [{ role: 'assistant', text: "You're welcome.", action: 'clarify' }] };
     } else if (announced && offerFree(Boolean(announced.rest || announced.about))) {
       notify = announced;
       rosterDesk.clearTell();
-      // Only a subject (“… about the midterm review”) is never sent as a fragment: ask what to say, and his next plain reply goes out.
-      if (notify.about) { staff = rosterDesk.askTell(notify.about); notify = null; }
-      else if (!notify.rest) { staff = { action: 'clarify', check: 'notify_empty', reply: NOTIFY_EMPTY, classSafe: true, entries: [{ role: 'assistant', text: NOTIFY_EMPTY, action: 'clarify' }] }; notify = null; }
+      // Only a subject (“… about the midterm review”) is never sent as a fragment, and a bare “notify everyone” has nothing
+      // to send: ask what to say (F5: both wait 15 minutes), and his next plain reply goes to the whole class.
+      if (notify.about || !notify.rest) { staff = rosterDesk.askTell(notify.about ?? null); notify = null; }
       else staff = await classCheck(notify.rest); // the same check a plain class message gets (illness/leave/relative words, the open card, the classifier)
       if (staff) notify = null;
       else staff = null; // safe to post: the staff desk is not asked
-    } else if (free && offerFree(!answersCancelOffer(said)) && !/^\s*@/.test(said) && rosterDesk.waitingTell() && !openCardTakes(said)) {
-      // The answer to “What should I tell your class about …?”: it goes to the class, not to the staff desk — after the same
-      // check a plain class message gets, unless he drops it. With an HR card open, a card edit (“make it Dec 7 instead”)
-      // goes to HR instead (above: openCardTakes) and the question keeps waiting.
+    } else if (free && offerFree(!answersCancelOffer(said)) && !/^\s*@/.test(said) && rosterDesk.waitingTell() && !tellGoesToCard(said)) {
+      // The answer to “What should I tell your class (about X)?”: it goes to the class, not to the staff desk — after the same
+      // check a plain class message gets, unless he drops it. With an HR card open, only a clear card edit (“make it Dec 7
+      // instead”, hours, an absence name, a leave / illness / relative word) goes to HR (F2: tellGoesToCard; a day or a time
+      // alone is not enough) and the question keeps waiting. F6: “About X: <reply>.” unless the reply already names X.
+      const about = rosterDesk.waitingTell().about ?? null;
       rosterDesk.clearTell();
-      tellReply = true;
+      tellReply = { about };
       if (dropsTell(said)) staff = { action: 'clarify', check: 'notify_dropped', reply: TELL_DROPPED, classSafe: true, entries: [{ role: 'assistant', text: TELL_DROPPED, action: 'clarify' }] };
       else {
-        notify = { rest: said.replace(/\s+/g, ' ').trim() };
-        staff = await classCheck(notify.rest);
+        notify = { rest: tellText(about, said) };
+        staff = await classCheck(notify.rest, notify.rest);
         if (staff) notify = null;
         else staff = null;
       }
@@ -431,7 +441,7 @@ async function professorChat({ operationId, text, replyTo: replyToIn = null, ans
     // The class list wasn't available, so nothing went out: whatever the yes / “class” / reply took off the desk is waiting again.
     if (result.action === 'error' && result.reply === ROSTER_POST_FAILED_TEXT) {
       rearmStaff(staff?.rearm);
-      if (tellReply && notify) rosterDesk.rearmTell();
+      if (tellReply && notify) rosterDesk.rearmTell(tellReply.about);
     }
     const { entries = null, continueWith, entryId, note, notice: _n, classSafe = false, confirm = null, ...stored } = result;
     // A reply to a pending question that also carried NEW content: the answer was acted on, the new part was not
@@ -447,7 +457,13 @@ async function professorChat({ operationId, text, replyTo: replyToIn = null, ans
         // A staff turn (HR's reply, the unsure question, the note): each as its own chat entry, text only.
         own.staff = !classSafe; // the roster desk's answers are the professor's own business, not an HR secret
         const now = new Date().toISOString();
-        for (const e of entries) s.chat.push({ id: `${operationId}:${e.role === 'hr' ? 'h' : 'a'}`, at: now, staff: !classSafe, ...e });
+        const used = new Set();
+        entries.forEach((e, i) => {
+          let id = `${operationId}:${e.role === 'hr' ? 'h' : 'a'}`;
+          if (used.has(id)) id = `${id}${i}`; // two assistant entries in one turn (a roster fact's sentence, then its card)
+          used.add(id);
+          s.chat.push({ id, at: now, staff: !classSafe, ...e });
+        });
       } else if (!viaAssistant) {
         // A held message the professor chose to send to the class is no longer private (staff: false).
         Object.assign(s.chat.find((m) => m.id === target) ?? own, { postKey: result.post?.key ?? null, problem: result.post ? null : result.reply, ...(staff?.continueWith ? { staff: false } : {}) });

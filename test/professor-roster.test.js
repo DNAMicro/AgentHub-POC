@@ -8,7 +8,8 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startStack, startProfessor, post, openStream, waitFor, stopProcess } from './support/harness.js';
-import { NOTIFY_EMPTY, ROSTER_GONE, asksRoster, createRosterDesk, notifyEveryone, sentToAllText } from '../src/professor-roster.js';
+import { NOTIFY_EMPTY, ROSTER_GONE, asksRoster, createRosterDesk, notifyEveryone, rosterFact, sentToAllText, tellText } from '../src/professor-roster.js';
+import { readFileSync } from 'node:fs';
 import { ROSTER_FAILED_TEXT, ROSTER_POST_FAILED_TEXT } from '../src/staff.js';
 
 const UNSURE = 'Should I file this as time off with HR, tell the class, or both?';
@@ -329,6 +330,8 @@ test('CHRS down: a roster request, a notify and a plain class post each get one 
   const roster = await say(s, 'show my class roster');
   assert.equal(roster.reply, FAILED_ROSTER);
   assert.equal(FAILED_ROSTER, ROSTER_FAILED_TEXT);
+  // F3: roster facts fail with the same sentence (never the HR / class / both question).
+  for (const text of ['how many students are enrolled?', 'Is Sam Student in my class?', "what's Mariana Aguilar's email?"]) assert.equal((await say(s, text)).reply, FAILED_ROSTER, text);
   assert.equal((await state(s)).rosterCard, null);
   assert.equal((await fetch(`${s.ui.url}/api/professor/roster`)).status, 404);
   for (const text of ['Notify everyone that the quiz is on Friday', 'Please read chapter 5 before Monday']) {
@@ -402,7 +405,7 @@ test('"inform the class about the midterm review" asks what to say; his next pla
   assert.equal(a.action, 'post', JSON.stringify(a));
   const st = await state(main);
   assert.equal(st.hrCard, null);
-  assert.equal(st.lessons[0].text, 'It is on Friday at 2pm in room 101');
+  assert.equal(st.lessons[0].text, 'About the midterm review: It is on Friday at 2pm in room 101.', 'F6: the subject goes with the reply');
   assert.equal(st.lessons[0].deliveries.length, 25);
   assert.equal(lastOf(st.chat, 'assistant').text, SENT);
   // It was used up: the next plain message is a normal message again.
@@ -594,4 +597,119 @@ test('final review 10: the quiz desk no longer takes the dead roster parameter',
   const src = (f) => readFile(new URL(`../src/${f}`, import.meta.url), 'utf8');
   assert.doesNotMatch(await src('professor-agent.js'), /lastRoster/);
   assert.doesNotMatch((await src('professor-quiz.js')).match(/export function createQuizDesk\([^)]*\)/)[0], /\broster\b/);
+});
+
+// ---- Part 17 faculty scenarios (F2–F6) --------------------------------------------------------------------------------
+test('F3: rosterFact reads counts, membership and a student\'s details by code; a tag or an unrelated question is not one', () => {
+  for (const t of ['how many students are enrolled?', 'How many students are enrolled in my class?', 'how many students do I have?', 'How big is my class?']) assert.deepEqual(rosterFact(t), { kind: 'count' }, t);
+  assert.deepEqual(rosterFact('Is Sam Student in my class?'), { kind: 'member', name: 'Sam Student' });
+  assert.deepEqual(rosterFact('is Mariana Aguilar enrolled?'), { kind: 'member', name: 'Mariana Aguilar' });
+  assert.deepEqual(rosterFact('is Kevin on my roster?'), { kind: 'member', name: 'Kevin' });
+  for (const [t, name] of [["what's Mariana Aguilar's email?", 'Mariana Aguilar'], ['what is Omar\'s major', 'Omar'], ['what year is Lily Chen', 'Lily Chen'], ["Diego Castillo's student ID", 'Diego Castillo']]) assert.deepEqual(rosterFact(t), { kind: 'detail', name }, t);
+  for (const t of ['@sam is Kevin on my roster?', 'show my class roster', 'Is the quiz on Friday?', 'what is the plan for Friday', 'I need Friday off', 'is everyone in my class?', 'how many students opened it?']) assert.equal(rosterFact(t), null, t);
+});
+
+test('F6: tellText puts the subject in front unless the reply already names it', () => {
+  assert.equal(tellText('the guest speaker', 'She is a brand manager from a local company and visits on Wednesday'), 'About the guest speaker: She is a brand manager from a local company and visits on Wednesday.');
+  assert.equal(tellText('the midterm review', '  the midterm review is Monday '), 'the midterm review is Monday');
+  assert.equal(tellText('the quiz', 'it moved to Monday!'), 'About the quiz: It moved to Monday!');
+  assert.equal(tellText(null, ' The quiz moved to Monday '), 'The quiz moved to Monday');
+});
+
+test('F3: roster facts are answered from the roster by code: count, member, several, not on roster; never the HR question', async () => {
+  const cases = [
+    ['how many students are enrolled in my class?', '25 students are enrolled in Marketing 351.'],
+    ['How big is my class?', '25 students are enrolled in Marketing 351.'],
+    ['Is Sam Student in my class?', 'Yes — Sam Student is enrolled in Marketing 351.'],
+    ['is Mariana Aguilar enrolled?', 'Yes — Mariana Aguilar is enrolled in Marketing 351.'],
+    ['is Kevin on my roster?', 'Yes — Kevin Huang is enrolled in Marketing 351.'],
+    ['Is Kim in my class?', 'Yes — Daniel Kim is enrolled in Marketing 351.'],
+    ['Is Student in my class?', '2 students match “Student”: Alex Student and Sam Student.'],
+    ['Is Jane Doe in my class?', "I don't see Jane Doe on your Marketing 351 roster."],
+    ["what is Zed Quill's email?", "I don't see Zed Quill on your Marketing 351 roster."],
+  ];
+  for (const [text, reply] of cases) {
+    const r = await say(main, text);
+    assert.equal(r.reply, reply, text);
+    assert.notEqual(r.reply, UNSURE);
+  }
+  const st = await state(main);
+  assert.equal(st.lessons.length, 0, 'nothing posted');
+  assert.equal(st.hrCard, null, 'nothing went to HR');
+  // @sam: a message to that student, not a roster fact.
+  const tagged = await say(main, '@sam is Kevin on my roster?');
+  assert.notEqual(tagged.action, 'roster_fact');
+});
+
+test('F3: a details question shows the roster card with that row highlighted; the email / ID / major never reach the chat or the outbox', async () => {
+  for (const [text, id, name] of [["what's Mariana Aguilar's email?", 'student-mariana-aguilar', 'Mariana Aguilar'], ['what is Omar\'s major', 'student-omar-hassan', 'Omar Hassan'], ['what year is Lily Chen', 'student-lily-chen', 'Lily Chen'], ["Diego Castillo's student ID", 'student-diego-castillo', 'Diego Castillo']]) {
+    const r = await say(main, text);
+    assert.equal(r.reply, `${name} is highlighted on your roster below.`, text);
+    assert.equal(r.action, 'roster');
+    const st = await state(main);
+    const card = lastOf(st.chat, 'assistant');
+    assert.equal(card.action, 'roster');
+    assert.equal(card.roster.highlight, id);
+    assert.equal(card.roster.rosterId, st.rosterCard.rosterId);
+    assert.equal(st.chat.at(-2).text, `${name} is highlighted on your roster below.`);
+    const rows = await (await fetch(`${main.ui.url}/api/professor/roster`)).json();
+    assert.ok(rows.roster.rows.some((x) => x.studentId === id), 'the card fetch has the row');
+  }
+  const st = await state(main);
+  const wire = JSON.stringify(st);
+  assert.ok(!ROW_SECRET.test(wire) && !/Business Admin|Junior|Senior/.test(wire), 'no email, ID, major or year in the state');
+  const file = readFileSync(main.files.outbox, 'utf8');
+  assert.ok(!ROW_SECRET.test(file) && !/Business Admin|Info Systems|Junior|Senior/.test(file), 'nor in the outbox file');
+  assert.ok(!st.chat.some((m) => m.text === UNSURE));
+});
+
+test('F4: while the HR / class / both question waits, a roster request, a roster fact and "Thanks" are answered and the question keeps waiting', async () => {
+  assert.equal((await say(main, "I'm sick, cancel Friday's class")).reply, UNSURE);
+  assert.equal((await say(main, 'show my class roster')).reply, 'Class roster · 25 students');
+  assert.equal((await say(main, 'how many students are enrolled?')).reply, '25 students are enrolled in Marketing 351.');
+  assert.equal((await say(main, 'Is Sam Student in my class?')).reply, 'Yes — Sam Student is enrolled in Marketing 351.');
+  assert.equal((await say(main, 'Thanks')).reply, "You're welcome.");
+  assert.equal((await say(main, 'thank you')).reply, "You're welcome.");
+  // None of those counted toward the re-ask: an unclear reply is asked once (not dropped), then "hr" files the held message.
+  assert.equal((await say(main, 'hmm')).reply, UNSURE);
+  const hr = await say(main, 'hr');
+  assert.equal(hr.action, 'staff', JSON.stringify(hr));
+  assert.equal((await state(main)).lessons.length, 0);
+});
+
+test('F5: a bare "notify everyone" waits like "… about X": the next plain reply goes to all 25 with the count', async () => {
+  assert.equal((await say(main, 'notify everyone')).reply, NOTIFY_EMPTY);
+  const r = await say(main, 'The quiz moved to Monday');
+  assert.equal(r.action, 'post', JSON.stringify(r));
+  const st = await state(main);
+  assert.equal(st.lessons[0].text, 'The quiz moved to Monday');
+  assert.equal(st.lessons[0].deliveries.length, 25);
+  assert.equal(lastOf(st.chat, 'assistant').text, SENT);
+  // The same drop words and privacy check.
+  await say(main, 'notify everyone');
+  assert.equal((await say(main, 'never mind')).reply, 'Okay, I won’t send anything to your class.');
+  await say(main, 'tell everyone');
+  assert.equal((await say(main, "I'm sick on Friday")).reply, UNSURE);
+  assert.equal((await state(main)).lessons.length, 1);
+});
+
+test('F6: the reply to "about X" reaches students as "About X: …"', async () => {
+  assert.equal((await say(main, 'notify everyone about the guest speaker')).reply, 'What should I tell your class about the guest speaker?');
+  await say(main, 'She is a brand manager from a local company and visits on Wednesday');
+  const st = await state(main);
+  assert.equal(st.lessons[0].text, 'About the guest speaker: She is a brand manager from a local company and visits on Wednesday.');
+});
+
+test('F2: with an HR card open, a day or time in the reply to "what should I tell your class about …?" goes to the class, not HR', async () => {
+  const hr = await say(main, "I need Friday off, it's a vacation day");
+  assert.equal(hr.action, 'staff', JSON.stringify(hr));
+  const before = (await state(main)).hrCard;
+  assert.equal((await say(main, 'inform the class about the field trip')).reply, 'What should I tell your class about the field trip?');
+  const r = await say(main, 'We leave from the main entrance at 9 AM on Friday.');
+  assert.equal(r.action, 'post', JSON.stringify(r));
+  const st = await state(main);
+  assert.equal(st.hrCard.formRef, before.formRef, 'the card is untouched');
+  assert.equal(st.hrCard.a2ui.length, before.a2ui.length, 'no update was sent to the card');
+  assert.equal(st.lessons[0].text, 'About the field trip: We leave from the main entrance at 9 AM on Friday.');
+  assert.equal(lastOf(st.chat, 'assistant').text, SENT);
 });

@@ -10,6 +10,8 @@ import { ROSTER_UNAVAILABLE_CODE } from './staff.js';
 export const CLOSED_TEXT = 'This draft was closed when the app restarted.';
 export const NOT_CONNECTED_TEXT = "Canvas isn't connected, so nothing was sent.";
 export const DISCARDED_TEXT = 'This draft was discarded.';
+export const NOTICE_NO_LIST_TEXT = "Published in Canvas, but I couldn't get your class list, so students weren't told yet. Press Publish again in a moment — they're notified only once.";
+export const NOTICE_FAILED_TEXT = 'Published in Canvas, but the class notice did not go out. Press Publish again to send it; students are notified only once.';
 const ASK_EXPIRES_MS = 15 * 60_000; // a waiting topic question, like the assistant's waiting meeting question
 // A topic chip's own text (the page sends it as a structured pick; this is the safety net for the text itself).
 export const chipText = (t) => `Topic ${t.n} · ${t.name}`;
@@ -151,6 +153,9 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
     const n = d.quiz.questions.length;
     const c = { draftId: d.draftId, topic: d.topic, state: d.state, canvasQuizId: d.canvasQuizId, questionCount: n, pointsTotal: n * d.quiz.pointsEach };
     if (d.deliveries) c.deliveries = d.deliveries.map((x) => ({ studentId: x?.studentId ?? null, status: x?.status ?? x?.state ?? null }));
+    // Published in Canvas but the class notice did not go out: the card must say so and offer the retry, across redraws,
+    // tab changes and reloads (the page reads this summary from /author/state). The sentence only, never a list or a name.
+    if (d.state === 'published' && !d.noticeSent && d.noticeFailText) { c.noticePending = true; c.noticeText = d.noticeFailText; }
     return c;
   }
   function reset() {
@@ -239,8 +244,10 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
     const sent = await sendNotice(d);
     if (d.state === 'closed') return closedResult(d);
     if (!sent) {
-      return { ok: false, retryable: true, published: true, state: 'published', draftId: d.draftId, canvasQuizId: d.canvasQuizId, text: d.noticeNoList ? "Published in Canvas, but I couldn't get your class list, so students weren't told yet. Press Publish again in a moment — they're notified only once." : 'Published in Canvas, but the class notice did not go out. Press Publish again to send it; students are notified only once.' };
+      d.noticeFailText = d.noticeNoList ? NOTICE_NO_LIST_TEXT : NOTICE_FAILED_TEXT;
+      return { ok: false, retryable: true, published: true, state: 'published', draftId: d.draftId, canvasQuizId: d.canvasQuizId, text: d.noticeFailText };
     }
+    d.noticeFailText = null;
     return { ok: true, state: 'published', draftId: d.draftId, canvasQuizId: d.canvasQuizId, deliveries: card()?.deliveries ?? [], text: publishedText(d), entries: [entry(d, `Published in Canvas (quiz #${d.canvasQuizId}). Students notified.`)] };
   }
   const publishedText = (d) => `Published — ${d.quiz.title} is open in Canvas (quiz #${d.canvasQuizId}), due ${dueLabel(d.quiz.dueAt)}.`;

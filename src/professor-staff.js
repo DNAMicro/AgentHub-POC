@@ -192,23 +192,43 @@ export const staffHolding = () => ({ question: fresh(pendingChoice), offer: fres
 // `text` is what would be posted; `held` is the whole message held for the answer (a held “notify everyone …” goes out as
 // its stripped text when he answers “class”). Returns the fixed question (holding the message) or null (safe to post).
 const CLASS_POST_PRIVATE = /\b(?:leave|sick|ill|illness|unwell|vacation|holiday|absent|absence|pto|bereavement|funeral|died|dying|passed\s+away|death|jury|witness|military|appointment|doctor|dentist|hospital|surgery|sabbatical|maternity|paternity|emergency|time\s+off|days?\s+off|day\s+off)\b/i;
-export async function checkClassPost({ text, held = text, entryId, emit = () => {} }) {
-  const t = String(text ?? '');
+// forClass (F2): the words he gave after asking to tell the class (“notify everyone that …”, the reply to “What should I tell
+// your class about …?”). He named the class himself, so “we/our” is the class and “leave” as a verb (“we leave from the
+// main entrance”) is not leave; a statement about himself (I, me, my) and leave as a noun (“on leave”) are still asked about.
+const SINGULAR_ME = /(^|[^\w’'])(?:i|i['’](?:m|ll|ve|d)|im|me|my|myself)(?![\w’'])/i;
+const LEAVE_VERB = /\b(?:leave|leaving)\b(?=\s+(?:from|at|for\s+the|by|together|campus|the\s+(?:room|building|campus|parking))\b)/gi;
+const forClassWords = (t) => t.replace(LEAVE_VERB, ' ');
+export async function checkClassPost({ text, held = text, entryId, emit = () => {}, forClass = false }) {
+  const said = String(text ?? '');
+  const t = forClass ? forClassWords(said) : said; // the code checks read this; the classifier reads his own words
   const ask = (decidedBy, extra = {}) => {
     pendingChoice = { text: String(held ?? t), entryId, at: Date.now() };
     emit('staff_decision', { kind: 'unsure', decidedBy, ...extra });
     return { action: 'clarify', check: 'staff_or_class', reply: UNSURE_QUESTION, entries: [{ role: 'assistant', text: UNSURE_QUESTION, action: 'clarify' }] };
   };
   if (mentionsIllness(t) || CLASS_POST_PRIVATE.test(t) || RELATIVES.test(t) || (FIRST_PERSON_WORDS.test(t) && (LEAVE_WORDS.test(t) || absenceNameIn(t)))) return ask('class_post_guard');
-  if (cardOpen() && (FIRST_PERSON_WORDS.test(t) || EDIT_CUE.test(t))) return ask('open_card_words');
-  const c = await classifyStaff({ text: t, emit });
+  if (cardOpen() && ((forClass ? SINGULAR_ME : FIRST_PERSON_WORDS).test(t) || (forClass ? tellCardEdit(t) : EDIT_CUE.test(t)))) return ask('open_card_words');
+  const c = await classifyStaff({ text: said, emit });
   emit('staff_decision', { kind: c.kind, decidedBy: 'class_post_check', model: c.model ?? null, error: c.error ?? null });
   if (c.kind === 'class_message') return null;
   return ask('class_post_check', { model: c.model ?? null });
 }
-// While an HR card is open, a plain message code reads as about the time off (“make it Dec 7 instead”) belongs to HR, even
-// when the roster desk is waiting for “what should I tell your class about …?” (final review finding 8).
-export const openCardTakes = (text) => Boolean(cardOpen()) && !fresh(pendingChoice) && aboutOpenCard(text) === 'hr';
+// F2: while “What should I tell your class about …?” waits and an HR card is open, the reply goes to HR only when it is
+// clearly a card edit: an edit cue (“make it”, “change”, “instead”, “move it”, “switch”, “use 4 hours”), hours of leave, an
+// absence name, or a leave / illness / relative word. A day or a time alone is not enough (“We leave from the main entrance
+// at 9 AM on Friday.” is for the class).
+const TELL_EDIT = /\b(?:make\s+(?:it|that)|change|changed|instead|move\s+(?:it|that|this)|switch|swap|use\s+\d+(?:\.\d+)?\s*(?:hours?|hrs?))\b/i;
+const LEAVE_HOURS = /\b\d+(?:\.\d+)?\s*(?:hours?|hrs?)\b|\b(?:half|full|whole)\s+day\b/i;
+const TELL_LEAVE = /\b(?:sick|ill|illness|unwell|vacation|pto|bereavement|funeral|died|passed\s+away|death|jury|witness|military|appointment|doctor|dentist|hospital|surgery|absent|absence|time\s+off|days?\s+off|(?:on|take|taking|sick|family|medical|personal|bereavement|my)\s+leave|leave\s+(?:of\s+absence|request))\b/i;
+const TELL_NAMES = ABSENCE_TYPES.map((a) => a.name).filter((n) => !/^(?:other|voting)$/i.test(n));
+const namesAbsence = (t) => TELL_NAMES.some((n) => new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}\\b`, 'i').test(t));
+export const tellCardEdit = (text) => {
+  const t = String(text ?? '');
+  return TELL_EDIT.test(t) || LEAVE_HOURS.test(t) || namesAbsence(t) || TELL_LEAVE.test(t) || mentionsIllness(t) || RELATIVES.test(t);
+};
+export const tellGoesToCard = (text) => Boolean(cardOpen()) && !fresh(pendingChoice) && tellCardEdit(text);
+// “Thanks” / “thank you” (F4: answered “You're welcome.” without touching a held question).
+export const isThanks = (text) => ACK.test(String(text ?? ''));
 // A reply that answers a waiting cancellation offer (starts with yes/no, or talks about cancelling): the offer's, not a class message.
 export const answersCancelOffer = (text) => fresh(pendingNote) && pendingNote.kind === 'cancel' && (ANSWER_START.test(String(text ?? '')) || CANCEL_WORD.test(String(text ?? '')));
 

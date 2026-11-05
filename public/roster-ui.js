@@ -38,8 +38,23 @@ export function createRosterUi({ el, api, bubble, isShowing }) {
   function fill(c, entry, view) {
     const roster = view.roster;
     if (view.rosterId !== entry.roster.rosterId || !roster?.rows?.length || !roster.class) return gone(c);
-    c.body.replaceChildren(head(roster.class), el('div', { className: 'cr-grid-title', textContent: 'Enrolled Students' }), grid(roster.rows), el('p', { className: 'roster-foot', textContent: FOOTER }));
+    const table = grid(roster.rows); // the .roster-scroll box around the table
+    c.body.replaceChildren(head(roster.class), el('div', { className: 'cr-grid-title', textContent: 'Enrolled Students' }), table, el('p', { className: 'roster-foot', textContent: FOOTER }));
     c.li.dataset.state = 'ready';
+    // A details question (“what's Mariana Aguilar's email?”): that student's row is marked and scrolled into view inside the
+    // card's own scroll box (the chat itself is not scrolled). The chat entry carries only the fictional student id.
+    const hl = entry.roster.highlight;
+    const row = hl ? [...table.querySelectorAll('tbody tr')].find((tr) => tr.dataset.student === hl) : null;
+    if (row) {
+      row.classList.add('cr-hi');
+      row.setAttribute('aria-current', 'true');
+      c.li.dataset.highlight = hl;
+      const place = () => {
+        const head = table.querySelector('thead')?.getBoundingClientRect().height ?? 0;
+        table.scrollTop += row.getBoundingClientRect().top - table.getBoundingClientRect().top - head - 8;
+      };
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(place); else place();
+    }
   }
   function gone(c) {
     c.body.replaceChildren(el('p', { className: 'msg-text', textContent: ROSTER_GONE }));

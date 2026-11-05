@@ -6,6 +6,10 @@
 //   playwright-cli -s=cr run-code "$(cat scripts/browser-checks/chrs-roster.js)"
 // The class cancellation summary is checked at the end of scripts/browser-checks/hr-card.js. The mock Faculty and CHRS are
 // labelled heuristics: this checks drawing and plumbing, not live judgment. Look at every screenshot.
+// Section 8 (F1, the quiz notice when the class list is unavailable) runs only when the page was opened with
+// ?f1=<Hub port> (e.g. http://127.0.0.1:5544/faculty?f1=52343). It needs CHRS paused from a shell at the right moment:
+// when the screenshot s-f1-0-stop-chrs.png appears, run `kill -STOP <CHRS pid>`; when s-f1-3-start-chrs.png appears,
+// run `kill -CONT <CHRS pid>`. The script waits for the Hub to see CHRS go down and come back.
 async (page) => {
   const SHOTS = '.superpowers/sdd/2026-11-05-chrs-roster/shots';
   page.setDefaultTimeout(30000);
@@ -13,6 +17,7 @@ async (page) => {
   const errors = [];
   const check = (name, ok, detail) => results.push({ name, ok: Boolean(ok), ...(detail === undefined ? {} : { detail }) });
   const origin = await page.evaluate(() => location.origin);
+  const hubPort = await page.evaluate(() => new URLSearchParams(location.search).get('f1')); // section 8 only (read before the first goto)
   const watch = (p) => {
     p.on('pageerror', (e) => errors.push(String(e).slice(0, 200)));
     p.on('console', (m) => { if (m.type() === 'error') errors.push(`console: ${m.text().slice(0, 200)}`); });
@@ -145,6 +150,79 @@ async (page) => {
   check('the student page never asks for the roster', sawRosterFetch.length === 0, sawRosterFetch);
   check('no roster email or 888… ID anywhere in the /conversation page', !/@csu\.fullerton\.example/.test(html) && !/\b888\d{6}\b/.test(html));
   check('the student tab\'s hidden Faculty section holds no roster rows', await student.evaluate(() => !document.querySelector('#view-professor table.roster')));
+
+  // 7. F3: a student's details are shown on the roster card with that row highlighted; the chat has the sentence only.
+  await page.emulateMedia({ colorScheme: 'light' });
+  await say("what's Hana Yamamoto's email?");
+  await page.waitForSelector('#prof-log .roster-card[data-highlight="student-hana-yamamoto"][data-state="ready"]', { timeout: 30000 });
+  const hiCard = page.locator('#prof-log .roster-card[data-highlight="student-hana-yamamoto"]');
+  const hiRows = hiCard.locator('tr.cr-hi');
+  check('F3: exactly one highlighted row, Hana Yamamoto', await hiRows.count() === 1 && /Yamamoto,Hana/.test(await hiRows.first().textContent()), await hiRows.count());
+  check('F3: the reply names the student only', await page.locator('#prof-log').evaluate((l) => [...l.querySelectorAll(':scope > li')].some((li) => /^Hana Yamamoto is highlighted on your roster below\.$/.test(li.querySelector('.msg-text')?.textContent ?? ''))));
+  check('F3: the chat bubbles (outside the roster cards) hold no email or ID', await page.locator('#prof-log').evaluate((l) => ![...l.querySelectorAll(':scope > li:not(.roster-card)')].some((li) => /@csu\.fullerton\.example|\b888\d{6}\b/.test(li.textContent))));
+  await page.waitForTimeout(400);
+  const inBox = await hiCard.evaluate((c) => { const box = c.querySelector('.roster-scroll').getBoundingClientRect(); const r = c.querySelector('tr.cr-hi').getBoundingClientRect(); return r.top >= box.top && r.bottom <= box.bottom + 1; });
+  check('F3: the highlighted row (row 25) is scrolled into view inside the card', inBox);
+  await hiCard.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: `${SHOTS}/s-f3-highlight.png` });
+  await hiCard.screenshot({ path: `${SHOTS}/s-f3-highlight-card.png` });
+
+  // 8. F1 (only with ?f1=<Hub port>): Canvas publishes, the class list is unavailable, and the card keeps the sentence and a
+  // retry button across a reload and a tab round trip; once the list is back the retry notifies the class (Canvas once).
+  if (hubPort) {
+    const expected = errors.length; // the retryable publish answers 503 and the old roster card's fetch 404 after the reset: expected here
+    const chrsStatus = async () => { try { const r = await page.request.get(`http://127.0.0.1:${hubPort}/viz/topology`); return (await r.json()).specialists.find((x) => x.agentId === 'chrs')?.status ?? null; } catch { return null; } };
+    const until = async (want, what) => { for (let i = 0; i < 240; i++) { if (want(await chrsStatus())) return true; await page.waitForTimeout(500); } throw new Error(`timed out waiting for ${what}`); };
+    const facultyUrl = `${origin}/faculty`;
+    await page.goto(`${origin}/conversation`);
+    await page.waitForTimeout(1000);
+    await page.getByRole('button', { name: 'New conversation' }).click(); // clears the Hub's 60 s roster cache
+    await page.waitForTimeout(1500);
+    await page.goto(facultyUrl);
+    await page.waitForTimeout(1500);
+    await say('@assistant create a quiz for Marketing 351');
+    await page.locator('.tchip[data-topic="8"]').last().click();
+    await page.waitForSelector('#prof-log .quiz-card [data-act="approve"]:not([disabled])', { timeout: 30000 });
+    await page.locator('#prof-log .quiz-card [data-act="approve"]').click();
+    await page.waitForSelector('#prof-log .lms-card [data-act="publish"]', { timeout: 30000 });
+    await page.screenshot({ path: `${SHOTS}/s-f1-0-stop-chrs.png` });
+    await until((st) => st && st !== 'ready', 'CHRS to go down');
+    await page.locator('#prof-log .lms-card [data-act="publish"]').click();
+    const NO_LIST = "Published in Canvas, but I couldn't get your class list, so students weren't told yet. Press Publish again in a moment — they're notified only once.";
+    const owed = page.locator('#prof-log .lms-card [data-notice="pending"]');
+    await owed.waitFor({ timeout: 60000 });
+    const lmsCard = page.locator('#prof-log .lms-card');
+    const showsOwed = async () => (await owed.count()) === 1 && (await owed.locator('.lms-note[role="status"]').textContent()) === NO_LIST && (await owed.locator('[data-act="publish"]').textContent()) === 'Publish & notify students' && /● Published/.test(await lmsCard.textContent()) && !/Sending…/.test(await lmsCard.textContent());
+    check('F1: published card shows the class-list sentence and "Publish & notify students" (no "Sending…")', await showsOwed(), await lmsCard.textContent());
+    await page.waitForTimeout(3500); // a 3 s state refresh redraws the card from the server summary
+    check('F1: still shown after a redraw', await showsOwed());
+    await lmsCard.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${SHOTS}/s-f1-1-notice-owed.png` });
+    await lmsCard.screenshot({ path: `${SHOTS}/s-f1-1-notice-owed-card.png` });
+    await page.getByRole('tab', { name: 'Conversation' }).click();
+    await page.waitForTimeout(400);
+    await page.getByRole('tab', { name: 'Faculty view' }).click();
+    await page.waitForTimeout(1500);
+    check('F1: still shown after leaving the Faculty view and coming back', await showsOwed());
+    await page.reload();
+    await page.waitForTimeout(2500);
+    await owed.waitFor({ timeout: 15000 }).catch(() => {});
+    check('F1: still shown after a page reload', await showsOwed());
+    await page.screenshot({ path: `${SHOTS}/s-f1-2-after-reload.png` });
+    await page.screenshot({ path: `${SHOTS}/s-f1-3-start-chrs.png` });
+    await until((st) => st === 'ready', 'CHRS to come back');
+    await owed.locator('[data-act="publish"]').click();
+    await page.waitForFunction(() => document.querySelectorAll('#prof-log .lms-card details.dlist li').length === 25, null, { timeout: 60000 });
+    const fsum = await lmsCard.locator('.dsum .pill').allTextContents();
+    check('F1: after the retry the summary replaces the sentence: "Delivered to 1" + "24 not online yet …"', fsum[0] === 'Delivered to 1' && fsum[1] === "24 not online yet — they'll get it when they are" && (await owed.count()) === 0, fsum);
+    await lmsCard.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: `${SHOTS}/s-f1-4-delivered.png` });
+    await lmsCard.screenshot({ path: `${SHOTS}/s-f1-4-delivered-card.png` });
+    const later = errors.splice(expected);
+    errors.push(...later.filter((e) => !/status of (503|404) /.test(e)));
+  }
 
   } catch (e) {
     check('the script ran to the end', false, `${String(e).slice(0, 200)} | chat: ${((await page.locator('#prof-log').innerText().catch(() => '')) ?? '').slice(-400)}`);

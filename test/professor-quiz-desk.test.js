@@ -344,6 +344,37 @@ test('Review Focus 1: the class list is unavailable when the notice goes out: th
   assert.equal(s.calls.publish.length, 1, 'Canvas was published once');
 });
 
+test('F1: a notice that failed after the publish stays on the card summary (noticePending + the sentence) until it goes out', async () => {
+  let down = true;
+  const s = setup({ postResult: () => (down ? { http: 422, body: { lesson: { lessonId: 'ls-1' }, ack: { status: 'rejected', reason: 'roster_unavailable', accepted: false, deliveries: [] } } } : { http: 200, body: { ack: { status: 'accepted', deliveries: [{ studentId: 'student-alex', status: 'delivered' }] } } }) });
+  const { draftId } = await drafted(s);
+  await s.desk.action({ draftId, operationId: 'op-a', action: 'approve', quiz: fullQuiz(s, draftId) });
+  assert.equal(s.desk.card().noticePending, undefined, 'nothing pending before the publish');
+  await s.desk.action({ draftId, operationId: 'op-p', action: 'publish' });
+  const c = s.desk.card();
+  assert.equal(c.state, 'published');
+  assert.equal(c.noticePending, true);
+  assert.equal(c.noticeText, "Published in Canvas, but I couldn't get your class list, so students weren't told yet. Press Publish again in a moment — they're notified only once.");
+  assert.equal(c.deliveries, undefined);
+  down = false;
+  const again = await s.desk.action({ draftId, operationId: 'op-p', action: 'publish' });
+  assert.equal(again.ok, true, 'the same operation id retries (a retryable result is never cached)');
+  const after = s.desk.card();
+  assert.equal(after.noticePending, undefined);
+  assert.equal(after.noticeText, undefined);
+  assert.equal(after.deliveries.length, 1);
+  assert.equal(s.calls.publish.length, 1, 'Canvas was published once');
+  assert.equal(s.calls.post[1].operationId, `quiz-notice-${draftId}`);
+});
+
+test('F1: the other notice failure sentence is carried the same way', async () => {
+  const s = setup({ postResult: () => ({ http: 502, body: {} }) });
+  const { draftId } = await drafted(s);
+  await s.desk.action({ draftId, operationId: 'op-a', action: 'approve', quiz: fullQuiz(s, draftId) });
+  await s.desk.action({ draftId, operationId: 'op-p', action: 'publish' });
+  assert.equal(s.desk.card().noticeText, 'Published in Canvas, but the class notice did not go out. Press Publish again to send it; students are notified only once.');
+});
+
 test('Review 3: reset mid-draft closes the card; the next draft has a different notice operationId', async () => {
   const s = setup();
   const first = await drafted(s);

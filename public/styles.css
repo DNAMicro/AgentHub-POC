@@ -1025,6 +1025,9 @@ table.roster td.r, table.roster th.r { text-align: right; }
 table.roster td:nth-child(7) { white-space: nowrap; font-size: .8rem; line-height: 1.3; }
 table.roster .lnk { color: var(--student); }
 table.roster .deg { margin-left: 18px; color: var(--muted); }
+/* F3: a details question highlights one student's row (the details stay on the card, never in the chat text). */
+table.roster tr.cr-hi td { background: color-mix(in srgb, var(--chrs) 16%, transparent); font-weight: 600; }
+table.roster tr.cr-hi td:first-child { box-shadow: inset 4px 0 0 var(--chrs); }
 .roster-foot { margin: 8px 0 0; color: var(--muted); font-size: .8rem; }
 .dsum { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 6px; }
 .dsum .pill { border-radius: 999px; padding: 3px 10px; font-size: .82rem; border: 1px solid var(--border); }

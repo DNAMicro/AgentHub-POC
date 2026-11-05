@@ -273,7 +273,7 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, del
     if (!retry) v.pending = null;
     return { error: text, retry, body };
   }
-  async function act(v, action, extra, { ok }) {
+  async function act(v, action, extra, { ok, fail = () => {} }) {
     if (v.busy) return;
     v.busy = true;
     v.doing = action;
@@ -283,7 +283,7 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, del
     const r = await send(v, action, extra);
     v.busy = false;
     v.doing = null;
-    if (r.body?.ok) { ok(r.body); v.lmsNotice = null; } else v.lmsNotice = { kind: r.retry ? 'warn' : 'bad', text: r.error };
+    if (r.body?.ok) { ok(r.body); v.lmsNotice = null; } else { v.lmsNotice = { kind: r.retry ? 'warn' : 'bad', text: r.error }; fail(r); }
     drawCard(v);
     refresh(v);
     redraw();
@@ -377,11 +377,25 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, del
       ] : []));
     const kids = [head, lead];
     if (rows) kids.push(rows);
-    if (published) kids.push(deliveries(v, card));
+    const publishBtn = el('button', { type: 'button', className: 'btn-primary lms', dataset: { act: 'publish' }, disabled: v.busy || st === 'publishing', textContent: 'Publish & notify students' });
+    // Canvas published but the class notice did not go out (e.g. the class list was unavailable): Publish again sends only
+    // the notice (Canvas is not published twice; the notice's operation id is fixed). A failed attempt keeps the sentence.
+    publishBtn.addEventListener('click', () => { act(v, 'publish', {}, {
+      ok: (b) => { v.after = 'published'; v.publishedAt = v.publishedAt ?? new Date().toISOString(); v.deliveries = b.deliveries ?? null; v.noticeFail = null; v.noticeSent = true; },
+      fail: (r) => { if (r.body?.published) { v.after = 'published'; v.publishedAt = v.publishedAt ?? new Date().toISOString(); v.noticeFail = r.error; } },
+    }); });
+    // The server's card summary is the truth across redraws, tab changes and reloads; the local flags cover the moment
+    // before the next refresh.
+    const noticeOwed = published && !v.noticeSent && Boolean(card?.noticePending || v.noticeFail);
+    if (noticeOwed) {
+      const owe = el('div', { className: 'lms-ask', dataset: { notice: 'pending' } },
+        el('p', { className: 'q-error lms-note', dataset: { kind: 'warn' }, role: 'status', textContent: v.lmsNotice?.text ?? card?.noticeText ?? v.noticeFail }),
+        publishBtn);
+      if (v.doing === 'publish') owe.append(el('p', { className: 'lms-note' }, el('span', { className: 'working' }, el('i'), 'Sending the notice…')));
+      kids.push(owe);
+    } else if (published) kids.push(deliveries(v, card));
     else {
       const working = st === 'publishing' || v.doing === 'publish';
-      const publishBtn = el('button', { type: 'button', className: 'btn-primary lms', dataset: { act: 'publish' }, disabled: v.busy || st === 'publishing', textContent: 'Publish & notify students' });
-      publishBtn.addEventListener('click', () => { act(v, 'publish', {}, { ok: (b) => { v.after = 'published'; v.publishedAt = new Date().toISOString(); v.deliveries = b.deliveries ?? null; } }); });
       const ask = el('div', { className: 'lms-ask' },
         el('p', {}, el('b', { textContent: 'Publish it now?' }), ` Publishing makes it visible in Canvas, and ${Number.isInteger(studentCount()) ? `your ${plural(studentCount(), 'student')}` : 'your students'} get a notification.`),
         publishBtn, ' ');
