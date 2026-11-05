@@ -30,8 +30,8 @@ const failText = (outcome, verb) => {
       return verb === 'publish'
         ? "Canvas didn't answer, so the quiz may still be unpublished and nobody was notified. Press Publish again; it won't publish twice."
         : "Canvas didn't answer. Nothing is posted until it confirms — press Approve again; it won't post twice.";
-    case 'tool_refused': return `Nothing was sent — Faculty's AI chose the wrong Canvas tool. Press ${again} again.`;
-    case 'tool_choice_failed': return `Faculty's AI couldn't choose a Canvas tool just now, so nothing was sent. Press ${again} again.`;
+    case 'tool_refused': return `Something went wrong on our side, so nothing was sent to Canvas. Press ${again} again.`;
+    case 'tool_choice_failed': return `Something went wrong on our side, so nothing was sent to Canvas. Press ${again} again.`;
     case 'not_configured': return NOT_CONNECTED_TEXT;
     case 'closed': return CLOSED_TEXT;
     default: return 'Canvas could not complete that request.';

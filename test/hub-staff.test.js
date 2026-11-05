@@ -146,7 +146,7 @@ test('missing absence name: HR asks; the follow-up fills the card; Forecast refu
   const operationId = randomUUID();
   const ok = await act(second.reply.formRef, submit(second.reply, { absenceType: ['VAC'], absenceReason: ['VAC'], beginDate: '2026-11-20', endDate: '2026-11-20', hours: '8' }), operationId);
   assert.equal(ok.status, 'ok', JSON.stringify(ok));
-  assert.equal(ok.reply.text, 'Recorded in PeopleSoft.');
+  assert.equal(ok.reply.text, 'Your time off is recorded.');
   assert.match(ok.reply.receipt.requestId, /^TO-/);
   assert.equal(ok.reply.closed, true);
   const again = await act(second.reply.formRef, submit(second.reply, { absenceType: ['VAC'], absenceReason: ['VAC'], beginDate: '2026-11-20', endDate: '2026-11-20', hours: '8' }), operationId);
@@ -209,6 +209,12 @@ test('fix round 1: a follow-up keeps a reason its OWN words establish; a bare na
   assert.deepEqual([dataModel(sick.reply).absenceType, dataModel(sick.reply).absenceReason], [['SCK'], ['SCK']]);
   assert.deepEqual(sick.reply.hrCard.missing, []);
   assert.equal(sick.reply.text, 'Feel better soon. Check it and submit.');
+  // Owner 2026-11-04: a doctor or dentist appointment with no illness word gets the plain lead.
+  const appt = await ask('I have a doctor appointment on Friday', randomUUID());
+  assert.equal(appt.reply.hrCard.title, 'Sick Leave');
+  assert.equal(appt.reply.text, 'Check it and submit.');
+  const ill = await ask('I am sick and have a doctor appointment on Friday', randomUUID());
+  assert.equal(ill.reply.text, 'Feel better soon. Check it and submit.');
   // Open Vacation card + “actually make it sick leave” → Sick Leave, no reason: HR asks.
   const c2 = randomUUID();
   await ask("I need Friday off, it's a vacation day", c2);

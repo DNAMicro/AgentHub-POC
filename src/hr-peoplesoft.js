@@ -199,10 +199,10 @@ export function createPeopleSoftLink({ url, token, emit = () => {}, timeoutMs = 
     if (result?.isError) {
       // Only PeopleSoft's fixed refusal codes pass; anything else is reported without a code (the reason text stays).
       const code = REFUSAL_CODES.includes(value?.code) ? value.code : null;
-      const reason = typeof value?.reason === 'string' ? value.reason : 'PeopleSoft could not complete that request.';
+      const reason = typeof value?.reason === 'string' ? value.reason : 'HR\'s system could not complete that request.';
       return done({ ok: false, outcome: 'refused', code, reason });
     }
-    if (!value || typeof value !== 'object') return done({ ok: false, outcome: 'refused', code: null, reason: 'PeopleSoft could not complete that request.' });
+    if (!value || typeof value !== 'object') return done({ ok: false, outcome: 'refused', code: null, reason: 'HR\'s system could not complete that request.' });
     if (moment === 'submit') {
       const receipt = value.receipt ?? {};
       return done({ ok: true, value: { receipt: withoutSteps(receipt) } }, { recordId: receipt.recordId ?? null, stepCount: Array.isArray(receipt.steps) ? receipt.steps.length : null });

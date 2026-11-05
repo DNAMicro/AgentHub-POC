@@ -11,10 +11,10 @@ import { STAFF_ACTION_MEDIA_TYPE, STAFF_REQUEST_MEDIA_TYPE } from '../src/staff.
 import { startStack, startPeopleSoft, professorStandIn, waitFor, post, stopProcess } from './support/harness.js';
 import { startFakeAnthropic, messageReply, toolChoiceReply } from './support/fake-anthropic.js';
 
-const UNAVAILABLE = 'PeopleSoft didn\'t answer. Nothing is filed until it confirms — press Submit again; it won\'t file twice.';
-const UNAVAILABLE_CHAT = 'PeopleSoft didn\'t answer, so I can\'t show your leave right now. Nothing changed — ask again in a moment.';
-const WRONG_PICK_SUBMIT = 'Nothing was filed — HR\'s AI chose the wrong PeopleSoft tool. Press Submit again.';
-const WRONG_PICK_BALANCES = 'HR\'s AI didn\'t choose the balance tool, so the balance isn\'t shown.';
+const UNAVAILABLE = 'HR\'s system didn\'t answer. Nothing is recorded until it confirms — press Submit again; it won\'t be filed twice.';
+const UNAVAILABLE_CHAT = 'HR\'s system didn\'t answer, so I can\'t show your leave right now. Nothing changed — ask again in a moment.';
+const WRONG_PICK_SUBMIT = 'Something went wrong on our side, so nothing was filed. Press Submit again.';
+const WRONG_PICK_BALANCES = 'Your balance can\'t be shown right now.';
 
 // HR's own telemetry (its /viz/events feed), unredacted: the test reads what HR really emitted.
 function follow(url) {
@@ -129,7 +129,7 @@ test('card opens without balances when PeopleSoft is down', async (t) => {
   const r = await own.ask("I need Friday off, it's a vacation day");
   assert.equal(r.status, 'ok', JSON.stringify(r));
   assert.equal(r.reply.hrCard.balances, null);
-  assert.equal(r.reply.hrCard.problem, 'PeopleSoft didn\'t answer, so the balance isn\'t shown.');
+  assert.equal(r.reply.hrCard.problem, 'Your balance can\'t be shown right now.');
   assert.ok(ofType(own.feed.events, 'peoplesoft_session').some((e) => e.data.status === 'unreachable'));
   const read = own.feed.events.filter((e) => e.type === 'request_read').at(-1);
   assert.equal(read.data.outcome, 'no_balances', 'the only problem is the balances');
@@ -294,9 +294,9 @@ test('connect and call share one MCP budget: a slow PeopleSoft cannot hold HR pa
 });
 
 // ---- Part 15 final-review fixes ----------------------------------------------------------------------------
-const CHOICE_FAILED_SUBMIT = 'HR\'s AI couldn\'t choose a PeopleSoft tool just now, so nothing was filed. Press Submit again.';
-const CHOICE_FAILED_BALANCES = 'HR\'s AI couldn\'t choose a PeopleSoft tool just now, so the balance isn\'t shown.';
-const CHOICE_FAILED_CHAT = 'HR\'s AI couldn\'t reach PeopleSoft just now, so I can\'t show your leave. Nothing changed — ask again in a moment.';
+const CHOICE_FAILED_SUBMIT = 'Something went wrong on our side, so nothing was filed. Press Submit again.';
+const CHOICE_FAILED_BALANCES = 'Your balance can\'t be shown right now.';
+const CHOICE_FAILED_CHAT = 'Something went wrong on our side, so I can\'t show your leave right now. Nothing changed — ask again in a moment.';
 const RESET_CLOSED = /closed when the HR records were reset/;
 const liveHr = (stub) => ({ HR_MODE: 'live', ANTHROPIC_API_KEY: `sk-ant-test-${randomUUID()}`, ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0' });
 const isChoice = (body, moment) => Boolean(body?.output_config?.format?.schema?.properties?.tool) && { submit: /file the time-off request/, balances: /leave balances/ }[moment].test(String(body.system ?? ''));
@@ -448,4 +448,8 @@ test('M1: an unconfirmed Submit is "unknown" on the HR and Hub hops too (unknown
   await waitFor(() => hubFeed.events.some((e) => e.source === 'hub' && e.type === 'relay_sent' && e.data.kind === 'staff_action_result'), { what: 'Hub replied to the Professor' });
   const sent = hubFeed.events.find((e) => e.source === 'hub' && e.type === 'relay_sent' && e.data.kind === 'staff_action_result');
   assert.equal(topologyLabel(sent).phase, 'unknown');
+});
+
+test('owner 2026-11-04: what the employee reads never names PeopleSoft, MCP, tools or the AI', () => {
+  for (const t of [UNAVAILABLE, UNAVAILABLE_CHAT, WRONG_PICK_SUBMIT, WRONG_PICK_BALANCES, CHOICE_FAILED_SUBMIT, CHOICE_FAILED_BALANCES, CHOICE_FAILED_CHAT]) assert.doesNotMatch(t, /PeopleSoft|MCP|\btools?\b|\bAI\b|\bHub\b|student agent/i, t);
 });

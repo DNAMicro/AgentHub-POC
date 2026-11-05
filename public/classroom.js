@@ -246,15 +246,16 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
   const ASSISTANT = { studentId: 'assistant', name: 'assistant', label: 'Course assistant — writes, sends course lessons, answers questions' };
 
   const DELIVERY = {
-    queued: ['Queued at Hub', 'busy'], delivered: ['Delivered', 'ok'], opened: ['Opened', 'ok'],
-    uncertain: ['Being confirmed', 'warn'], failed: ['Failed', 'bad'], sending: ['Sending…', 'busy'],
+    queued: ['Not delivered yet', 'busy'], delivered: ['Delivered', 'ok'], opened: ['Opened', 'ok'],
+    uncertain: ['Checking whether it arrived', 'warn'], failed: ['Could not be delivered', 'bad'], sending: ['Sending…', 'busy'],
   };
   function studentState(d) {
     if (d.opened) return ['opened', when(d.openedAt)];
-    if (d.state === 'queued') return ['queued', d.lastError === 'student_offline' || /refused/.test(d.lastError ?? '') ? 'their student agent isn’t connected; delivered when it is' : d.lastError];
+    if (d.state === 'queued') return ['queued', d.lastError === 'student_offline' || /refused/.test(d.lastError ?? '') ? `${firstOf(d.studentId)} isn't online. It will arrive when they are.` : 'It will be retried.'];
     if (d.state === 'delivered') return ['delivered', when(d.deliveredAt)];
-    return [d.state, d.lastError];
+    return [d.state, null]; // the raw error code is for the technical views, not the faculty member
   }
+  const firstOf = (id) => (roster.find((r) => r.studentId === id)?.name ?? String(id)).split(' ')[0];
   const nameOf = (id) => String(id).split(',').map((x) => roster.find((r) => r.studentId === x)?.name ?? x).join(', ');
 
   function bubble({ dir, speaker, label, at, text }) {
@@ -265,7 +266,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
   // What was sent, to whom, whose words, and each student's state.
   function postCard(p) {
     const isMsg = p.kind === 'message';
-    const origin = p.seedId ? 'Course lesson, as written in the course pack' : p.source !== 'chat' ? 'Sent from the course API' : p.verbatim ? 'Your words' : 'Written from your instruction — read it before students do';
+    const origin = p.seedId ? 'Course lesson, as written in the course pack' : p.source !== 'chat' ? 'Sent from the course API' : p.verbatim ? 'Your words' : 'Written by your assistant from your instruction';
     return el('li', { className: 'msg post-card', dataset: { dir: 'received', speaker: 'professor', kind: p.kind } },
       el('div', { className: 'msg-head' },
         el('span', { className: 'msg-dir' }, el('span', { className: 'kind-tag', textContent: isMsg ? 'Message' : 'Lesson' }), ` ${p.title || (isMsg ? 'Message' : 'Lesson')}`),
@@ -286,8 +287,8 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     return li;
   }
   function deliveryLines(p) {
-    if (p.hubStatus === 'rejected') return el('p', { className: 'post-origin', dataset: { verbatim: 'false' }, textContent: `Refused by the Hub: ${p.hubReason}` });
-    if (!p.deliveries.length) return el('p', { className: 'post-origin', textContent: p.hubAccepted ? 'Sent to the Hub…' : 'Not confirmed by the Hub yet — it will be retried.' });
+    if (p.hubStatus === 'rejected') return el('p', { className: 'post-origin', dataset: { verbatim: 'false' }, textContent: `Not sent: ${p.hubReason}` });
+    if (!p.deliveries.length) return el('p', { className: 'post-origin', textContent: p.hubAccepted ? 'Sending…' : 'Not confirmed yet — it will be retried.' });
     return el('ul', { className: 'per-student' }, ...p.deliveries.map((d) => {
       const [k, detail] = studentState(d);
       const [label, tone] = DELIVERY[k] ?? [k, 'warn'];
@@ -408,7 +409,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
   // lead follows the approved rules (page chrome; HR's own text comes back if the name is cleared).
   const NO_NAME_LEAD = /^What kind of time off is this\?/;
   const SORRY = (type, reason) => type === 'BRV' || (type === 'OTH' && (reason === '30' || reason === '40')) || (type === 'SCK' && reason === 'BRV');
-  const leadFor = (type, reason) => (SORRY(type, reason) ? "I'm sorry for your loss. Check it and submit." : type === 'SCK' && reason === 'SCK' ? 'Feel better soon. Check it and submit.' : 'Check it and submit.');
+  const leadFor = (type, reason) => (SORRY(type, reason) ? "I'm sorry for your loss. Check it and submit." : type === 'SCK' && reason === 'SCK' && !hr?.card?.appointment ? 'Feel better soon. Check it and submit.' : 'Check it and submit.');
   // No name yet and HR offered choices: the question, then the choices as pills, then HR's “If none of these fit …”.
   function drawLead(v) {
     const named = Boolean(v.type && absenceName(v.type));
@@ -599,7 +600,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
         el('p', { className: 'hr-record-when', textContent: `${range} · ${Number(r.hours)} ${Number(r.hours) === 1 ? 'hour' : 'hours'}` })));
     } else {
       // A receipt saved before records existed: it was filed, HR's receipt says what.
-      const filed = /^Recorded in PeopleSoft/.test(closing?.text ?? '');
+      const filed = /^Your time off is recorded/.test(closing?.text ?? '');
       body.push(el('p', { className: 'hr-record-none', textContent: filed ? 'You submitted this card. HR’s receipt is below.' : closing ? 'You cancelled this card. Nothing was filed.' : 'This card closed before it was submitted. Nothing was filed.' }));
     }
     return el('li', { className: 'msg hr-closed', dataset: { dir: 'received', speaker: 'hr', formRef: m.formRef } },
@@ -664,11 +665,12 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
       else if (m.role === 'hr') {
         // HR (staff only): the open card where HR sent it; every other HR reply (a receipt, a question,
         // a refusal) as HR's own bubble.
+        if (m.closed && m.cancelled) continue; // the closed card already says it (once)
         if (m.formRef && hrCard?.formRef === m.formRef && !m.closed && !m.failed) items.push(hrCardItem(m, hrCard));
         else if (m.formRef && !m.closed && !m.failed) items.push(hrRecord(m, chat.find((x) => x.role === 'hr' && x.formRef === m.formRef && x.closed)));
         else {
           const li = bubble({ dir: m.failed ? 'error' : 'received', speaker: 'hr', label: HR_LABEL, at: m.at, text: m.text });
-          if (m.closed && /^Recorded in PeopleSoft/.test(m.text)) li.classList.add('hr-receipt');
+          if (m.closed && /^Your time off is recorded/.test(m.text)) li.classList.add('hr-receipt');
           items.push(li);
         }
       }
@@ -724,7 +726,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     if (!s) return;
     pv.course.textContent = `${s.course.title} — ${s.course.note}`;
     roster = (s.roster?.enrolled ?? []).map((x) => ({ ...x, name: x.name ?? x.studentId }));
-    pv.roster.replaceChildren(...roster.map((x) => el('span', { className: 'presence', dataset: { online: String(Boolean(x.online)) }, textContent: x.name, title: x.online ? 'Student agent online' : 'Student agent not connected — posts queue at the Hub' })));
+    pv.roster.replaceChildren(...roster.map((x) => el('span', { className: 'presence', dataset: { online: String(Boolean(x.online)) }, textContent: x.name, title: x.online ? 'Online' : 'Not online — posts arrive when they are' })));
     posts = new Map(s.lessons.map((p) => [p.key, p]));
     chat = s.chat ?? [];
     hrCard = s.hrCard ?? null;

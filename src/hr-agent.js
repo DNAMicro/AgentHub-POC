@@ -34,7 +34,7 @@ import { createPeopleSoftLink } from './hr-peoplesoft.js';
 import { planAbsence } from './leave-rules.js';
 import { TIMEOUTS } from './timeouts.js';
 import { CREDIT_LABEL, PROOF, STANDARD_DAY, daysText, defaultReason, isPair, nameOf, shortDate, spreadOf, titleOf, whenText, workdays } from './absence-types.js';
-import { asksBalance, asksRequests, dayReferences, mentionedDays, mentionsDay, mentionsHours, readPartial, readRequest } from './hr-intent.js';
+import { isAppointment, mentionsIllness, asksBalance, asksRequests, dayReferences, mentionedDays, mentionsDay, mentionsHours, readPartial, readRequest } from './hr-intent.js';
 import { familyCare, hrStatus, reasonForRelative, selfSick } from './hr-model.js';
 
 const HOST = '127.0.0.1';
@@ -71,16 +71,16 @@ const TEXT = {
   noClient: 'I can fill in a time-off card, but your client didn’t declare A2UI v0.9 support, so I can’t show it.',
   intro: 'Check it and submit.',
   noName: 'What kind of time off is this? If none of these fit, pick from the dropdown below.',
-  receipt: 'Recorded in PeopleSoft.',
+  receipt: 'Your time off is recorded.',
   badHours: 'These hours don’t fit the dates.', // same words as validateTimeOff (src/forms.js)
 };
 const SORRY = 'I\'m sorry for your loss. ';
 // The lead line (approved mockup): no name yet → ask for it; otherwise kind words by type + reason, then
 // “Check it and submit.”
-const leadOf = (type, reason) => {
+const leadOf = (type, reason, appointment = false) => {
   if (!type) return TEXT.noName;
   if (type === 'BRV' || (type === 'SCK' && reason === 'BRV') || (type === 'OTH' && (reason === '30' || reason === '40'))) return `${SORRY}${TEXT.intro}`;
-  if (type === 'SCK' && reason === 'SCK') return `Feel better soon. ${TEXT.intro}`; // Sick Personal only
+  if (type === 'SCK' && reason === 'SCK' && !appointment) return `Feel better soon. ${TEXT.intro}`; // Sick Personal only
   return TEXT.intro;
 };
 const QUESTIONS = {
@@ -94,20 +94,23 @@ const WORKDAY_START = 8 * 60; // an arrival partial: the day starts at 08:00 (hr
 const PEOPLESOFT_URL = process.env.PEOPLESOFT_URL ?? 'http://127.0.0.1:41246';
 // One MCP call: > PeopleSoft's planner inside it; tool choice + this call < the Hub's staff-action wait (src/timeouts.js).
 const peoplesoft = createPeopleSoftLink({ url: PEOPLESOFT_URL, token: process.env.PEOPLESOFT_TOKEN, emit: emitViz, timeoutMs: Number(process.env.PEOPLESOFT_TIMEOUT_MS ?? TIMEOUTS.hrPeopleSoftCallMs) });
-// Fixed wording. Submit, PeopleSoft down or not confirming (Part 15 global constraints):
-export const PEOPLESOFT_UNAVAILABLE = 'PeopleSoft didn\'t answer. Nothing is filed until it confirms — press Submit again; it won\'t file twice.';
+// Fixed wording (owner, 2026-11-04: what an employee sees never names PeopleSoft, tools or the AI). Submit, PeopleSoft down or not confirming (Part 15 global constraints):
+const SOMETHING_WRONG_CHAT = 'Something went wrong on our side, so I can\'t show your leave right now. Nothing changed — ask again in a moment.';
+const SOMETHING_WRONG_SUBMIT = 'Something went wrong on our side, so nothing was filed. Press Submit again.';
+const BALANCE_HIDDEN = 'Your balance can\'t be shown right now.';
+export const PEOPLESOFT_UNAVAILABLE = 'HR\'s system didn\'t answer. Nothing is recorded until it confirms — press Submit again; it won\'t be filed twice.';
 // Balance / requests questions in the chat:
-export const PEOPLESOFT_UNAVAILABLE_CHAT = 'PeopleSoft didn\'t answer, so I can\'t show your leave right now. Nothing changed — ask again in a moment.';
-const TOOL_REFUSED_CHAT = 'HR\'s AI didn\'t choose the right PeopleSoft tool, so I can\'t show your leave right now. Nothing changed — ask again in a moment.';
+export const PEOPLESOFT_UNAVAILABLE_CHAT = 'HR\'s system didn\'t answer, so I can\'t show your leave right now. Nothing changed — ask again in a moment.';
+const TOOL_REFUSED_CHAT = SOMETHING_WRONG_CHAT;
 // The card's notice when it has no balances, by why:
-const NO_BALANCES = 'PeopleSoft didn\'t answer, so the balance isn\'t shown.';
-const TOOL_REFUSED_BALANCES = 'HR\'s AI didn\'t choose the balance tool, so the balance isn\'t shown.';
+const NO_BALANCES = BALANCE_HIDDEN;
+const TOOL_REFUSED_BALANCES = BALANCE_HIDDEN;
 // Submit when HR's AI chose another tool: nothing was called, so nothing was filed (definite, not stored).
-const TOOL_REFUSED_SUBMIT = 'Nothing was filed — HR\'s AI chose the wrong PeopleSoft tool. Press Submit again.';
+const TOOL_REFUSED_SUBMIT = SOMETHING_WRONG_SUBMIT;
 // HR's AI didn't answer the tool choice (timeout, rate limit, provider error, no key): nothing was called. Not a wrong pick.
-const CHOICE_FAILED_SUBMIT = 'HR\'s AI couldn\'t choose a PeopleSoft tool just now, so nothing was filed. Press Submit again.';
-const CHOICE_FAILED_BALANCES = 'HR\'s AI couldn\'t choose a PeopleSoft tool just now, so the balance isn\'t shown.';
-const CHOICE_FAILED_CHAT = 'HR\'s AI couldn\'t reach PeopleSoft just now, so I can\'t show your leave. Nothing changed — ask again in a moment.';
+const CHOICE_FAILED_SUBMIT = SOMETHING_WRONG_SUBMIT;
+const CHOICE_FAILED_BALANCES = BALANCE_HIDDEN;
+const CHOICE_FAILED_CHAT = SOMETHING_WRONG_CHAT;
 // A chat answer that failed, by why: HR's AI (wrong pick / no answer) or PeopleSoft.
 const chatFailure = (outcome) => (outcome === 'tool_refused' ? [TOOL_REFUSED_CHAT, 'tool_refused'] : outcome === 'tool_choice_failed' ? [CHOICE_FAILED_CHAT, 'tool_choice_failed'] : [PEOPLESOFT_UNAVAILABLE_CHAT, 'peoplesoft_unavailable']);
 // The person the leave rules need, from PeopleSoft's balances (null balances: no credit is checked here).
@@ -196,7 +199,8 @@ function cardFor(state) {
   const hrCard = {
     title, subtitle, when,
     why: state.quote && type ? `Picked from what you wrote: “${state.quote}”.` : null,
-    intro: leadOf(type, values.absenceReason),
+    intro: leadOf(type, values.absenceReason, state.appointment),
+    appointment: Boolean(state.appointment),
     question, problem, missing, credit,
     // No name: the names he can pick from (pills under the lead) — the words' choices, else his three leave balances.
     choices: type ? [] : (state.choices?.length ? state.choices : DEFAULT_CHOICES).map((t) => ({ type: t, name: nameOf(t) })),
@@ -267,7 +271,7 @@ const formHost = createFormHost({
         },
         async cancelForm(form, context, { trusted }) {
           if (hubLink.verifiedStaff(trusted, form.contextId) !== form.data.staffId) return { status: 'rejected', message: 'This request belongs to another staff member.', errors: { _form: 'This request belongs to another staff member.' } };
-          return { status: 'cancelled', message: 'Cancelled. Nothing was recorded.' };
+          return { status: 'cancelled', message: 'You cancelled this card. Nothing was filed.' };
         },
       },
     },
@@ -449,6 +453,8 @@ const hrExecutor = {
         startAt: clockOf(read.partial, read.startAt), side: read.side ?? null, quote: read.quote,
       };
     // Choices when no single name fits: this message's, else the ones the open card already offered.
+    // An appointment (no illness word) keeps the plain opening line; a later message that names an illness ends it.
+    state.appointment = isAppointment(text) || (followUp && open.data.appointment === true && !mentionsIllness(text));
     state.choices = read.choices?.length ? read.choices : followUp ? open.data.choices ?? [] : [];
     if (!isPair(state.values.absenceType, state.values.absenceReason)) state.values.absenceReason = state.values.absenceType ? defaultReason(state.values.absenceType) ?? '' : '';
     state.balances = balances;
@@ -464,7 +470,7 @@ const hrExecutor = {
       intro: hrCard.question ? `${hrCard.intro} ${hrCard.question}` : hrCard.intro,
       supersedes: followUp ? openId : null,
       buildOptions: { missing: hrCard.missing },
-      data: { staffId, values: state.values, hours, cardHours: state.cardHours, partial: state.partial, mode: state.mode, startAt: state.startAt, side: state.side, quote: state.quote, choices: state.choices, spread: decided },
+      data: { staffId, appointment: state.appointment, values: state.values, hours, cardHours: state.cardHours, partial: state.partial, mode: state.mode, startAt: state.startAt, side: state.side, quote: state.quote, choices: state.choices, spread: decided },
       extra: { hrCard, hr: { outcome: 'card' } },
     });
   },

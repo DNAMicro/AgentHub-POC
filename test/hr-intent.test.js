@@ -8,7 +8,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { startFakeAnthropic, messageReply } from './support/fake-anthropic.js';
-import { readDates, readPartial, readRequest } from '../src/hr-intent.js';
+import { isAppointment, readDates, readPartial, readRequest } from '../src/hr-intent.js';
 import { chooseAbsence, hrStatus, reasonForRelative, verify } from '../src/hr-model.js';
 
 const run = promisify(execFile);
@@ -885,4 +885,26 @@ test('choices: readRequest carries them (mock) and live keeps only real names', 
   const { r: l } = await live('a family thing on Friday', out({ choices: ['PHL', 'XYZ', 'VAC'] }));
   assert.equal(l.absenceType, '');
   assert.deepEqual(l.choices, ['PHL', 'VAC']);
+});
+
+test('owner 2026-11-04: “afternoon off” / “morning off” / “the afternoon” / “in the morning” for one day is 4 hours', async () => {
+  const r = await readRequest({ text: 'I need Tuesday Nov 17 afternoon off for a doctor appointment', now: MON });
+  assert.equal(r.prefill.beginDate, '2026-11-17');
+  assert.equal(r.prefill.endDate, '2026-11-17');
+  assert.deepEqual(r.partial, { mode: 'start_day_only', hours: 4 });
+  for (const t of [
+    'I need Tuesday Nov 17 morning off',
+    'I need Tuesday Nov 17 off for the afternoon',
+    'I will be out in the morning on Tuesday Nov 17',
+    'I need the afternoon off on Tuesday Nov 17',
+    'I need Nov 17 off in the afternoon',
+  ]) assert.equal(readPartial(t)?.hours, 4, t);
+  // still not cues
+  assert.equal(readPartial('I need Tuesday Nov 17 off'), null);
+  assert.equal(readPartial('afternoon, leaving at 3pm').hours, 2);
+});
+
+test('owner 2026-11-04: an appointment with no illness word is not a “feel better” moment', () => {
+  for (const t of ['I have a doctor appointment Friday', 'I need Friday afternoon off for a dentist appointment', 'a check-up on Monday', 'I have a doctor visit Monday']) assert.equal(isAppointment(t), true, t);
+  for (const t of ['I am sick and have a doctor appointment Friday', 'doctor appointment, I have a fever', 'I have the flu', 'I need Friday off', 'migraine, seeing the doctor', "I'm not feeling well, dentist appointment"]) assert.equal(isAppointment(t), false, t);
 });

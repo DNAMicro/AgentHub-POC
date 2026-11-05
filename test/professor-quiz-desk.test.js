@@ -266,8 +266,8 @@ test('failure copy: approve outcomes, nothing cached, the card stays a draft', a
   const outcomes = [
     ['unavailable', "Canvas didn't answer. Nothing is posted until it confirms — press Approve again; it won't post twice."],
     ['uncertain', "Canvas didn't answer. Nothing is posted until it confirms — press Approve again; it won't post twice."],
-    ['tool_refused', "Nothing was sent — Faculty's AI chose the wrong Canvas tool. Press Approve again."],
-    ['tool_choice_failed', "Faculty's AI couldn't choose a Canvas tool just now, so nothing was sent. Press Approve again."],
+    ['tool_refused', 'Something went wrong on our side, so nothing was sent to Canvas. Press Approve again.'],
+    ['tool_choice_failed', 'Something went wrong on our side, so nothing was sent to Canvas. Press Approve again.'],
     ['not_configured', "Canvas isn't connected, so nothing was sent."],
   ];
   for (const [outcome, text] of outcomes) {
@@ -287,8 +287,8 @@ test('failure copy: approve outcomes, nothing cached, the card stays a draft', a
 
 test('failure copy: publish tool problems', async () => {
   for (const [outcome, text] of [
-    ['tool_refused', "Nothing was sent — Faculty's AI chose the wrong Canvas tool. Press Publish again."],
-    ['tool_choice_failed', "Faculty's AI couldn't choose a Canvas tool just now, so nothing was sent. Press Publish again."],
+    ['tool_refused', 'Something went wrong on our side, so nothing was sent to Canvas. Press Publish again.'],
+    ['tool_choice_failed', 'Something went wrong on our side, so nothing was sent to Canvas. Press Publish again.'],
   ]) {
     const s = setup({ canvasScript: [null, { ok: false, outcome }] });
     const { draftId } = await drafted(s);

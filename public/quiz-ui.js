@@ -349,7 +349,7 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, stu
   function deliveries(v, card) {
     const post = posts().find((p) => p.quiz && p.quiz.canvasQuizId === (v.canvasQuizId ?? card?.canvasQuizId));
     const list = post?.deliveries?.length ? post.deliveries : (card?.deliveries ?? []).map((d) => ({ studentId: d.studentId, state: d.status }));
-    if (!list.length) return el('p', { className: 'post-origin', textContent: post || v.after === 'published' ? 'Notice sent to the Hub…' : '' });
+    if (!list.length) return el('p', { className: 'post-origin', textContent: post || v.after === 'published' ? 'Sending…' : '' });
     return el('ul', { className: 'per-student' }, ...list.map((d) => {
       const [k, detail] = studentState(d);
       const [label, tone] = k === 'delivered' ? ['Notified', 'ok'] : (DELIVERY[k] ?? [k, 'warn']);

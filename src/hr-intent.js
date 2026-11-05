@@ -255,7 +255,7 @@ const ARRIVE_AT = new RegExp(`\\b(?<verb>com(?:e|ing)\\s+in|be\\s+in|in|arriv(?:
 // “half day”, “half-day”, “half a day”, “half of the day”.
 const HALF_DAY = 'half(?:[- ]|\\s+a\\s+|\\s+of\\s+(?:the|a|my)\\s+)day';
 const DAY_WORDS_BETWEEN = `(?:(?:the|this|tomorrow|yesterday|today|on|${Object.keys(DAYS).join('|')})\\s+)*`;
-const DAY_PARTS = new RegExp(`\\b(?:off|out|sick|ill|unwell|leaving|leave|away|absent)\\s+${DAY_WORDS_BETWEEN}(?:morning|afternoon)\\b|\\b(?:morning|afternoon)\\s+off\\b|\\b${HALF_DAY}\\b`, 'gi');
+const DAY_PARTS = new RegExp(`\\b(?:off|out|sick|ill|unwell|leaving|leave|away|absent)\\s+${DAY_WORDS_BETWEEN}(?:morning|afternoon)\\b|\\b(?:morning|afternoon)\\s+off\\b|\\b(?:off|out|away|absent)\\s+(?:(?:on|for|during|in)\\s+)?(?:the\\s+)?(?:\\w+\\s+){0,3}?(?:in|for|during)\\s+the\\s+(?:morning|afternoon)\\b|\\b(?:off|out|away|absent)\\s+(?:for|during)\\s+the\\s+(?:morning|afternoon)\\b|\\bthe\\s+(?:morning|afternoon)\\s+of\\s+(?:\\w+\\s+){1,3}?off\\b|\\b${HALF_DAY}\\b`, 'gi');
 export function readPartial(text) {
   const c = readCue(text);
   if (!c) return null;
@@ -380,11 +380,14 @@ function datesWithReturn(text, now) {
 const TODAY_WORDS = /\b(?:tonight|this\s+(?:morning|afternoon|evening))\b/i;
 export const withoutReturnDay = (text) => { let s = String(text ?? ''); for (const m of returnPhrases(s)) s = s.replace(m[0], ' '); return s; };
 // Every day the text names (each mention resolved on its own), after removing a return phrase.
+const WEEKDAY_THEN_DATE = new RegExp(`^\\s*,?\\s*(?:(?:${MONTH_RE})\\.?\\s+\\d|\\d{1,2}/\\d)`, 'i');
 export function mentionedDays(text, now = new Date()) {
   const s = withoutReturnDay(text);
   const days = new Set();
   if (TODAY_WORDS.test(s)) days.add(todayIn(now));
   for (const m of s.matchAll(MENTION)) {
+    // A weekday right before a date names that date (“Tuesday Nov 17”): one day, not two.
+    if (m.groups.weekday && WEEKDAY_THEN_DATE.test(s.slice(m.index + m[0].length))) continue;
     const d = readDates(m[0], now);
     if (d) for (let x = d.beginDate; x <= d.endDate; x = addDays(x, 1)) days.add(x);
   }
@@ -561,3 +564,10 @@ export function asksRequests(text) {
   return new RegExp(String.raw`\bmy\s+(?:time[- ]off|leave|absence)\s+requests\b`, 'i').test(s)
     || new RegExp(String.raw`\b(?:what|which)\s+${KIND}\s+(?:have\s+i|did\s+i)\s+(?:filed|requested|submitted|file|request)\b`, 'i').test(s);
 }
+
+// An appointment (doctor, dentist, check-up, visit) with no illness word: the card's opening line is the plain
+// “Check it and submit.”, not “Feel better soon.” (owner, 2026-11-04). Read by code from the professor's words.
+const APPOINTMENT = /\b(?:appointments?|check-?ups?|visit|dentist|dental|orthodontist|physical therapy)\b/i;
+const ILLNESS = /\b(?:sick|ill|illness|flu|fever|migraines?|unwell|nauseous|covid|cold|injur\w*|pain|vomit\w*|headaches?|sore|infection|not\s+feeling|under\s+the\s+weather|surgery)\b/i;
+export const mentionsIllness = (text) => ILLNESS.test(String(text ?? ''));
+export const isAppointment = (text) => APPOINTMENT.test(String(text ?? '')) && !ILLNESS.test(String(text ?? ''));

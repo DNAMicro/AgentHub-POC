@@ -92,7 +92,7 @@ test('a staff request opens HR’s card (bereavement); Submit files it and the c
   const id = done.receipt.requestId;
   assert.match(id, /^TO-/);
   st = await state();
-  assert.equal(lastOf(st.chat, 'hr').text, `Recorded in PeopleSoft. Request ${id}: Bereavement (Grandparent/Great Grandparent), Thu, Nov 5 to Fri, Nov 6, 16 hours.`);
+  assert.equal(lastOf(st.chat, 'hr').text, `Your time off is recorded. Request ${id}: Bereavement (Grandparent/Great Grandparent), Thu, Nov 5 to Fri, Nov 6, 16 hours.`);
   assert.equal(lastOf(st.chat, 'hr').closed, true);
   // What was filed, so the Faculty view can answer the card's question once the card is gone; never the note.
   assert.deepEqual(lastOf(st.chat, 'hr').record, { requestId: id, absenceType: 'BRV', absenceReason: 'GGP', beginDate: '2026-11-05', endDate: '2026-11-06', hours: 16 });
@@ -137,7 +137,7 @@ test('“both”: HR first; after Submit a class cancellation is offered for the
   const done = await hrAction({ operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: submitAction(st.hrCard, { absenceType: ['SCK'], absenceReason: ['SCK'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8' }) });
   assert.equal(done.status, 'accepted', JSON.stringify(done));
   st = await state();
-  assert.match(lastOf(st.chat, 'hr').text, /^Recorded in PeopleSoft\. Request TO-\w+: Sick Leave \(Sick Personal\), Fri, Nov 6, 8 hours\.$/);
+  assert.match(lastOf(st.chat, 'hr').text, /^Your time off is recorded\. Request TO-\w+: Sick Leave \(Sick Personal\), Fri, Nov 6, 8 hours\.$/);
   assert.equal(lastOf(st.chat, 'assistant').text, 'You have Marketing 351 on Fri, Nov 6. Would you like me to send a cancellation to your students?');
   assert.equal(st.lessons.length, 0, 'not posted before the professor says yes');
 
@@ -168,7 +168,11 @@ test('Cancel closes the card without filing; a classroom reset forgets an open c
   assert.equal(cancel.status, 'cancelled', JSON.stringify(cancel));
   st = await state();
   assert.equal(st.hrCard, null);
-  assert.equal(lastOf(st.chat, 'hr').text, 'Cancelled. Nothing was recorded.');
+  assert.equal(lastOf(st.chat, 'hr').text, 'You cancelled this card. Nothing was filed.');
+  // Owner 2026-11-04: ONE cancel sentence on screen. The chat keeps a single closing entry, flagged so the screen
+  // shows its words once (on the closed card) and not again as a separate HR bubble.
+  assert.equal(st.chat.filter((m) => m.role === 'hr' && m.closed).length, 1);
+  assert.equal(lastOf(st.chat, 'hr').cancelled, true);
   assert.deepEqual(await requests(), []);
 
   await say("I need Friday off, it's a vacation day");

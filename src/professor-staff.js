@@ -126,12 +126,12 @@ export function cancellationText(days) {
   return `${COURSE.title} is cancelled on ${listOf(days.map(shortDate))}.`;
 }
 export const cancellationOffer = (days) => `You have ${COURSE.title} on ${listOf(days.map(shortDate))}. Would you like me to send a cancellation to your students?`;
-// “Recorded in PeopleSoft. Request TO-1A2B: Bereavement (Grandparent/Great Grandparent), Thu, Nov 5 – Fri, Nov 6,
+// “Your time off is recorded. Request TO-1A2B: Bereavement (Grandparent/Great Grandparent), Thu, Nov 5 – Fri, Nov 6,
 // 16 hours.” The reason is in parentheses only when it says more than the name (titleOf's subtitle).
 export function receiptText(r) {
   const { subtitle } = titleOf(r.absenceType, r.absenceReason);
   const dates = r.beginDate === r.endDate ? shortDate(r.beginDate) : `${shortDate(r.beginDate)} to ${shortDate(r.endDate)}`;
-  return `Recorded in PeopleSoft. Request ${r.requestId}: ${r.absenceName}${subtitle ? ` (${subtitle})` : ''}, ${dates}, ${r.hours} ${r.hours === 1 ? 'hour' : 'hours'}.`;
+  return `Your time off is recorded. Request ${r.requestId}: ${r.absenceName}${subtitle ? ` (${subtitle})` : ''}, ${dates}, ${r.hours} ${r.hours === 1 ? 'hour' : 'hours'}.`;
 }
 
 // The open card as /author/state shows it (the Faculty view renders it); null when none is open.
@@ -358,11 +358,11 @@ export async function staffAction({ operationId, formRef, action, hubLink, emit 
         entries.push({ role: 'assistant', text: cancellationOffer(days), action: 'clarify' });
       }
     } else {
-      entries.push({ role: 'hr', text: reply.text, formRef, closed: true });
+      entries.push({ role: 'hr', text: reply.text, formRef, closed: true, cancelled: true }); // the closed card says it; the screen skips this entry
     }
     return { http: 200, definite: true, entries, body: { status, reply: entries[0].text, closed: true, ...(reply.receipt ? { receipt: reply.receipt } : {}) } };
   }
-  // HR's backend (PeopleSoft) didn't confirm: the outcome is unknown, HR's words say so. Not kept, so the same
+  // HR's system didn't confirm: the outcome is unknown, HR's words say so. Not kept, so the same
   // operation can be sent again (the browser keeps its operation ID for outcome_unknown) — it won't file twice.
   if (r.status === 'refused' && reply?.retryable && reply?.unknownOutcome) {
     const text = r.reason ?? reply.text ?? 'Not confirmed.';
@@ -375,7 +375,7 @@ export async function staffAction({ operationId, formRef, action, hubLink, emit 
     if (current && gone) openCard = null;
     if (current && !gone && reply?.a2ui?.length) openCard = { ...openCard, a2ui: [...openCard.a2ui, ...reply.a2ui] };
     const text = r.reason ?? reply?.text ?? 'Not accepted.';
-    // A retryable rejection (e.g. HR's AI chose the wrong PeopleSoft tool, nothing filed) is definite but not stored,
+    // A retryable rejection (e.g. a wrong tool pick, nothing filed) is definite but not stored,
     // so the same operation can run again; the browser starts a new operation after a rejection anyway.
     return { http: 200, definite: !reply?.retryable, entries: [{ role: 'hr', text, formRef, failed: true }], body: { status: 'rejected', reply: text, closed: gone, ...(reply?.errors ? { errors: reply.errors } : {}) } };
   }
