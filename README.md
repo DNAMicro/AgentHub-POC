@@ -1,6 +1,6 @@
 # AgentHub-POC
 
-A proof of concept for agents that work together over the real **Agent-to-Agent (A2A) protocol**. A Student agent talks to one University Hub, which routes each request to a Tutor, a Library or a Marketing 351 Faculty agent and relays the answer. A staff-only **HR Agent** handles the faculty member's own time off. Agents can also send the student real interfaces (**A2UI**), use **Claude Haiku 5.5** to answer and decide, and the faculty member can start a conversation on their own.
+A proof of concept for agents that work together over the real **Agent-to-Agent (A2A) protocol**. A Student agent talks to one University Hub, which routes each request to a Tutor, a Library or a Marketing 351 Faculty agent and relays the answer. A staff-only **HR Agent** handles the faculty member's own time off, and the Faculty agent can draft a quiz and post it to a **Canvas LMS** stand-in over MCP. Agents can also send the student real interfaces (**A2UI**), use **Claude Haiku 5.5** to answer and decide, and the faculty member can start a conversation on their own.
 
 Everything runs on your own machine (127.0.0.1 only) and uses fictional people, books and courses.
 
@@ -10,7 +10,7 @@ Requirements: **Node.js 20+** (verified on 26.11.1). An Anthropic API key only f
 
 ```bash
 npm install
-npm run demo          # all seven processes with mock models: free, no network
+npm run demo          # all eight processes with mock models: free, no network
 # open http://127.0.0.1:4444
 ```
 
@@ -78,11 +78,11 @@ Use `PORT=...` to change the Tutor's port and `TUTOR_URL=http://127.0.0.1:...` t
 ### Browser monitor: all agents (Parts 7–9)
 
 ```bash
-npm run demo:live     # all seven processes, Hub router + Tutor + Library + Faculty + HR + PeopleSoft's planner on Claude Haiku 5.5 (paid; key from env or .env)
+npm run demo:live     # all eight processes, Hub router + Tutor + Library + Faculty + HR + PeopleSoft's and Canvas's planners on Claude Haiku 5.5 (paid; key from env or .env)
 npm run demo          # the same with mock models and the mock router (no network, no cost)
 ```
 
-`demo` runs `scripts/start-all.js`, which starts the seven processes and prefixes their output; Ctrl+C stops them all (each specialist signs out from the Hub). To run them separately instead:
+`demo` runs `scripts/start-all.js`, which starts the eight processes and prefixes their output; Ctrl+C stops them all (each specialist signs out from the Hub). To run them separately instead:
 
 ```bash
 npm run hub:live      # University Hub on 127.0.0.1:41243 (live router; or hub = mock router, hub:direct = everything to tutoring)
@@ -101,6 +101,7 @@ npm run ui            # UI + Student Agent on 127.0.0.1:4444 — connects only t
 | Marketing 351 Faculty | 41244 | `npm run professor` |
 | HR Agent (staff only, Part 14) | 41245 | `npm run hr` (`hr:live` = Haiku) |
 | PeopleSoft stand-in (MCP server, Part 15) | 41246 | `npm run peoplesoft` (`peoplesoft:live` = Haiku). Needs `PEOPLESOFT_TOKEN`; `npm run demo` makes one for you |
+| Canvas LMS stand-in (MCP server, Part 16) | 41247 | `npm run canvas` (`canvas:live` = Haiku). Needs `CANVAS_TOKEN`; `npm run demo` makes one for you |
 | UI + Student Agent | 4444 | `npm run ui` |
 
 Then open **http://127.0.0.1:4444**. Start order doesn't matter: specialists keep retrying registration, and the Student re-reads the Hub's card when the Hub appears.
@@ -125,6 +126,10 @@ Then open **http://127.0.0.1:4444**. Start order doesn't matter: specialists kee
 | `PEOPLESOFT_MODE` | Part 15: the PeopleSoft stand-in's step planner, `mock` (default, labelled heuristic) or `live` |
 | `PEOPLESOFT_URL`, `PEOPLESOFT_TOKEN` | Part 15: where HR finds the PeopleSoft stand-in (default `http://127.0.0.1:41246`) and the secret it must send. Never printed |
 | `HR_TOOL_CHOICE_TIMEOUT_MS`, `PEOPLESOFT_TIMEOUT_MS`, `PEOPLESOFT_MODEL_TIMEOUT_MS` | Part 15: the time limits for HR's tool choice (8 s), HR's PeopleSoft call (12 s) and PeopleSoft's planner (8 s); see `src/timeouts.js` |
+| `CANVAS_MODE` | Part 16: the Canvas stand-in's step planner, `mock` (default, labelled heuristic) or `live` |
+| `CANVAS_URL`, `CANVAS_TOKEN` | Part 16: where the Faculty agent finds the Canvas stand-in (default: closed port 9, so it never reaches a real :41247 by accident; `npm run demo` sets it) and the secret it must send. Never printed |
+| `CANVAS_TIMEOUT_MS`, `CANVAS_MODEL_TIMEOUT_MS` | Part 16: the time limits for Faculty's Canvas call (12 s) and Canvas's planner (8 s); see `src/timeouts.js` |
+| `PROFESSOR_NOW`, `CANVAS_NOW` | Tests and rehearsal only (with `PROFESSOR_TEST_HOOKS=1` / `CANVAS_TEST_HOOKS=1`): pin "today" so the same topics are taught on any day |
 | `HR_TEST_HOOKS=1` | Tests only: adds `GET /test/hr/requests` to the HR Agent (the sent requests it holds in memory) |
 | `HUB_FORM_TTL_MS` | How long a form or HR card stays usable (default 2 hours). The Hub and the Faculty agent's staff desk both read it |
 | `HEARTBEAT_INTERVAL_MS`, `HEARTBEAT_EXPIRY_MS` | Specialist heartbeat period; how long the Hub waits before marking one stale |
@@ -142,7 +147,7 @@ npm test   # starts the Tutor (and UI server) as child processes, runs all check
 
 ### Audience demo: the build, part by part
 
-`scripts/demo/progression.js` presents the project to an audience on the running app (`npm run demo:live`). It walks through Steps 1–11 in order: a title slide per part (what it added, which agents exist at that point), then the real app doing it, with captions, highlights on what to look at, and timed pauses. Everything on screen is live: real A2A messages and real model calls, so a full run costs a few cents and takes about 12 minutes at normal pace.
+`scripts/demo/progression.js` presents the project to an audience on the running app (`npm run demo:live`). It walks through Steps 1–11 and 16 in order (14 and 15 have no scene yet): a title slide per part (what it added, which agents exist at that point), then the real app doing it, with captions, highlights on what to look at, and timed pauses. Everything on screen is live: real A2A messages and real model calls, so a full run costs a few cents and takes about 12 minutes at normal pace.
 
 ```bash
 playwright-cli -s=demo open --headed "http://127.0.0.1:4444/conversation"
@@ -196,7 +201,7 @@ The Topology window opens on its own, to the right of the app window (1120 + 800
 
 Everything is live, so the model may answer in words where the script hoped for a form, or ask a clarifying question. The walkthrough then shows what the app really did and carries on. A failed moment is listed in the returned `problems` and never faked on screen. Step 8 renews a loan for real. Step 5 adds a line to the Library's skill and removes it again on screen.
 
-**Editing it.** The script is built from `scripts/demo/walkthrough/frame.js` (windows, keys, typing helpers) and one `scene-N.js` per step. Edit those, then run `npm run demo:build`; don't edit `live-walkthrough.js` by hand. **Rehearse on a separate stack, never the running demo**: `node scripts/demo/rehearsal-stack.js --ui 5444 --base 52240` starts all seven processes live on other ports with temporary copies of the data files (`--mock` for a free plumbing run), then open `http://127.0.0.1:5444/conversation?auto=4&shots=<dir>` and look at every screenshot.
+**Editing it.** The script is built from `scripts/demo/walkthrough/frame.js` (windows, keys, typing helpers) and one `scene-N.js` per step. Edit those, then run `npm run demo:build`; don't edit `live-walkthrough.js` by hand. **Rehearse on a separate stack, never the running demo**: `node scripts/demo/rehearsal-stack.js --ui 5444 --base 52240` starts all eight processes live on other ports with temporary copies of the data files (`--mock` for a free plumbing run), then open `http://127.0.0.1:5444/conversation?auto=4&shots=<dir>` and look at every screenshot.
 
 ## Files
 
@@ -233,8 +238,11 @@ Everything is live, so the model may answer in words where the script hoped for 
 | `src/config.js`, `config/*.example.json` | Part 7: per-agent configuration with startup validation. |
 | `src/topology.js` | Part 7: labels each telemetry event with its connection, direction, category and phase for the topology view. |
 | `public/topology.js` | Part 7: the live topology graph (SVG), traces, details, event list. |
-| `scripts/start-all.js` | Part 7: starts all the processes — six since Part 14, seven since Part 15 (`npm run demo` / `demo:live`). |
+| `scripts/start-all.js` | Part 7: starts all the processes — six since Part 14, seven since Part 15, eight since Part 16 (`npm run demo` / `demo:live`). |
 | `src/hr-agent.js`, `src/hr-intent.js`, `src/hr-model.js`, `src/absence-types.js` | Part 14: the staff-only **HR Agent** — chat and card logic (since Part 15 the staff, balances and requests live in PeopleSoft: `src/peoplesoft-store.js`, with the Forecast rules in `src/leave-rules.js`), the code that reads dates and partial days, and the shared absence list (also served to the browser at `/shared/absence-types.js`), and the absence-type choice (model proposes, code verifies; the reason comes from code). |
+| `src/canvas-mcp.js`, `src/canvas-store.js`, `src/canvas-model.js` | Part 16: the Canvas LMS stand-in MCP server (two tools, bearer token), its in-memory quizzes and its step planner. |
+| `src/course-schedule.js`, `src/quiz-rules.js` | Part 16: the fictional Fall 2026 Marketing 351 schedule (20 topics, dates, original notes) and the quiz rules, shared with the browser at `/shared/…`. |
+| `src/quiz-model.js`, `src/professor-quiz.js`, `src/professor-canvas.js` | Part 16: the AI that drafts questions from the notes, the quiz desk (topic, draft, edit, approve, publish, notice) and Faculty's MCP link to Canvas. |
 | `src/peoplesoft-mcp.js`, `src/peoplesoft-store.js`, `src/peoplesoft-model.js`, `src/leave-rules.js` | Part 15: the PeopleSoft stand-in MCP server (three tools, bearer token), its in-memory records and the code-run leave rules, and its step planner. |
 | `src/hr-peoplesoft.js`, `src/timeouts.js` | Part 15: HR's MCP client (tool choice checked by code, one shared time budget) and the nested time limits for the staff path. |
 | `src/staff.js`, `src/professor-staff.js` | Part 14: the Hub's signed staff path (media types, signed fields, reply shape) and the Faculty agent's staff desk (spots a request for himself, asks when unsure, holds the open card, offers the class note). |
@@ -1006,6 +1014,33 @@ The HR Agent no longer keeps the staff records. They live in a seventh process, 
 
 `test/peoplesoft-store.test.js`, `peoplesoft-model.test.js`, `peoplesoft-mcp.test.js`, `hr-peoplesoft.test.js`, `hr-peoplesoft-budget.test.js`, `topology-peoplesoft.test.js`, `timeouts.test.js`. `scripts/browser-checks/peoplesoft.js` (37 checks) runs on a separate rehearsal stack, never on the running demo.
 
+## Part 16: Canvas quiz over MCP — a quiz drafted by AI, posted to Canvas
+
+At CSUF, quizzes live in **Canvas**. The Faculty agent now reaches an eighth process, a **Canvas LMS stand-in** (`src/canvas-mcp.js`, port **41247**), over MCP, the same way HR reaches PeopleSoft. It is a fictional demo, not Instructure's Canvas, and says so in its startup line, its tool descriptions and its Topology details.
+
+### The walkthrough
+
+1. In the Faculty view type `@assistant create a quiz for Marketing 351`. With no topic, the assistant lists the topics **already taught** (from the course schedule in code, never from the AI); later topics show their date and are disabled.
+2. Tap a topic. Faculty's model drafts five original multiple-choice questions from our own course notes on one card. Dr. Dabirian can edit, remove (with Undo), add a question, or ask for one more. Nothing leaves until **Approve**, and Approve stays disabled until every question passes the same check the UI server, the Faculty agent and Canvas repeat.
+3. **Approve** is the first MCP moment: Faculty's AI picks the tool (`create_quiz`), code checks the pick, Canvas's own AI plans its steps from a fixed menu while code runs them, and the quiz is saved **unpublished** (quiz #4821).
+4. **Publish & notify students** is the second (`publish_quiz`). Only after Canvas confirms, each student gets a notice through the Hub (a Part 9 message with the quiz facts, never questions or answers). It has no button and no reply: the quiz is taken in Canvas. **Keep as draft** leaves it unpublished and tells nobody.
+5. Topology shows a moss-green **Canvas LMS** tile under Faculty's model, a dash-dot MCP line and the same sparkle and sweep as PeopleSoft. No circle and no model box, so it can't be mistaken for an agent.
+
+### If Canvas doesn't answer
+
+- Approve: “Canvas didn't answer. Nothing is posted until it confirms — press Approve again; it won't post twice.” Publish has its own sentence. The same operation ID is reused, so a second press acts once. Nothing retries by itself.
+- If Faculty's AI picks the wrong tool, or doesn't answer the tool choice, nothing is sent and the card says so. If Canvas refuses, the card reopens with Canvas's plain sentence for one of eight fixed codes (`bad_question`, `bad_settings`, `due_in_past`, `unknown_course`, `unknown_quiz`, `operation_reused`, `reset_during_call`, `not_taught`).
+
+### Safety and limits
+
+- Only the Faculty agent can call Canvas: a random token made on every start, given to those two processes only, never printed or logged. Everything binds to `127.0.0.1`.
+- Drafts, the Canvas card and Canvas's quizzes are in memory only (nothing under `data/`) and reset with New conversation. The answer key is only in the Faculty view; telemetry carries ids, counts and codes, not titles, questions or answers.
+- Questions are original, written from our own notes; none is copied from a test bank. The schedule is a fictional Fall 2026 one, so "taught so far" works on any demo day.
+
+### Tests
+
+`test/quiz-rules.test.js`, `canvas-store.test.js`, `canvas-model.test.js`, `canvas-mcp.test.js`, `quiz-model.test.js`, `quiz-model-live.test.js`, `professor-canvas.test.js`, `professor-canvas-live.test.js`, `professor-quiz-desk.test.js`, `professor-quiz.test.js`, `quiz-notice.test.js`, `topology-canvas.test.js`, `timeouts.test.js`. `scripts/browser-checks/canvas-quiz.js` (64 checks) runs on a separate rehearsal stack (`node scripts/demo/rehearsal-stack.js --ui 5544 --base 52340 --mock --now 2026-11-04T20:00:00Z`), never on the running demo. See [Steps/16](Steps/16-canvas-quiz-mcp.md).
+
 ## Deliberately not included
 
-Token streaming, A2A push notifications (Part 9's lessons are new A2A messages, not task-status pushes), email/SMS/OS notifications, whole-class broadcasts, multi-agent fan-out (the Hub forwards each request to at most one specialist), real authentication or accounts (Part 9's per-process keys are a local demo measure), a database (only Part 9's lesson records, inbox and outbox are JSON files; Part 8 loans and Part 14 HR records are in memory only), actually sending email, model-generated code or HTML, and deployment. Model-generated UI exists only in Part 8, only from the validated catalog. Each chat goes to at most one service as one A2A request and one response. Each form is one A2A task, opened by the agent's reply to a chat message and acted on only by its own allowlisted actions. Part 14 adds no manager agent or approval, no real CHRS or portal, no attachments upload and no other HR services than time off.
+Token streaming, A2A push notifications (Part 9's lessons are new A2A messages, not task-status pushes), email/SMS/OS notifications, whole-class broadcasts, multi-agent fan-out (the Hub forwards each request to at most one specialist), real authentication or accounts (Part 9's per-process keys are a local demo measure), a database (only Part 9's lesson records, inbox and outbox are JSON files; Part 8 loans and Part 14 HR records are in memory only), actually sending email, model-generated code or HTML, and deployment. Model-generated UI exists only in Part 8, only from the validated catalog. Each chat goes to at most one service as one A2A request and one response. Each form is one A2A task, opened by the agent's reply to a chat message and acted on only by its own allowlisted actions. Part 14 adds no manager agent or approval, no real CHRS or portal, no attachments upload and no other HR services than time off. Part 16 adds no real Canvas, no grading, no student quiz-taking (students get a notice only), no quiz bank and no saved drafts.

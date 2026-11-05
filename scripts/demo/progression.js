@@ -289,7 +289,7 @@ async (page) => {
     await submit(anyway.locator('xpath=ancestor::li[1]'), 'Send anyway', 'Live: sending the reviewed values…');
   }
 
-  const STEPS = ['A2A', 'Browser monitor', 'A2UI form', 'Haiku tutor', 'Routing & skills', 'Forms on request', 'University Hub', 'Generated UI', 'Faculty', 'AG-UI', 'Fill from chat'];
+  const STEPS = ['A2A', 'Browser monitor', 'A2UI form', 'Haiku tutor', 'Routing & skills', 'Forms on request', 'University Hub', 'Generated UI', 'Faculty', 'AG-UI', 'Fill from chat', 'Canvas quiz'];
   const PARTS = [
     {
       n: 1, title: 'Two agents talking over A2A',
@@ -585,6 +585,63 @@ async (page) => {
         await show(items.last(), 'Your click renews it', 9, [k, 'The final click is always yours', 'The app never presses a form’s button for you.']);
       },
     },
+    {
+      n: 16, pill: 12, title: 'A quiz posted to Canvas over MCP',
+      lead: 'The faculty member asks the course assistant for a quiz. It lists the topics already taught, the AI drafts questions from our own course notes, and nothing leaves until the faculty member approves. Then the Faculty agent reaches Canvas LMS (a fictional demo stand-in, an eighth process) over MCP: saved unpublished first, published only on a second click, and the students get a notice.',
+      bullets: ['Only topics already taught can be picked; code reads the course schedule, not the AI', 'The faculty member can edit, remove or add any question before Approve; code checks every question again at every hop', 'Faculty’s AI picks the Canvas tool at each moment and code checks the pick; Canvas’s own AI plans its steps, code runs them', 'Students get a notice only: the quiz is taken in Canvas, and the answer key never leaves the Faculty view'],
+      arch: 'Faculty agent ──MCP tools/call──▶ Canvas LMS (demo stand-in)\n        │ approve → create_quiz (unpublished)\n        └ publish → publish_quiz ──▶ Hub ──▶ Student notice',
+      async run(k) {
+        await tab('professor');
+        const logP = page.locator('#prof-log');
+        const card = logP.locator('.quiz-card');
+        const lms = logP.locator('.lms-card');
+        await cap(k, 'A new conversation', 'New conversation clears the classroom, the loans and Canvas’s memory, so quiz number 4821 is the first.');
+        await freshConversation();
+        await tab('professor');
+        await typeInto(page.locator('#prof-message'), '@assistant create a quiz for Marketing 351');
+        await page.locator('#prof-message').press('Enter');
+        await status('Live: the assistant is listing the topics…');
+        const chips = logP.locator('.tchip:not([disabled])');
+        const gotChips = await chips.first().waitFor({ state: 'visible', timeout: 90000 }).then(() => true, () => false);
+        await status(null);
+        if (!gotChips) { await cap(k, 'The assistant answered in words', 'Live judgment varies: it did not list the topics this time, so there is no quiz to draft.'); await pause(5); return; }
+        await show(logP.locator('.topic-pick').last(), 'Only topics already taught can be picked', 10, [k, 'Which topic?', 'Later topics show their date and are disabled — the owner’s rule, enforced by code at every hop.']);
+        const t8 = logP.locator('.tchip[data-topic="8"]:not([disabled])');
+        if (!(await t8.count())) { await cap(k, 'Topic 8 is not taught yet today', 'The schedule is code: pick any enabled topic to continue.'); await pause(5); return; }
+        await t8.click();
+        await status('Live: the AI is drafting five questions from the course notes…');
+        const drafted = await card.locator('.q-list > .q').first().waitFor({ state: 'visible', timeout: 120000 }).then(() => true, () => false);
+        await status(null);
+        if (!drafted) { await cap(k, 'No draft this time', 'The model did not return a draft card within two minutes, so nothing was sent anywhere.'); await pause(5); return; }
+        await show(card, 'The draft — not in Canvas yet', 12, [k, 'Drafted by the AI, decided by him', 'Each question is tagged AI draft. He can edit, remove, add or ask for one more. Approve stays disabled until every question passes the check.']);
+        const approve = card.locator('[data-act="approve"]');
+        if (!(await approve.isEnabled().catch(() => false))) { await cap(k, 'Approve is disabled', 'The check line on the card names the first problem; the quiz does not go anywhere until it is fixed.'); await pause(5); return; }
+        await approve.click();
+        await status('Live: Faculty’s AI picks the Canvas tool, Canvas plans and saves…');
+        const saved = await lms.filter({ hasText: /unpublished/i }).first().waitFor({ state: 'visible', timeout: 120000 }).then(() => true, () => false);
+        await status(null);
+        if (!saved) { await cap(k, 'Canvas did not confirm', 'The card shows the reason and keeps his edits; nothing is posted until Canvas confirms.'); await pause(6); return; }
+        await show(lms.first(), 'Saved in Canvas, unpublished', 12, [k, 'First MCP call', 'Students can’t see it yet. The Topology tab shows the call from Faculty to Canvas LMS.']);
+        await tab('topology');
+        await show(page.locator('#topo'), 'Canvas LMS: a system, not an agent', 8, [k, 'Canvas LMS on Topology', 'A tile with its own colour, no circle and no model box; the dash-dot line is MCP.']);
+        await tab('professor');
+        const publish = lms.locator('[data-act="publish"]');
+        if (!(await publish.count())) { await cap(k, 'No Publish button', 'The Canvas card did not offer Publish this time.'); await pause(5); return; }
+        await publish.click();
+        await status('Live: the second MCP call, then the notice goes out…');
+        const published = await lms.filter({ hasText: /Published/ }).first().waitFor({ state: 'visible', timeout: 120000 }).then(() => true, () => false);
+        await status(null);
+        if (!published) { await cap(k, 'Canvas did not confirm the publish', 'Nobody was notified; the card says what to do next.'); await pause(6); return; }
+        await show(lms.first(), 'Published, students notified', 10, [k, 'Second MCP call', 'Alex was notified; Sam has no student agent connected, so Sam’s notice waits at the Hub.']);
+        await tab('conversation');
+        const notice = page.locator('#student-log .quiz-notice').last();
+        if (await notice.waitFor({ state: 'visible', timeout: 60000 }).then(() => true, () => false)) {
+          await show(notice, 'A notice only', 12, [k, 'On Alex’s screen', 'The facts of the quiz and “Notice only — take it in Canvas”. No button, no reply, no questions or answers.']);
+        } else {
+          await cap(k, 'The notice has not arrived yet', 'Delivery is reconciled by the Hub; it can take a moment.'); await pause(5);
+        }
+      },
+    },
   ];
 
   // ---- the show ----------------------------------------------------------------------------------
@@ -604,9 +661,9 @@ async (page) => {
   }
   if (FRESH && chosen[0]?.n > 2) await freshConversation(); // Part 2 normally does this
   for (const part of chosen) {
-    where = `Part ${part.n} of ${PARTS.length}`;
+    where = `Part ${part.n}`;
     await call('cap', null);
-    await call('slide', { kicker: `Part ${part.n} of ${PARTS.length}`, title: part.title, lead: part.lead, bullets: part.bullets, arch: part.arch, steps: STEPS, now: part.n });
+    await call('slide', { kicker: `Part ${part.n}`, title: part.title, lead: part.lead, bullets: part.bullets, arch: part.arch, steps: STEPS, now: part.pill ?? part.n });
     await pause(16);
     await call('slide', null);
     await page.waitForTimeout(500);
