@@ -9,6 +9,7 @@
 import { createFormsUi } from './forms-ui.js';
 import { createTopology } from './topology.js';
 import { createClassroom } from './classroom.js';
+import { quizFactsLine } from './quiz-ui.js';
 import { WORKFLOWS, prettyDate } from '/shared/forms.js';
 
 const $ = (id) => document.getElementById(id);
@@ -953,10 +954,30 @@ function handle(event, { live = true } = {}) {
         // A message from the professor (or the course assistant for them) arrives in the chat itself, as
         // its own bubble with a Reply button; a lesson stays in the inbox.
         if (data.kind === 'message' && typeof data.text === 'string') {
-          const from = `${data.professorName ?? 'Your faculty member'}${data.author === 'assistant' ? ' · course assistant' : ''}`;
+          const from = `${data.professorName ?? 'Your faculty member'}${data.author === 'assistant' && !data.quiz ? ' · course assistant' : ''}`; // a quiz notice is always from the faculty member
           const item = messageItem({ at, dir: 'received', speaker: 'professor', label: `${from} → ${data.toAll ? 'the whole class' : 'you'}`, text: data.text, ids: { course: data.courseTitle, delivery: data.deliveryId, lesson: data.lessonId, note: 'Delivered by the university to your Student agent (a new A2A message the faculty member started).' } });
           item.dataset.delivery = data.deliveryId;
           item.classList.add('incoming-message');
+          // Part 16: a quiz notice is facts only — no Reply, nothing to take here; the quiz lives in Canvas.
+          if (data.quiz) {
+            item.classList.add('quiz-notice');
+            const body = item.querySelector('.msg-text');
+            const tag = document.createElement('span');
+            tag.className = 'kind-tag';
+            tag.textContent = 'Quiz';
+            const name = document.createElement('b');
+            name.textContent = data.quiz.title;
+            body.replaceChildren(tag, ' A new quiz is open in Canvas: ', name, '.');
+            const facts = quizFactsLine(data.quiz, (tagName, props = {}, ...kids) => { const n = document.createElement(tagName); Object.assign(n, props); n.append(...kids); return n; });
+            const none = document.createElement('span');
+            none.className = 'no-action';
+            none.textContent = 'Notice only — take it in Canvas';
+            item.insertBefore(facts, item.querySelector('details'));
+            item.insertBefore(none, item.querySelector('details'));
+            appendTo(els.studentLog, item);
+            classroom.messageShown(item);
+            break;
+          }
           const reply = document.createElement('button');
           reply.type = 'button';
           reply.className = 'reply-action';
@@ -1573,7 +1594,7 @@ function showTab(tab, { focus = false, history: how = null } = {}) {
     document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
   }
   if (tab.id === 'tab-topology') els.tabPulse.dataset.on = 'false';
-  if (tab.id === 'tab-professor') classroom.professorShown();
+  if (tab.id === 'tab-professor') classroom.professorShown(); else classroom.professorHidden();
   if (focus) tab.focus();
   const path = tab.getAttribute('href');
   if (how && location.pathname !== path) window.history[how === 'push' ? 'pushState' : 'replaceState'](null, '', path);

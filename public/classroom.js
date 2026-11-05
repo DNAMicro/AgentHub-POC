@@ -17,6 +17,7 @@
 // notes behind ⓘ icons, Submit request / Cancel.
 // Buttons post the renderer's action to /api/professor/hr/actions → Hub → Professor agent → Hub → HR.
 import { MessageProcessor, basicCatalog } from './vendor/a2ui.js';
+import { createQuizUi, dueDay } from './quiz-ui.js';
 import { A2UI_VERSION, reasonPicker, validateFinal } from '/shared/forms.js';
 import { CREDIT_LABEL, CREDIT_OF_TYPE, NOTE_PRIVACY, PROOF, STANDARD_DAY, daysText, defaultReason, isPair, nameOf as absenceName, shortDate, spreadOf, titleOf, whenText, workdays } from '/shared/absence-types.js';
 const $ = (id) => document.getElementById(id);
@@ -187,11 +188,11 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
 
   // ---- toast: announces a delivery; never opens it, never takes focus -------------------------------------
   function toast(data) {
-    const item = el('div', { className: 'toast', dataset: { delivery: data.deliveryId } },
-      el('p', { className: 'toast-title', textContent: isMessage(data) ? `New message from ${data.professorName ?? 'your faculty member'}` : `New ${data.courseTitle ?? 'course'} lesson` }),
-      el('p', { className: 'toast-text', textContent: untitled(data) }),
+    const item = el('div', { className: 'toast', dataset: { delivery: data.deliveryId, ...(data.quiz ? { kind: 'quiz' } : {}) } },
+      el('p', { className: 'toast-title', textContent: data.quiz ? `New quiz in ${data.courseTitle ?? 'Marketing 351'}` : isMessage(data) ? `New message from ${data.professorName ?? 'your faculty member'}` : `New ${data.courseTitle ?? 'course'} lesson` }),
+      el('p', { className: 'toast-text', textContent: data.quiz ? `${data.quiz.title} — due ${dueDay(data.quiz.dueAt)}` : untitled(data) }),
       el('div', { className: 'toast-actions' },
-        el('button', { type: 'button', textContent: isMessage(data) ? 'View message' : 'View lesson', onclick: () => openLesson(data.deliveryId) }),
+        data.quiz ? null : el('button', { type: 'button', textContent: isMessage(data) ? 'View message' : 'View lesson', onclick: () => openLesson(data.deliveryId) }),
         el('button', { type: 'button', className: 'quiet', textContent: 'Dismiss', onclick: () => item.remove() })));
     els.toasts.append(item);
     // Leaves on its own after a while unless the pointer or keyboard is on it.
@@ -309,6 +310,15 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     if (m.needsProfessor) li.append(el('p', { className: 'needs-you', textContent: 'Needs your answer — the assistant didn’t decide this.' }), replyButton(m.to));
     return li;
   }
+  // ---- Part 16: the Canvas quiz (topic chips, the draft card, the Canvas cards) — see quiz-ui.js ----------
+  let quizCard = null; // professorState.professor.quizCard: draft id, state, Canvas quiz number, counts (never questions or answers)
+  const quiz = createQuizUi({
+    el, api, bubble, nameOf: (id) => nameOf(id), posts: () => [...posts.values()], studentCount: () => roster.length, studentState, DELIVERY,
+    isShowing: () => !pv.view.hidden,
+    sendText: (text) => { pv.input.value = text; pv.form.requestSubmit(); },
+    redraw: () => { lastRendered = ''; renderProfessor(); },
+    pin: () => follow.pin(),
+  });
   // ---- HR (staff only): the open time-off card ------------------------------------------------------
   // One card at a time (HR re-issues it with a new formRef after a follow-up message). The rendered card
   // is kept across re-renders (same element, same renderer) so what the professor typed is never lost.
@@ -626,6 +636,8 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
 
   function renderProfessor() {
     const items = [];
+    let qz;
+    quiz.begin();
     const handedOver = new Map(chat.filter((m) => m.role === 'assistant' && m.needsProfessor).map((m) => [m.id, m]));
     for (const m of chat) {
       const r = m.role === 'student' && handedOver.get(m.id.replace(/:s$/, ':r'));
@@ -633,6 +645,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
       else if (m.role === 'student') items.push(studentReply(m));
       else if (m.role === 'assistant' && m.needsProfessor && chat.some((s) => s.id === m.id.replace(/:r$/, ':s'))) continue; // shown on its card
       else if (m.role === 'assistant' && m.action === 'answer_student') items.push(assistantAnswer(m));
+      else if (m.role === 'assistant' && m.quiz?.draftId && Array.isArray(qz = quiz.entry(m, quizCard, chat))) items.push(...qz); // Part 16: the quiz card, the Canvas cards
       else if (m.role === 'hr') {
         // HR (staff only): the open card where HR sent it; every other HR reply (a receipt, a question,
         // a refusal) as HR's own bubble.
@@ -652,7 +665,9 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
           if (m.problem) items.push(bubble({ dir: 'error', speaker: 'professor', label: 'Not sent', at: m.at, text: m.problem }));
         }
       } else {
-        items.push(bubble({ dir: m.action === 'error' || m.action === 'clarify' ? 'info' : 'received', speaker: 'professor', label: m.model && m.model !== 'mock heuristic' ? `Course assistant · ${m.model}` : 'Course assistant', at: m.at, text: m.text }));
+        const li = bubble({ dir: m.action === 'error' || m.action === 'clarify' ? 'info' : 'received', speaker: 'professor', label: m.model && m.model !== 'mock heuristic' ? `Course assistant · ${m.model}` : 'Course assistant', at: m.at, text: m.text });
+        if (m.quizTopics?.topics) { li.classList.add('has-topics'); li.append(quiz.topicsBlock(m.quizTopics)); } // Part 16: the topic chips
+        items.push(li);
         if (m.postKey && posts.get(m.postKey)) items.push(postCard(posts.get(m.postKey)));
       }
     }
@@ -667,16 +682,21 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     pv.waiting.textContent = String(waiting);
     pv.waiting.title = `${waiting} question${waiting === 1 ? '' : 's'} waiting for your answer`;
     if (hr && !items.includes(hr.li)) hrDispose(); // the card closed (submitted, cancelled, expired, reset)
-    const signature = JSON.stringify([chat.length, pending?.text, [...handedOver.values()].map((m) => m.answeredAt ?? null), [...posts.values()].map((p) => [p.key, p.hubStatus, p.deliveries]), hrCard?.formRef ?? null, hrCard?.a2ui.length ?? 0, chat.at(-1)?.text]);
+    quiz.sync();
+    const signature = JSON.stringify([pv.view.hidden, quizCard, chat.length, pending?.text, [...handedOver.values()].map((m) => m.answeredAt ?? null), [...posts.values()].map((p) => [p.key, p.hubStatus, p.deliveries]), hrCard?.formRef ?? null, hrCard?.a2ui.length ?? 0, chat.at(-1)?.text]);
     if (signature === lastRendered) return;
     lastRendered = signature;
-    // The open HR card stays where it is in the page (never detached), so a field being edited keeps focus.
-    const keep = hr && items.includes(hr.li) && hr.li.parentNode === pv.log ? hr.li : null;
-    if (!keep) return pv.log.replaceChildren(...items);
-    for (const c of [...pv.log.children]) if (c !== keep) c.remove();
-    const at = items.indexOf(keep);
-    keep.before(...items.slice(0, at));
-    keep.after(...items.slice(at + 1));
+    // The open HR card and the quiz cards stay where they are in the page (never detached), so a field being
+    // edited keeps focus and a half-typed question survives.
+    const keepSet = new Set([hr?.li, ...quiz.kept()].filter((x) => x && items.includes(x) && x.parentNode === pv.log));
+    if (!keepSet.size) return pv.log.replaceChildren(...items);
+    for (const c of [...pv.log.children]) if (!keepSet.has(c)) c.remove();
+    let head = null; // last item placed before the first kept one
+    let tail = null; // last item placed after a kept one
+    for (const it of items) {
+      if (keepSet.has(it)) { tail = it; continue; }
+      if (tail) { tail.after(it); tail = it; } else if (head) { head.after(it); head = it; } else { pv.log.prepend(it); head = it; }
+    }
   }
   // Part 10: the Faculty view's state arrives over its own AG-UI stream (STATE_SNAPSHOT), pushed by the
   // UI server — no polling here. refreshProfessor() re-renders the latest state.
@@ -693,6 +713,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     posts = new Map(s.lessons.map((p) => [p.key, p]));
     chat = s.chat ?? [];
     hrCard = s.hrCard ?? null;
+    quizCard = s.quizCard ?? null;
     const first = !lastRendered;
     renderProfessor();
     if (first) follow.pin(); // open on the newest message, like the student's chat
@@ -809,7 +830,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
       if (source === 'student' && ['lesson_received', 'lesson_opened', 'course_available'].includes(type)) refreshInbox();
       // A toast is for the student; while this browser shows the Faculty view, the inbox and the
       // Conversation tab's unread dot carry it instead.
-      if (source === 'student' && type === 'lesson_received' && live && pv.view.hidden && !isMessage(data)) toast(data); // a message is in the chat itself
+      if (source === 'student' && type === 'lesson_received' && live && pv.view.hidden && (!isMessage(data) || data.quiz)) toast(data); // a message is in the chat itself; a quiz notice also gets a toast
       if (source === 'system' && (type === 'conversation_reset' || type === 'classroom_reset')) {
         // The classroom was reset too: nothing to open, announce or ask about any more.
         setAbout(null);
@@ -830,6 +851,8 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     // A time picked from a meeting offer: sent as a reply to that offer, naming the time; the Professor books it.
     pickSlot: ({ deliveryId, slot }) => { setAbout(null); return sendChat(`I’ll take ${slot.label}.`, { lessonDeliveryId: deliveryId, meetingSlot: slot.slotId }); },
     professorShown: () => refreshProfessor(),
+    // Another tab is showing: the quiz cards (and the answer key in them) leave the page.
+    professorHidden: () => { quiz.disposeAll(); if (lastRendered) { lastRendered = ''; renderProfessor(); } },
     attachProfessor,
   };
 }

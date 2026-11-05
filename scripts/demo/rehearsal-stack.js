@@ -1,6 +1,7 @@
 // Rehearsal stack for the live walkthrough: the eight demo processes on their own ports with temp data
 // files, so a rehearsal never touches the user's running demo (ports 4444, 41241-41247) or data/*.json.
-//   node scripts/demo/rehearsal-stack.js --ui 5444 --base 52240 [--mock]
+//   node scripts/demo/rehearsal-stack.js --ui 5444 --base 52240 [--mock] [--now 2026-11-04T20:00:00Z]
+// --now pins "today" for the Faculty agent, the UI server and Canvas (test hooks), for browser checks of the quiz; never for the demo.
 // Tutor base+1, Library base+2, Hub base+3, Professor base+4, HR base+5 (staff only), PeopleSoft
 // base+6 (demo stand-in MCP server; a random per-start token given only to HR and PeopleSoft, never printed), Canvas LMS base+7 (the same for
 // Faculty and Canvas), UI --ui. Live models by default (paid; the
@@ -19,9 +20,13 @@ const args = process.argv.slice(2);
 const arg = (name) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : undefined; };
 const mock = args.includes('--mock');
 const ui = Number(arg('ui'));
+const now = arg('now'); // ISO date-time; pins the quiz desk's clock (PROFESSOR_NOW / CANVAS_NOW) for browser checks
+if (now !== undefined && Number.isNaN(Date.parse(now))) { console.error('--now must be an ISO date-time such as 2026-11-04T20:00:00Z'); process.exit(2); }
+const pinProf = now ? { PROFESSOR_TEST_HOOKS: '1', PROFESSOR_NOW: now } : {};
+const pinCanvas = now ? { CANVAS_TEST_HOOKS: '1', CANVAS_NOW: now } : {};
 const base = Number(arg('base'));
 if (!Number.isInteger(ui) || !Number.isInteger(base)) {
-  console.error('usage: node scripts/demo/rehearsal-stack.js --ui <port> --base <port> [--mock]');
+  console.error('usage: node scripts/demo/rehearsal-stack.js --ui <port> --base <port> [--mock] [--now <ISO>]');
   process.exit(2);
 }
 const forbidden = (p) => p === 4444 || (p >= 41241 && p <= 41247);
@@ -52,11 +57,11 @@ const procs = [
   ['hub', 'src/hub-agent.js', { PORT: String(ports.hub), ROUTER_MODE: mode, TUTOR_URL: url(ports.tutor), LIBRARY_URL: url(ports.library), PROFESSOR_URL: url(ports.professor), HR_URL: url(ports.hr), STUDENT_URL: url(ports.ui) }],
   ['tutor', 'src/tutor-agent.js', { ...specialist, PORT: String(ports.tutor), TUTOR_MODE: mode }],
   ['library', 'src/library-agent.js', { ...specialist, PORT: String(ports.library), LIBRARY_MODE: mode }],
-  ['prof', 'src/professor-agent.js', { ...specialist, PORT: String(ports.professor), PROFESSOR_MODE: mode, CANVAS_URL: url(ports.canvas), CANVAS_TOKEN: canvasToken }],
-  ['canvas', 'src/canvas-mcp.js', { PORT: String(ports.canvas), CANVAS_MODE: mode, CANVAS_TOKEN: canvasToken }],
+  ['prof', 'src/professor-agent.js', { ...specialist, PORT: String(ports.professor), PROFESSOR_MODE: mode, CANVAS_URL: url(ports.canvas), CANVAS_TOKEN: canvasToken, ...pinProf }],
+  ['canvas', 'src/canvas-mcp.js', { PORT: String(ports.canvas), CANVAS_MODE: mode, CANVAS_TOKEN: canvasToken, ...pinCanvas }],
   ['ps', 'src/peoplesoft-mcp.js', { PORT: String(ports.peoplesoft), PEOPLESOFT_MODE: mode, PEOPLESOFT_TOKEN: psToken }],
   ['hr', 'src/hr-agent.js', { ...specialist, PORT: String(ports.hr), HR_MODE: mode, PEOPLESOFT_URL: url(ports.peoplesoft), PEOPLESOFT_TOKEN: psToken }],
-  ['ui', 'src/ui-server.js', { HUB_URL: url(ports.hub), UI_PORT: String(ports.ui), STUDENT_MODE: mode }],
+  ['ui', 'src/ui-server.js', { HUB_URL: url(ports.hub), UI_PORT: String(ports.ui), STUDENT_MODE: mode, ...pinProf }],
 ].map(([name, script, env]) => {
   const child = spawn(process.execPath, [script], { cwd: root, env: { ...baseEnv, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
   const out = (stream) => stream.on('data', (chunk) => {

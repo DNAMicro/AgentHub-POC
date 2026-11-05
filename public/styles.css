@@ -898,3 +898,100 @@ body:has(#view-conversation:not([hidden]), #view-professor:not([hidden])) { heig
 .hr-record-why { font-size: 0.9rem; }
 .hr-record-when { font-size: 0.95rem; }
 .hr-record-none { margin: 6px 0 0; color: var(--muted); font-size: 0.9rem; }
+
+/* Part 16: Canvas quiz — topic chips, the quiz draft card, the Canvas cards, the student's quiz notice (approved mockup docs/superpowers/specs/2026-11-04-canvas-quiz-mockup.html) */
+/* topic picker (assistant message body) */
+.topic-pick { margin-top: 10px; display: grid; gap: 12px; }
+.unit { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px 12px; background: var(--surface); }
+.unit h4 { margin: 0 0 8px; font-size: .8rem; font-weight: 700; color: var(--muted); display: flex; justify-content: space-between; }
+.unit h4 span { font-weight: 600; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tchip { font: inherit; font-size: .86rem; border: 1px solid var(--border-strong); background: var(--field); color: var(--text); border-radius: 999px; padding: 5px 11px; cursor: pointer; }
+.tchip b { font-family: var(--mono); font-weight: 600; font-size: .78rem; color: var(--muted); margin-right: 4px; }
+.tchip:hover { border-color: var(--professor); }
+.tchip[aria-pressed="true"] { background: var(--professor); border-color: var(--professor); color: #fff; }
+.tchip[aria-pressed="true"] b { color: #fff; }
+.tchip[disabled] { opacity: .5; cursor: not-allowed; background: transparent; border-style: dashed; }
+.pick-foot { font-size: .82rem; color: var(--muted); margin: 2px 0 0; }
+
+/* the quiz draft card */
+.quiz-card { max-width: min(100%, 720px); width: 100%; border: 1px solid var(--border); border-left: 4px solid var(--professor); border-radius: 4px 14px 14px 14px; background: var(--surface); padding: 12px 18px 18px; }
+.chat-log .msg.quiz-card { padding: 12px 18px 18px; border-left: 4px solid var(--professor); border-radius: 4px 14px 14px 14px; }
+.quiz-card .msg-head .msg-dir { color: var(--professor); font-weight: 700; }
+.quiz-card .msg-head time { font-family: var(--mono); font-size: .72rem; }
+.q-lead { margin: 2px 0 12px; }
+.q-slip { background: color-mix(in srgb, var(--professor) 7%, var(--surface)); border-radius: 12px; padding: 14px 16px; display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; }
+.q-slip .t { font-size: 1.25rem; font-weight: 700; margin: 0; }
+.q-slip .m { margin: 0; color: var(--muted); font-size: .9rem; }
+.q-slip .m b { color: var(--text); }
+.state-badge { align-self: start; font-size: .75rem; font-weight: 700; border-radius: 999px; padding: 4px 10px; border: 1px solid var(--border-strong); color: var(--muted); background: var(--surface); white-space: nowrap; }
+.state-badge.lms { border-color: var(--lms); color: var(--lms-ink); background: var(--lms-tint); }
+.q-from { font-size: .8rem; color: var(--muted); margin: 8px 2px 14px; }
+.q-settings { display: grid; grid-template-columns: minmax(0, 2fr) 4.6rem 4.6rem minmax(13.5rem, 1.7fr) 4.6rem; gap: 10px; margin-bottom: 16px; }
+.fld label { display: block; font-size: .78rem; font-weight: 700; margin-bottom: 4px; }
+.q-settings input[type="datetime-local"] { font-size: .8rem; }
+.fld input, .fld textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: .9rem; padding: 7px 9px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--text); }
+.fld textarea { resize: vertical; min-height: 54px; line-height: 1.4; }
+.q-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; counter-reset: q; }
+.q { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--field); counter-increment: q; }
+.q-top { display: flex; align-items: baseline; gap: 10px; }
+.q-top .num::before { content: counter(q) "."; font-weight: 700; font-family: var(--mono); font-size: .85rem; color: var(--muted); }
+.q-top .stem { flex: 1; margin: 0; font-weight: 600; line-height: 1.4; }
+.q-tag { font-size: .7rem; font-weight: 700; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+.q-tag.ai { color: var(--muted); border: 1px solid var(--border-strong); }
+.q-tag.you { color: var(--amber-ink); background: var(--amber-tint); }
+.q-tools { display: flex; gap: 4px; }
+.icon-btn { font: inherit; font-size: .78rem; border: 1px solid transparent; background: none; color: var(--muted); border-radius: 6px; padding: 3px 7px; cursor: pointer; }
+.icon-btn:hover { border-color: var(--border-strong); color: var(--text); }
+.opts { list-style: none; margin: 8px 0 0 26px; padding: 0; display: grid; gap: 4px; }
+.opts li { font-size: .9rem; display: flex; gap: 8px; align-items: baseline; }
+.opts li .l { font-family: var(--mono); font-size: .8rem; color: var(--muted); width: 1.2em; }
+.opts li[data-correct] { font-weight: 700; color: var(--ok); }
+.opts li[data-correct]::after { content: "✓ correct"; flex: none; white-space: nowrap; align-self: center; font-size: .72rem; font-weight: 700; border-radius: 999px; padding: 1px 7px; background: var(--ok-bg); }
+.q.editing { background: var(--surface); border: 2px solid var(--professor); }
+.edit-opts { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+.edit-opts li { display: grid; grid-template-columns: 1.4rem 1.2rem minmax(0, 1fr); align-items: center; gap: 6px; }
+.edit-opts input[type="radio"] { accent-color: var(--ok); width: 16px; height: 16px; margin: 0; }
+.edit-opts .l { font-family: var(--mono); font-size: .8rem; color: var(--muted); }
+.edit-opts input[type="text"] { font: inherit; font-size: .9rem; padding: 6px 8px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--text); }
+.edit-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: .8rem; color: var(--muted); }
+.q.removed { background: transparent; border-style: dashed; color: var(--muted); padding: 8px 12px; display: flex; justify-content: space-between; align-items: center; font-size: .86rem; counter-increment: none; }
+.add-row { display: flex; gap: 8px; margin-top: 10px; }
+.ghost-btn { font: inherit; font-size: .88rem; font-weight: 600; border: 1px dashed var(--border-strong); background: var(--surface); color: var(--text); border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+.ghost-btn .spark { color: var(--professor); }
+.q-actions { display: flex; align-items: center; gap: 14px; margin-top: 18px; flex-wrap: wrap; }
+.btn-primary { font: inherit; font-weight: 700; border: 0; border-radius: 8px; padding: 11px 18px; background: var(--professor); color: #fff; cursor: pointer; }
+.btn-primary.lms { background: var(--lms); color: #fff; }
+.btn-link { font: inherit; font-weight: 700; border: 0; background: none; color: var(--professor); cursor: pointer; padding: 8px 4px; }
+.q-check { font-size: .8rem; color: var(--muted); margin-left: auto; }
+.q-check b { color: var(--ok); }
+
+/* Canvas confirmation card */
+.lms-card { max-width: min(100%, 600px); width: 100%; border: 1px solid var(--border); border-left: 4px solid var(--lms); border-radius: 4px 14px 14px 14px; background: var(--surface); padding: 12px 18px 16px; }
+.chat-log .msg.lms-card { padding: 12px 18px 16px; border-left: 4px solid var(--lms); border-radius: 4px 14px 14px 14px; }
+.lms-card .msg-head .msg-dir { color: var(--lms-ink); font-weight: 700; }
+.lms-card .msg-head time { font-family: var(--mono); font-size: .72rem; }
+.lms-row { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 10px 0 4px; font-size: .9rem; }
+.lms-row dt { color: var(--muted); }
+.lms-row dd { margin: 0; }
+.lms-row .mono { font-family: var(--mono); font-size: .85rem; }
+.lms-ask { margin: 12px 0 0; padding-top: 12px; border-top: 1px solid var(--border); }
+.lms-ask p { margin: 0 0 10px; }
+.working { display: inline-flex; align-items: center; gap: 8px; font-size: .88rem; color: var(--lms-ink); background: var(--lms-tint); border-radius: 999px; padding: 4px 12px; }
+.working i { width: 8px; height: 8px; border-radius: 50%; background: var(--lms); animation: blink 1s ease-in-out infinite; }
+.summary-line { font-size: .86rem; color: var(--muted); }
+
+.quiz-notice .kind-tag { background: var(--lms-tint); color: var(--lms-ink); }
+.quiz-facts { margin: 8px 0 0; font-size: .86rem; color: var(--muted); }
+.quiz-facts b { color: var(--text); }
+.no-action { display: inline-block; margin-top: 8px; font-size: .78rem; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; }
+.topic-pick .chips { gap: 6px; }
+.msg.has-topics { max-width: min(100%, 720px); }
+.quiz-card .q-error { margin: 10px 0 0; font-size: .86rem; color: var(--bad); }
+.quiz-card .q-error[data-kind="warn"] { color: var(--amber-ink); }
+.quiz-card .q-error[data-kind="info"] { color: var(--muted); }
+.quiz-card button[disabled], .lms-card button[disabled] { opacity: .5; cursor: not-allowed; }
+.lms-card .lms-ask .lms-note { margin: 8px 0 0; font-size: .86rem; }
+.q.editing .fld { margin-top: 8px; }
+@media (prefers-color-scheme: dark) { .btn-primary { color: #1f0b14; } .btn-primary.lms { color: #12200a; } }
+.lms-card .per-student { margin-top: 10px; }
