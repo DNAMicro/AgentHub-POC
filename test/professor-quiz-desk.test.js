@@ -119,7 +119,7 @@ test('approve: saved unpublished, Canvas gets the checked quiz, exact copy, outc
   assert.equal(r.state, 'saved');
   assert.equal(r.canvasQuizId, 4821);
   assert.equal(r.text, "Saved in Canvas as an unpublished quiz — students can't see it yet.");
-  assert.equal(r.prompt, 'Publish it now? Publishing makes it visible in Canvas, and your 2 students get a notification.');
+  assert.equal(r.prompt, 'Publish it now? Publishing makes it visible in Canvas, and your students get a notification.');
   assert.deepEqual(r.entries.map((e) => e.text), ['Saved in Canvas as quiz #4821']);
   assert.equal(s.calls.create.length, 1);
   assert.equal(s.calls.create[0].runId, 'prof-op-a1');

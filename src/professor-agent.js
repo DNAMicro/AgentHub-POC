@@ -298,7 +298,7 @@ const canvasLink = createCanvasLink({ url: CANVAS_URL, token: process.env.CANVAS
 let lastRoster = []; // enrolled students as the Hub last reported them (for “your N students”)
 // Part 17: the class roster (CHRS) lives in this process's memory only; the outbox keeps the chat line.
 const rosterDesk = createRosterDesk({ hubLink: { sendSigned: (...a) => hubLink.sendSigned(...a) }, conversationId: () => staffConversation(), emit: (type, data) => emitViz(type, null, data) });
-const quizDesk = createQuizDesk({ canvas: canvasLink, createPost: (a) => createPost({ ...a, source: 'chat', author: 'professor' }), now: nowFn(), emit: (type, runId, data) => emitViz(type, runId, data), roster: () => lastRoster });
+const quizDesk = createQuizDesk({ canvas: canvasLink, createPost: (a) => createPost({ ...a, source: 'chat', author: 'professor' }), now: nowFn(), emit: (type, runId, data) => emitViz(type, runId, data), roster: () => lastRoster, classCount: () => rosterDesk.counts()?.count ?? null });
 
 // ---- the professor's chat ---------------------------------------------------------------------------------
 // Every decision the model makes is checked here before anything is sent:

@@ -43,7 +43,7 @@ const timeLabel = (iso) => new Intl.DateTimeFormat('en-US', { timeZone: 'America
 const dueLabel = (iso) => `${dayLabel(pacificDate(new Date(iso)))}, ${timeLabel(iso)}`;
 const plural = (v, w) => `${v} ${w}${v === 1 ? '' : 's'}`;
 
-export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, draftOne = realDraftOne, now = () => new Date(), emit = () => {}, roster = [] } = {}) {
+export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, draftOne = realDraftOne, now = () => new Date(), emit = () => {}, roster = [], classCount = null } = {}) {
   const drafts = new Map();
   const discarded = new Set(); // draft ids the professor discarded (approving one says so, not "restart")
   const ops = new Map(); // operationId -> { sig, promise, done, result }
@@ -189,11 +189,11 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
     d.canvasQuizId = receipt.quizId ?? null;
     d.receipt = receipt;
     d.state = 'saved';
-    const n = students().length;
+    const n = typeof classCount === 'function' ? classCount() : null; // the real class size from CHRS, never the 2-person session list
     return {
       ok: true, state: 'saved', draftId: d.draftId, canvasQuizId: d.canvasQuizId, courseLabel: receipt.courseLabel ?? null,
       text: "Saved in Canvas as an unpublished quiz — students can't see it yet.",
-      prompt: `Publish it now? Publishing makes it visible in Canvas, and your ${n} students get a notification.`,
+      prompt: `Publish it now? Publishing makes it visible in Canvas, and ${Number.isInteger(n) ? `your ${n} ${n === 1 ? 'student' : 'students'}` : 'your students'} get a notification.`,
       entries: [entry(d, `Saved in Canvas as quiz #${d.canvasQuizId}`)],
     };
   }
