@@ -289,7 +289,7 @@ async (page) => {
     await submit(anyway.locator('xpath=ancestor::li[1]'), 'Send anyway', 'Live: sending the reviewed values…');
   }
 
-  const STEPS = ['A2A', 'Browser monitor', 'A2UI form', 'Haiku tutor', 'Routing & skills', 'Forms on request', 'University Hub', 'Generated UI', 'Faculty', 'AG-UI', 'Fill from chat', 'Canvas quiz'];
+  const STEPS = ['A2A', 'Browser monitor', 'A2UI form', 'Haiku tutor', 'Routing & skills', 'Forms on request', 'University Hub', 'Generated UI', 'Faculty', 'AG-UI', 'Fill from chat', 'Canvas quiz', 'CHRS roster'];
   const PARTS = [
     {
       n: 1, title: 'Two agents talking over A2A',
@@ -642,6 +642,44 @@ async (page) => {
         }
       },
     },
+    {
+      n: 17, pill: 13, title: 'CHRS: the class roster behind every class notice',
+      lead: 'The faculty member asks to see his class roster. A staff-only agent, CHRS, answers from a fictional student records system (a tenth process, reached over MCP like HR reaches PeopleSoft). Every notice to the class now takes its recipients from that roster.',
+      bullets: ['One look-only card of 25 fictional students, laid out like the CSUF Faculty Center roster', '“Notify everyone …” goes to all 25 in his own words; the Hub asks CHRS for the class list first', 'If CHRS can’t answer, nothing is sent and he is told plainly — there is no stale fallback list', 'Roster rows never reach a student’s page or the monitoring stream; telemetry carries counts only'],
+      arch: 'Faculty ──▶ Hub ──▶ CHRS ──MCP──▶ student records (demo stand-in)\n        └ notify everyone → Hub asks CHRS for the roster → one delivery per student',
+      async run(k) {
+        await cap(k, 'A new conversation', 'New conversation clears the classroom, so the roster and the delivery counts start fresh.');
+        await freshConversation();
+        await tab('professor');
+        const logP = page.locator('#prof-log');
+        const card = logP.locator('.roster-card');
+        await typeInto(page.locator('#prof-message'), 'show me my class roster');
+        await page.locator('#prof-message').press('Enter');
+        await status('Live: CHRS is reading the class roster…');
+        const gotRoster = await card.last().locator('table.roster tbody tr').first().waitFor({ state: 'visible', timeout: 90000 }).then(() => true, () => false);
+        await status(null);
+        if (!gotRoster) { await cap(k, 'No roster this time', 'CHRS did not answer in time (or the reply was in words), so there is nothing to show; nothing was sent anywhere.'); await pause(6); return; }
+        await show(card.last(), 'His class roster — look only', 12, [k, 'Twenty-five fictional students', 'No buttons and no actions. Alex Student and Sam Student are two of them; every ID and email is made up.']);
+        await tab('topology');
+        await show(page.locator('#topo'), 'CHRS and its student records', 8, [k, 'CHRS on Topology', 'A staff-only agent with its own model box and a Student records tile under it; the dash-dot line is MCP. Labels carry counts only.']);
+        await tab('professor');
+        await typeInto(page.locator('#prof-message'), 'notify everyone that the midterm review session moves to Thursday');
+        await page.locator('#prof-message').press('Enter');
+        await status('Live: the Hub asks CHRS who is in the class…');
+        const sentSummary = logP.locator('.sent-post .dsum');
+        const sent = await sentSummary.last().waitFor({ state: 'visible', timeout: 90000 }).then(() => true, () => false);
+        await status(null);
+        if (!sent) { await cap(k, 'The notice did not go out', 'The chat says why (for example CHRS did not answer); nothing is sent to a stale list.'); await pause(6); return; }
+        await show(logP.locator('.sent-post').last(), 'One delivery per student', 12, [k, 'Sent to the whole class', 'The count comes from CHRS, not from a fixed list. Alex has it; the others are not online yet and get it when they are.']);
+        await tab('conversation');
+        const notice = page.locator('#student-log').getByText('midterm review session', { exact: false }).last();
+        if (await notice.waitFor({ state: 'visible', timeout: 60000 }).then(() => true, () => false)) {
+          await show(notice, 'On Alex’s screen', 10, [k, 'The same words, from Dr. Dabirian', 'The student side never sees the roster, only the notice.']);
+        } else {
+          await cap(k, 'The notice has not arrived yet', 'Delivery is reconciled by the Hub; it can take a moment.'); await pause(5);
+        }
+      },
+    },
   ];
 
   // ---- the show ----------------------------------------------------------------------------------
@@ -653,7 +691,7 @@ async (page) => {
   if (FROM <= 1) {
     await call('slide', {
       kicker: 'AgentHub-POC · live demo', title: 'From two agents to a university',
-      lead: `${['Nine', 'Ten', 'Eleven', 'Twelve'][PARTS.length - 9] ?? PARTS.length} steps, each built on the last. Everything you will see is the real app: ${PARTS.length > 8 ? 'five' : 'several'} local processes talking over the Agent-to-Agent protocol, with live Claude Haiku 5.5 calls. All people, books and courses are fictional.`,
+      lead: `${['Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen'][PARTS.length - 9] ?? PARTS.length} steps, each built on the last. Everything you will see is the real app: ${PARTS.length > 8 ? 'five' : 'several'} local processes talking over the Agent-to-Agent protocol, with live Claude Haiku 5.5 calls. All people, books and courses are fictional.`,
       bullets: ['Each part starts with what it added, then shows it working', 'Highlights mark what to look at; pauses give you time to read'],
       steps: STEPS, now: 0,
     });
