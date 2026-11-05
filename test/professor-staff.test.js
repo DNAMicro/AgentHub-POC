@@ -1298,3 +1298,47 @@ test('open card + waiting cancellation offer: a short answer to HR (not yes/no) 
   const r = await say('It was my uncle');
   assert.equal(r.action, 'staff');
 });
+
+// Fix round 2: while a card is open a message posts to the class only with a class cue AND no first-person statement.
+test('open card: class words with any first-person statement are asked about (health wording needs no list)', async () => {
+  await say('I need Friday off, it is a vacation day');
+  const card = (await state()).hrCard;
+  for (const text of [
+    "Class cancelled Friday, I'm exhausted",
+    'class cancelled, I need to rest',
+    "Students: no class, I'm feeling lousy",
+    'no class Friday, I tested positive',
+    'class cancelled, my back is killing me',
+    'no class: I am recovering from knee replacement',
+  ]) {
+    const r = await say(text);
+    assert.equal(r.reply, UNSURE, text);
+    const st = await state();
+    assert.equal(st.lessons.length, 0, `${text}: nothing posted`);
+    assert.equal(st.hrCard.formRef, card.formRef, `${text}: card unchanged`);
+    await say('no');
+  }
+  const ok = await say('Reminder: please read the pricing chapter before Thursday.');
+  assert.notEqual(ok.reply, UNSURE);
+  assert.equal((await state()).lessons.length, 1, 'an announcement with no first person still posts');
+});
+
+test('no card: the mock classifier asks when a class word comes with a first-person statement', async () => {
+  const { mockClassifyStaff } = await import('../src/professor-model.js');
+  for (const t of ["Class cancelled Friday, I'm exhausted", "Students: no class, I'm feeling lousy", 'no class Friday, I tested positive']) assert.equal(mockClassifyStaff(t), 'unsure', t);
+  assert.equal(mockClassifyStaff('Reminder: please read the pricing chapter before Thursday.'), 'class_message');
+});
+
+test('staff action failures: the faculty member reads plain words, never "agent" or raw reasons', async () => {
+  const { staffTurn, staffAction, resetStaff } = await import('../src/professor-staff.js');
+  resetStaff();
+  const formRef = 'form-test-1';
+  const hubLink = { sendSigned: async (type) => (type.includes('request')
+    ? { status: 'ok', reply: { text: 'Check it and submit.', formRef, a2ui: [], hrCard: {} } }
+    : { status: 'not_delivered', reason: 'The HR Agent is unreachable, so nothing was submitted.' }) };
+  await staffTurn({ operationId: 'op-1', text: 'I need Friday off', hubLink });
+  const r = await staffAction({ operationId: 'op-2', formRef, action: { name: 'submitTimeOff' }, hubLink });
+  assert.equal(r.body.reply, "HR didn't answer, so nothing was submitted. Press Submit again — it won't be filed twice.");
+  assert.doesNotMatch(JSON.stringify(r), /Agent|operation|PeopleSoft/);
+  resetStaff();
+});

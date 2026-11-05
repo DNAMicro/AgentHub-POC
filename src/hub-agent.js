@@ -385,8 +385,8 @@ export function startHubServer({ port } = {}) {
       const unknown = err.outcome === 'uncertain';
       if (!unknown) registry.markReachable(m.issuer, false, err.message);
       emit('form_forward_failed', runId, { formRef: m.formRef, operationId, agentId: m.issuer, outcome: unknown ? 'unknown' : 'not_delivered' });
-      return unknown ? staffReply('outcome_unknown', { reason: `The ${peer.displayName} didn’t confirm in time; the outcome is unknown. Try again with the same operation.` })
-        : staffReply('not_delivered', { reason: `The ${peer.displayName} is unreachable, so nothing was submitted.` });
+      return unknown ? staffReply('outcome_unknown', { reason: 'HR didn’t confirm in time, so the outcome is unknown. Press Submit again — it won’t be filed twice.' })
+        : staffReply('not_delivered', { reason: 'HR didn’t answer, so nothing was submitted. Press Submit again — it won’t be filed twice.' });
     }
   }
 

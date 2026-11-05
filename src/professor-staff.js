@@ -77,6 +77,7 @@ const RELATIVES = /\b(?:mother|father|mom|dad|mum|grand(?:mother|father|parents?
 const EDIT_CUE = /\b(?:make\s+(?:it|that)|instead|(?:change|move|switch|swap)\s+(?:it|that|this|the\s+(?:dates?|days?|hours?|times?))|not|only|also|add|never\s?mind|actually|each\s+day|every\s+day|first\s+day|half|full|whole|all\s+day|reason|note)\b/i;
 // Class words: the class, the students, or what a class announcement is made of.
 const CLASS_WORDS = /\b(?:class(?:es)?|students?|everyone|reminder|remind|read|reading|chapter|homework|quiz|exam|midterm|test|assignment|due|syllabus|lecture|slides|office\s+hours|project|grades?|announce\w*)\b/i;
+const FIRST_PERSON_WORDS = /(^|[^\w’'])(?:i|i['’](?:m|ll|ve|d)|im|me|my|myself|we|we['’](?:re|ll|ve)|our|ours|us)(?![\w’'])/i;
 const ACK = /^\s*(?:ok(?:ay)?[\s,]+)?(?:thanks?(?:\s+(?:a\s+lot|so\s+much))?|thank\s+you(?:\s+(?:so\s+much|very\s+much))?|thx)[\s.!]*$/i;
 // Words that add no content to an answer: what is left (after days, numbers, hours and times) is what the message is about.
 const FILLER = /^(?:a|an|the|it|is|i|to|for|please|just|on|at|of|and|that|this|my|me|be|can|you|will|would|from|till|until|through|in|with|by|so|ok|okay|thanks|yes|no|day|days|hour|hours|hrs|morning|afternoon|evening|noon|am|pm|next|this|week|today|tomorrow|yesterday)$/i;
@@ -91,7 +92,8 @@ export function aboutOpenCard(text) {
   const edit = EDIT_CUE.test(t);
   // A class message with a day in it (“before Thursday”) is still a class message; with a leave word, or words that
   // edit the card, it could be either: asked, never guessed.
-  if (classy) return strong || edit || mentionsHours(t) ? 'ask' : 'class';
+  // Only an announcement with no statement about himself can be a class post (“I'm exhausted”, “my back” need no word list).
+  if (classy) return strong || edit || mentionsHours(t) || FIRST_PERSON_WORDS.test(t) ? 'ask' : 'class';
   if (strong || edit) return 'hr';
   // A bare day, number or time answers HR only when almost nothing else is said (“Friday please”, “8 hours”,
   // “just the morning”); a longer announcement with a day in it (“Guest speaker comes Thursday”) is asked about.
@@ -433,6 +435,6 @@ export async function staffAction({ operationId, formRef, action, hubLink, emit 
     // so the same operation can run again; the browser starts a new operation after a rejection anyway.
     return { http: 200, definite: !reply?.retryable, entries: [{ role: 'hr', text, formRef, failed: true }], body: { status: 'rejected', reply: text, closed: gone, ...(reply?.errors ? { errors: reply.errors } : {}) } };
   }
-  const text = r.status === 'not_delivered' ? `Nothing was submitted: ${r.reason ?? 'HR is unreachable.'}` : `HR didn’t confirm in time, so the outcome is unknown. Press the button again — it won’t file twice.`;
+  const text = r.status === 'not_delivered' ? "HR didn't answer, so nothing was submitted. Press Submit again — it won't be filed twice." : `HR didn’t confirm in time, so the outcome is unknown. Press the button again — it won’t file twice.`;
   return { http: 200, definite: false, entries: [{ role: 'hr', text, formRef, failed: true }], body: { status: r.status === 'not_delivered' ? 'not_delivered' : 'outcome_unknown', reply: text, closed: false } };
 }
