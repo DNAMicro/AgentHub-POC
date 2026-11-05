@@ -217,7 +217,7 @@ export function startHubServer({ port } = {}) {
     let ack;
     if (part.mediaType === STUDENT_SESSION_MEDIA_TYPE) ack = await lessons.registerStudent(value);
     else if (part.mediaType === LESSON_PUBLISH_MEDIA_TYPE) ack = await lessons.publish(value);
-    else if (part.mediaType === LESSON_STATUS_MEDIA_TYPE) ack = await lessons.status(value);
+    else if (part.mediaType === LESSON_STATUS_MEDIA_TYPE) ack = lessons.status(value);
     else if (part.mediaType === LESSON_RECEIPT_MEDIA_TYPE) ack = lessons.receipt(value, msg.metadata?.studentSignature);
     bus.publish(AgentEvent.message({ messageId: randomUUID(), contextId: ctx.contextId, taskId: '', role: Role.ROLE_AGENT, parts: [jsonPart(ack ?? { status: 'rejected' })], metadata: undefined, extensions: [], referenceTaskIds: [] }));
     bus.finished();
@@ -362,7 +362,8 @@ export function startHubServer({ port } = {}) {
     const rows = r.value?.roster?.rows;
     if (Array.isArray(rows)) {
       emit('forward_completed', runId, { operationId, agentId, service: 'chrs', kind: 'roster', rosterCount: rows.length });
-      return staffReply('ok', { reply: { text: `Class roster · ${rows.length} students`, servedBy: agentId, roster: r.value.roster } });
+      // retryable: the rows are student records, so the dedupe record doesn't keep them (a repeat asks CHRS again).
+      return { ...staffReply('ok', { reply: { text: `Class roster · ${rows.length} students`, servedBy: agentId, roster: r.value.roster } }), retryable: true };
     }
     // A plain sentence from CHRS (its failure words, or "staff only"): shown as is, and not kept for a repeat of this operation.
     emit('forward_completed', runId, { operationId, agentId, service: 'chrs', kind: 'answer', rosterCount: 0 });

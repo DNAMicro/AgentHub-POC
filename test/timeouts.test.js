@@ -23,6 +23,17 @@ test('the default budgets nest: each outer timeout is longer than the sum of wha
   assert.ok(T.professorStaffMs > Math.max(T.hubStaffActionMs, T.hubDispatchMs));
   assert.ok(T.hubAuthorProxyMs > T.professorStaffMs);
   assert.ok(T.uiProfessorCallMs > T.hubAuthorProxyMs);
+  // Part 17: CHRS's lookup (tool choice, then the records call whose planner model sits inside it), the Hub's roster
+  // lookup for a post, and the Professor's publish wait (one lookup + the Student delivery of 5 s).
+  assert.equal(T.chrsToolChoiceMs, 8000);
+  assert.equal(T.chrsRecordsCallMs, 12000);
+  assert.ok(T.chrsRecordsCallMs > T.studentRecordsPlannerMs);
+  assert.equal(T.hubRosterLookupMs, 22000);
+  assert.equal(T.professorPublishMs, 40000);
+  assert.ok(T.hubRosterLookupMs > T.chrsToolChoiceMs + T.chrsRecordsCallMs);
+  assert.ok(T.hubDispatchMs > T.chrsToolChoiceMs + T.chrsRecordsCallMs);
+  assert.ok(T.professorPublishMs > T.hubRosterLookupMs + 5000);
+  assert.ok(T.hubAuthorProxyMs > T.professorPublishMs);
   // Students keep their short form-action wait.
   assert.equal(T.hubFormActionMs, 8000);
 });

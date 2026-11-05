@@ -13,11 +13,11 @@ import { ROSTER_LOOKUP_MEDIA_TYPE } from './staff.js';
 import { TIMEOUTS } from './timeouts.js';
 
 const ID = /^[\w-]{1,64}$/;
+const FAIL_CODES = new Set(['not_configured', 'chrs_not_ready', 'not_signed', 'not_delivered', 'uncertain', 'roster_unavailable', 'refused', 'bad_reply']);
 
-export function createRosterClient({ cfg, registry, emit = () => {}, now = () => Date.now(), ttlMs = Number(process.env.HUB_ROSTER_TTL_MS ?? 60000), timeoutMs = Number(process.env.HUB_ROSTER_LOOKUP_TIMEOUT_MS ?? TIMEOUTS.hubRosterLookupMs), failedMs = 5000 }) {
+export function createRosterClient({ cfg, registry, emit = () => {}, now = () => Date.now(), ttlMs = Number(process.env.HUB_ROSTER_TTL_MS ?? 60000), timeoutMs = Number(process.env.HUB_ROSTER_LOOKUP_TIMEOUT_MS ?? TIMEOUTS.hubRosterLookupMs) }) {
   const cache = new Map(); // courseId → { at, roster }
   const inFlight = new Map(); // courseId → Promise<result>
-  const failedAt = new Map(); // courseId → when the last lookup failed (only the polling view honours it)
   const generation = { n: 0 };
   const chrsAgent = () => Object.values(cfg.destinations ?? {}).find((d) => d.audience === 'staff' && d.worker === 'chrs')?.worker ?? null;
 
@@ -25,7 +25,8 @@ export function createRosterClient({ cfg, registry, emit = () => {}, now = () =>
     const course = cfg.courses?.[courseId];
     const agentId = chrsAgent();
     const instructorStaffId = course ? cfg.staff?.[course.professor]?.staffId : null;
-    const fail = (reason) => { emit('roster_lookup_failed', { courseId, service: 'chrs', reason }); return { ok: false, reason }; };
+    // `code` is one of a fixed set (never CHRS's own words), so it passes the Hub's telemetry allowlist.
+    const fail = (reason) => { const code = FAIL_CODES.has(reason) ? reason : 'bad_reply'; emit('roster_lookup_failed', { courseId, service: 'chrs', code }); return { ok: false, reason: code }; };
     if (!course || !agentId || !instructorStaffId || !ID.test(courseId) || !ID.test(instructorStaffId)) return fail('not_configured');
     if (!registry.isReady(agentId)) return fail('chrs_not_ready');
     const operationId = randomUUID();
@@ -51,18 +52,18 @@ export function createRosterClient({ cfg, registry, emit = () => {}, now = () =>
   }
 
   // { ok: true, roster: { courseId, studentIds, names } } or { ok: false, reason }.
+  // `fromCache: true` marks a roster served from the cache (the caller may re-check it once with fresh: true).
   // fresh: skip the cache (a tagged student who isn't on the cached roster is checked against a new lookup).
-  // quiet: the polling view; after a failure it doesn't ask again for a few seconds.
-  async function get(courseId, { fresh = false, quiet = false } = {}) {
+  // Only a post or a roster request calls this; the status view reads cached() and never starts a lookup.
+  async function get(courseId, { fresh = false } = {}) {
     const hit = cache.get(courseId);
-    if (hit && !fresh && now() - hit.at < ttlMs) return { ok: true, roster: hit.roster };
-    if (quiet && now() - (failedAt.get(courseId) ?? -Infinity) < failedMs) return { ok: false, reason: 'recently_failed' };
+    if (hit && !fresh && now() - hit.at < ttlMs) return { ok: true, roster: hit.roster, fromCache: true };
     let p = inFlight.get(courseId);
     if (!p) {
       const gen = generation.n;
       p = fetchRoster(courseId).then((res) => {
         if (gen === generation.n) { // a reset while it was in flight: don't keep what it fetched
-          if (res.ok) { cache.set(courseId, { at: now(), roster: res.roster }); failedAt.delete(courseId); } else failedAt.set(courseId, now());
+          if (res.ok) cache.set(courseId, { at: now(), roster: res.roster });
         }
         return res;
       }).finally(() => { if (inFlight.get(courseId) === p) inFlight.delete(courseId); });
@@ -74,6 +75,6 @@ export function createRosterClient({ cfg, registry, emit = () => {}, now = () =>
   return {
     get,
     cached: (courseId) => { const hit = cache.get(courseId); return hit && now() - hit.at < ttlMs ? hit.roster : null; },
-    reset() { generation.n += 1; cache.clear(); inFlight.clear(); failedAt.clear(); },
+    reset() { generation.n += 1; cache.clear(); inFlight.clear(); },
   };
 }

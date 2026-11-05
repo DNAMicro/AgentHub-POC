@@ -117,11 +117,13 @@ export function createLessonService({ cfg, registry, roster = null, emit = () =>
     const wanted = msg.audience === 'all' ? null : [...new Set(msg.audience.split(','))];
     let looked = await (roster ? roster.get(msg.courseId) : { ok: false, reason: 'not_configured' });
     if (!looked.ok) return reject('roster_unavailable');
-    if (wanted && wanted.some((sid) => !looked.roster.studentIds.includes(sid))) {
-      looked = await roster.get(msg.courseId, { fresh: true }); // the cached roster may be old: check once against a new lookup
+    if (wanted && looked.fromCache && wanted.some((sid) => !looked.roster.studentIds.includes(sid))) {
+      // The cached roster may be old: check once against a new lookup (never when this roster was just fetched, so a
+      // post waits for at most one lookup).
+      looked = await roster.get(msg.courseId, { fresh: true });
       if (!looked.ok) return reject('roster_unavailable');
-      if (wanted.some((sid) => !looked.roster.studentIds.includes(sid))) return reject('recipient_not_enrolled');
     }
+    if (wanted && wanted.some((sid) => !looked.roster.studentIds.includes(sid))) return reject('recipient_not_enrolled');
     const recipients = wanted ?? [...looked.roster.studentIds];
     if (!recipients.length) return reject('no_students_enrolled');
     const names = looked.roster.names;
@@ -225,19 +227,19 @@ export function createLessonService({ cfg, registry, roster = null, emit = () =>
   // `enrolled` stays the people who can have a Student-agent session (names as configured); `rosterCount` /
   // `onlineCount` come from CHRS's roster for the course (the Faculty header's "25 students · 1 online"). A roster
   // that can't be had right now is rosterCount null (never a made-up number). Counts only: no roster names here.
-  async function status(msg) {
+  function status(msg) {
     const who = verifyProfessor(msg, ['status', msg?.nonce]);
     if (who !== 'ok') return { status: 'rejected', reason: who };
-    const settle = (courseId) => Promise.race([roster ? roster.get(courseId, { quiet: true }) : { ok: false }, new Promise((res) => setTimeout(() => res({ ok: false }), 2000).unref?.())]); // the polling view never waits on a slow lookup
-    const courses = await Promise.all(coursesOf(msg.professorId).map(async ([courseId, c]) => {
-      const r = await settle(courseId);
+    // The polling view reads the cache only: a post or a roster request is what asks CHRS (null until then).
+    const courses = coursesOf(msg.professorId).map(([courseId, c]) => {
+      const r = roster?.cached(courseId) ?? null;
       return {
         courseId, title: c.title,
         enrolled: c.enrolled.map((sid) => ({ studentId: sid, name: cfg.studentNames?.[sid] ?? sid, online: isOnline(sid) })),
-        rosterCount: r.ok ? r.roster.studentIds.length : null,
-        onlineCount: (r.ok ? r.roster.studentIds : c.enrolled).filter(isOnline).length,
+        rosterCount: r ? r.studentIds.length : null,
+        onlineCount: r ? r.studentIds.filter(isOnline).length : null,
       };
-    }));
+    });
     const names = Object.assign({}, ...coursesOf(msg.professorId).map(([courseId]) => roster?.cached(courseId)?.names ?? {}));
     const deliveries = Object.values(store.get().deliveries).filter((d) => d.professorId === msg.professorId)
       .map(({ deliveryId, lessonId, revision, studentId, state, attempts, lastError, deliveredAt, openedAt }) => ({ deliveryId, lessonId, revision, studentId, ...(names[studentId] ? { name: names[studentId] } : {}), state, attempts, lastError, deliveredAt, openedAt }));

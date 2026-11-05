@@ -65,7 +65,6 @@ const reply = (ctx, { value, text }, metadata) => ({
   metadata, extensions: [], referenceTaskIds: [],
 });
 
-const ID = /^[\w-]{1,64}$/;
 // "Lastname,Firstname" (the records' own form) -> "Firstname Lastname".
 const displayName = (row) => {
   const [last = '', first = ''] = String(row.name ?? '').split(',');
@@ -104,7 +103,7 @@ const chrsExecutor = {
     if (kind === 'roster_request') {
       const staffId = hubLink.verifiedStaff(incoming.metadata, ctx.contextId);
       if (!staffId || value?.kind !== 'roster') return refuse();
-      const courseId = typeof value.courseId === 'string' && ID.test(value.courseId) ? value.courseId : COURSE_ID;
+      const courseId = COURSE_ID; // the request's courseId is not signed, so it is ignored: the configured course only
       const r = await records.roster(courseId, staffId, { runId });
       if (!r.ok) return send({ value: { text: ROSTER_FAILED_TEXT } }, r.outcome === 'refused' ? 'refused_by_records' : r.outcome);
       return send({ value: { roster: r.value.roster } }, 'roster', { rosterCount: r.value.roster.rows.length });

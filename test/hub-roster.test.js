@@ -36,6 +36,78 @@ const ask = (prof, over = {}, fieldsOver = null) => {
   return prof.link.sendSigned(STAFF_REQUEST_MEDIA_TYPE, value, fieldsOver ? fieldsOver(value) : staffRequestFields(value), { timeoutMs: 30000 });
 };
 
+function follow(hubUrl) {
+  const events = [];
+  const abort = new AbortController();
+  cleanups.push(async () => abort.abort());
+  (async () => {
+    const res = await fetch(`${hubUrl}/viz/events`, { signal: abort.signal });
+    let buf = '';
+    try {
+      for await (const chunk of res.body.pipeThrough(new TextDecoderStream())) {
+        buf += chunk;
+        let end;
+        while ((end = buf.indexOf('\n\n')) !== -1) {
+          const data = buf.slice(0, end).split('\n').find((l) => l.startsWith('data: '));
+          buf = buf.slice(end + 2);
+          if (data) events.push(JSON.parse(data.slice(6)));
+        }
+      }
+    } catch { /* closed */ }
+  })();
+  return events;
+}
+const lookups = (events) => events.filter((e) => e.type === 'roster_lookup_started').length;
+const settle = () => new Promise((r) => setTimeout(r, 400));
+
+test('the Faculty status poll never starts a lookup: counts come from the cache only', async () => {
+  const { st, prof } = await stack();
+  const events = follow(st.hub.url);
+  for (let i = 0; i < 5; i++) {
+    const s = await hubStatus(prof);
+    assert.equal(s.courses[0].rosterCount, null, 'nothing fetched yet');
+    assert.equal(s.courses[0].onlineCount, null);
+  }
+  await settle();
+  assert.equal(lookups(events), 0, 'polling made no lookup');
+  await publish(prof); // a post fetches once
+  for (let i = 0; i < 5; i++) await hubStatus(prof);
+  await settle();
+  assert.equal(lookups(events), 1);
+  const s = await hubStatus(prof);
+  assert.deepEqual([s.courses[0].rosterCount, s.courses[0].onlineCount], [25, 1]);
+});
+
+test('a stranger tag is re-checked only when the roster came from the cache (never two fresh lookups)', async () => {
+  const { st, prof } = await stack();
+  const events = follow(st.hub.url);
+  const cold = await publish(prof, { audience: 'student-nobody' });
+  assert.equal(cold.reason, 'recipient_not_enrolled');
+  await settle();
+  assert.equal(lookups(events), 1, 'cold cache: one fresh lookup, no second');
+  const warm = await publish(prof, { audience: 'student-nobody' });
+  assert.equal(warm.reason, 'recipient_not_enrolled');
+  await settle();
+  assert.equal(lookups(events), 2, 'cached roster: one re-check');
+});
+
+test('a failed lookup is reported with a coded reason; roster rows are not kept for a repeat', async () => {
+  const { st, prof } = await stack({ chrs: false });
+  const events = follow(st.hub.url);
+  await publish(prof);
+  await waitFor(() => events.find((e) => e.type === 'roster_lookup_failed'), { what: 'roster_lookup_failed' });
+  const f = events.find((e) => e.type === 'roster_lookup_failed');
+  assert.equal(f.data.code, 'chrs_not_ready');
+  assert.equal(f.data.reason, undefined);
+});
+
+test('a CHRS roster_request ignores an unsigned courseId and uses the configured course', async () => {
+  const { prof } = await stack({ hr: true });
+  const r = await ask(prof, { service: 'chrs', courseId: 'other-999' });
+  assert.equal(r.status, 'ok');
+  assert.equal(r.reply.roster.rows.length, 25);
+});
+
 test('a post to everyone becomes one delivery per CHRS roster student: Alex delivered, the other 24 queued', async () => {
   const { st, prof } = await stack();
   const same = { operationId: `roster-${randomUUID().slice(0, 8)}`, lessonId: `ls-${randomUUID().slice(0, 12)}` };
@@ -77,6 +149,7 @@ test('CHRS not running: a post is refused with roster_unavailable and nothing is
   const s = await hubStatus(prof);
   assert.equal(s.deliveries.length, 0, 'nothing was delivered or queued');
   assert.equal(s.courses[0].rosterCount, null, 'no made-up count');
+  assert.equal(s.courses[0].onlineCount, null);
   assert.equal(st.chrs, null);
 });
 
@@ -174,4 +247,7 @@ test('roster-lookup signing refuses non-id fields on both sides; the budgets nes
   assert.ok(T.hubRosterLookupMs > T.chrsToolChoiceMs + T.chrsRecordsCallMs, 'the Hub waits longer than CHRS’s whole lookup');
   assert.ok(T.professorPublishMs > T.hubRosterLookupMs, 'the Professor waits longer than the Hub’s lookup');
   assert.ok(T.hubAuthorProxyMs > T.professorPublishMs);
+  // Worst case of a post: one cold lookup (never two fresh) + the Student delivery (5 s) fits inside the Professor's wait.
+  assert.ok(T.professorPublishMs > T.hubRosterLookupMs + 5000);
+  // A post against a warm cache with a stranger tag: one re-check lookup, same bound.
 });
