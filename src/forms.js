@@ -523,7 +523,7 @@ export function buildTimeOffForm(surfaceId, { prefill = {}, missing = [] } = {})
     { id: 'beginDate', component: 'DateTimeInput', label: 'Begin date *', enableDate: true, enableTime: false, value: path('beginDate'), checks: [required('/beginDate', 'Begin date')] },
     { id: 'endDate', component: 'DateTimeInput', label: 'End date *', enableDate: true, enableTime: false, value: path('endDate'), checks: [required('/endDate', 'End date')] },
     { id: 'hours', component: 'TextField', label: 'Hours *', variant: 'number', value: path('hours'), checks: [required('/hours', 'Hours')] },
-    { id: 'note', component: 'TextField', label: 'Note for your manager (optional)', variant: 'longText', value: path('note'), checks: [maxLen('/note', LIMITS.notes, 'Note')] },
+    { id: 'note', component: 'TextField', label: 'Note (optional)', variant: 'longText', value: path('note'), checks: [maxLen('/note', LIMITS.notes, 'Note')] },
   ];
   const sendButton = (id, label, name, ctx, variant, extra = []) => [
     textC(`${id}_label`, label),

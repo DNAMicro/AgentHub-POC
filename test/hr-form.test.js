@@ -36,7 +36,7 @@ test('two filterable chip pickers, no relationship row', () => {
   assert.equal(reason.label, 'Reason');
   assert.deepEqual(reason.options, []);
   assert.ok(!ids(msgs).some((i) => i.startsWith('relationship')));
-  assert.equal(comp(msgs, 'note').label, 'Note for your manager (optional)');
+  assert.equal(comp(msgs, 'note').label, 'Note (optional)');
   const data = msgs.find((m) => m.updateDataModel).updateDataModel.value;
   assert.deepEqual([data.absenceType, data.absenceReason], [[], []]);
   assert.equal(data.ui.relationshipLabel, undefined);

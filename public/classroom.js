@@ -498,7 +498,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     const note = hr.li.querySelector('a2ui-basic-textfield:has(textarea)');
     // Prepended (outside the renderer's own nodes) and shown after the label by CSS; its name says what it is about,
     // so a screen reader meeting it first still knows which field it explains.
-    if (note && !note.querySelector(':scope > .hr-info')) note.prepend(infoTip(NOTE_PRIVACY, 'Who can read the note for your manager'));
+    if (note && !note.querySelector(':scope > .hr-info')) note.prepend(infoTip(NOTE_PRIVACY, 'Who can read the note'));
   }
   // A new absence name: the reason list becomes that name's reasons (an A2UI updateComponents through the
   // card's own renderer), with its default reason picked or none.
