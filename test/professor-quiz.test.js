@@ -359,5 +359,147 @@ test('no CANVAS_TOKEN: the Faculty agent starts, drafts work, and Approve says C
   const a = await act({ draftId: r.draftId, action: 'approve', quiz: fullQuiz(d) }, t);
   assert.equal(a.text, "Canvas isn't connected, so nothing was sent.");
   assert.equal(a.ok, false);
+  assert.equal(a.http, 200, 'M-3: a definite answer, not a 503 "try again"');
+  assert.ok(!a.retryable && !a.unknownOutcome);
   assert.equal((await state(t)).quizCard.state, 'draft');
+});
+
+// ---- Final review C-1 (LIVE-2): a topic chip must never become a message to students or to HR ------------------------
+// The page sends a tap as a structured pick (`quizTopic`); the Faculty agent also claims the chip's exact text, so a
+// stale chip, a chip after a restart, a Reply chip and an open HR card cannot turn it into a post. Each row checks that
+// no lesson/post was created and HR got nothing.
+const CHIP8 = 'Topic 8 · Segmentation & targeting';
+const chip = async (n, on = s, extra = {}) => {
+  const t = TOPICS.find((x) => x.n === n);
+  const res = await post(`${on.ui.url}/api/professor/chat`, { operationId: `op-${randomUUID()}`, text: `Topic ${n} · ${t.name}`, ...extra });
+  return { http: res.status, ...(await res.json()) };
+};
+const noPostNoHr = async (before, on = s) => {
+  const st = await state(on);
+  assert.equal(st.lessons.length, before.lessons, 'no lesson or post was created');
+  if (on.hr) assert.equal((await (await fetch(`${on.hr.url}/test/hr/requests`)).json()).requests.length, 0, 'nothing filed with HR');
+  assert.equal(st.hrCard?.formRef ?? null, before.formRef, 'the HR card is as it was');
+  return st;
+};
+const snapshot = async (on = s) => { const st = await state(on); return { lessons: st.lessons.length, formRef: st.hrCard?.formRef ?? null }; };
+
+test('C-1 (a): a stale chip while a draft is open answers "You have a draft open", structured or as text; no post', async () => {
+  await draftTopic8();
+  const before = await snapshot();
+  const typed = await say('Topic 9 · Marketing research');
+  assert.equal(typed.action, 'quiz_draft_open');
+  assert.equal(typed.reply, 'You have a draft open (Topic 8). Approve or discard it first.');
+  const structured = await chip(9, s, { quizTopic: 9 });
+  assert.equal(structured.action, 'quiz_draft_open');
+  await noPostNoHr(before);
+});
+
+test('C-1 (b): a stale chip after Publish is a new quiz request, never a post (the only post is the quiz notice)', async () => {
+  const { r, d } = await draftTopic8();
+  await act({ draftId: r.draftId, action: 'approve', quiz: fullQuiz(d) });
+  await act({ draftId: r.draftId, action: 'publish' });
+  const before = await snapshot();
+  assert.equal(before.lessons, 1, 'just the notice');
+  const again = await chip(8, s, { quizTopic: 8 });
+  assert.equal(again.action, 'quiz_draft');
+  const typed = await say(CHIP8, s);
+  assert.equal(typed.action, 'quiz_draft_open');
+  await noPostNoHr(before);
+});
+
+test('C-1 (c): after a Faculty restart (no waiting question in memory) a chip is still the quiz desk’s, not a post', async () => {
+  const fresh = await start({ hr: false }); // a fresh Faculty process: pendingQuiz is memory-only, so it knows no waiting question
+  const before = await snapshot(fresh);
+  const t = await say(CHIP8, fresh);
+  assert.equal(t.action, 'quiz_draft');
+  assert.equal((await state(fresh)).lessons.length, before.lessons, 'no post');
+  const fresh2 = await start({ hr: false });
+  const st = await chip(8, fresh2, { quizTopic: 8 });
+  assert.equal(st.action, 'quiz_draft');
+  assert.equal((await state(fresh2)).lessons.length, 0);
+});
+
+test('C-1 (d): a chip with the Reply chip active (replyTo) creates no post to that student', async () => {
+  const before = await snapshot();
+  const withReply = await chip(8, s, { quizTopic: 8, replyTo: 'student-sam' });
+  assert.equal(withReply.action, 'quiz_draft', JSON.stringify(withReply));
+  const st = await state();
+  assert.equal(st.lessons.length, before.lessons, 'nothing was sent to Sam');
+  assert.ok(!st.chat.some((m) => m.replyTo), 'the chip message is not recorded as a reply to one student');
+  // The chip's text with replyTo but WITHOUT the structured field: the safety net claims it as well.
+  await act({ draftId: withReply.draftId, action: 'discard' });
+  const textOnly = await say(CHIP8, s, `op-${randomUUID()}`);
+  assert.equal(textOnly.action, 'quiz_draft');
+  const raw = await post(`${s.ui.url}/api/professor/chat`, { operationId: `op-${randomUUID()}`, text: 'Topic 9 · Marketing research', replyTo: 'student-sam' });
+  assert.equal((await raw.json()).action, 'quiz_draft_open');
+  assert.equal((await state()).lessons.length, before.lessons);
+});
+
+test('C-1 (e): a chip while an HR card is open goes to the quiz desk, not HR as a follow-up', async () => {
+  const stream = await openStream(s.ui.url);
+  try {
+    const r0 = await say('I want to file for time off. My grandmother passed away, I need this Thursday and Friday');
+    assert.equal(r0.action, 'staff');
+    const before = await snapshot();
+    assert.ok(before.formRef, 'an HR card is open');
+    await waitFor(() => stream.events.some((e) => e.type === 'staff_decision'), { what: 'the first staff decision', timeout: 5000 });
+    await new Promise((r) => setTimeout(r, 300));
+    const decisions = stream.events.filter((e) => e.type === 'staff_decision').length;
+    const viaPick = await chip(8, s, { quizTopic: 8 });
+    assert.equal(viaPick.action, 'quiz_draft');
+    await act({ draftId: viaPick.draftId, action: 'discard' });
+    const viaText = await say(CHIP8, s);
+    assert.equal(viaText.action, 'quiz_draft');
+    await new Promise((r) => setTimeout(r, 500));
+    assert.equal(stream.events.filter((e) => e.type === 'staff_decision').length, decisions, 'the staff desk did not run');
+    await noPostNoHr(before);
+  } finally { stream.close(); }
+});
+
+test('C-1: the structured pick is validated at every hop; the text must be the chip’s own', async () => {
+  const bad = [
+    { text: CHIP8, quizTopic: '8' }, { text: CHIP8, quizTopic: 99 }, { text: CHIP8, quizTopic: 0 },
+    { text: 'Topic 8', quizTopic: 8 }, { text: 'Topic 8 · Something else', quizTopic: 8 }, { text: 'Topic 9 · Marketing research', quizTopic: 8 },
+  ];
+  for (const b of bad) {
+    const ui = await post(`${s.ui.url}/api/professor/chat`, { operationId: `op-${randomUUID()}`, ...b });
+    assert.equal(ui.status, 400, JSON.stringify(b));
+  }
+  // The Faculty agent refuses a mismatched pick too, even when the UI server is bypassed (through the Hub proxy).
+  const viaHub = await post(`${s.hub.url}/dev/agents/professor/author/chat`, { operationId: `op-${randomUUID()}`, text: 'Topic 8', quizTopic: 8 });
+  assert.equal(viaHub.status, 400);
+  assert.equal((await state()).lessons.length, 0);
+});
+
+// ---- I-1: a waiting topic question swallows later class messages ---------------------------------------------------
+test('I-1: while a topic question waits, a class message that merely mentions a topic word goes to the students', async () => {
+  const ask = await say('@assistant create a quiz for Marketing 351');
+  assert.equal(ask.action, 'quiz_topics');
+  for (const line of ['Reminder: read the pricing chapter before Friday', 'Great discussion on social media today, everyone']) {
+    const r = await say(line);
+    assert.ok(!String(r.action).startsWith('quiz_'), `${line} -> ${r.action}`);
+    assert.equal(r.post !== null && r.post !== undefined, true, `${line} was sent to the class`);
+  }
+  assert.equal((await state()).lessons.length, 2, 'both went out as the professor wrote them');
+  // The question still waits (until it expires): a bare topic still answers it.
+  assert.equal((await say('Topic 8')).action, 'quiz_draft');
+});
+
+test('I-3 + M-1: "draft one more" is told his edited list; the key is not served once the quiz is saved', async () => {
+  const { r, d } = await draftTopic8();
+  const mine = ['My own rewritten question one here?', 'My own rewritten question two here?'];
+  const more = await act({ draftId: r.draftId, action: 'one_more', existing: mine });
+  assert.equal(more.http, 200, JSON.stringify(more));
+  assert.ok(more.question?.text && !mine.includes(more.question.text));
+  // strict at the UI server and the Faculty agent: only Draft one more carries a list, at most 20 x 300 characters
+  assert.equal((await act({ draftId: r.draftId, action: 'discard', existing: mine })).http, 400);
+  assert.equal((await act({ draftId: r.draftId, action: 'one_more', existing: ['y'.repeat(301)] })).http, 400);
+  assert.equal((await act({ draftId: r.draftId, action: 'one_more', existing: Array.from({ length: 21 }, () => 'x') })).http, 400);
+  const full = await act({ draftId: r.draftId, action: 'one_more', existing: Array.from({ length: 20 }, (_, i) => `Question ${i} about segmentation?`) });
+  assert.equal(full.text, 'A quiz can have at most 20 questions.');
+  assert.equal((await post(`${s.professor.url}/author/quiz-action`, { draftId: r.draftId, operationId: `op-${randomUUID()}`, action: 'approve', quiz: fullQuiz(d), existing: mine })).status, 400);
+  assert.equal((await getDraft(r.draftId)).http, 200, 'a draft still serves its key');
+  await act({ draftId: r.draftId, action: 'approve', quiz: fullQuiz(d) });
+  assert.equal((await getDraft(r.draftId)).http, 404, 'M-1: saved in Canvas, no key to fetch');
+  assert.equal((await fetch(`${s.professor.url}/author/quiz/${r.draftId}`)).status, 404);
 });

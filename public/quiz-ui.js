@@ -50,22 +50,24 @@ export function quizFactsLine(q, el) {
     el('b', { textContent: dueText(q.dueAt) }));
 }
 
-export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, studentState, DELIVERY, isShowing, sendText, redraw, pin }) {
+export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, studentState, DELIVERY, isShowing, sendTopic, redraw, pin }) {
   const views = new Map(); // draftId -> view
   let seq = 0;
   let pass = 0; // one render pass of the chat; views not drawn in a pass are forgotten
   const id = () => `${++seq}`;
 
   // ---- topic chips ------------------------------------------------------------------------------------------
-  function topicsBlock({ topics, highlight }) {
+  // `live` = this is the newest topic list, still waiting for his answer. Every older list is history: its chips are
+  // disabled (a stale chip must never start anything). A tap is a structured pick (sendTopic), not typed text.
+  function topicsBlock({ topics, highlight }, live = false) {
     const pick = el('div', { className: 'topic-pick', role: 'group', ariaLabel: 'Topics covered in class' });
     for (const u of topics.units) {
       const chips = el('div', { className: 'chips' });
       for (const t of u.topics) {
         const day = new Date(`${t.date}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-        const chip = el('button', { type: 'button', className: 'tchip', dataset: { topic: String(t.n) }, disabled: !t.taught, ariaPressed: highlight === t.n ? 'true' : 'false' },
+        const chip = el('button', { type: 'button', className: 'tchip', dataset: { topic: String(t.n) }, disabled: !t.taught || !live, ariaPressed: highlight === t.n ? 'true' : 'false' },
           el('b', { textContent: String(t.n) }), t.taught ? t.name : `${t.name} — ${day}`);
-        if (t.taught) chip.addEventListener('click', () => { chip.setAttribute('aria-pressed', 'true'); sendText(`Topic ${t.n} · ${t.name}`); });
+        if (t.taught && live) chip.addEventListener('click', () => { chip.setAttribute('aria-pressed', 'true'); sendTopic(t.n, `Topic ${t.n} · ${t.name}`); });
         chips.append(chip);
       }
       pick.append(el('div', { className: 'unit' }, el('h4', {}, `Exam ${u.unit} unit `, el('span', { textContent: `Topics ${u.from}–${u.to}` })), chips));
@@ -260,7 +262,7 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, stu
   // One operation ID per button press; it is reused when the answer was "try again" (nothing definite happened),
   // and replaced only after a definite outcome or when the values changed.
   async function send(v, action, extra = {}) {
-    const key = JSON.stringify([action, extra.quiz ?? null]);
+    const key = JSON.stringify([action, extra.quiz ?? null, extra.existing ?? null]);
     if (v.pending?.key !== key) v.pending = { key, operationId: `op-${crypto.randomUUID()}` };
     const r = await api('/api/professor/quiz/actions', { method: 'POST', body: { draftId: v.draftId, operationId: v.pending.operationId, action, ...extra } }).catch(() => null);
     if (!r) return { error: 'Couldn’t reach the server. Press the button again — it won’t post twice.', retry: true };
@@ -321,14 +323,23 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, stu
     v.notice = { kind: 'info', text: 'Asking the AI for one more question…' };
     showNote(v);
     refresh(v);
-    const r = await send(v, 'one_more');
+    // The questions he holds right now (edits, additions and removals included), so the AI doesn't repeat them.
+    const existing = v.q.items.filter((i) => i.mode !== 'removed').map((i) => i.text.trim().slice(0, 300));
+    if (existing.length >= 20) {
+      v.busy = false;
+      v.notice = { kind: 'bad', text: 'A quiz can have at most 20 questions.' };
+      showNote(v);
+      refresh(v);
+      return;
+    }
+    const r = await send(v, 'one_more', { existing });
     v.busy = false;
     if (r.body?.ok && r.body.question) {
       const item = { id: id(), text: r.body.question.text, answers: [...r.body.question.answers], correct: r.body.question.correct, tag: 'ai', mode: 'view', n: 0 };
       item.orig = snap(item);
       v.q.items.push(item);
       v.notice = null;
-      drawList(v);
+      if (v.ui) drawList(v);
     } else v.notice = { kind: r.retry ? 'warn' : 'bad', text: r.error ?? 'No question came back.' };
     showNote(v);
     refresh(v);

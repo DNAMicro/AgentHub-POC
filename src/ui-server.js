@@ -32,7 +32,7 @@ import { createAgUiBridge } from './ag-ui-bridge.js';
 import { createProfessorAgUi } from './ag-ui-professor.js';
 import { cardValues } from './staff.js';
 import { ID } from './lessons.js';
-import { checkQuiz } from './quiz-rules.js';
+import { checkQuiz, validExisting } from './quiz-rules.js';
 import { nowFn } from './test-clock.js';
 import { decideFill } from './form-fill.js';
 import { AGENT_CARD_PATH, A2A_PROTOCOL_VERSION } from '@a2a-js/sdk';
@@ -693,6 +693,8 @@ export async function startUiServer({ port = 4444 } = {}) {
     const { formRef, formValues, ...rest } = req.body ?? {};
     const card = cardValues({ formRef, formValues });
     if (card.error) return res.status(400).json({ error: card.error });
+    // Part 16: a tapped topic chip is a structured pick (checked again by the Faculty agent), never just text.
+    if (rest.quizTopic !== undefined && (!Number.isInteger(rest.quizTopic) || rest.quizTopic < 1 || rest.quizTopic > 20)) return res.status(400).json({ error: 'Malformed topic pick.' });
     req.body = { ...rest, ...card.fields };
     return proxyAuthor(req, res, '/chat', 'POST');
   });
@@ -726,12 +728,13 @@ export async function startUiServer({ port = 4444 } = {}) {
   const quizNow = nowFn(); // PROFESSOR_NOW only with PROFESSOR_TEST_HOOKS=1
   apiPost.post('/professor/quiz/actions', async (req, res) => {
     const body = req.body ?? {};
-    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((k) => !['draftId', 'operationId', 'action', 'quiz'].includes(k))) return res.status(400).json({ errors: { _form: 'Unexpected request fields.' } });
-    const { operationId, draftId, action, quiz } = body;
+    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((k) => !['draftId', 'operationId', 'action', 'quiz', 'existing'].includes(k))) return res.status(400).json({ errors: { _form: 'Unexpected request fields.' } });
+    const { operationId, draftId, action, quiz, existing } = body;
     if (typeof operationId !== 'string' || !/^[\w-]{8,100}$/.test(operationId)) return res.status(400).json({ errors: { _form: 'Missing or malformed operation ID.' } });
     if (typeof draftId !== 'string' || !QUIZ_ID.test(draftId)) return res.status(400).json({ errors: { _form: 'Missing or malformed draft ID.' } });
     if (!['approve', 'publish', 'keep_draft', 'discard', 'one_more'].includes(action)) return res.status(400).json({ errors: { _form: 'Unknown quiz action.' } });
     if (quiz !== undefined && (action !== 'approve' || !quiz || typeof quiz !== 'object' || Array.isArray(quiz))) return res.status(400).json({ errors: { _form: 'Only Approve carries a quiz.' } });
+    if (existing !== undefined && (action !== 'one_more' || !validExisting(existing))) return res.status(400).json({ errors: { _form: 'Only Draft one more carries the list of questions (20 at most, 300 characters each).' } });
     if (action === 'approve') {
       if (quiz === undefined) return res.status(400).json({ errors: { _form: 'Approve needs the quiz.' } });
       const checked = checkQuiz(quiz, quizNow());

@@ -3,13 +3,24 @@
 // The answer key (`correct`) is handed out only by draft(); card(), entries and telemetry never carry questions.
 import { randomUUID } from 'node:crypto';
 import { TOPICS, TERM, taughtTopics, isTaught, topicFromWords, countFromWords, asksQuiz, dayLabel, pacificDate } from './course-schedule.js';
-import { defaultSettings, checkQuiz } from './quiz-rules.js';
+import { defaultSettings, checkQuiz, validExisting } from './quiz-rules.js';
 import { draftQuiz as realDraftQuiz, draftOne as realDraftOne } from './quiz-model.js';
 
 export const CLOSED_TEXT = 'This draft was closed when the app restarted.';
 export const NOT_CONNECTED_TEXT = "Canvas isn't connected, so nothing was sent.";
+export const DISCARDED_TEXT = 'This draft was discarded.';
+const ASK_EXPIRES_MS = 15 * 60_000; // a waiting topic question, like the assistant's waiting meeting question
+// A topic chip's own text (the page sends it as a structured pick; this is the safety net for the text itself).
+export const chipText = (t) => `Topic ${t.n} · ${t.name}`;
+export function chipTopicOf(text) {
+  const m = /^Topic (\d{1,2}) · (.+)$/.exec(String(text ?? ''));
+  if (!m) return null;
+  const t = TOPICS.find((x) => x.n === Number(m[1]));
+  return t && chipText(t) === m[0] ? t.n : null;
+}
 const OPEN_STATES = new Set(['draft', 'saving', 'saved', 'publishing', 'kept']);
 const ACTIONS = new Set(['approve', 'publish', 'keep_draft', 'discard', 'one_more']);
+const MAX_EXISTING = 20;
 
 const failText = (outcome, verb) => {
   const again = verb === 'publish' ? 'Publish' : 'Approve';
@@ -33,6 +44,7 @@ const plural = (v, w) => `${v} ${w}${v === 1 ? '' : 's'}`;
 
 export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, draftOne = realDraftOne, now = () => new Date(), emit = () => {}, roster = [] } = {}) {
   const drafts = new Map();
+  const discarded = new Set(); // draft ids the professor discarded (approving one says so, not "restart")
   const ops = new Map(); // operationId -> { sig, promise, done, result }
   let latest = null;
   let pendingQuiz = null;
@@ -68,19 +80,39 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
   };
   const openDraft = () => [...drafts.values()].find((d) => OPEN_STATES.has(d.state)) ?? null;
 
-  async function turn(said, { operationId } = {}) {
+  // A waiting topic question takes only a bare number, "topic N", a chip's text or a short (4 words or fewer) reply
+  // that names a topic; anything else is a new message for the other handlers. It expires after 15 minutes.
+  const asking = () => {
+    if (pendingQuiz && clock().getTime() - pendingQuiz.at > ASK_EXPIRES_MS) pendingQuiz = null;
+    return pendingQuiz;
+  };
+  const answersTopicQuestion = (text) => {
+    if (/^\s*#?\s*\d{1,2}\s*$/.test(text) || /^\s*topic\s*#?\s*\d{1,2}\s*$/i.test(text)) return true;
+    return text.trim().split(/\s+/).length <= 4 && topicFromWords(text) !== null;
+  };
+  const openText = (open) => (open.state === 'kept'
+    ? `You have a quiz saved as a draft in Canvas (Topic ${open.topic}). Publish or discard it first.`
+    : `You have a draft open (Topic ${open.topic}). Approve or discard it first.`);
+
+  // quizTopic: the page's structured chip pick (a topic number). A chip's exact text is claimed the same way, whatever
+  // else is going on (a draft open, a restart, a reply chip, an HR card): it is never a message for students or HR.
+  async function turn(said, { operationId, quizTopic = null } = {}) {
     const text = String(said ?? '');
-    const ask = asksQuiz(text);
-    if (!ask && !pendingQuiz) return null;
+    const chip = quizTopic ?? chipTopicOf(text);
+    const ask = chip === null && asksQuiz(text);
+    const waiting = asking();
+    if (chip === null && !ask && !(waiting && answersTopicQuestion(text))) return null;
     let n; let count;
-    if (ask) { n = pickTopic(text); count = countFromWords(text) ?? 5; } else { n = pickTopic(text); count = pendingQuiz.count; if (n === null) return null; }
+    if (chip !== null) { n = chip; count = waiting?.count ?? 5; }
+    else if (ask) { n = pickTopic(text); count = countFromWords(text) ?? 5; }
+    else { n = pickTopic(text); count = waiting.count; if (n === null) return null; }
     const runId = `prof-${operationId ?? randomUUID().slice(0, 12)}`;
     if (!taughtTopics(clock()).length) { pendingQuiz = null; tell('quiz_turn', runId, { outcome: 'before_term' }); return beforeTerm(); }
     const open = openDraft();
-    if (open) { tell('quiz_turn', runId, { outcome: 'draft_open', draftId: open.draftId }); return { action: 'quiz_draft_open', reply: `You have a draft open (Topic ${open.topic}). Approve or discard it first.` }; }
-    if (n === null) { pendingQuiz = { count }; tell('quiz_turn', runId, { outcome: 'topics' }); return topicsReply(); }
+    if (open) { tell('quiz_turn', runId, { outcome: 'draft_open', draftId: open.draftId }); return { action: 'quiz_draft_open', reply: openText(open) }; }
+    if (n === null) { pendingQuiz = { count, at: clock().getTime() }; tell('quiz_turn', runId, { outcome: 'topics' }); return topicsReply(); }
     if (!isTaught(n, clock())) {
-      pendingQuiz = { count };
+      pendingQuiz = { count, at: clock().getTime() };
       const t = TOPICS.find((x) => x.n === n);
       tell('quiz_turn', runId, { outcome: 'untaught', topic: n });
       return topicsReply(`${t.name} (Topic ${n}) is taught on ${dayLabel(t.taught)} — it hasn't been covered yet. Pick a covered topic.`, n);
@@ -110,7 +142,7 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
   const clean = (v) => structuredClone(v);
   function draft(draftId) {
     const d = drafts.get(draftId);
-    if (!d || d.state === 'closed') return null;
+    if (!d || d.state !== 'draft') return null; // the answer key leaves the server once the quiz is saved in Canvas
     return { draftId: d.draftId, topic: d.topic, state: d.state, canvasQuizId: d.canvasQuizId, quiz: clean(d.quiz), drafted: { by: d.by, model: d.model, short: d.short, wanted: d.wanted } };
   }
   function card() {
@@ -133,7 +165,7 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
 
   // ---- actions -----------------------------------------------------------------------------------------------
   const entry = (d, text) => ({ role: 'assistant', text, quiz: { draftId: d.draftId } });
-  const closedResult = (d) => ({ ok: false, closed: true, state: 'closed', draftId: d?.draftId ?? null, text: CLOSED_TEXT });
+  const closedResult = (d, draftId = null) => ({ ok: false, closed: true, state: 'closed', draftId: d?.draftId ?? draftId, text: d || !discarded.has(draftId) ? CLOSED_TEXT : DISCARDED_TEXT });
   const refuse = (d, code, text) => ({ ok: false, refused: true, code, state: d.state, draftId: d.draftId, text });
 
   async function approve(d, quiz, operationId, runId) {
@@ -148,6 +180,7 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
     if (!r.ok) {
       d.state = 'draft';
       if (r.outcome === 'refused') return { ok: false, refused: true, code: r.code ?? null, state: 'draft', draftId: d.draftId, text: r.reason ?? failText('refused', 'approve') };
+      if (r.outcome === 'not_configured') return { ok: false, outcome: 'not_configured', state: 'draft', draftId: d.draftId, text: NOT_CONNECTED_TEXT }; // a definite answer, not a "try again"
       return { ok: false, retryable: true, outcome: r.outcome, unknownOutcome: r.outcome === 'uncertain' || r.outcome === 'unavailable', state: 'draft', draftId: d.draftId, text: failText(r.outcome, 'approve') };
     }
     const receipt = r.value?.receipt ?? r.value ?? {};
@@ -195,6 +228,7 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
       if (!r.ok) {
         d.state = before;
         if (r.outcome === 'refused') return { ok: false, refused: true, code: r.code ?? null, state: before, draftId: d.draftId, text: r.reason ?? failText('refused', 'publish') };
+        if (r.outcome === 'not_configured') return { ok: false, outcome: 'not_configured', state: before, draftId: d.draftId, text: NOT_CONNECTED_TEXT };
         return { ok: false, retryable: true, outcome: r.outcome, unknownOutcome: r.outcome === 'uncertain' || r.outcome === 'unavailable', state: before, draftId: d.draftId, text: failText(r.outcome, 'publish') };
       }
       d.state = 'published';
@@ -212,9 +246,10 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
   async function oneMore(d, body, runId) {
     if (d.state !== 'draft') return { ok: false, busy: true, state: d.state, draftId: d.draftId, text: 'Approve or discard the draft before changing it.' };
     if (!isTaught(d.topic, clock())) return refuse(d, 'not_taught', `Topic ${d.topic} has not been taught yet.`);
-    const list = Array.isArray(body.quiz?.questions) ? body.quiz.questions : d.quiz.questions;
-    if (list.length >= 20) return refuse(d, 'bad_question', 'A quiz can have at most 20 questions.');
-    const existing = list.map((q) => String(q?.text ?? ''));
+    // The page tells us the questions it holds now (his edits, additions and removals); else the draft's own.
+    if (body.existing !== undefined && !validExisting(body.existing)) return refuse(d, 'bad_request', 'Malformed list of questions.');
+    const existing = body.existing ?? d.quiz.questions.map((q) => String(q?.text ?? ''));
+    if (existing.length >= MAX_EXISTING) return refuse(d, 'bad_question', 'A quiz can have at most 20 questions.');
     let r;
     try { r = await draftOne({ topic: d.topic, existing, emit: (type, data) => tell(type, runId, data) }); } catch { r = { question: null, by: 'model_failed' }; }
     if (d.state === 'closed') return closedResult(d);
@@ -227,7 +262,7 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
 
   async function run(body, operationId, runId) {
     const d = drafts.get(body.draftId);
-    if (!d) return closedResult(null);
+    if (!d) return closedResult(null, body.draftId);
     if (d.state === 'closed') return closedResult(d);
     switch (body.action) {
       case 'approve': return approve(d, body.quiz, operationId, runId);
@@ -244,6 +279,7 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
         if (d.state === 'published') return { ok: false, busy: true, state: d.state, draftId: d.draftId, text: 'It is already published.' };
         const text = d.canvasQuizId ? `Discarded the card. Quiz #${d.canvasQuizId} stays unpublished in Canvas.` : 'Discarded the draft.';
         drafts.delete(d.draftId);
+        discarded.add(d.draftId);
         if (latest === d.draftId) latest = null;
         return { ok: true, state: 'discarded', draftId: d.draftId, text, entries: [{ role: 'assistant', text, quiz: { draftId: d.draftId } }] };
       }
@@ -257,7 +293,7 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
     if (typeof draftId !== 'string' || typeof operationId !== 'string' || !operationId || !ACTIONS.has(act)) {
       return { ok: false, refused: true, code: 'bad_request', text: 'Malformed quiz action.' };
     }
-    const sig = JSON.stringify([draftId, act, act === 'approve' ? body.quiz ?? null : null]);
+    const sig = JSON.stringify([draftId, act, act === 'approve' ? body.quiz ?? null : null, act === 'one_more' ? body.existing ?? null : null]);
     const known = ops.get(operationId);
     if (known) {
       if (known.sig !== sig) return { ok: false, refused: true, code: 'operation_reused', text: 'That request id was already used for something else.' };
@@ -275,11 +311,11 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
     return promise;
   }
 
-  return { turn, action, draft, card, reset, topics: (highlight = null) => {
+  return { turn, action, draft, card, reset, pending: () => Boolean(asking()), topics: (highlight = null, count = 5) => {
     if (!taughtTopics(clock()).length) return beforeTerm();
     const open = openDraft();
-    if (open) return { action: 'quiz_draft_open', reply: `You have a draft open (Topic ${open.topic}). Approve or discard it first.` };
-    pendingQuiz = { count: 5 }; // the next topic number or name answers this list
+    if (open) return { action: 'quiz_draft_open', reply: openText(open) };
+    pendingQuiz = { count: Number.isInteger(count) ? count : 5, at: clock().getTime() }; // the next topic number or name answers this list
     return topicsReply(null, highlight);
   } };
 }

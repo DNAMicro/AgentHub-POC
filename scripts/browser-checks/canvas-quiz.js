@@ -71,6 +71,7 @@ async (page) => {
   const qs = card.locator('.q-list > .q');
   check('a chip tap leaves the text he had typed in the box', await page.locator('#prof-message').inputValue() === 'half a thought I was typing');
   await page.locator('#prof-message').fill('');
+  check('once a draft exists, every chip of the old topic list is disabled', await page.locator('.tchip:not([disabled])').count() === 0);
   check('tapping Topic 8 sends his message', await log.locator('.msg-text', { hasText: 'Topic 8 · Segmentation & targeting' }).count() >= 1);
   check('draft card with 5 questions, each tagged AI draft', await qs.count() === 5 && await card.locator('.q-tag.ai').count() === 5);
   check('slip: title, badge, facts line', /Topic 8 Quiz: Segmentation & Targeting/.test(await card.locator('.q-slip .t').textContent()) && /Not in Canvas yet/.test(await card.locator('.state-badge').textContent()) && /^5 questions · 15 points · 10 minutes · 1 attempt · due Mon, Nov 9, 11:59 PM$/.test(await card.locator('.q-slip .m').textContent()), await card.locator('.q-slip .m').textContent());
@@ -245,6 +246,34 @@ async (page) => {
   await page.getByRole('tab', { name: 'Faculty view' }).click();
   await page.waitForTimeout(1200);
   check('coming back: the Canvas card is drawn again as Published', /● Published/.test(await page.locator('#prof-log .lms-card').textContent()));
+
+  // 9b. Final review C-1: only the newest topic list has live chips; a tap with the Reply chip active makes no post.
+  // He messages Alex and Alex answers (that gives him a ↩ Reply button), then he asks for a quiz again.
+  await page.request.post(`${origin}/api/professor/chat`, { data: { operationId: `op-${Date.now()}-note`, text: '@student-alex Please read chapter 2 before Friday.' } });
+  await student.locator('#student-log button', { hasText: 'Reply' }).first().waitFor({ timeout: 20000 });
+  await student.locator('#student-log button', { hasText: 'Reply' }).first().click();
+  await student.locator('#message').fill('Thanks, I will read it.');
+  await student.locator('#message').press('Enter');
+  await page.locator('#prof-log button.reply-action').first().waitFor({ timeout: 20000 });
+  await say('@assistant create a quiz for Marketing 351');
+  const lists = page.locator('#prof-log li.has-topics');
+  check('two topic lists in the chat: the old one disabled, the newest live', await lists.count() === 2 && await lists.nth(0).locator('.tchip:not([disabled])').count() === 0 && await lists.nth(1).locator('.tchip:not([disabled])').count() === 16);
+  const before9b = await page.evaluate(async () => (await (await fetch('/api/professor/state')).json()).lessons.length);
+  await page.locator('#prof-log button.reply-action').last().click();
+  check('the Reply chip is active', await page.locator('#prof-reply-chip').isVisible());
+  await page.locator('#prof-message').fill('half a thought');
+  await lists.nth(1).locator('.tchip[data-topic="9"]').click();
+  await page.waitForSelector('#prof-log .quiz-card .q', { timeout: 30000 });
+  const afterChip = await page.evaluate(async () => (await (await fetch('/api/professor/state')).json()).lessons.length);
+  check('the chip tap with the Reply chip active created no post', afterChip === before9b, [before9b, afterChip]);
+  check('the Reply chip and the half-typed text are exactly as they were', await page.locator('#prof-reply-chip').isVisible() && await page.locator('#prof-message').inputValue() === 'half a thought');
+  const chipMsg = await page.evaluate(async () => (await (await fetch('/api/professor/state')).json()).chat.filter((m) => m.role === 'professor' && /^Topic 9 · /.test(m.text)));
+  check('the chip message is recorded as his message to the assistant, not as a reply to Alex', chipMsg.length === 1 && !chipMsg[0].replyTo && chipMsg[0].toAssistant === true, chipMsg);
+  check('once the new draft exists, the newest list’s chips are disabled too', await page.locator('.tchip:not([disabled])').count() === 0);
+  await page.locator('#prof-message').fill('');
+  await page.locator('#prof-reply-clear').click();
+  await page.locator('#prof-log .quiz-card [data-act="discard"]').click();
+  await page.waitForTimeout(800);
 
   // 10. After a restart/reset the cards are closed, never stale.
   await page.getByRole('tab', { name: 'Conversation' }).click();

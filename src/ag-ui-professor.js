@@ -103,7 +103,8 @@ export function createProfessorAgUi({ bootId, getState, postChat, unreachable })
     // check them again).
     const card = cardValues(props);
     if (card.error) return { status: 400, json: { error: card.error } };
-    const body = { operationId: props.operationId, text, ...(props.replyTo ? { replyTo: props.replyTo } : {}), ...(props.answers ? { answers: props.answers } : {}), ...card.fields };
+    if (props.quizTopic !== undefined && (!Number.isInteger(props.quizTopic) || props.quizTopic < 1 || props.quizTopic > 20)) return { status: 400, json: { error: 'Malformed topic pick.' } };
+    const body = { operationId: props.operationId, text, ...(props.replyTo ? { replyTo: props.replyTo } : {}), ...(props.answers ? { answers: props.answers } : {}), ...(props.quizTopic !== undefined ? { quizTopic: props.quizTopic } : {}), ...card.fields };
     const runId = runStart();
     (async () => {
       let result;

@@ -28,8 +28,9 @@ import { AUDIENCE, ID, LESSON_PUBLISH_MEDIA_TYPE, LESSON_STATUS_MEDIA_TYPE, cont
 import { resetStaff, staffAction, staffTurn, staffView } from './professor-staff.js';
 import { cardValues } from './staff.js';
 import { createCanvasLink } from './professor-canvas.js';
-import { createQuizDesk } from './professor-quiz.js';
-import { topicFromWords } from './course-schedule.js';
+import { createQuizDesk, chipTopicOf } from './professor-quiz.js';
+import { validExisting } from './quiz-rules.js';
+import { topicFromWords, countFromWords } from './course-schedule.js';
 import { TIMEOUTS } from './timeouts.js';
 import { nowFn } from './test-clock.js';
 
@@ -305,12 +306,18 @@ const ASSISTANT_TAG = /(^|\s)@assistant\b[\s,:]*/i;
 // waiting one) answered.
 // formRef + formValues (HR, optional): the open time-off card's current values in the browser; sent to HR
 // with a follow-up so what the professor changed on the card isn't lost.
-async function professorChat({ operationId, text, replyTo = null, answers = null, formRef, formValues }) {
+// quizTopic (optional): a topic chip tapped in the Faculty view. It is handled only by the quiz desk, never as a staff
+// request or a post, and it ignores replyTo (a chip is never a reply to one student).
+async function professorChat({ operationId, text, replyTo: replyToIn = null, answers = null, formRef, formValues, quizTopic = null }) {
   if (typeof operationId !== 'string' || !ID.test(operationId)) return { http: 400, body: { error: 'Missing or malformed operation id.' } };
   const card = cardValues({ formRef, formValues });
   if (card.error) return { http: 400, body: { error: card.error } };
   const said = typeof text === 'string' ? text.trim() : '';
   if (!said) return { http: 400, body: { error: 'Write something first.' } };
+  if (quizTopic !== null && (!Number.isInteger(quizTopic) || chipTopicOf(said) !== quizTopic)) return { http: 400, body: { error: 'Malformed topic pick.' } };
+  // A chip's text is claimed by the quiz desk whether or not the page sent it structured (a stale chip, a restart, a reply chip).
+  const chip = quizTopic ?? chipTopicOf(said);
+  const replyTo = chip === null ? replyToIn : null;
   if (said.length > 4000) return { http: 400, body: { error: 'Keep it under 4000 characters.' } };
   const done = outbox.get().chatOps[operationId];
   if (done) return { http: 200, body: { ...done, duplicate: true } }; // a repeated send: the stored outcome
@@ -324,15 +331,15 @@ async function professorChat({ operationId, text, replyTo = null, answers = null
     const roster = (hub?.courses?.find((c) => c.courseId === COURSE.courseId)?.enrolled ?? []).map((st) => ({ studentId: st.studentId, name: st.name ?? st.studentId, online: st.online }));
     if (roster.length) lastRoster = roster;
     if (replyTo !== null && !roster.some((x) => x.studentId === replyTo)) return { http: 400, body: { error: 'That student isn’t in this class.' } };
-    const reply = toAssistant ? null : replyTo; // "@assistant …" is a request to the assistant, whoever is being replied to
+    const reply = toAssistant || chip !== null ? null : replyTo; // "@assistant …" is a request to the assistant, whoever is being replied to
     const ownId = `${operationId}:p`;
     const entry = { id: ownId, role: 'professor', text: said, at, toAssistant, ...(reply ? { replyTo: reply } : {}) };
     outbox.update((s) => { s.chat.push(entry); });
     // Canvas quiz desk (Part 16): runs BEFORE the staff desk for every message of the professor's own (with or without
     // @assistant, even while an HR card is open). A match is answered here: no staff classifier, no HR, no direct post.
-    if (!reply) {
+    if (!reply || chip !== null) {
       let quiz = null;
-      try { quiz = await quizDesk.turn(said, { operationId }); } catch { quiz = { action: 'quiz_error', reply: 'The quiz desk hit an error, so nothing was drafted or sent.' }; }
+      try { quiz = await quizDesk.turn(said, { operationId, ...(chip === null ? {} : { quizTopic: chip }) }); } catch { quiz = { action: 'quiz_error', reply: 'The quiz desk hit an error, so nothing was drafted or sent.' }; }
       if (quiz) return quizAnswer({ operationId, ownId, entry, generation, quiz });
     }
     // HR (staff only): is this a request for the professor himself as staff? (src/professor-staff.js)
@@ -414,16 +421,17 @@ const QUIZ_ID = /^[\w-]{6,80}$/;
 const QUIZ_ACTIONS = new Set(['approve', 'publish', 'keep_draft', 'discard', 'one_more']);
 async function quizAction(body) {
   const keys = Object.keys(body ?? {});
-  if (!body || typeof body !== 'object' || Array.isArray(body) || keys.some((k) => !['draftId', 'operationId', 'action', 'quiz'].includes(k))) return { http: 400, body: { error: 'Unexpected request fields.' } };
-  const { draftId, operationId, action, quiz } = body;
+  if (!body || typeof body !== 'object' || Array.isArray(body) || keys.some((k) => !['draftId', 'operationId', 'action', 'quiz', 'existing'].includes(k))) return { http: 400, body: { error: 'Unexpected request fields.' } };
+  const { draftId, operationId, action, quiz, existing } = body;
   if (typeof operationId !== 'string' || !ID.test(operationId)) return { http: 400, body: { error: 'Missing or malformed operation id.' } };
   if (typeof draftId !== 'string' || !QUIZ_ID.test(draftId)) return { http: 400, body: { error: 'Missing or malformed draft id.' } };
   if (!QUIZ_ACTIONS.has(action)) return { http: 400, body: { error: 'Unknown quiz action.' } };
   if (quiz !== undefined && (action !== 'approve' || !quiz || typeof quiz !== 'object' || Array.isArray(quiz))) return { http: 400, body: { error: 'Only Approve carries a quiz.' } };
   if (action === 'approve' && quiz === undefined) return { http: 400, body: { error: 'Approve needs the quiz.' } };
+  if (existing !== undefined && (action !== 'one_more' || !validExisting(existing))) return { http: 400, body: { error: 'Only Draft one more carries the list of questions (20 at most, 300 characters each).' } };
   const generation = resetGeneration;
   if (action === 'approve' || action === 'publish') { const hub = await Promise.race([hubView(), new Promise((res) => setTimeout(() => res(null), 2000))]); const r = hub?.courses?.find((c) => c.courseId === COURSE.courseId)?.enrolled; if (r?.length) lastRoster = r; }
-  const r = await quizDesk.action({ draftId, operationId, action, ...(quiz ? { quiz } : {}) });
+  const r = await quizDesk.action({ draftId, operationId, action, ...(quiz ? { quiz } : {}), ...(existing ? { existing } : {}) });
   const { entries, duplicate, ...rest } = r;
   if (entries?.length && !duplicate && generation === resetGeneration) {
     outbox.update((s) => {
@@ -523,7 +531,7 @@ async function assistantTurn({ operationId, said, roster, hub }) {
   if (decision.action === 'quiz') {
     // The topic list only (never a draft in the same turn); the topic named, if any, is highlighted.
     const named = pickQuizTopic(decision.topic || request);
-    const t = quizDesk.topics(named);
+    const t = quizDesk.topics(named, countFromWords(request) ?? 5);
     return { ...result, action: t.action, reply: t.reply, ...(t.topics ? { topics: t.topics, highlight: t.highlight } : {}), post: null };
   }
   if (decision.action === 'schedule') {
@@ -636,7 +644,7 @@ function authorRouter() {
     // Only posts the Hub never confirmed receiving; once accepted, delivery to the student is the Hub's job.
     for (const l of Object.values(outbox.get().lessons)) if (!l.hubAccepted && ['uncertain', 'not_delivered'].includes(l.hubStatus)) await publish(l);
     const hub = await hubView();
-    res.json({ course: COURSE, roster: hub?.courses?.find((c) => c.courseId === COURSE.courseId) ?? null, hubReachable: Boolean(hub), seeds: SEED_LESSONS, lessons: postsView(hub), chat: outbox.get().chat, hrCard: staffView(), quizCard: quizDesk.card() });
+    res.json({ course: COURSE, roster: hub?.courses?.find((c) => c.courseId === COURSE.courseId) ?? null, hubReachable: Boolean(hub), seeds: SEED_LESSONS, lessons: postsView(hub), chat: outbox.get().chat, hrCard: staffView(), quizCard: quizDesk.card(), quizAsking: quizDesk.pending() });
   });
   // Demo reset (requested through the Hub when the Student starts a new conversation): the posted list
   // and the remembered conversations go; the professor sends again. (The browser keeps any unsent draft.)

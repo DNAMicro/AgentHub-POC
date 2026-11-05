@@ -311,11 +311,12 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     return li;
   }
   // ---- Part 16: the Canvas quiz (topic chips, the draft card, the Canvas cards) — see quiz-ui.js ----------
+  let quizAsking = false; // professorState.professor.quizAsking: the assistant is still waiting for a topic
   let quizCard = null; // professorState.professor.quizCard: draft id, state, Canvas quiz number, counts (never questions or answers)
   const quiz = createQuizUi({
     el, api, bubble, nameOf: (id) => nameOf(id), posts: () => [...posts.values()], studentCount: () => roster.length, studentState, DELIVERY,
     isShowing: () => !pv.view.hidden,
-    sendText: (text) => { const typed = pv.input.value; pv.input.value = text; pv.form.requestSubmit(); pv.input.value = typed; }, // a chip never overwrites what he had typed
+    sendTopic: (n, text) => sendTopicPick(n, text), // a chip tap is a structured pick: never typed text, never a reply to one student
     redraw: () => { lastRendered = ''; renderProfessor(); },
     pin: () => follow.pin(),
   });
@@ -638,8 +639,13 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     const items = [];
     let qz;
     quiz.begin();
+    // Only the newest topic list can start a quiz: nothing from him after it, the Faculty agent still waiting for a topic
+    // (a restart or the 15-minute limit ends that), no quiz card open, and nothing being sent right now.
+    const lastList = chat.map((m, i) => (m.quizTopics?.topics ? i : -1)).filter((i) => i >= 0).pop();
+    const openCard = Boolean(quizCard && !['closed', 'published'].includes(quizCard.state));
+    const topicsLive = (i) => i === lastList && quizAsking && !openCard && !pending && !chat.slice(i + 1).some((x) => x.role === 'professor');
     const handedOver = new Map(chat.filter((m) => m.role === 'assistant' && m.needsProfessor).map((m) => [m.id, m]));
-    for (const m of chat) {
+    for (const [mi, m] of chat.entries()) {
       const r = m.role === 'student' && handedOver.get(m.id.replace(/:s$/, ':r'));
       if (r) items.push(handover(m, r));
       else if (m.role === 'student') items.push(studentReply(m));
@@ -666,7 +672,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
         }
       } else {
         const li = bubble({ dir: m.action === 'error' || m.action === 'clarify' ? 'info' : 'received', speaker: 'professor', label: m.model && m.model !== 'mock heuristic' ? `Course assistant · ${m.model}` : 'Course assistant', at: m.at, text: m.text });
-        if (m.quizTopics?.topics) { li.classList.add('has-topics'); li.append(quiz.topicsBlock(m.quizTopics)); } // Part 16: the topic chips
+        if (m.quizTopics?.topics) { li.classList.add('has-topics'); li.append(quiz.topicsBlock(m.quizTopics, topicsLive(mi))); } // Part 16: the topic chips
         items.push(li);
         if (m.postKey && posts.get(m.postKey)) items.push(postCard(posts.get(m.postKey)));
       }
@@ -683,7 +689,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     pv.waiting.title = `${waiting} question${waiting === 1 ? '' : 's'} waiting for your answer`;
     if (hr && !items.includes(hr.li)) hrDispose(); // the card closed (submitted, cancelled, expired, reset)
     quiz.sync();
-    const signature = JSON.stringify([pv.view.hidden, quizCard, chat.length, pending?.text, [...handedOver.values()].map((m) => m.answeredAt ?? null), [...posts.values()].map((p) => [p.key, p.hubStatus, p.deliveries]), hrCard?.formRef ?? null, hrCard?.a2ui.length ?? 0, chat.at(-1)?.text]);
+    const signature = JSON.stringify([pv.view.hidden, quizCard, quizAsking, chat.length, pending?.text, [...handedOver.values()].map((m) => m.answeredAt ?? null), [...posts.values()].map((p) => [p.key, p.hubStatus, p.deliveries]), hrCard?.formRef ?? null, hrCard?.a2ui.length ?? 0, chat.at(-1)?.text]);
     if (signature === lastRendered) return;
     lastRendered = signature;
     // The open HR card and the quiz cards stay where they are in the page (never detached), so a field being
@@ -714,6 +720,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     chat = s.chat ?? [];
     hrCard = s.hrCard ?? null;
     quizCard = s.quizCard ?? null;
+    quizAsking = Boolean(s.quizAsking);
     const first = !lastRendered;
     renderProfessor();
     if (first) follow.pin(); // open on the newest message, like the student's chat
@@ -790,6 +797,24 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     refreshProfessor();
     follow.pin();
   });
+
+  // A topic chip tap (Part 16): a structured pick only the quiz desk handles. It never uses the composer, the Reply chip
+  // or the saved draft text, so what he was typing (or replying to one student) stays exactly as it was.
+  async function sendTopicPick(n, text) {
+    if (pending) return;
+    pending = { text, operationId: `op-${crypto.randomUUID()}`, replyTo: null, answers: null };
+    pv.send.disabled = true;
+    pv.error.textContent = '';
+    follow.pin();
+    renderProfessor();
+    const r = await professorRun(text, { operationId: pending.operationId, quizTopic: n });
+    pending = null;
+    pv.send.disabled = false;
+    if (!r?.ok) pv.error.textContent = `Not sent: ${r?.json?.error ?? 'no answer from the Faculty agent'}. Tap the topic again to retry.`;
+    lastRendered = '';
+    refreshProfessor();
+    follow.pin();
+  }
 
   // One professor message = one AG-UI run (POST /api/ag-ui/professor/runs). The server owns the run; its
   // result (CUSTOM professor_result) arrives on the Professor stream — possibly before the 202 answer.

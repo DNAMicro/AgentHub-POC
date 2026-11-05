@@ -374,11 +374,12 @@ test('Review 5: card() and every entry carry no answer key at any depth; draft()
   const t = await drafted(s);
   const { draftId } = t;
   const all = [s.desk.card(), t.entries];
+  assert.ok(keys(s.desk.draft(draftId)).has('correct'), 'only while it is a draft');
   const a = await s.desk.action({ draftId, operationId: 'op-a', action: 'approve', quiz: fullQuiz(s, draftId) });
   all.push(s.desk.card(), a.entries);
   const p = await s.desk.action({ draftId, operationId: 'op-p', action: 'publish' });
   all.push(s.desk.card(), p.entries);
-  assert.ok(keys(s.desk.draft(draftId)).has('correct'));
+  assert.equal(s.desk.draft(draftId), null, 'M-1: the key is no longer served once the quiz is saved in Canvas');
   all.push(s.desk.reset().entries);
   for (const v of all) {
     const k = keys(v);
@@ -455,7 +456,7 @@ test('7b minors: approve on a published card returns the published text; draft()
   assert.equal(again.ok, true);
   assert.match(again.text, /^Published — /);
   assert.equal(s.calls.create.length, 1);
-  assert.ok(s.desk.draft(draftId));
+  assert.equal(s.desk.draft(draftId), null, 'M-1: past the draft state there is no key to fetch');
   s.desk.reset();
   assert.equal(s.desk.draft(draftId), null);
 });
@@ -465,4 +466,117 @@ test('7b: topics() (interpret path) holds the question; a draft open answers wit
   assert.equal(s.desk.topics(8).action, 'quiz_topics');
   assert.equal((await s.desk.turn('Topic 8 · Segmentation & targeting', { operationId: 'op-t1' })).action, 'quiz_draft');
   assert.equal(s.desk.topics().action, 'quiz_draft_open');
+});
+
+// ---- Final review fixes ------------------------------------------------------------------------------------------
+const CHIPS = [[8, 'Topic 8 · Segmentation & targeting']];
+const topicName = async (n) => (await import('../src/course-schedule.js')).TOPICS.find((t) => t.n === n).name;
+
+test('C-1 desk: a chip’s exact text is claimed with no waiting question, a draft open, after publish and after a restart', async () => {
+  const chip = async (n) => `Topic ${n} · ${await topicName(n)}`;
+  const s = setup();
+  assert.equal(CHIPS[0][1], await chip(8));
+  // no waiting question (a restart): a chip starts a request with the default count
+  const first = await s.desk.turn(await chip(8), { operationId: 'op-c1' });
+  assert.equal(first.action, 'quiz_draft');
+  assert.equal(s.desk.draft(first.draftId).quiz.questions.length, 5);
+  // a draft open: a stale chip says so
+  const open = await s.desk.turn(await chip(9));
+  assert.deepEqual([open.action, open.reply], ['quiz_draft_open', 'You have a draft open (Topic 8). Approve or discard it first.']);
+  // structured pick
+  assert.equal((await s.desk.turn('anything', { quizTopic: 9 })).action, 'quiz_draft_open');
+  // after publish the chip is a new request
+  await s.desk.action({ draftId: first.draftId, operationId: 'op-a', action: 'approve', quiz: fullQuiz(s, first.draftId) });
+  await s.desk.action({ draftId: first.draftId, operationId: 'op-p', action: 'publish' });
+  const posts = s.calls.post.length;
+  assert.equal((await s.desk.turn(await chip(8))).action, 'quiz_draft');
+  assert.equal(s.calls.post.length, posts, 'a chip never posts anything');
+  // chips for a topic that has not been taught: the untaught reply, never a post
+  const later = await setup().desk.turn(await chip(17));
+  assert.equal(later.action, 'quiz_topics');
+  assert.match(later.reply, /hasn't been covered yet/);
+  // text that only looks like a chip (wrong name) is not claimed
+  assert.equal(await setup().desk.turn('Topic 8 · Something else'), null);
+});
+
+test('M-2: a kept draft blocking a new quiz says it is saved in Canvas', async () => {
+  const s = setup();
+  const { draftId } = await drafted(s);
+  await s.desk.action({ draftId, operationId: 'op-a', action: 'approve', quiz: fullQuiz(s, draftId) });
+  await s.desk.action({ draftId, operationId: 'op-k', action: 'keep_draft' });
+  const want = 'You have a quiz saved as a draft in Canvas (Topic 8). Publish or discard it first.';
+  assert.equal((await s.desk.turn('make a quiz on segmentation')).reply, want);
+  assert.equal((await s.desk.turn(`Topic 9 · ${await topicName(9)}`)).reply, want);
+  assert.equal(s.desk.topics().reply, want);
+});
+
+test('I-1 desk: only a number, "topic N", a chip or a short reply naming a topic answers a waiting question; it expires after 15 minutes', async () => {
+  let t = NOW.getTime();
+  const clock = () => new Date(t); // a movable clock
+  const { createQuizDesk } = await import('../src/professor-quiz.js');
+  const desk = createQuizDesk({ canvas: {}, createPost: async () => ({ http: 200, body: {} }), draftQuiz: async ({ count }) => ({ questions: Array.from({ length: count }, (_, i) => mkQ(i + 1)), by: 'mock', model: 'm', short: 0 }), now: clock, roster: [] });
+  assert.equal((await desk.turn('make a quiz')).action, 'quiz_topics');
+  for (const line of ['Reminder: read the pricing chapter before Friday', 'Great discussion on social media today, everyone', 'I liked the segmentation lecture a lot today', 'hello']) {
+    assert.equal(await desk.turn(line), null, line);
+  }
+  assert.equal(desk.pending(), true, 'the question still waits');
+  assert.equal((await desk.turn('segmentation please')).action, 'quiz_draft'); // 3 words naming a topic
+  // expiry
+  const d2 = createQuizDesk({ canvas: {}, createPost: async () => ({}), draftQuiz: async () => ({ questions: [mkQ(1)], by: 'mock', model: 'm', short: 0 }), now: clock, roster: [] });
+  assert.equal((await d2.turn('make a quiz')).action, 'quiz_topics');
+  t += 14 * 60_000;
+  assert.equal(d2.pending(), true);
+  t += 2 * 60_000;
+  assert.equal(d2.pending(), false);
+  assert.equal(await d2.turn('8'), null, 'a bare number no longer answers an expired question');
+  assert.equal(await d2.turn('Topic 8'), null);
+});
+
+test('I-3: "draft one more" is told the questions the page holds (his edits), and refuses at 20', async () => {
+  const s = setup();
+  const { draftId } = await drafted(s);
+  const mine = ['My own rewritten question one here?', 'My own rewritten question two here?'];
+  const r = await s.desk.action({ draftId, operationId: 'op-m1', action: 'one_more', existing: mine });
+  assert.equal(r.ok, true);
+  assert.equal(r.question.text, 'A brand new question 2 here?', 'draftOne saw exactly the page’s two texts');
+  const full = Array.from({ length: 20 }, (_, i) => `Question number ${i} about segmentation?`);
+  const refused = await s.desk.action({ draftId, operationId: 'op-m2', action: 'one_more', existing: full });
+  assert.equal(refused.ok, false);
+  assert.equal(refused.text, 'A quiz can have at most 20 questions.');
+  for (const bad of [Array.from({ length: 21 }, () => 'x'), ['y'.repeat(301)], [5], 'not a list']) {
+    const b = await s.desk.action({ draftId, operationId: `op-m-${Math.random().toString(36).slice(2, 8)}`, action: 'one_more', existing: bad });
+    assert.equal(b.refused, true);
+    assert.equal(b.code, 'bad_request');
+  }
+  // the same operation id with a different list is not the same request
+  const reuse = await s.desk.action({ draftId, operationId: 'op-m1', action: 'one_more', existing: [...mine, 'extra one here?'] });
+  assert.equal(reuse.code, 'operation_reused');
+});
+
+test('M-3: Canvas not configured is a definite answer (not retryable, nothing cached as unknown), text unchanged', async () => {
+  const s = setup({ canvasScript: [{ ok: false, outcome: 'not_configured' }] });
+  const { draftId } = await drafted(s);
+  const r = await s.desk.action({ draftId, operationId: 'op-nc', action: 'approve', quiz: fullQuiz(s, draftId) });
+  assert.equal(r.ok, false);
+  assert.ok(!r.retryable && !r.unknownOutcome);
+  assert.equal(r.text, "Canvas isn't connected, so nothing was sent.");
+  assert.equal(r.state, 'draft');
+});
+
+test('M-4: approving after Discard says the draft was discarded; after a reset it says the app restarted', async () => {
+  const s = setup();
+  const a = await drafted(s);
+  const quiz = fullQuiz(s, a.draftId);
+  await s.desk.action({ draftId: a.draftId, operationId: 'op-d', action: 'discard' });
+  const r = await s.desk.action({ draftId: a.draftId, operationId: 'op-after', action: 'approve', quiz });
+  assert.equal(r.text, 'This draft was discarded.');
+  const unknown = await s.desk.action({ draftId: 'qd-neverexisted', operationId: 'op-x', action: 'approve', quiz });
+  assert.equal(unknown.text, CLOSED_TEXT);
+});
+
+test('M-8: a typed count survives the @assistant topics path', async () => {
+  const s = setup();
+  s.desk.topics(null, 8);
+  assert.equal((await s.desk.turn('8')).action, 'quiz_draft');
+  assert.equal(s.desk.draft(s.desk.card().draftId).quiz.questions.length, 8);
 });
