@@ -53,10 +53,10 @@ export function asksRosterExport(text) {
 // assistant, never a post to the class (“can you email me the roster?” once reached all 25). Code reads it; the chat is told.
 export const ROSTER_QUESTION_TEXT = "That reads like a question about your roster, so I didn't send it to your class. I can show your roster, count your students, look up one student, or list students by year or major.";
 const ABOUT_STUDENTS = /\b(?:my|our)\s+(?:students|class\s+list|roster|class\s+roster|freshm[ae]n|first[-\s]years|sophomores|juniors|seniors|majors)\b/i;
-const ASKING = /\?\s*$|^\s*(?:(?:can|could|would|will)\s+you|please\s+(?:show|list|send|e-?mail|give|find|get|tell\s+me|export|print|download)|show|list|give\s+me|find|get\s+me|who|which|what|how\s+many|e-?mail|export|download|print)\b/i;
+const ASKING = /\?\s*$|^\s*(?:(?:can|could|would|will)\s+you|please\s+(?:show|list|send|e-?mail|give|find|get|tell\s+me|export|print|download)|show|list|give\s+me|find|get\s+me|who|which|what(?!\s+an?\b)|how\s+many|e-?mail|export|download|print)\b/i;
 export function asksAboutRoster(text) {
   const t = String(text ?? '').trim();
-  if (!t || /^\s*@/.test(t)) return false;
+  if (!t || /^\s*@/.test(t) || /!\s*$/.test(t)) return false; // “What a great class, my students rock!” is praise, not a question
   return (ROSTER_NOUN.test(t) || ABOUT_STUDENTS.test(t)) && ASKING.test(t);
 }
 

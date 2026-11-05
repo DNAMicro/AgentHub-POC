@@ -867,3 +867,11 @@ test('round 2 readers (code): rosterFilter, asksRosterExport, asksAboutRoster, r
   for (const t of ['tell my students the midterm is postponed', 'Let everyone know that grades are posted', 'Tell everyone to read chapter 5']) assert.equal(notifyIsNew(t), true, t);
   for (const t of ['tell the class please, and thanks so much', 'Tell the class, and post that the exam is postponed', 'tell the class', 'tell the class too']) assert.equal(notifyIsNew(t), false, t);
 });
+
+test('live scenario H8: praise for the class is a post, not a roster question', () => {
+  assert.equal(asksAboutRoster('What a great class, my students rock!'), false);
+  assert.equal(asksAboutRoster('My students did great on the project!'), false);
+  assert.equal(asksAboutRoster('What a lovely group my students are'), false);
+  assert.equal(asksAboutRoster('what are my students majoring in?'), true);
+  assert.equal(asksAboutRoster('can you email me the roster?'), true);
+});
