@@ -10,7 +10,7 @@ Requirements: **Node.js 20+** (verified on 26.11.1). An Anthropic API key only f
 
 ```bash
 npm install
-npm run demo          # all eight processes with mock models: free, no network
+npm run demo          # all ten processes with mock models: free, no network
 # open http://127.0.0.1:4444
 ```
 
@@ -78,11 +78,11 @@ Use `PORT=...` to change the Tutor's port and `TUTOR_URL=http://127.0.0.1:...` t
 ### Browser monitor: all agents (Parts 7–9)
 
 ```bash
-npm run demo:live     # all eight processes, Hub router + Tutor + Library + Faculty + HR + PeopleSoft's and Canvas's planners on Claude Haiku 5.5 (paid; key from env or .env)
+npm run demo:live     # all ten processes, Hub router + Tutor + Library + Faculty + HR + CHRS + the planners of PeopleSoft, Canvas and the student records on Claude Haiku 5.5 (paid; key from env or .env)
 npm run demo          # the same with mock models and the mock router (no network, no cost)
 ```
 
-`demo` runs `scripts/start-all.js`, which starts the eight processes and prefixes their output; Ctrl+C stops them all (each specialist signs out from the Hub). To run them separately instead:
+`demo` runs `scripts/start-all.js`, which starts the ten processes and prefixes their output; Ctrl+C stops them all (each specialist signs out from the Hub). To run them separately instead:
 
 ```bash
 npm run hub:live      # University Hub on 127.0.0.1:41243 (live router; or hub = mock router, hub:direct = everything to tutoring)
@@ -102,6 +102,8 @@ npm run ui            # UI + Student Agent on 127.0.0.1:4444 — connects only t
 | HR Agent (staff only, Part 14) | 41245 | `npm run hr` (`hr:live` = Haiku) |
 | PeopleSoft stand-in (MCP server, Part 15) | 41246 | `npm run peoplesoft` (`peoplesoft:live` = Haiku). Needs `PEOPLESOFT_TOKEN`; `npm run demo` makes one for you |
 | Canvas LMS stand-in (MCP server, Part 16) | 41247 | `npm run canvas` (`canvas:live` = Haiku). Needs `CANVAS_TOKEN`; `npm run demo` makes one for you |
+| CHRS (staff only, Part 17) | 41248 | `npm run chrs` (`chrs:live` = Haiku) |
+| PeopleSoft student records stand-in (MCP server, Part 17) | 41249 | `npm run records` (`records:live` = Haiku). Needs `STUDENT_RECORDS_TOKEN`; `npm run demo` makes one for you |
 | UI + Student Agent | 4444 | `npm run ui` |
 
 Then open **http://127.0.0.1:4444**. Start order doesn't matter: specialists keep retrying registration, and the Student re-reads the Hub's card when the Hub appears.
@@ -130,6 +132,9 @@ Then open **http://127.0.0.1:4444**. Start order doesn't matter: specialists kee
 | `CANVAS_MODE` | Part 16: the Canvas stand-in's step planner, `mock` (default, labelled heuristic) or `live` |
 | `CANVAS_URL`, `CANVAS_TOKEN` | Part 16: where the Faculty agent finds the Canvas stand-in (default: closed port 9, so it never reaches a real :41247 by accident; `npm run demo` sets it) and the secret it must send. Never printed |
 | `CANVAS_TIMEOUT_MS`, `CANVAS_MODEL_TIMEOUT_MS` | Part 16: the time limits for Faculty's Canvas call (12 s) and Canvas's planner (8 s); see `src/timeouts.js` |
+| `CHRS_MODE`, `STUDENT_RECORDS_MODE` | Part 17: CHRS's tool choice and the student records stand-in's step planner, `mock` (default, labelled heuristic) or `live` |
+| `CHRS_URL`, `STUDENT_RECORDS_URL`, `STUDENT_RECORDS_TOKEN` | Part 17: where the Hub finds CHRS (default :41248) and where CHRS finds the student records stand-in (default: closed port 9, never a real :41249 by accident), and the secret it sends (`npm run demo` makes one, given to those two processes only) |
+| `HUB_ROSTER_TTL_MS` | Part 17: how long the Hub keeps a class roster it fetched from CHRS (default 60 s) |
 | `PROFESSOR_NOW`, `CANVAS_NOW` | Tests and rehearsal only (with `PROFESSOR_TEST_HOOKS=1` / `CANVAS_TEST_HOOKS=1`): pin "today" so the same topics are taught on any day |
 | `HR_TEST_HOOKS=1` | Tests only: adds `GET /test/hr/requests` to the HR Agent (the sent requests it holds in memory) |
 | `HUB_FORM_TTL_MS` | How long a form or HR card stays usable (default 2 hours). The Hub and the Faculty agent's staff desk both read it |
@@ -239,10 +244,13 @@ Everything is live, so the model may answer in words where the script hoped for 
 | `src/config.js`, `config/*.example.json` | Part 7: per-agent configuration with startup validation. |
 | `src/topology.js` | Part 7: labels each telemetry event with its connection, direction, category and phase for the topology view. |
 | `public/topology.js` | Part 7: the live topology graph (SVG), traces, details, event list. |
-| `scripts/start-all.js` | Part 7: starts all the processes — six since Part 14, seven since Part 15, eight since Part 16 (`npm run demo` / `demo:live`). |
+| `scripts/start-all.js` | Part 7: starts all the processes — six since Part 14, seven since Part 15, eight since Part 16, ten since Part 17 (`npm run demo` / `demo:live`). |
 | `src/hr-agent.js`, `src/hr-intent.js`, `src/hr-model.js`, `src/absence-types.js` | Part 14: the staff-only **HR Agent** — chat and card logic (since Part 15 the staff, balances and requests live in PeopleSoft: `src/peoplesoft-store.js`, with the Forecast rules in `src/leave-rules.js`), the code that reads dates and partial days, and the shared absence list (also served to the browser at `/shared/absence-types.js`), and the absence-type choice (model proposes, code verifies; the reason comes from code). |
 | `src/canvas-mcp.js`, `src/canvas-store.js`, `src/canvas-model.js` | Part 16: the Canvas LMS stand-in MCP server (two tools, bearer token), its in-memory quizzes and its step planner. |
 | `src/course-schedule.js`, `src/quiz-rules.js` | Part 16: the fictional Fall 2026 Marketing 351 schedule (20 topics, dates, original notes) and the quiz rules, shared with the browser at `/shared/…`. |
+| `src/chrs-agent.js`, `src/chrs-model.js`, `src/chrs-records.js` | Part 17: the staff-only **CHRS** agent, its AI that picks the records tool and its MCP link to the student records. |
+| `src/student-records-mcp.js`, `src/student-records-store.js`, `src/student-records-model.js` | Part 17: the PeopleSoft student records stand-in (one tool, bearer token), the 25 fictional students and its step planner. |
+| `src/hub-roster.js`, `src/professor-roster.js`, `public/roster-ui.js` | Part 17: the Hub's roster client (signed lookup, 60 s cache), the Faculty desk's roster and “notify everyone” rules, and the roster card. |
 | `src/quiz-model.js`, `src/professor-quiz.js`, `src/professor-canvas.js` | Part 16: the AI that drafts questions from the notes, the quiz desk (topic, draft, edit, approve, publish, notice) and Faculty's MCP link to Canvas. |
 | `src/peoplesoft-mcp.js`, `src/peoplesoft-store.js`, `src/peoplesoft-model.js`, `src/leave-rules.js` | Part 15: the PeopleSoft stand-in MCP server (three tools, bearer token), its in-memory records and the code-run leave rules, and its step planner. |
 | `src/hr-peoplesoft.js`, `src/timeouts.js` | Part 15: HR's MCP client (tool choice checked by code, one shared time budget) and the nested time limits for the staff path. |
@@ -1042,6 +1050,40 @@ At CSUF, quizzes live in **Canvas**. The Faculty agent now reaches an eighth pro
 
 `test/quiz-rules.test.js`, `canvas-store.test.js`, `canvas-model.test.js`, `canvas-mcp.test.js`, `quiz-model.test.js`, `quiz-model-live.test.js`, `professor-canvas.test.js`, `professor-canvas-live.test.js`, `professor-quiz-desk.test.js`, `professor-quiz.test.js`, `quiz-notice.test.js`, `topology-canvas.test.js`, `timeouts.test.js`. `scripts/browser-checks/canvas-quiz.js` (71 checks) runs on a separate rehearsal stack (`node scripts/demo/rehearsal-stack.js --ui 5544 --base 52340 --mock --now 2026-11-04T20:00:00Z`), never on the running demo. See [Steps/16](Steps/16-canvas-quiz-mcp.md).
 
+## Part 17: CHRS — a class roster, and notices that go to the real class list
+
+The faculty member can now ask for his class roster, and every notice to the class is addressed from that roster. Two new processes: a staff-only agent called **CHRS** (`src/chrs-agent.js`, port **41248**) and a fictional **PeopleSoft student records** stand-in (`src/student-records-mcp.js`, port **41249**) that CHRS reaches over MCP, the same way HR reaches PeopleSoft. The demo now runs ten processes. All records are fictional (IDs `888xxxxxx`, emails `@csu.fullerton.example`) and in memory only.
+
+### The walkthrough
+
+1. In the Faculty view type “show me my class roster”. The Faculty agent recognises the request in code and sends it, signed with a `service` field, to the Hub. The Hub routes it to CHRS only (HR and CHRS are both staff-only destinations; the signed `service` says which).
+2. CHRS verifies the Hub's staff signature, its AI picks the one records tool (`get_class_roster`), code checks the pick, and the records stand-in checks that he is this course's own instructor, plans its steps and answers.
+3. One look-only card, “CHRS · Class roster”, laid out like the CSUF Faculty Center roster: term, class, meeting row, instructor, Enrollment Status / Capacity 35 / Enrolled 25, then the grid (ID, Name, Email, Pronouns, Units, Program and Plan, Academic Level). No checkboxes, no actions.
+4. Type “notify everyone that the midterm review session moves to Thursday”. The Hub asks CHRS for the class list (a lookup signed by the Hub itself), then makes one delivery per student. His words go out as his own, with no preview: “Sent to all 25 students in Marketing 351.” Alex sees the notice; the other 24 are honestly “not online yet” and get it when they are.
+5. The delivery card for a big audience reads “Delivered to 1”, “24 not online yet — they'll get it when they are”, with the rows folded under “Show all 25 students”. Quiz notices and class cancellations use the same list.
+6. Topology gets a fifth staff agent, **CHRS** (indigo), with its own model box and its own **Student records** tile (a PeopleSoft-coloured database tile) under the model. The Hub's lookup and the MCP call light up their edges; labels say only “Roster: 25 students”.
+
+### Notify-everyone, carefully
+
+- Openings: notify / tell / inform / let … know, plus everyone / all students / the class. “… that X” and “… : X” send X. “… about X” and “… of X” don't send a fragment: the assistant asks “What should I tell your class about X?” and his next plain reply goes to all of them.
+- Private words never go to the class: a first-person leave or illness message gets the same “HR, the class, or both?” question as before.
+- With an HR card open, the open-card rule still applies (a class announcement posts; first-person leave words ask).
+
+### If CHRS doesn't answer
+
+- Nothing goes to a stale list. The faculty member reads “I couldn't get your class list just now, so nothing was sent. Try again in a moment.” A quiz publish says the quiz **is** published in Canvas but the students weren't told yet, and that pressing Publish again notifies them once. A “yes” to a cancellation offer is kept, so a second “yes” works when CHRS is back.
+- A roster question that fails says “I couldn't get your class roster just now. Try again in a moment.” The roster card, once drawn, lives only in the Faculty agent's memory; after a restart it says “Ask again to see your roster.”
+
+### Safety and limits
+
+- Only CHRS can call the student records: a random token made on every start, given to those two processes only. CHRS also checks that every lookup was signed by the Hub. Students never reach CHRS and it is not on the public card or the router.
+- The Hub keeps the class list in memory for 60 seconds. The status poll never causes a lookup. The roster rows never reach a student's page, the Hub's telemetry (counts only), a log or `data/`.
+- The header shows “25 students · 1 online” only after the real count is known.
+
+### Tests
+
+`test/student-records-store.test.js`, `student-records-model.test.js`, `student-records-mcp.test.js`, `chrs.test.js`, `hub-roster.test.js`, `professor-roster.test.js`, `topology-chrs.test.js`, `timeouts.test.js`. `scripts/browser-checks/chrs-roster.js` (34 checks) runs on a separate rehearsal stack (`node scripts/demo/rehearsal-stack.js --ui 5544 --base 52340 --mock --now 2026-11-04T20:00:00Z`), never on the running demo. See [Steps/17](Steps/17-chrs-roster.md).
+
 ## Deliberately not included
 
-Token streaming, A2A push notifications (Part 9's lessons are new A2A messages, not task-status pushes), email/SMS/OS notifications, whole-class broadcasts, multi-agent fan-out (the Hub forwards each request to at most one specialist), real authentication or accounts (Part 9's per-process keys are a local demo measure), a database (only Part 9's lesson records, inbox and outbox are JSON files; Part 8 loans and Part 14 HR records are in memory only), actually sending email, model-generated code or HTML, and deployment. Model-generated UI exists only in Part 8, only from the validated catalog. Each chat goes to at most one service as one A2A request and one response. Each form is one A2A task, opened by the agent's reply to a chat message and acted on only by its own allowlisted actions. Part 14 adds no manager agent or approval, no real CHRS or portal, no attachments upload and no other HR services than time off. Part 16 adds no real Canvas, no grading, no student quiz-taking (students get a notice only), no quiz bank and no saved drafts.
+Token streaming, A2A push notifications (Part 9's lessons are new A2A messages, not task-status pushes), email/SMS/OS notifications, whole-class broadcasts, multi-agent fan-out (the Hub forwards each request to at most one specialist), real authentication or accounts (Part 9's per-process keys are a local demo measure), a database (only Part 9's lesson records, inbox and outbox are JSON files; Part 8 loans and Part 14 HR records are in memory only), actually sending email, model-generated code or HTML, and deployment. Model-generated UI exists only in Part 8, only from the validated catalog. Each chat goes to at most one service as one A2A request and one response. Each form is one A2A task, opened by the agent's reply to a chat message and acted on only by its own allowlisted actions. Part 14 adds no manager agent or approval, no real CHRS or portal, no attachments upload and no other HR services than time off. Part 16 adds no real Canvas, no grading, no student quiz-taking (students get a notice only), no quiz bank and no saved drafts. Part 17 adds no real student records, no roster actions (look only), no saved roster, and no way for a student to see the roster.
