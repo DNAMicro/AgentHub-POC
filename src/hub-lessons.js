@@ -22,7 +22,7 @@ import { validMeeting } from './meeting-times.js';
 import { sendData } from './a2a-data.js';
 import {
   AUDIENCE, COURSE_AVAILABLE_MEDIA_TYPE, ID, LESSON_DELIVERY_MEDIA_TYPE, LESSON_QUERY_MEDIA_TYPE, POST_AUTHORS, SESSION_CHALLENGE_MEDIA_TYPE,
-  contentHash, deliveryIdFor, sign, validateLesson, verify,
+  contentHash, deliveryIdFor, sign, validQuizNotice, validateLesson, verify,
 } from './lessons.js';
 
 // A part a registered agent signed itself (hubLink.sendSigned: the sender's id is in `professorId`):
@@ -88,11 +88,12 @@ export function createLessonService({ cfg, registry, emit = () => {}, file = pro
     const kind = msg?.kind ?? 'lesson';
     const author = msg?.author ?? 'professor';
     const meeting = msg?.meeting ?? null; // a meeting offer: times the professor gave, for the student to pick
-    const hash = contentHash(msg?.title, msg?.text, kind, author, meeting);
+    const quiz = msg?.quiz ?? null; // a quiz notice: facts only (Part 16)
+    const hash = contentHash(msg?.title, msg?.text, kind, author, meeting, quiz);
     const fields = ['publish', msg?.operationId, msg?.lessonId, msg?.revision, msg?.courseId, kind, msg?.audience, hash];
     const who = verifyProfessor(msg, fields);
     if (who !== 'ok') return reject(who === 'unregistered' ? 'unknown_professor' : 'bad_signature');
-    if (!ID.test(msg.operationId ?? '') || !ID.test(msg.lessonId ?? '') || !Number.isInteger(msg.revision) || msg.revision < 1 || !AUDIENCE.test(msg.audience ?? '') || !POST_AUTHORS.includes(author) || !validMeeting(meeting) || (meeting && kind !== 'message')) return reject('malformed');
+    if (!ID.test(msg.operationId ?? '') || !ID.test(msg.lessonId ?? '') || !Number.isInteger(msg.revision) || msg.revision < 1 || !AUDIENCE.test(msg.audience ?? '') || !POST_AUTHORS.includes(author) || !validMeeting(meeting) || (meeting && kind !== 'message') || !validQuizNotice(quiz) || (quiz && kind !== 'message')) return reject('malformed');
     const course = cfg.courses?.[msg.courseId];
     if (!course) return reject('unknown_course');
     if (course.professor !== msg.professorId) return reject('not_course_professor');
@@ -113,7 +114,7 @@ export function createLessonService({ cfg, registry, emit = () => {}, file = pro
     if (existing && existing.hash !== hash) return reject('revision_conflict'); // a revision is immutable
     const deliveryIds = recipients.map((sid) => deliveryIdFor(msg.lessonId, msg.revision, sid));
     store.update((s) => {
-      s.lessons[key] ??= { lessonId: msg.lessonId, revision: msg.revision, courseId: msg.courseId, professorId: msg.professorId, kind, author, meeting, audience: msg.audience, title: v.values.title, text: v.values.text, hash, postedAt: new Date().toISOString() };
+      s.lessons[key] ??= { lessonId: msg.lessonId, revision: msg.revision, courseId: msg.courseId, professorId: msg.professorId, kind, author, meeting, quiz, audience: msg.audience, title: v.values.title, text: v.values.text, hash, postedAt: new Date().toISOString() };
       s.operations[msg.operationId] = { hash, lessonId: msg.lessonId, revision: msg.revision, audience: msg.audience, deliveryIds };
       recipients.forEach((studentId, i) => {
         s.deliveries[deliveryIds[i]] ??= { deliveryId: deliveryIds[i], lessonId: msg.lessonId, revision: msg.revision, studentId, courseId: msg.courseId, professorId: msg.professorId, state: 'queued', attempts: 0, lastError: null, deliveredAt: null, openedAt: null, inboxId: null };
@@ -153,7 +154,7 @@ export function createLessonService({ cfg, registry, emit = () => {}, file = pro
       }
       const lesson = store.get().lessons[`${d.lessonId}#${d.revision}`];
       const value = {
-        type: 'lesson_delivery', deliveryId, lessonId: d.lessonId, revision: d.revision, courseId: d.courseId, kind: lesson.kind ?? 'lesson', author: lesson.author ?? 'professor', meeting: lesson.meeting ?? null, toAll: lesson.audience === 'all',
+        type: 'lesson_delivery', deliveryId, lessonId: d.lessonId, revision: d.revision, courseId: d.courseId, kind: lesson.kind ?? 'lesson', author: lesson.author ?? 'professor', meeting: lesson.meeting ?? null, quiz: lesson.quiz ?? null, toAll: lesson.audience === 'all',
         courseTitle: cfg.courses[d.courseId]?.title ?? d.courseId, professorId: d.professorId, professorName: professorNameOf(d.courseId, d.professorId),
         title: lesson.title, text: lesson.text, postedAt: lesson.postedAt, contentHash: lesson.hash,
       };

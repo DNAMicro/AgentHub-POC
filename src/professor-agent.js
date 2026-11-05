@@ -24,7 +24,7 @@ import { PROFESSOR_MODE, classifyPost, interpretProfessor, professorReply, profe
 import { datesIn } from './a2ui-catalog.js';
 import { slotsIn } from './meeting-times.js';
 import { createJsonStore } from './json-store.js';
-import { AUDIENCE, ID, LESSON_PUBLISH_MEDIA_TYPE, LESSON_STATUS_MEDIA_TYPE, contentHash, validateLesson } from './lessons.js';
+import { AUDIENCE, ID, LESSON_PUBLISH_MEDIA_TYPE, LESSON_STATUS_MEDIA_TYPE, contentHash, validQuizNotice, validateLesson } from './lessons.js';
 import { resetStaff, staffAction, staffTurn, staffView } from './professor-staff.js';
 import { cardValues } from './staff.js';
 
@@ -204,8 +204,8 @@ const executor = {
 async function publish(record) {
   emitViz('lesson_posted', null, { lessonId: record.lessonId, revision: record.revision, operationId: record.operationId, kind: record.kind, audience: record.audience === 'all' ? 'all' : 'one' });
   const ack = await hubLink.sendSigned(LESSON_PUBLISH_MEDIA_TYPE,
-    { type: 'lesson_publish', operationId: record.operationId, lessonId: record.lessonId, revision: record.revision, courseId: record.courseId, kind: record.kind, author: record.author ?? 'professor', ...(record.meeting ? { meeting: record.meeting } : {}), audience: record.audience, title: record.title, text: record.text },
-    ['publish', record.operationId, record.lessonId, record.revision, record.courseId, record.kind, record.audience, contentHash(record.title, record.text, record.kind, record.author ?? 'professor', record.meeting ?? null)]);
+    { type: 'lesson_publish', operationId: record.operationId, lessonId: record.lessonId, revision: record.revision, courseId: record.courseId, kind: record.kind, author: record.author ?? 'professor', ...(record.meeting ? { meeting: record.meeting } : {}), ...(record.quiz ? { quiz: record.quiz } : {}), audience: record.audience, title: record.title, text: record.text },
+    ['publish', record.operationId, record.lessonId, record.revision, record.courseId, record.kind, record.audience, contentHash(record.title, record.text, record.kind, record.author ?? 'professor', record.meeting ?? null, record.quiz ?? null)]);
   // Accepted = the Hub recorded the post and made a delivery per recipient; delivering is then its job.
   const accepted = Array.isArray(ack.deliveries) && ack.deliveries.length > 0;
   outbox.update((s) => {
@@ -238,7 +238,8 @@ async function hubView() {
 }
 
 // ---- posting (shared by the typed API and the chat) -------------------------------------------------------
-async function createPost({ operationId, kind = 'lesson', title = '', text, audience, courseId = COURSE.courseId, lessonId = null, source = 'api', verbatim = true, seedId = null, author = 'professor', meeting = null }) {
+async function createPost({ operationId, kind = 'lesson', title = '', text, audience, courseId = COURSE.courseId, lessonId = null, source = 'api', verbatim = true, seedId = null, author = 'professor', meeting = null, quiz = null }) {
+  if (!validQuizNotice(quiz) || (quiz && kind !== 'message')) return { http: 400, body: { errors: { _form: 'Malformed quiz notice.' } } };
   if (typeof operationId !== 'string' || !ID.test(operationId)) return { http: 400, body: { errors: { _form: 'Missing or malformed operation id.' } } };
   if (typeof audience !== 'string' || !AUDIENCE.test(audience)) return { http: 400, body: { errors: { audience: 'Choose all students or one enrolled student.' } } };
   const v = validateLesson({ kind, title, text });
@@ -258,6 +259,7 @@ async function createPost({ operationId, kind = 'lesson', title = '', text, audi
     title: v.values.title, text: v.values.text, createdAt: new Date().toISOString(), hubStatus: 'sending', hubReason: null, recipients: [], source, verbatim, seedId,
     author: author === 'assistant' ? 'assistant' : 'professor',
     ...(meeting ? { meeting } : {}),
+    ...(quiz ? { quiz } : {}),
   };
   outbox.update((s) => {
     s.lessons[lessonKey(record.lessonId, record.revision)] = record;

@@ -45,8 +45,27 @@ export const POST_AUTHORS = ['professor', 'assistant'];
 // message, an assistant's post as the professor's own (or the reverse), nor the offered times changed.
 // A professor's post without a meeting hashes as before.
 const meetingPart = (m) => (m ? { meetingId: m.meetingId, slots: m.slots.map(({ slotId, start, label }) => ({ slotId, start, label })) } : null);
-export const contentHash = (title, text, kind = 'lesson', author = 'professor', meeting = null) => createHash('sha256')
-  .update(JSON.stringify(author === 'professor' && !meeting ? [title ?? '', text ?? '', kind] : [title ?? '', text ?? '', kind, author, meetingPart(meeting)])).digest('hex').slice(0, 32);
+// A quiz notice (Part 16: facts only) is covered too; without one the long form is exactly as before.
+const quizPart = (q) => ({ canvasQuizId: q.canvasQuizId, title: q.title, questions: q.questions, points: q.points, minutes: q.minutes, attempts: q.attempts, dueAt: q.dueAt });
+export const contentHash = (title, text, kind = 'lesson', author = 'professor', meeting = null, quiz = null) => createHash('sha256')
+  .update(JSON.stringify(author === 'professor' && !meeting && !quiz ? [title ?? '', text ?? '', kind]
+    : quiz ? [title ?? '', text ?? '', kind, author, meetingPart(meeting), quizPart(quiz)]
+    : [title ?? '', text ?? '', kind, author, meetingPart(meeting)])).digest('hex').slice(0, 32);
+
+// A quiz notice carries the quiz's facts only — never a question or an answer. null, or exactly these keys.
+const QUIZ_KEYS = ['canvasQuizId', 'title', 'questions', 'points', 'minutes', 'attempts', 'dueAt'];
+const inRange = (n, lo, hi) => Number.isInteger(n) && n >= lo && n <= hi;
+export function validQuizNotice(q) {
+  if (q === null || q === undefined) return true;
+  if (typeof q !== 'object' || Array.isArray(q)) return false;
+  const keys = Object.keys(q);
+  if (keys.length !== QUIZ_KEYS.length || !QUIZ_KEYS.every((k) => keys.includes(k))) return false;
+  return Number.isInteger(q.canvasQuizId) && q.canvasQuizId >= 1
+    && typeof q.title === 'string' && q.title.length >= 1 && q.title.length <= 120
+    && inRange(q.questions, 1, 20) && Number.isInteger(q.points) && q.points >= 0 && q.points <= 1000
+    && inRange(q.minutes, 1, 120) && inRange(q.attempts, 1, 3)
+    && typeof q.dueAt === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(q.dueAt) && !Number.isNaN(Date.parse(q.dueAt));
+}
 
 // The professor's draft, checked the same way by the Professor agent and the Hub. The text is CONTENT:
 // it is stored and shown as written, never interpreted as instructions.
