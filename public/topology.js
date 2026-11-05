@@ -3,9 +3,10 @@
 // only — the Professor agent reaches it for the professor himself, never a student) behind it. Each agent has its own small model box: the agent
 // picks its own mode and model and calls the provider from its own process with its own key, so these
 // are separate connections, not one shared service. Those lines are HTTPS calls, drawn dashed, not A2A.
-// There is no Student↔specialist line. Part 15: below HR sits PeopleSoft (a demo stand-in), reached only by the
-// HR Agent over MCP (dash-dot line). It is a system, not an agent: a tile with a database icon (no circle, no
-// orbit, no model box); its own AI shows only as the tile's sparkle and light sweep while a tool call runs.
+// There is no Student↔specialist line. Part 15/16: in the right column, under HR's model sits PeopleSoft and under
+// Faculty's model sits Canvas LMS (both demo stand-ins), each reached only by its own agent (HR, Faculty) over MCP
+// (dash-dot line). A system is not an agent: a tile with an icon (no circle, no orbit, no model box); its own AI
+// shows only as the tile's sparkle and light sweep while a tool call runs.
 //
 // What moves is evidence, not decoration: a pulse is drawn only for an event the UI server labelled
 // with an edge, a direction, a category and a phase (src/topology.js). Replayed history fills the
@@ -14,45 +15,50 @@
 // short fixed labels are shown here — never message text, emails, notes or form values.
 const SVG = 'http://www.w3.org/2000/svg';
 
-// Four specialists in the right column (viewBox 0 0 1100 990): the HR Agent sits below the Professor,
-// the only agent that talks to it (through the Hub); PeopleSoft sits below HR, the only agent that reaches it.
+// Four specialists in a column at x 710, evenly spaced (viewBox 0 0 1100 1029; owner-approved layout): each agent's
+// HTTPS line goes up-right to its model, its MCP line goes down-right to its system (Faculty → Canvas, HR → PeopleSoft).
 const NODES = {
-  student: { x: 130, y: 378, r: 60, name: 'Student agent', role: 'You' },
-  hub: { x: 450, y: 378, r: 76, name: 'University Hub', role: 'Front door and router' },
-  tutor: { x: 770, y: 100, r: 56, name: 'Tutor Agent', role: 'Tutoring specialist' },
-  library: { x: 770, y: 285, r: 56, name: 'Library Agent', role: 'Library specialist' },
-  professor: { x: 770, y: 470, r: 56, name: 'Faculty', role: 'Marketing 351' },
-  hr: { x: 770, y: 655, r: 56, name: 'HR Agent', role: 'Staff only' },
-  // Part 15: a system, not an agent (design F: tile + database icon + sparkle + sweep).
-  peoplesoft: { x: 770, y: 890, w: 176, h: 80, kind: 'system', name: 'PeopleSoft', role: 'MCP server' },
+  student: { x: 130, y: 478, r: 60, name: 'Student agent', role: 'You' },
+  hub: { x: 450, y: 478, r: 76, name: 'University Hub', role: 'Front door and router' },
+  tutor: { x: 710, y: 95, r: 56, name: 'Tutor Agent', role: 'Tutoring specialist' },
+  library: { x: 710, y: 350, r: 56, name: 'Library Agent', role: 'Library specialist' },
+  professor: { x: 710, y: 605, r: 56, name: 'Faculty', role: 'Marketing 351' },
+  hr: { x: 710, y: 860, r: 56, name: 'HR Agent', role: 'Staff only' },
+  // Systems, not agents (design F: tile + icon + sparkle + sweep). Part 15 PeopleSoft, Part 16 Canvas LMS.
+  canvas: { x: 985, y: 680, w: 176, h: 80, kind: 'system', name: 'Canvas LMS', role: 'MCP server' },
+  peoplesoft: { x: 985, y: 935, w: 176, h: 80, kind: 'system', name: 'PeopleSoft', role: 'MCP server' },
   // One model box per agent (owner). Server labels say 'model'; the browser draws it at the caller's box.
-  'llm-student': { x: 130, y: 120, w: 184, h: 74, owner: 'student', name: 'Student’s model' },
-  'llm-hub': { x: 450, y: 120, w: 184, h: 74, owner: 'hub', name: 'Hub router’s model' },
-  'llm-tutor': { x: 985, y: 100, w: 184, h: 70, owner: 'tutor', name: 'Tutor’s model' },
-  'llm-library': { x: 985, y: 285, w: 184, h: 70, owner: 'library', name: 'Library’s model' },
-  'llm-professor': { x: 985, y: 470, w: 184, h: 70, owner: 'professor', name: 'Faculty’s model' },
-  'llm-hr': { x: 985, y: 655, w: 184, h: 70, owner: 'hr', name: 'HR’s model' },
+  'llm-student': { x: 130, y: 228, w: 184, h: 74, owner: 'student', name: 'Student’s model' },
+  'llm-hub': { x: 450, y: 228, w: 184, h: 74, owner: 'hub', name: 'Hub router’s model' },
+  'llm-tutor': { x: 985, y: 95, w: 184, h: 70, owner: 'tutor', name: 'Tutor’s model' },
+  'llm-library': { x: 985, y: 350, w: 184, h: 70, owner: 'library', name: 'Library’s model' },
+  'llm-professor': { x: 985, y: 550, w: 184, h: 70, owner: 'professor', name: 'Faculty’s model' },
+  'llm-hr': { x: 985, y: 805, w: 184, h: 70, owner: 'hr', name: 'HR’s model' },
 };
 const EDGES = {
   'student-hub': ['student', 'hub'], 'hub-tutor': ['hub', 'tutor'], 'hub-professor': ['hub', 'professor'], 'hub-library': ['hub', 'library'], 'hub-hr': ['hub', 'hr'],
   'student-model': ['student', 'llm-student'], 'hub-model': ['hub', 'llm-hub'], 'tutor-model': ['tutor', 'llm-tutor'], 'professor-model': ['professor', 'llm-professor'], 'library-model': ['library', 'llm-library'], 'hr-model': ['hr', 'llm-hr'],
-  'hr-peoplesoft': ['hr', 'peoplesoft'],
+  'hr-peoplesoft': ['hr', 'peoplesoft'], 'professor-canvas': ['professor', 'canvas'],
 };
 const MODEL_USES = { student: 'clarifying unclear questions and choosing which university capability a non-obvious one needs', hub: 'deciding where each question goes', tutor: 'answers, scope checks and form review', library: 'answers from saved content and form review', professor: 'answering questions from the course pack and its lessons, and telling the faculty member’s own HR requests from class messages', hr: 'reading the absence name from a staff member’s words (code checks it and decides dates and hours)' };
 const SPECIALIST_IDS = ['tutor', 'library', 'professor', 'hr'];
 const relaying = (active) => SPECIALIST_IDS.reduce((n, id) => n + (active[id] ?? 0), 0);
-const EDGE_KIND = (id) => (id.endsWith('-model') ? 'model' : id === 'hr-peoplesoft' ? 'mcp' : 'a2a');
+const EDGE_KIND = (id) => (id.endsWith('-model') ? 'model' : id === 'hr-peoplesoft' || id === 'professor-canvas' ? 'mcp' : 'a2a');
 const EDGE_TEXT = { model: 'HTTPS', mcp: 'MCP', a2a: 'A2A' };
 const LANE = 9; // each connection has one lane per direction
-const LANE_MCP = 7; // the short HR → PeopleSoft line (mockup)
+const LANE_MCP = 7; // the short MCP lines (mockup)
 // A lane leaving an agent straight down starts below its status pill (r + 26 + 13 + 4), not at the circle.
 const PILL_CLEAR = 43;
-// PeopleSoft (demo stand-in): its three MCP tools, the session states and the busy/saved timings.
-const PS_TOOLS = ['get_leave_balances', 'list_absence_requests', 'create_absence_request'];
-const PS_SESSION = { connected: ['✓ Connected', 'ok'], unreachable: ['✕ Unreachable', 'bad'], none: ['○ Not connected yet', 'muted'] };
-const PS_BUSY_MIN_MS = 1200; // a mock call answers in milliseconds: keep the busy look long enough to be seen
-const PS_BUSY_MAX_MS = 30000; // no answer seen: stop showing busy
-const PS_SAVED_MS = 3000;
+// The systems (demo stand-ins): their MCP tools, edge, colour variable, session states and the busy/saved timings.
+const SYSTEMS = {
+  peoplesoft: { edge: 'hr-peoplesoft', sessionEvent: 'peoplesoft_session', color: '--ps', cls: '', icon: 'db', title: 'PeopleSoft — demo stand-in', reachedBy: 'the HR Agent', tools: ['get_leave_balances', 'list_absence_requests', 'create_absence_request'], saved: /^Saved/ },
+  canvas: { edge: 'professor-canvas', sessionEvent: 'canvas_session', color: '--lms', cls: ' lms', icon: 'quiz', title: 'Canvas LMS — demo stand-in', reachedBy: 'the Faculty agent', tools: ['create_quiz', 'publish_quiz'], saved: /^(Saved|Published)/ },
+};
+const SYSTEM_OF_EDGE = Object.fromEntries(Object.entries(SYSTEMS).map(([id, v]) => [v.edge, id]));
+const SESSION = { connected: ['✓ Connected', 'ok'], unreachable: ['✕ Unreachable', 'bad'], not_configured: ['○ Not configured', 'muted'], none: ['○ Not connected yet', 'muted'] };
+const BUSY_MIN_MS = 1200; // a mock call answers in milliseconds: keep the busy look long enough to be seen
+const BUSY_MAX_MS = 30000; // no answer seen: stop showing busy
+const SAVED_MS = 3000;
 const STATUS = {
   ready: ['✓', 'Ready', 'ok'],
   stale: ['⚠', 'Heartbeat late', 'warn'],
@@ -143,8 +149,8 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
   const state = {
     live: false, hubFeed: false, snapshot: null, student: { busy: false, cardValid: null },
     specialists: {}, // agentId → snapshot entry (status, heartbeat, skills…)
-    // PeopleSoft (demo stand-in): the MCP session HR reported, calls in flight (from the live pulses) and the last call.
-    ps: { session: null, inFlight: 0, since: 0, savedUntil: 0, last: null, maxTimer: null, savedTimer: null },
+    // Each system (demo stand-in): the MCP session its agent reported, calls in flight (from the live pulses) and the last call.
+    sys: Object.fromEntries(Object.keys(SYSTEMS).map((id) => [id, { session: null, inFlight: 0, since: 0, savedUntil: 0, last: null, maxTimer: null, savedTimer: null }])),
     active: { tutor: 0, professor: 0, library: 0, hr: 0 },
     // Each agent's own model: its reported mode, and the calls we saw it make.
     modes: { student: null, hub: null, tutor: null, professor: null, library: null, hr: null }, // { mode, model, keyConfigured }
@@ -158,7 +164,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
   };
   const reduced = () => controls.reduce.checked || reducedQuery.matches;
   if (reducedQuery.matches) controls.reduce.checked = true;
-  const color = (node) => (node === 'peoplesoft' ? 'var(--ps)' : NODES[node]?.owner ? agentColor('model') : agentColor(node));
+  const color = (node) => (SYSTEMS[node] ? `var(${SYSTEMS[node].color})` : NODES[node]?.owner ? agentColor('model') : agentColor(node));
 
   // ---- static drawing --------------------------------------------------------------------
   const edgeEls = {};
@@ -170,11 +176,19 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     const laneF = el('line', { class: 'lane', 'data-dir': 'out', x1: f.x1, y1: f.y1, x2: f.x2, y2: f.y2, 'marker-end': 'url(#arrow)' });
     const laneR = el('line', { class: 'lane', 'data-dir': 'back', x1: r.x1, y1: r.y1, x2: r.x2, y2: r.y2, 'marker-end': 'url(#arrow)' });
     const hit = el('line', { class: 'hit', x1: NODES[a].x, y1: NODES[a].y, x2: NODES[b].x, y2: NODES[b].y });
-    // The label sits at the middle of the drawn lanes (for the MCP line the lanes start below HR's pill).
-    const mx = kind === 'mcp' ? (f.x1 + f.x2) / 2 : (NODES[a].x + NODES[b].x) / 2;
-    const my = kind === 'mcp' ? (f.y1 + f.y2) / 2 : (NODES[a].y + NODES[b].y) / 2;
+    // Labels (mockup): MCP sits just below the middle of the outgoing lane; an HTTPS line that runs diagonally has its label
+    // above the middle of the return lane (clear of both arrowheads); other lines keep the middle of the connection.
+    const diagonal = Math.abs(NODES[a].x - NODES[b].x) > 5 && Math.abs(NODES[a].y - NODES[b].y) > 5;
     const vertical = Math.abs(NODES[a].x - NODES[b].x) < Math.abs(NODES[a].y - NODES[b].y);
-    const label = el('text', { class: 'edge-label', x: vertical ? mx + 18 : mx, y: vertical ? my : my - 18, 'text-anchor': vertical ? 'start' : 'middle' }, EDGE_TEXT[kind]);
+    let lx; let ly; let anchor = 'middle';
+    if (kind === 'mcp') { lx = Math.round((f.x1 + f.x2) / 2 - 6); ly = Math.round((f.y1 + f.y2) / 2 + 30); }
+    else if (kind === 'model' && diagonal) { lx = Math.round((r.x1 + r.x2) / 2); ly = Math.round((r.y1 + r.y2) / 2 - 12); }
+    else {
+      const mx = (NODES[a].x + NODES[b].x) / 2;
+      const my = (NODES[a].y + NODES[b].y) / 2;
+      lx = vertical ? mx + 18 : mx; ly = vertical ? my : my - 18; anchor = vertical ? 'start' : 'middle';
+    }
+    const label = el('text', { class: 'edge-label', x: lx, y: ly, 'text-anchor': anchor }, EDGE_TEXT[kind]);
     g.append(hit, laneF, laneR, label);
     edgesLayer.append(g);
     edgeEls[id] = { g, out: laneF, back: laneR };
@@ -185,22 +199,29 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
   const nodeEls = {};
   for (const [id, n] of Object.entries(NODES)) {
     if (n.kind === 'system') {
-      // PeopleSoft, design F (owner-approved mockup): a tile with a database icon on the left, the name shifted
+      // PeopleSoft and Canvas LMS, design F (owner-approved mockup): a tile with an icon (database / quiz clipboard) on the left, the name shifted
       // right, an AI sparkle top-right and a light sweep clipped to the tile; the status pill below. Animated
       // parts sit inside a positioned <g>, so the CSS animation's transform doesn't replace the position.
-      const g = el('g', { class: 'node system', 'data-node': id, transform: `translate(${n.x} ${n.y})`, tabindex: '0', role: 'button', style: `--node: ${color(id)}` });
+      const sys = SYSTEMS[id];
+      const g = el('g', { class: `node system${sys.cls}`, 'data-node': id, transform: `translate(${n.x} ${n.y})`, tabindex: '0', role: 'button', style: `--node: ${color(id)}` });
       const tile = { x: -n.w / 2, y: -n.h / 2, width: n.w, height: n.h, rx: 16 };
       const clip = el('clipPath', { id: `${id}-tile-clip` }, el('rect', tile));
       const grad = el('linearGradient', { id: `${id}-sweep-grad`, x1: 0, x2: 1, y1: 0, y2: 0 },
-        el('stop', { offset: '0', 'stop-color': 'var(--ps)', 'stop-opacity': '0' }),
-        el('stop', { offset: '.5', 'stop-color': 'var(--ps)', 'stop-opacity': '.22' }),
-        el('stop', { offset: '1', 'stop-color': 'var(--ps)', 'stop-opacity': '0' }));
+        el('stop', { offset: '0', 'stop-color': `var(${sys.color})`, 'stop-opacity': '0' }),
+        el('stop', { offset: '.5', 'stop-color': `var(${sys.color})`, 'stop-opacity': '.22' }),
+        el('stop', { offset: '1', 'stop-color': `var(${sys.color})`, 'stop-opacity': '0' }));
       const halo = el('rect', { class: 'halo', x: -n.w / 2 - 7, y: -n.h / 2 - 7, width: n.w + 14, height: n.h + 14, rx: 23 });
       const sweep = el('g', { 'clip-path': `url(#${id}-tile-clip)` }, el('rect', { class: 'sweep', x: -30, y: -n.h / 2, width: 60, height: n.h, fill: `url(#${id}-sweep-grad)` }));
-      const db = el('g', { class: 'db-icon', transform: 'translate(-58 2)' },
-        el('path', { class: 'db', d: 'M-14,-13 A14,4.5 0 0 0 14,-13 L14,13 A14,4.5 0 0 1 -14,13 Z' }),
-        el('ellipse', { class: 'db', cx: 0, cy: -13, rx: 14, ry: 4.5 }),
-        el('path', { class: 'db-line', d: 'M-14,-4 A14,4.5 0 0 0 14,-4 M-14,5 A14,4.5 0 0 0 14,5' }));
+      const icon = sys.icon === 'quiz'
+        ? el('g', { class: 'quiz-icon', transform: 'translate(-58 0)' },
+          el('rect', { class: 'qi-board', x: -13, y: -16, width: 26, height: 32, rx: 4 }),
+          el('rect', { class: 'qi-clip', x: -6, y: -19, width: 12, height: 6, rx: 2 }),
+          el('path', { class: 'qi-tick', d: 'M-8,-5 l3,3 l5,-6 M-8,7 l3,3 l5,-6' }),
+          el('path', { class: 'qi-line', d: 'M3,-4 h5 M3,8 h5' }))
+        : el('g', { class: 'db-icon', transform: 'translate(-58 2)' },
+          el('path', { class: 'db', d: 'M-14,-13 A14,4.5 0 0 0 14,-13 L14,13 A14,4.5 0 0 1 -14,13 Z' }),
+          el('ellipse', { class: 'db', cx: 0, cy: -13, rx: 14, ry: 4.5 }),
+          el('path', { class: 'db-line', d: 'M-14,-4 A14,4.5 0 0 0 14,-4 M-14,5 A14,4.5 0 0 0 14,5' }));
       const spark = el('g', { transform: 'translate(68 -22)' }, el('path', { class: 'spark', d: 'M0,-10 C1.5,-2 2,-1.5 10,0 C2,1.5 1.5,2 0,10 C-1.5,2 -2,1.5 -10,0 C-2,-1.5 -1.5,-2 0,-10 Z' }));
       const words = el('g', { transform: 'translate(14 0)' },
         el('text', { class: 'node-name', y: 4, 'text-anchor': 'middle' }, n.name),
@@ -210,7 +231,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
       statusG.append(el('rect', { class: 'status-pill', x: -62, y: -13, width: 124, height: 24, rx: 12 }), statusText);
       // Captions (e.g. “MCP session open”) to the left of the tile: above it, they would sit on the MCP lanes.
       const caption = el('text', { class: 'node-caption', x: -n.w / 2 - 12, y: 4, 'text-anchor': 'end' }, '');
-      g.append(clip, grad, halo, el('rect', { class: 'tile', ...tile }), sweep, db, spark, words, statusG, caption);
+      g.append(clip, grad, halo, el('rect', { class: 'tile', ...tile }), sweep, icon, spark, words, statusG, caption);
       nodesLayer.append(g);
       nodeEls[id] = { g, extra: null, statusText, statusG, caption, captionTimer: null };
       g.addEventListener('click', () => select({ kind: 'node', id }));
@@ -268,18 +289,18 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     if (p.last.ok) return { text: '✓ Last call answered', tone: 'ok', model, status: 'ready' };
     return p.last.code === 'timeout' ? { text: '? Last call timed out', tone: 'warn', model, status: 'stale' } : { text: '✕ Last call failed', tone: 'bad', model, status: 'unreachable' };
   }
-  // PeopleSoft's pill: working while a tool call runs, “Saved” for a moment after a filing, else the MCP session.
-  function psState() {
-    const p = state.ps;
+  // A system's pill: working while a tool call runs, “Saved” for a moment after a filing, else the MCP session.
+  function sysState(id) {
+    const p = state.sys[id];
     if (!state.live) return { text: '? Unknown', tone: 'muted', status: 'unknown', busy: false };
     if (p.inFlight > 0) return { text: '● Working…', tone: 'busy', status: 'ready', busy: true };
     if (p.savedUntil > Date.now()) return { text: '✓ Saved', tone: 'ok', status: 'ready', busy: false };
-    const [text, tone] = PS_SESSION[p.session ?? 'none'];
+    const [text, tone] = SESSION[p.session ?? 'none'];
     return { text, tone, status: p.session === 'connected' ? 'ready' : p.session === 'unreachable' ? 'unreachable' : 'disconnected', busy: false };
   }
   function nodeStatus(id) {
     if (!state.live) return 'unknown';
-    if (id === 'peoplesoft') return psState().status;
+    if (SYSTEMS[id]) return sysState(id).status;
     if (NODES[id].owner) return modelState(NODES[id].owner).status;
     if (id === 'student') return 'ready';
     if (id === 'hub') return state.hubFeed ? 'ready' : 'unreachable';
@@ -290,7 +311,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     for (const id of Object.keys(NODES)) {
       if (NODES[id].kind === 'system') {
         const n = nodeEls[id];
-        const ps = psState();
+        const ps = sysState(id);
         n.statusText.textContent = ps.text;
         n.statusG.dataset.tone = ps.tone;
         n.g.dataset.status = ps.status;
@@ -355,15 +376,15 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
   }
 
   // ---- pulses -----------------------------------------------------------------------------
-  // PeopleSoft looks busy from the moment an MCP tool call is drawn leaving HR until its answer is drawn
-  // (at least PS_BUSY_MIN_MS, so a fast mock call is still visible; at most PS_BUSY_MAX_MS without an answer).
-  function psCall(t) {
-    const p = state.ps;
+  // A system looks busy from the moment an MCP tool call is drawn leaving its agent until its answer is drawn
+  // (at least BUSY_MIN_MS, so a fast mock call is still visible; at most BUSY_MAX_MS without an answer).
+  function sysCall(id, t) {
+    const p = state.sys[id];
     if (t.phase === 'attempted') {
       if (p.inFlight === 0) p.since = performance.now();
       p.inFlight += 1;
       clearTimeout(p.maxTimer);
-      p.maxTimer = setTimeout(() => { p.inFlight = 0; renderNodes(); }, PS_BUSY_MAX_MS);
+      p.maxTimer = setTimeout(() => { p.inFlight = 0; renderNodes(); }, BUSY_MAX_MS);
       return renderNodes();
     }
     if (!['completed', 'failed', 'unknown'].includes(t.phase)) return;
@@ -371,13 +392,13 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
       if (p.inFlight === 0) return; // already cleared by the 30 s limit
       p.inFlight -= 1;
       if (p.inFlight === 0) clearTimeout(p.maxTimer);
-      if (t.phase === 'completed' && /^Saved/.test(t.label)) {
-        p.savedUntil = Date.now() + PS_SAVED_MS;
+      if (t.phase === 'completed' && SYSTEMS[id].saved.test(t.label)) {
+        p.savedUntil = Date.now() + SAVED_MS;
         clearTimeout(p.savedTimer);
-        p.savedTimer = setTimeout(renderNodes, PS_SAVED_MS + 20);
+        p.savedTimer = setTimeout(renderNodes, SAVED_MS + 20);
       }
       renderNodes();
-    }, Math.max(0, p.since + PS_BUSY_MIN_MS - performance.now()));
+    }, Math.max(0, p.since + BUSY_MIN_MS - performance.now()));
   }
   controls.reduce.addEventListener('change', () => renderNodes());
   reducedQuery.addEventListener?.('change', () => renderNodes());
@@ -385,7 +406,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
   function pulse(ev) {
     const t = ev.topo;
     onActivity();
-    if (t.edge === 'hr-peoplesoft' && t.category === 'tool') psCall(t);
+    if (SYSTEM_OF_EDGE[t.edge] && t.category === 'tool') sysCall(SYSTEM_OF_EDGE[t.edge], t);
     if (!t.edge) return caption(t.node, t.label);
     const g = edgeEls[t.edge];
     const dirLane = t.from === EDGES[t.edge][0] ? g.out : g.back;
@@ -540,12 +561,13 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
       const id = sel.id;
       const [, text] = STATUS[nodeStatus(id)] ?? STATUS.unknown;
       const head = html('h3', { textContent: NODES[id].name, style: `color: ${color(id)}` });
-      if (id === 'peoplesoft') {
-        const p = state.ps;
-        detail.replaceChildren(html('h3', { textContent: 'PeopleSoft — demo stand-in', style: `color: ${color(id)}` }),
-          html('p', { className: 'hint', textContent: 'Reached only by the HR Agent, over MCP. Fictional data.' }),
-          dl([['status', psState().text.replace(/^\S+ /, '')], ['last call', p.last ? `${p.last.label} (${clock(p.last.at)})` : 'none yet']]),
-          html('h4', { textContent: 'Tools' }), html('ul', { className: 'dest-list' }, ...PS_TOOLS.map((tool) => html('li', { textContent: tool }))));
+      if (SYSTEMS[id]) {
+        const p = state.sys[id];
+        const sys = SYSTEMS[id];
+        detail.replaceChildren(html('h3', { textContent: sys.title, style: `color: ${color(id)}` }),
+          html('p', { className: 'hint', textContent: `Reached only by ${sys.reachedBy}, over MCP. Fictional data.` }),
+          dl([['status', sysState(id).text.replace(/^\S+ /, '')], ['last call', p.last ? `${p.last.label} (${clock(p.last.at)})` : 'none yet']]),
+          html('h4', { textContent: 'Tools' }), html('ul', { className: 'dest-list' }, ...sys.tools.map((tool) => html('li', { textContent: tool }))));
         return;
       }
       if (NODES[id].owner) {
@@ -576,7 +598,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     } else if (sel.kind === 'edge') {
       const [a, b] = EDGES[sel.id];
       const events = state.edgeEvents[sel.id];
-      detail.replaceChildren(html('h3', { textContent: `${NODES[a].name} ↔ ${NODES[b].name}` }), html('p', { className: 'hint', textContent: EDGE_KIND(sel.id) === 'model' ? 'HTTPS calls from the agent to its model provider (not A2A). Latest events on this connection:' : EDGE_KIND(sel.id) === 'mcp' ? 'MCP tool calls from the HR Agent to PeopleSoft (demo stand-in), not A2A. Latest events on this connection:' : 'A2A JSON-RPC over localhost. Latest events on this connection:' }),
+      detail.replaceChildren(html('h3', { textContent: `${NODES[a].name} ↔ ${NODES[b].name}` }), html('p', { className: 'hint', textContent: EDGE_KIND(sel.id) === 'model' ? 'HTTPS calls from the agent to its model provider (not A2A). Latest events on this connection:' : EDGE_KIND(sel.id) === 'mcp' ? `MCP tool calls from ${SYSTEMS[SYSTEM_OF_EDGE[sel.id]].reachedBy} to ${NODES[b].name} (demo stand-in), not A2A. Latest events on this connection:` : 'A2A JSON-RPC over localhost. Latest events on this connection:' }),
         events.length ? timeline(events) : html('p', { className: 'hint', textContent: 'No traffic on this connection yet.' }));
     } else {
       const tr = state.traces.get(sel.id);
@@ -627,12 +649,14 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
       state.traces.clear();
       for (const k of Object.keys(state.edgeEvents)) state.edgeEvents[k] = [];
       allEvents.length = 0;
-      state.ps.last = null;
       // New conversation: no call is shown as running or just saved (an answer still on its way is ignored).
-      state.ps.inFlight = 0;
-      state.ps.savedUntil = 0;
-      clearTimeout(state.ps.maxTimer);
-      clearTimeout(state.ps.savedTimer);
+      for (const p of Object.values(state.sys)) {
+        p.last = null;
+        p.inFlight = 0;
+        p.savedUntil = 0;
+        clearTimeout(p.maxTimer);
+        clearTimeout(p.savedTimer);
+      }
       renderNodes();
       list.replaceChildren();
       count.textContent = '';
@@ -686,12 +710,13 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
           pr.last = { ok, code: ev.data?.code ?? null, purpose: ev.data?.purpose ?? (ev.type === 'scope_checked' ? 'scope check' : 'answer'), latencyMs: ev.data?.latencyMs ?? null, usage: ev.data?.usage ?? null, at: ev.at };
         }
       }
-      // PeopleSoft: the MCP session HR reported, and the last tool call (labels only: tool names, codes, record IDs).
-      if (t?.edge === 'hr-peoplesoft') {
-        if (ev.type === 'peoplesoft_session') state.ps.session = t.phase === 'completed' ? 'connected' : 'unreachable';
+      // A system (PeopleSoft, Canvas LMS): the MCP session its agent reported, and the last tool call (labels only).
+      if (t?.edge && SYSTEM_OF_EDGE[t.edge]) {
+        const sysState = state.sys[SYSTEM_OF_EDGE[t.edge]];
+        if (ev.type === SYSTEMS[SYSTEM_OF_EDGE[t.edge]].sessionEvent) sysState.session = t.phase === 'completed' ? 'connected' : ev.data?.status === 'not_configured' ? 'not_configured' : 'unreachable';
         if (t.category === 'tool') {
-          state.ps.last = { label: t.label, at: ev.at };
-          if (t.phase === 'completed') state.ps.session = 'connected'; // PeopleSoft answered over the session
+          sysState.last = { label: t.label, at: ev.at };
+          if (t.phase === 'completed') sysState.session = 'connected'; // the system answered over the session
         }
       }
       if (ev.source === 'hub' && ev.type === 'route_decided' && ev.runId) {

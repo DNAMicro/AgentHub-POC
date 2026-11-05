@@ -45,9 +45,9 @@ async (page) => {
   check('database icon, sparkle and sweep present', await ps.locator('.db').count() >= 2 && await ps.locator('.spark').count() === 1 && await ps.locator('.sweep').count() === 1);
   check('name and role', (await ps.locator('.node-name').textContent().catch(() => '')) === 'PeopleSoft' && /MCP server/i.test(await ps.locator('.node-sub').textContent().catch(() => '')));
   check('MCP edge HR ↔ PeopleSoft', await topo.locator('[data-edge="hr-peoplesoft"][data-kind="mcp"]').count() === 1 && (await topo.locator('[data-edge="hr-peoplesoft"] .edge-label').textContent().catch(() => '')) === 'MCP');
-  check('viewBox 0 0 1100 990', (await topo.locator('#topo').getAttribute('viewBox')) === '0 0 1100 990');
+  check('viewBox 0 0 1100 1029', (await topo.locator('#topo').getAttribute('viewBox')) === '0 0 1100 1029');
   check('aria-label mentions PeopleSoft', /PeopleSoft/.test(await topo.locator('#topo').getAttribute('aria-label')));
-  check('legend row for MCP tool calls', await topo.locator('.legend li', { hasText: 'MCP tool call (dash-dot line = MCP to PeopleSoft)' }).count() === 1);
+  check('legend row for MCP tool calls', await topo.locator('.legend li', { hasText: 'MCP tool call (dash-dot line = MCP to Canvas LMS or PeopleSoft)' }).count() === 1);
   // Layout (SVG user units): the tile, its pill and the MCP lanes stay clear of the HR node and inside the drawing.
   const geo = await topo.evaluate(() => {
     const box = (id) => {
@@ -56,16 +56,17 @@ async (page) => {
       const [x, y] = (g.getAttribute('transform').match(/-?[\d.]+/g) ?? []).map(Number);
       return { x: b.x + x, y: b.y + y, w: b.width, h: b.height };
     };
-    const lanes = [...document.querySelectorAll('[data-edge="hr-peoplesoft"] .lane')].map((l) => ['y1', 'y2'].map((a) => Number(l.getAttribute(a))));
-    const hrPill = document.querySelector('[data-node="hr"] .node-status').getBBox();
-    return { ps: box('peoplesoft'), hr: box('hr'), hrPillBottom: 655 + 82 + hrPill.y + hrPill.height, lanes, label: Number(document.querySelector('[data-edge="hr-peoplesoft"] .edge-label').getAttribute('y')) };
+    const L = [...document.querySelectorAll('[data-edge="hr-peoplesoft"] .lane')].map((l) => ['x1', 'y1', 'x2', 'y2'].map((a) => Number(l.getAttribute(a))));
+    const label = document.querySelector('[data-edge="hr-peoplesoft"] .edge-label');
+    return { ps: box('peoplesoft'), hr: box('hr'), llmHr: box('llm-hr'), hrPill: (() => { const q = document.querySelector('[data-node="hr"] .node-status').getBBox(); return { x: 710 + q.x, y: 860 + 82 + q.y, w: q.width, h: q.height }; })(), lanes: L, label: { x: Number(label.getAttribute('x')), y: Number(label.getAttribute('y')) } };
   });
-  const laneMin = Math.min(...geo.lanes.flat());
-  const laneMax = Math.max(...geo.lanes.flat());
-  check('PeopleSoft below HR, no overlap', geo.ps.y >= geo.hr.y + geo.hr.h, { ps: geo.ps, hr: geo.hr });
-  check('PeopleSoft (tile and pill) inside the viewBox', geo.ps.y + geo.ps.h <= 990 && geo.ps.x >= 0 && geo.ps.x + geo.ps.w <= 1100, geo.ps);
-  check('MCP lanes start below HR’s pill and end above the tile', laneMin > geo.hrPillBottom && laneMax < 890 - 40, { laneMin, laneMax, hrPillBottom: geo.hrPillBottom });
-  check('MCP label between the two', geo.label > laneMin && geo.label < laneMax, geo.label);
+  const xs = geo.lanes.flatMap((l) => [l[0], l[2]]);
+  const ys = geo.lanes.flatMap((l) => [l[1], l[3]]);
+  check('PeopleSoft sits under HR’s model, no overlap', geo.ps.y >= geo.llmHr.y + geo.llmHr.h && Math.abs((geo.ps.x + geo.ps.w / 2) - (geo.llmHr.x + geo.llmHr.w / 2)) < 2, { ps: geo.ps, llmHr: geo.llmHr });
+  check('PeopleSoft (tile and pill) inside the viewBox', geo.ps.y + geo.ps.h <= 1029 && geo.ps.x >= 0 && geo.ps.x + geo.ps.w <= 1100, geo.ps);
+  const inPill = (x, y) => x >= geo.hrPill.x && x <= geo.hrPill.x + geo.hrPill.w && y >= geo.hrPill.y && y <= geo.hrPill.y + geo.hrPill.h;
+  check('MCP lanes leave HR clear of its pill and end left of the tile (halo 7 outside it)', geo.lanes.every((l) => !inPill(l[0], l[1]) && !inPill(l[2], l[3])) && Math.max(...xs) < geo.ps.x + 7, { lanes: geo.lanes, hrPill: geo.hrPill, ps: geo.ps });
+  check('MCP label just below the middle of the lanes, between HR and the tile', geo.label.x > Math.min(...xs) && geo.label.x < Math.max(...xs) && geo.label.y > Math.min(...ys) && geo.label.y < Math.max(...ys) + 40, { label: geo.label, xs, ys });
   await topo.locator('#topo').screenshot({ path: `${SHOTS}/ps-1-rest.png` });
 
   // 2. File a request from the Faculty view; Topology watches for the MCP hop, busy and “✓ Saved”.

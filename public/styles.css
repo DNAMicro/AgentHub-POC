@@ -34,6 +34,9 @@
   --hr-tint: #e3f0f5;
   --ps: #c2410c;          /* burnt orange — PeopleSoft (demo stand-in, MCP server; Part 15) */
   --ps-tint: #fff1e8;
+  --lms: #4d7c0f;         /* moss — Canvas LMS (demo stand-in, MCP server; Part 16) */
+  --lms-tint: #eef6dc;
+  --lms-ink: #365a09;
   --amber: #b7791f;       /* the HR card: missing, and what this request uses */
   --amber-tint: #fdf3e1;
   --amber-ink: #7a4f0e;
@@ -72,6 +75,9 @@
     --hr-tint: #16303a;
     --ps: #fb8a4c;
     --ps-tint: #3a2216;
+    --lms: #a3d65c;
+    --lms-tint: #24301a;
+    --lms-ink: #c8ec98;
     --amber: #e0a23a;
     --amber-tint: #3a2c12;
     --amber-ink: #f3c879;
@@ -483,6 +489,16 @@ h2 { margin: 0; font-size: 1.07rem; font-weight: 700; color: var(--agent, var(--
 .topo .node.system.busy .sweep { opacity: 1; animation: sweep 1.3s linear infinite; }
 .topo .node.system.still .spark, .topo .node.system.still .sweep { animation: none; }
 .topo .node.system .node-status[data-tone="busy"] .status-pill { fill: var(--ps-tint); }
+/* Part 16: Canvas LMS, the same tile in moss with a quiz-clipboard icon */
+.topo .edge[data-edge="professor-canvas"] .edge-label { fill: var(--lms); }
+.topo .node.lms .tile { stroke: var(--lms); }
+.topo .node.lms .spark { fill: var(--lms); }
+.topo .node.lms .node-status[data-tone="busy"] .status-pill { fill: var(--lms-tint); }
+.topo .node.lms .node-status[data-tone="busy"] .status-text { fill: var(--lms-ink); }
+.topo .node.lms .qi-board { fill: var(--lms-tint); stroke: var(--lms); stroke-width: 2; }
+.topo .node.lms .qi-clip { fill: var(--lms); }
+.topo .node.lms .qi-tick { fill: none; stroke: var(--lms); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.topo .node.lms .qi-line { stroke: var(--lms); stroke-width: 2; stroke-linecap: round; }
 .topo .node.system[data-status="unreachable"] .tile { stroke-dasharray: 6 5; }
 @keyframes twinkle { 50% { transform: scale(1.35) rotate(45deg); } }
 @keyframes sweep { from { transform: translateX(-120px); } to { transform: translateX(120px); } }
