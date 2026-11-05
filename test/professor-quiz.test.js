@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { startStack, startCanvas, stopProcess, post, openStream, waitFor } from './support/harness.js';
 import { startFakeAnthropic, messageReply } from './support/fake-anthropic.js';
-import { TOPICS, dayLabel } from '../src/course-schedule.js';
+import { TOPICS, dayLabel, taughtTopics } from '../src/course-schedule.js';
 
 const NOW = '2026-11-04T20:00:00Z'; // Wed Nov 4 2026, Pacific noon: topics 1-16 taught
 const MOCK = { hubEnv: { ROUTER_MODE: 'mock', HUB_STUDENTS: 'student-alex,student-sam' }, tutorEnv: { TUTOR_MODE: 'mock', TUTOR_SCOPE_ENFORCEMENT: 'off' } };
@@ -304,10 +304,17 @@ test('telemetry for the Faculty’s quiz runs carries no question, answer or tit
   } finally { stream.close(); }
 });
 
-test('PROFESSOR_NOW is ignored without PROFESSOR_TEST_HOOKS', async () => {
+test('PROFESSOR_NOW is ignored without PROFESSOR_TEST_HOOKS: the real clock decides', async () => {
   const t = await start({ hr: false, now: null, professorEnv: { PROFESSOR_NOW: '2026-08-20T19:00:00Z' } });
-  const r = await say('make a quiz on segmentation', t);
-  assert.notEqual(r.action, 'quiz_before_term', 'the real clock decides, not the pinned value');
+  const r = await say('@assistant create a quiz for Marketing 351', t);
+  const taught = taughtTopics(new Date());
+  if (!taught.length) {
+    assert.equal(r.action, 'quiz_before_term');
+  } else {
+    assert.equal(r.action, 'quiz_topics');
+    assert.equal(r.topics.taughtThrough, taught.at(-1).n);
+    assert.notEqual(r.topics.taughtThrough, 0);
+  }
 });
 
 test('live interpret decision "quiz" with a topic answers with the highlighted list and drafts nothing (scripted model: plumbing)', async () => {
@@ -321,4 +328,36 @@ test('live interpret decision "quiz" with a topic answers with the highlighted l
     assert.equal(stub.requests.length, 1, 'one interpret call, no draft call');
     assert.ok([null, 'closed'].includes((await state(t)).quizCard?.state ?? null));
   } finally { await stub.close(); }
+});
+
+test('live decision "quiz" with a blank topic falls back to the request words: the list highlights Topic 8', async () => {
+  const stub = await startFakeAnthropic();
+  stub.respondWith(() => messageReply(JSON.stringify({ action: 'quiz', reply: 'Picking a topic.', kind: 'message', audience: 'all', title: '', content: '', content_is_verbatim: false, seed_id: '', topic: '' })));
+  const t = await start({ hr: false, professorEnv: { PROFESSOR_MODE: 'live', ANTHROPIC_API_KEY: `sk-ant-test-${randomUUID()}`, ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0' } });
+  try {
+    const r = await say('@assistant I need a quiz on segmentation', t);
+    assert.equal(r.action, 'quiz_topics');
+    assert.equal(r.highlight, 8);
+  } finally { await stub.close(); }
+});
+
+test('a reply to a student is a normal reply even if it reads like a quiz request; with @assistant it reaches the desk', async () => {
+  const send = async (text) => { const res = await post(`${s.ui.url}/api/professor/chat`, { operationId: `op-${randomUUID()}`, text, replyTo: 'student-alex' }); return { http: res.status, ...(await res.json()) }; };
+  const plain = await send('make a quiz on Topic 8');
+  assert.equal(plain.http, 200, JSON.stringify(plain));
+  assert.equal(plain.action, 'post');
+  assert.ok(!['quiz_topics', 'quiz_draft'].includes(plain.action));
+  assert.ok([null, 'closed'].includes((await state()).quizCard?.state ?? null), 'no draft was made');
+  const viaAssistant = await send('@assistant make a quiz on Topic 8');
+  assert.equal(viaAssistant.action, 'quiz_draft');
+});
+
+test('no CANVAS_TOKEN: the Faculty agent starts, drafts work, and Approve says Canvas isn’t connected', async () => {
+  const t = await start({ hr: false, canvas: false });
+  assert.equal(t.canvas, null);
+  const { r, d } = await draftTopic8(t);
+  const a = await act({ draftId: r.draftId, action: 'approve', quiz: fullQuiz(d) }, t);
+  assert.equal(a.text, "Canvas isn't connected, so nothing was sent.");
+  assert.equal(a.ok, false);
+  assert.equal((await state(t)).quizCard.state, 'draft');
 });

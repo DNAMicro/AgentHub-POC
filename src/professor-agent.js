@@ -422,7 +422,7 @@ async function quizAction(body) {
   if (quiz !== undefined && (action !== 'approve' || !quiz || typeof quiz !== 'object' || Array.isArray(quiz))) return { http: 400, body: { error: 'Only Approve carries a quiz.' } };
   if (action === 'approve' && quiz === undefined) return { http: 400, body: { error: 'Approve needs the quiz.' } };
   const generation = resetGeneration;
-  if (action === 'approve' || action === 'publish') { const hub = await hubView(); const r = hub?.courses?.find((c) => c.courseId === COURSE.courseId)?.enrolled; if (r?.length) lastRoster = r; }
+  if (action === 'approve' || action === 'publish') { const hub = await Promise.race([hubView(), new Promise((res) => setTimeout(() => res(null), 2000))]); const r = hub?.courses?.find((c) => c.courseId === COURSE.courseId)?.enrolled; if (r?.length) lastRoster = r; }
   const r = await quizDesk.action({ draftId, operationId, action, ...(quiz ? { quiz } : {}) });
   const { entries, duplicate, ...rest } = r;
   if (entries?.length && !duplicate && generation === resetGeneration) {
@@ -433,7 +433,8 @@ async function quizAction(body) {
     });
   }
   emitViz('professor_chat', null, { action: `quiz_${action}`, status: r.ok ? 'ok' : (r.code ?? r.outcome ?? 'not_done'), viaAssistant: false });
-  return { http: r.ok ? 200 : r.closed ? 409 : r.refused ? 422 : r.busy ? 409 : 503, body: rest };
+  // 503 only for a retryable / unknown outcome; any other not-done result is a normal answer the card shows.
+  return { http: r.ok ? 200 : (r.retryable || r.unknownOutcome) ? 503 : r.closed ? 409 : r.refused ? 422 : r.busy ? 409 : 200, body: rest };
 }
 
 // The professor said yes to the class cancellation (code-built from HR's receipt dates, no reason) — sent to
@@ -521,7 +522,7 @@ async function assistantTurn({ operationId, said, roster, hub }) {
   const result = { reply: decision.reply, action: decision.action, post: null, check: null, model: decision.model ?? null, kind: decision.kind ?? null };
   if (decision.action === 'quiz') {
     // The topic list only (never a draft in the same turn); the topic named, if any, is highlighted.
-    const named = pickQuizTopic(decision.topic ?? request);
+    const named = pickQuizTopic(decision.topic || request);
     const t = quizDesk.topics(named);
     return { ...result, action: t.action, reply: t.reply, ...(t.topics ? { topics: t.topics, highlight: t.highlight } : {}), post: null };
   }
