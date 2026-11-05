@@ -2,7 +2,7 @@
 //   * Topic chips: the assistant's "Which topic should the quiz cover?" reply carries the course schedule
 //     (`quizTopics`); a taught topic is a button, a later one is shown with its date and can't be picked.
 //   * The quiz draft card: a summary slip, the settings, every question (edit, remove with undo, add one,
-//     "draft one more with AI"), Approve & post to Canvas (disabled until the shared rules pass) and Discard.
+//     "draft one more"), Approve & post to Canvas (disabled until the shared rules pass) and Discard.
 //     Edits live in the page until Approve; Approve sends the whole final quiz. The card's element is kept in
 //     place across redraws (like the HR card), so a half-typed question survives the Faculty view's refreshes.
 //   * The Canvas cards: "Saved in Canvas" (unpublished) with Publish & notify / Keep as draft, then
@@ -158,7 +158,7 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, del
   }
 
   const fld = (label, input) => { input.id = `qf-${id()}`; return el('div', { className: 'fld' }, el('label', { htmlFor: input.id, textContent: label }), input); };
-  const tagEl = (item) => el('span', { className: `q-tag ${item.tag === 'ai' ? 'ai' : 'you'}`, textContent: item.tag === 'ai' ? 'AI draft' : item.tag === 'edited' ? 'Edited by you' : 'Added by you' });
+  const tagEl = (item) => el('span', { className: `q-tag ${item.tag === 'ai' ? 'ai' : 'you'}`, textContent: item.tag === 'ai' ? 'Suggested' : item.tag === 'edited' ? 'Edited by you' : 'Added by you' });
   function markEdited(item) {
     if (item.tag !== 'added') item.tag = snap(item) === item.orig ? 'ai' : 'edited';
   }
@@ -200,8 +200,10 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, del
   function buildDraft(v) {
     const q = v.q;
     const head = el('div', { className: 'msg-head' }, el('span', { className: 'msg-dir', textContent: 'Course assistant · Quiz draft' }), el('time', { textContent: new Date(v.at ?? Date.now()).toLocaleTimeString([], { hour12: false }) }));
-    const by = v.drafted?.model && v.drafted.by !== 'mock' ? v.drafted.model : null;
-    const from = `${by ? `Drafted by ${by}` : 'Drafted by the offline mock (labelled placeholder questions)'} from the Topic ${q.topic} course notes — read every answer before approving.${v.drafted?.short > 0 ? ` The AI drafted ${q.items.length} of ${v.drafted.wanted} — add or draft the rest.` : ''}`;
+    // No model or “AI” wording for the faculty member (owner, 2026-11-05: “there should not be any models exposed”).
+    // The offline mock keeps its label: placeholder questions must never pass for real ones.
+    const mock = v.drafted?.by === 'mock';
+    const from = `${mock ? 'Placeholder questions (offline test mode)' : 'Drafted'} from the Topic ${q.topic} course notes — read every answer before approving.${v.drafted?.short > 0 ? ` Only ${q.items.length} of ${v.drafted.wanted} questions could be drafted — add or draft the rest.` : ''}`;
     const title = el('p', { className: 't' });
     const meta = el('p', { className: 'm' });
     const inTitle = el('input', { type: 'text', value: q.title, maxLength: 120 });
@@ -216,7 +218,7 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, del
     inAttempts.addEventListener('input', () => { q.attempts = inAttempts.value === '' ? NaN : Number(inAttempts.value); refresh(v); });
     const list = el('ol', { className: 'q-list' });
     const add = el('button', { type: 'button', className: 'ghost-btn', dataset: { act: 'add' }, textContent: '+ Add a question' });
-    const more = el('button', { type: 'button', className: 'ghost-btn', dataset: { act: 'more' } }, el('span', { className: 'spark', textContent: '✦' }), ' Draft one more with AI');
+    const more = el('button', { type: 'button', className: 'ghost-btn', dataset: { act: 'more' } }, el('span', { className: 'spark', textContent: '✦' }), ' Draft one more');
     const approve = el('button', { type: 'button', className: 'btn-primary', dataset: { act: 'approve' }, textContent: 'Approve & post to Canvas' });
     const discard = el('button', { type: 'button', className: 'btn-link', dataset: { act: 'discard' }, textContent: 'Discard draft' });
     const check = el('span', { className: 'q-check' });
@@ -320,7 +322,7 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, del
   async function oneMore(v) {
     if (v.busy) return;
     v.busy = true;
-    v.notice = { kind: 'info', text: 'Asking the AI for one more question…' };
+    v.notice = { kind: 'info', text: 'Drafting one more question…' };
     showNote(v);
     refresh(v);
     // The questions he holds right now (edits, additions and removals included), so the AI doesn't repeat them.

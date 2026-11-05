@@ -135,7 +135,7 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
     latest = draft.draftId;
     const t = TOPICS.find((x) => x.n === n);
     let reply = `Here's a draft quiz on Topic ${n} (${t.name}) — ${plural(quiz.questions.length, 'question')}. Read every answer before approving.`;
-    if (draft.short > 0) reply += ` The AI drafted ${quiz.questions.length} of ${count} — add or draft the rest.`;
+    if (draft.short > 0) reply += ` Only ${quiz.questions.length} of ${count} questions could be drafted — add or draft the rest.`;
     tell('quiz_turn', runId, { outcome: 'drafted', draftId: draft.draftId, topic: n, questionCount: quiz.questions.length });
     return { action: 'quiz_draft', draftId: draft.draftId, reply, short: draft.short, entries: [{ role: 'assistant', text: reply, quiz: { draftId: draft.draftId } }] };
   }
@@ -268,7 +268,7 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
     if (d.state === 'closed') return closedResult(d);
     if (!r?.question) {
       const failed = !r || r.by === 'model_failed';
-      return { ok: false, retryable: failed, state: d.state, draftId: d.draftId, text: failed ? "The AI couldn't draft another question just now. Try again in a moment." : 'There are no more new questions in the notes for this topic.' };
+      return { ok: false, retryable: failed, state: d.state, draftId: d.draftId, text: failed ? "I couldn't draft another question just now. Try again in a moment." : 'There are no more new questions in the notes for this topic.' };
     }
     return { ok: true, state: d.state, draftId: d.draftId, question: { ...r.question } };
   }

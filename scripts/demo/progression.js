@@ -613,7 +613,7 @@ async (page) => {
         const drafted = await card.locator('.q-list > .q').first().waitFor({ state: 'visible', timeout: 120000 }).then(() => true, () => false);
         await status(null);
         if (!drafted) { await cap(k, 'No draft this time', 'The model did not return a draft card within two minutes, so nothing was sent anywhere.'); await pause(5); return; }
-        await show(card, 'The draft — not in Canvas yet', 12, [k, 'Drafted by the AI, decided by him', 'Each question is tagged AI draft. He can edit, remove, add or ask for one more. Approve stays disabled until every question passes the check.']);
+        await show(card, 'The draft — not in Canvas yet', 12, [k, 'Drafted by the AI, decided by him', 'Each question is tagged Suggested. He can edit, remove, add or ask for one more. Approve stays disabled until every question passes the check.']);
         const approve = card.locator('[data-act="approve"]');
         if (!(await approve.isEnabled().catch(() => false))) { await cap(k, 'Approve is disabled', 'The check line on the card names the first problem; the quiz does not go anywhere until it is fixed.'); await pause(5); return; }
         await approve.click();

@@ -354,7 +354,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
   }
   // The assistant answering a student for the professor — shown so the professor sees every exchange.
   function assistantAnswer(m) {
-    const li = bubble({ dir: m.failed ? 'error' : 'info', speaker: 'professor', label: `Course assistant → ${nameOf(m.to)}${m.onBehalf ? ' (for you)' : ''}${m.model && m.model !== 'mock extraction' ? ` · ${m.model}` : ''}`, at: m.at, text: m.text });
+    const li = bubble({ dir: m.failed ? 'error' : 'info', speaker: 'professor', label: `Course assistant → ${nameOf(m.to)}${m.onBehalf ? ' (for you)' : ''}`, at: m.at, text: m.text });
     if (m.needsProfessor) li.append(el('p', { className: 'needs-you', textContent: 'Needs your answer — the assistant didn’t decide this.' }), replyButton(m.to));
     return li;
   }
@@ -725,7 +725,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
           if (m.problem) items.push(bubble({ dir: 'error', speaker: 'professor', label: 'Not sent', at: m.at, text: m.problem }));
         }
       } else {
-        const li = bubble({ dir: m.action === 'error' || m.action === 'clarify' ? 'info' : 'received', speaker: 'professor', label: m.model && m.model !== 'mock heuristic' ? `Course assistant · ${m.model}` : 'Course assistant', at: m.at, text: m.text });
+        const li = bubble({ dir: m.action === 'error' || m.action === 'clarify' ? 'info' : 'received', speaker: 'professor', label: 'Course assistant', at: m.at, text: m.text });
         if (m.quizTopics?.topics) { li.classList.add('has-topics'); li.append(quiz.topicsBlock(m.quizTopics, topicsLive(mi))); } // Part 16: the topic chips
         items.push(li);
         if (m.postKey && posts.get(m.postKey)) items.push(postCard(posts.get(m.postKey)));

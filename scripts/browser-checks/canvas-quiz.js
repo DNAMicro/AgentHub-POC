@@ -73,7 +73,7 @@ async (page) => {
   await page.locator('#prof-message').fill('');
   check('once a draft exists, every chip of the old topic list is disabled', await page.locator('.tchip:not([disabled])').count() === 0);
   check('tapping Topic 8 sends his message', await log.locator('.msg-text', { hasText: 'Topic 8 · Segmentation & targeting' }).count() >= 1);
-  check('draft card with 5 questions, each tagged AI draft', await qs.count() === 5 && await card.locator('.q-tag.ai').count() === 5);
+  check('draft card with 5 questions, each tagged Suggested', await qs.count() === 5 && await card.locator('.q-tag.ai').count() === 5);
   check('slip: title, badge, facts line', /Topic 8 Quiz: Segmentation & Targeting/.test(await card.locator('.q-slip .t').textContent()) && /Not in Canvas yet/.test(await card.locator('.state-badge').textContent()) && /^5 questions · 15 points · 10 minutes · 1 attempt · due Mon, Nov 9, 11:59 PM$/.test(await card.locator('.q-slip .m').textContent()), await card.locator('.q-slip .m').textContent());
   check('exactly one correct answer marked per question', await card.locator('.q-list > .q').evaluateAll((l) => l.every((q) => q.querySelectorAll('.opts li[data-correct]').length === 1)));
   check('ready line and Approve enabled', /✓\s*5 questions ready · 15 points/.test(await card.locator('.q-check').textContent()) && await card.locator('[data-act="approve"]').isEnabled());
@@ -128,10 +128,10 @@ async (page) => {
   await card.screenshot({ path: `${SHOTS}/t9-2-draft-b.png` });
   await page.setViewportSize({ width: 1280, height: 1000 });
 
-  // 6. Draft one more with AI: a 6th question.
+  // 6. Draft one more: a 6th question.
   await card.locator('[data-act="more"]').click();
   await page.waitForFunction(() => document.querySelectorAll('#prof-log .quiz-card .q-list > .q:not(.removed)').length === 6, null, { timeout: 30000 });
-  check('Draft one more: 6 questions, the new one tagged AI draft', await card.locator('.q-list > .q:not(.removed)').count() === 6 && /AI draft/.test(await card.locator('.q-list > .q').last().locator('.q-tag').textContent()) && /^6 questions · 18 points/.test(await card.locator('.q-slip .m').textContent()));
+  check('Draft one more: 6 questions, the new one tagged Suggested', await card.locator('.q-list > .q:not(.removed)').count() === 6 && /Suggested/.test(await card.locator('.q-list > .q').last().locator('.q-tag').textContent()) && /^6 questions · 18 points/.test(await card.locator('.q-slip .m').textContent()));
   await page.setViewportSize({ width: 1280, height: 2400 });
   await page.waitForTimeout(400);
   await card.screenshot({ path: `${SHOTS}/t9-2-draft.png` });

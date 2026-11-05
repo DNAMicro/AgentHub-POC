@@ -146,7 +146,7 @@ const formsUi = createFormsUi({ log: els.studentLog, agentName: (id) => viaUnive
 let currentContextId = null; // the chat conversation follow-up questions belong to (null → start a new one)
 
 const MODE_TEXT = {
-  live: (s) => `Tutor: live (${s.model})`,
+  live: () => 'Tutor: live', // no model names on screen (owner, 2026-11-05); Topology's details name the model
   mock: () => 'Tutor: mock model (no external calls)',
   fixed: () => 'Tutor: fixed reply (no model)',
 };
@@ -821,7 +821,7 @@ const ROUTER_TEXT = { direct: 'Router: off (everything to tutoring)', mock: 'Rou
 function renderRouter(router) {
   if (!router) return;
   els.routerMode.dataset.mode = router.mode === 'live' ? 'live' : router.mode === 'mock' ? 'mock' : 'direct';
-  els.routerMode.textContent = router.mode === 'live' ? `Router: live (${router.model ?? 'model not reported'})` : ROUTER_TEXT[router.mode] ?? `Router: ${router.mode}`;
+  els.routerMode.textContent = router.mode === 'live' ? 'Router: live' : ROUTER_TEXT[router.mode] ?? `Router: ${router.mode}`;
 }
 
 // In the chat, color says who produced the line and position says direction: your messages on the
@@ -1062,7 +1062,7 @@ function handle(event, { live = true } = {}) {
           break;
         }
         const label = own ? `${universityName}${decision === 'clarify' ? ' asks' : decision === 'unavailable' ? ' — service unavailable' : decision === 'unsupported' ? ' — not supported' : ''}` : (data.professor?.name ? `${universityName} · ${data.professor.name}${data.professor.onBehalf ? '’s course assistant' : ''}` : viaUniversity(data.servedBy));
-        student({ dir: own && decision !== 'clarify' ? 'info' : 'received', speaker: own ? 'hub' : data.servedBy ?? 'hub', label, text: data.text, ids: { answeredBy: own ? 'the Hub itself (no service called)' : agentName(data.servedBy), destination: data.hub?.destination, model: fmtUsage(data.tutor), outcome: data.tutor?.outcome ?? data.library?.outcome, messageId: data.messageId, inReplyTo: data.inReplyTo, contextId: data.contextId, taskId: data.taskId || '(none — direct Message reply)', run } });
+        student({ dir: own && decision !== 'clarify' ? 'info' : 'received', speaker: own ? 'hub' : data.servedBy ?? 'hub', label, text: data.text, ids: { answeredBy: own ? 'the Hub itself (no service called)' : agentName(data.servedBy), destination: data.hub?.destination, outcome: data.tutor?.outcome ?? data.library?.outcome, messageId: data.messageId, inReplyTo: data.inReplyTo, contextId: data.contextId, taskId: data.taskId || '(none — direct Message reply)', run } });
         studentConsole({ dir: 'received', label: 'A2A reply from the Hub', text: own ? `Answered by the Hub (${decision}).` : `Relayed from ${agentName(data.servedBy)}.`, ids: { messageId: data.messageId, contextId: data.contextId, run } });
         break;
       }

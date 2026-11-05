@@ -90,7 +90,7 @@ async function call({ purpose, messages, schema, maxTokens, timeoutMs, emit }) {
       throw e;
     }
   } catch (err) {
-    const mapped = err?.code === 'truncated' ? { code: 'truncated', message: 'The AI ran out of room before it finished.', requestId: r?.requestId ?? null } : toLlmError(err);
+    const mapped = err?.code === 'truncated' ? { code: 'truncated', message: 'The draft ran out of room before it finished.', requestId: r?.requestId ?? null } : toLlmError(err);
     emit('model_call_failed', { purpose, mode: 'live', model, code: mapped.code, message: mapped.message, latencyMs: Date.now() - started, requestId: mapped.requestId });
     return null;
   }
