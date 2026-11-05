@@ -146,7 +146,7 @@ test('missing absence name: HR asks; the follow-up fills the card; Forecast refu
   const operationId = randomUUID();
   const ok = await act(second.reply.formRef, submit(second.reply, { absenceType: ['VAC'], absenceReason: ['VAC'], beginDate: '2026-11-20', endDate: '2026-11-20', hours: '8' }), operationId);
   assert.equal(ok.status, 'ok', JSON.stringify(ok));
-  assert.equal(ok.reply.text, 'Sent to your manager for a decision.');
+  assert.equal(ok.reply.text, 'Recorded in PeopleSoft.');
   assert.match(ok.reply.receipt.requestId, /^TO-/);
   assert.equal(ok.reply.closed, true);
   const again = await act(second.reply.formRef, submit(second.reply, { absenceType: ['VAC'], absenceReason: ['VAC'], beginDate: '2026-11-20', endDate: '2026-11-20', hours: '8' }), operationId);
@@ -409,7 +409,7 @@ test('requests list after submit; an open card stays open and unchanged through 
   const id = done.reply.receipt.requestId;
 
   const list = await ask('what time off have I filed', conversationId);
-  assert.equal(list.reply.text.split('\n')[0], `${id}: Sick Leave (Sick Personal), Wed, Nov 18, 8 hours — sent to your manager.`);
+  assert.equal(list.reply.text.split('\n')[0], `${id}: Sick Leave (Sick Personal), Wed, Nov 18, 8 hours — recorded.`);
   assert.equal((await ask('my time off requests', conversationId)).reply.text.split('\n')[0], list.reply.text.split('\n')[0]);
   assert.equal(list.reply.formRef, undefined);
 });

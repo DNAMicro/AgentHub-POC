@@ -599,7 +599,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
         el('p', { className: 'hr-record-when', textContent: `${range} · ${Number(r.hours)} ${Number(r.hours) === 1 ? 'hour' : 'hours'}` })));
     } else {
       // A receipt saved before records existed: it was filed, HR's receipt says what.
-      const filed = /^Sent to your manager/.test(closing?.text ?? '');
+      const filed = /^Recorded in PeopleSoft/.test(closing?.text ?? '');
       body.push(el('p', { className: 'hr-record-none', textContent: filed ? 'You submitted this card. HR’s receipt is below.' : closing ? 'You cancelled this card. Nothing was filed.' : 'This card closed before it was submitted. Nothing was filed.' }));
     }
     return el('li', { className: 'msg hr-closed', dataset: { dir: 'received', speaker: 'hr', formRef: m.formRef } },
@@ -668,7 +668,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
         else if (m.formRef && !m.closed && !m.failed) items.push(hrRecord(m, chat.find((x) => x.role === 'hr' && x.formRef === m.formRef && x.closed)));
         else {
           const li = bubble({ dir: m.failed ? 'error' : 'received', speaker: 'hr', label: HR_LABEL, at: m.at, text: m.text });
-          if (m.closed && /^Sent to your manager/.test(m.text)) li.classList.add('hr-receipt');
+          if (m.closed && /^Recorded in PeopleSoft/.test(m.text)) li.classList.add('hr-receipt');
           items.push(li);
         }
       }

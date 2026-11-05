@@ -15,7 +15,7 @@ async (page) => {
   const errors = [];
   const check = (name, ok, detail) => results.push({ name, ok: Boolean(ok), ...(detail === undefined ? {} : { detail }) });
   const origin = await page.evaluate(() => location.origin);
-  const STEP_NAMES = ['check_balance', 'check_dates_and_holidays', 'check_overlap', 'apply_leave_policy', 'route_to_manager', 'notify_timekeeper', 'store_record'];
+  const STEP_NAMES = ['check_balance', 'check_dates_and_holidays', 'check_overlap', 'apply_leave_policy', 'notify_timekeeper', 'store_record'];
   const stepWords = new RegExp(STEP_NAMES.map((s) => `${s}|${s.replace(/_/g, ' ')}`).join('|'), 'i');
 
   // A fresh classroom (separate stack only): New conversation also resets HR and PeopleSoft's records.
@@ -107,7 +107,7 @@ async (page) => {
   await card.getByRole('button', { name: 'Submit request', exact: true }).click();
   await page.waitForFunction(() => !document.querySelector('#prof-log .hr-card'), null, { timeout: 30000 });
   const receipt = (await page.locator('#prof-log .msg.hr-receipt').last().locator('.msg-text').textContent().catch(() => ''))?.trim();
-  check('submit filed (receipt)', /^Sent to your manager for a decision\./.test(receipt ?? ''), receipt);
+  check('submit filed (receipt)', /^Recorded in PeopleSoft\./.test(receipt ?? ''), receipt);
   await topo.waitForFunction(() => document.querySelector('[data-node="peoplesoft"] .status-text')?.textContent === '✓ Saved', null, { timeout: 8000 }).catch(() => {});
   await topo.waitForTimeout(300);
   watchingOn = false;

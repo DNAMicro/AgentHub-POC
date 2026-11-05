@@ -23,7 +23,7 @@ test('mock plan always holds the required steps in menu order', async () => {
   const plan = await mock.planSteps({ request });
   assert.equal(plan.by, 'mock');
   assert.equal(plan.model, 'mock heuristic');
-  assert.deepEqual(plan.steps, ['check_balance', 'check_dates_and_holidays', 'check_overlap', 'apply_leave_policy', 'route_to_manager', 'store_record']);
+  assert.deepEqual(plan.steps, ['check_balance', 'check_dates_and_holidays', 'check_overlap', 'apply_leave_policy', 'notify_timekeeper', 'store_record']);
   assert.equal(fake.requests.length, 0);
   assert.deepEqual(mock.peoplesoftStatus(), { mode: 'mock', model: 'mock heuristic', keyConfigured: null });
 });
@@ -42,13 +42,13 @@ test('live: unknown and duplicate picks are dropped; required steps are added', 
   assert.equal(live.peoplesoftStatus().keyConfigured, true);
 });
 
-test('live failure falls back to required + route_to_manager, by model_failed', async () => {
+test('live failure falls back to required steps only, by model_failed', async () => {
   fake.reset();
   fake.respondWith(() => ({ status: 500 }));
   const events = [];
   const plan = await live.planSteps({ request, emit: (type, data) => events.push([type, data]) });
   assert.equal(plan.by, 'model_failed');
-  assert.deepEqual(plan.steps, ['check_balance', 'check_dates_and_holidays', 'check_overlap', 'route_to_manager', 'store_record']);
+  assert.deepEqual(plan.steps, ['check_balance', 'check_dates_and_holidays', 'check_overlap', 'store_record']);
   assert.deepEqual(events.map((e) => e[0]), ['model_call_started', 'model_call_failed']);
   assert.deepEqual(REQUIRED.filter((s) => !plan.steps.includes(s)), []);
 });

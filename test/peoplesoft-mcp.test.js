@@ -53,7 +53,7 @@ test('creates a request and lists it', async () => {
   const made = await c.callTool({ name: 'create_absence_request', arguments: request() });
   assert.notEqual(made.isError, true, JSON.stringify(made));
   assert.equal(made.structuredContent.receipt.recordId, 'ABS-000101');
-  assert.equal(made.structuredContent.receipt.status, 'sent_to_manager');
+  assert.equal(made.structuredContent.receipt.status, 'recorded');
   const listed = await c.callTool({ name: 'list_absence_requests', arguments: { staffId: 'staff-dabirian' } });
   assert.equal(listed.structuredContent.requests.length, 1);
   assert.equal(listed.structuredContent.requests[0].recordId, 'ABS-000101');
@@ -150,7 +150,7 @@ test('final-review I1: New conversation while the planner thinks — the old fil
   const fake = await startFakeAnthropic();
   t.after(() => fake.close());
   // PeopleSoft's own planner (live, against the fake API: plumbing, no key, no network) answers after 1.5 s.
-  fake.respondWith(() => ({ ...messageReply('{"steps":["route_to_manager"]}'), delayMs: 1500 }));
+  fake.respondWith(() => ({ ...messageReply('{"steps":["notify_timekeeper"]}'), delayMs: 1500 }));
   const own = await startPeopleSoft({ PEOPLESOFT_TOKEN: 't', PEOPLESOFT_TEST_HOOKS: '1', PEOPLESOFT_MODE: 'live', ANTHROPIC_API_KEY: `sk-ant-test-${randomUUID()}`, ANTHROPIC_BASE_URL: fake.url, TUTOR_LOAD_DOTENV: '0' });
   t.after(() => own.proc.kill());
   const client = new Client({ name: 'test', version: '1.0.0' });

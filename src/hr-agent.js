@@ -2,8 +2,8 @@
 // system). One skill: a time-off request. From the staff member's words it fills the card it can
 // (absence name proposed by the model or the labelled mock heuristic and checked by code; dates, partial
 // days and hours by code only), runs the Forecast (src/leave-rules.js) and sends ONE editable A2UI card
-// inside an A2A task. Submit files the request in PeopleSoft and says it was sent to the manager — there
-// is no manager simulation and nothing is deducted.
+// inside an A2A task. Submit files the request in PeopleSoft and says it was recorded — there
+// is no manager approval (owner, 2026-11-04) and nothing is deducted.
 //
 // Part 15: the records live in PeopleSoft (a DEMO STAND-IN reached over MCP, src/hr-peoplesoft.js). HR keeps
 // no copy: it fetches the balances when it issues a card (and for a balance question), lists filed requests
@@ -55,7 +55,7 @@ const HR_RULES = { answer: { knowledge: 'optional' }, form: { ids: [WORKFLOWS[WO
 export const HR_DEFAULT_SKILLS = {
   skills: [{
     id: 'staff-time-off', kind: 'form', enabled: true, name: 'Staff time off',
-    description: 'Fills a time-off request (demo, synthetic records) from what a staff member says: absence name, dates, hours and the balance it uses. The staff member checks it and submits; it is sent to their manager for a decision.',
+    description: 'Fills a time-off request (demo, synthetic records) from what a staff member says: absence name, dates, hours and the balance it uses. The staff member checks it and submits; it is recorded in PeopleSoft.',
     tags: ['time off', 'absence', 'leave', 'vacation', 'sick', 'bereavement'],
     examples: ['My grandmother passed away, I need this Thursday and Friday', 'I need Friday off'],
     scope: { allowed: ['time-off requests from university staff'], excluded: ['students', 'payroll', 'approving requests'] },
@@ -71,7 +71,7 @@ const TEXT = {
   noClient: 'I can fill in a time-off card, but your client didn’t declare A2UI v0.9 support, so I can’t show it.',
   intro: 'Check it and submit.',
   noName: 'What kind of time off is this? If none of these fit, pick from the dropdown below.',
-  receipt: 'Sent to your manager for a decision.',
+  receipt: 'Recorded in PeopleSoft.',
   badHours: 'These hours don’t fit the dates.', // same words as validateTimeOff (src/forms.js)
 };
 const SORRY = 'I\'m sorry for your loss. ';
@@ -249,7 +249,7 @@ const formHost = createFormHost({
           // PeopleSoft files it (idempotent by operationId). Its steps are already stripped by the link. A card
           // closed meanwhile skips the call.
           const r = await peoplesoft.file(staffId, { absenceType: values.absenceType, absenceReason: values.absenceReason, beginDate: values.beginDate, endDate: values.endDate, partial }, operationId, { runId, isClosed });
-          emit('hr_operation', { operation: 'submitTimeOff', ok: r.ok, code: r.ok ? 'sent_to_manager' : r.code ?? r.outcome });
+          emit('hr_operation', { operation: 'submitTimeOff', ok: r.ok, code: r.ok ? 'recorded' : r.code ?? r.outcome });
           // Closed while the call ran (or before it): the card stays closed with its own words — never accepted. A
           // record PeopleSoft wrote before its reset is gone with that reset; one that started after it is refused
           // there (reset_during_call).
@@ -267,7 +267,7 @@ const formHost = createFormHost({
         },
         async cancelForm(form, context, { trusted }) {
           if (hubLink.verifiedStaff(trusted, form.contextId) !== form.data.staffId) return { status: 'rejected', message: 'This request belongs to another staff member.', errors: { _form: 'This request belongs to another staff member.' } };
-          return { status: 'cancelled', message: 'Cancelled. Nothing was sent to your manager.' };
+          return { status: 'cancelled', message: 'Cancelled. Nothing was recorded.' };
         },
       },
     },
@@ -293,7 +293,7 @@ export function requestsText(list) {
   return list.map((r) => {
     const { subtitle } = titleOf(r.absenceType, r.absenceReason);
     const dates = r.beginDate === r.endDate ? shortDate(r.beginDate) : `${shortDate(r.beginDate)} to ${shortDate(r.endDate)}`;
-    return `${r.requestId}: ${r.absenceName}${subtitle ? ` (${subtitle})` : ''}, ${dates}, ${hoursText(r.hours)} — sent to your manager.`;
+    return `${r.requestId}: ${r.absenceName}${subtitle ? ` (${subtitle})` : ''}, ${dates}, ${hoursText(r.hours)} — recorded.`;
   }).join('\n');
 }
 
@@ -485,7 +485,7 @@ function serveVizEvents(req, res) {
 function buildAgentCard(port) {
   return {
     name: 'HR Agent',
-    description: 'Staff time-off requests (demo, synthetic records): fills the request from what a staff member says, checks the balance, and sends it to their manager for a decision. University staff only.',
+    description: 'Staff time-off requests (demo, synthetic records): fills the request from what a staff member says, checks the balance, and records it in PeopleSoft. University staff only.',
     version: '0.1.0',
     supportedInterfaces: [{ url: `http://${HOST}:${port}${JSONRPC_PATH}`, protocolBinding: 'JSONRPC', protocolVersion: A2A_PROTOCOL_VERSION, tenant: '' }],
     provider: undefined,

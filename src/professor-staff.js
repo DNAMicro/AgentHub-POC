@@ -125,12 +125,12 @@ export function cancellationText(days) {
   return `${COURSE.title} is cancelled on ${listOf(days.map(shortDate))}.`;
 }
 export const cancellationOffer = (days) => `You have ${COURSE.title} on ${listOf(days.map(shortDate))}. Would you like me to send a cancellation to your students?`;
-// “Sent to your manager for a decision. Request TO-1A2B: Bereavement (Grandparent/Great Grandparent), Thu, Nov 5 – Fri, Nov 6,
+// “Recorded in PeopleSoft. Request TO-1A2B: Bereavement (Grandparent/Great Grandparent), Thu, Nov 5 – Fri, Nov 6,
 // 16 hours.” The reason is in parentheses only when it says more than the name (titleOf's subtitle).
 export function receiptText(r) {
   const { subtitle } = titleOf(r.absenceType, r.absenceReason);
   const dates = r.beginDate === r.endDate ? shortDate(r.beginDate) : `${shortDate(r.beginDate)} to ${shortDate(r.endDate)}`;
-  return `Sent to your manager for a decision. Request ${r.requestId}: ${r.absenceName}${subtitle ? ` (${subtitle})` : ''}, ${dates}, ${r.hours} ${r.hours === 1 ? 'hour' : 'hours'}.`;
+  return `Recorded in PeopleSoft. Request ${r.requestId}: ${r.absenceName}${subtitle ? ` (${subtitle})` : ''}, ${dates}, ${r.hours} ${r.hours === 1 ? 'hour' : 'hours'}.`;
 }
 
 // The open card as /author/state shows it (the Faculty view renders it); null when none is open.

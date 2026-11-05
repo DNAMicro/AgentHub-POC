@@ -12,7 +12,7 @@ export const PEOPLESOFT_MODE = process.env.PEOPLESOFT_MODE ?? 'mock';
 if (!['mock', 'live'].includes(PEOPLESOFT_MODE)) throw new Error(`Unknown PEOPLESOFT_MODE "${PEOPLESOFT_MODE}" (use mock or live).`);
 if (PEOPLESOFT_MODE === 'live') loadDotenvOnce();
 
-export const STEP_MENU = ['check_balance', 'check_dates_and_holidays', 'check_overlap', 'apply_leave_policy', 'route_to_manager', 'notify_timekeeper', 'store_record'];
+export const STEP_MENU = ['check_balance', 'check_dates_and_holidays', 'check_overlap', 'apply_leave_policy', 'notify_timekeeper', 'store_record'];
 export const REQUIRED_STEPS = ['check_balance', 'check_dates_and_holidays', 'check_overlap', 'store_record'];
 
 const MOCK_LABEL = 'mock heuristic';
@@ -28,7 +28,7 @@ const SCHEMA = {
 const SYSTEM = [
   'You are the scheduling brain of a demo HR records system (a stand-in for PeopleSoft).',
   'You get one time-off request (absence type, dates, hours). Pick which OPTIONAL steps to run, using only the menu.',
-  'Optional steps: apply_leave_policy (check the leave policy for this absence type), route_to_manager (send for manager approval), notify_timekeeper (tell the timekeeper).',
+  'Optional steps: apply_leave_policy (check the leave policy for this absence type), notify_timekeeper (tell the timekeeper).',
   'The required steps (check_balance, check_dates_and_holidays, check_overlap, store_record) are always run by code; you may list them or not.',
   'Return only the steps array.',
 ].join('\n');
@@ -42,9 +42,9 @@ const finish = (picked) => {
 };
 
 export async function planSteps({ request, emit = () => {} }) {
-  if (PEOPLESOFT_MODE === 'mock') return { steps: finish(['apply_leave_policy', 'route_to_manager']), by: 'mock', model: MOCK_LABEL };
+  if (PEOPLESOFT_MODE === 'mock') return { steps: finish(['apply_leave_policy', 'notify_timekeeper']), by: 'mock', model: MOCK_LABEL };
 
-  const failed = (model = modelName()) => ({ steps: finish(['route_to_manager']), by: 'model_failed', model });
+  const failed = (model = modelName()) => ({ steps: finish([]), by: 'model_failed', model });
   if (!keyConfigured()) return failed();
   emit('model_call_started', { model: modelName(), mode: 'live', purpose: PURPOSE, earlierMessages: 0 });
   const started = Date.now();

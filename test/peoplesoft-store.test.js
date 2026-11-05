@@ -53,7 +53,7 @@ test('submit is idempotent by operationId, refuses reuse, reset clears', () => {
   const v = { absenceType: 'VAC', absenceReason: 'VAC', beginDate: '2026-11-10', endDate: '2026-11-12', partial: null };
   const a = s.file('staff-dabirian', v, 'abcdef0123456789', ['store_record']);
   assert.equal(a.ok, true);
-  assert.deepEqual(a.receipt, { requestId: 'TO-ABCDEF01', recordId: 'ABS-000101', absenceType: 'VAC', absenceReason: 'VAC', absenceName: 'Vacation', reasonText: 'Vacation', beginDate: '2026-11-10', endDate: '2026-11-12', hours: 16, status: 'sent_to_manager', steps: ['store_record'] });
+  assert.deepEqual(a.receipt, { requestId: 'TO-ABCDEF01', recordId: 'ABS-000101', absenceType: 'VAC', absenceReason: 'VAC', absenceName: 'Vacation', reasonText: 'Vacation', beginDate: '2026-11-10', endDate: '2026-11-12', hours: 16, status: 'recorded', steps: ['store_record'] });
   assert.deepEqual(s.file('staff-dabirian', v, 'abcdef0123456789', ['store_record']).receipt, a.receipt);
   assert.equal(s._records().length, 1);
   assert.equal(s.file('staff-dabirian', { ...v, endDate: '2026-11-10' }, 'abcdef0123456789', ['store_record']).code, 'operation_reused');
@@ -144,7 +144,7 @@ test('receipt carries a PeopleSoft record id and the steps run', () => {
   const r = createPeopleSoftStore().file('staff-dabirian', { absenceType: 'VAC', absenceReason: 'VAC', beginDate: '2026-11-06', endDate: '2026-11-06', partial: null }, 'op-1', ['check_balance', 'store_record']);
   assert.match(r.receipt.recordId, /^ABS-\d{6}$/);
   assert.deepEqual(r.receipt.steps, ['check_balance', 'store_record']);
-  assert.equal(r.receipt.status, 'sent_to_manager');
+  assert.equal(r.receipt.status, 'recorded');
 });
 test('planAbsence is the same rule HR uses', () => {
   assert.deepEqual(planAbsence({ standardHours: 8, balances: { vacation: 96, sick: 120, personalHoliday: 8 } }, { absenceType: 'VAC', beginDate: '2026-11-06', endDate: '2026-11-06' }), { ok: true, hours: 8, days: 1, credit: { type: 'vacation', now: 96, after: 88 } });

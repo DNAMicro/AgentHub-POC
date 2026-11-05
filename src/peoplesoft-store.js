@@ -6,7 +6,7 @@
 //
 // In memory only — nothing is written to disk. Every new store seeds the same staff; a retried
 // operation ID can't file twice while the process runs, and a restart forgets requests.
-// Filing records the request as sent to the manager; it deducts nothing.
+// Filing records the request (no manager approval); it deducts nothing.
 import { workdays, isPair, nameOf, reasonsOf, shortDate } from './absence-types.js';
 import { planAbsence } from './leave-rules.js';
 
@@ -50,7 +50,7 @@ export function createPeopleSoftStore({ now = () => new Date() } = {}) {
         requestId: `TO-${String(operationId).replace(/[^0-9a-f]/gi, '').slice(0, 8).toUpperCase()}`, recordId: recordNumber(state.counter++),
         absenceType: values.absenceType, absenceReason: values.absenceReason, absenceName: nameOf(values.absenceType),
         reasonText: reasonsOf(values.absenceType).find((r) => r.code === values.absenceReason)?.reason ?? null,
-        beginDate: values.beginDate, endDate: values.endDate, hours: p.hours, status: 'sent_to_manager', steps: [...(steps ?? [])],
+        beginDate: values.beginDate, endDate: values.endDate, hours: p.hours, status: 'recorded', steps: [...(steps ?? [])],
       };
       const result = { ok: true, receipt };
       state.requests.push({ ...receipt, staffId, operationId, at: now().toISOString() });

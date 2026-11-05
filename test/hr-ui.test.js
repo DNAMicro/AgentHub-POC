@@ -53,7 +53,7 @@ test('the grandmother message: the Professor state carries the card; Submit thro
   assert.equal(done.http, 200, JSON.stringify(done));
   assert.equal(done.status, 'accepted');
   st = await state();
-  assert.equal(lastOf(st.chat, 'hr').text, `Sent to your manager for a decision. Request ${done.receipt.requestId}: Bereavement (Grandparent/Great Grandparent), Thu, Nov 5 to Fri, Nov 6, 16 hours.`);
+  assert.equal(lastOf(st.chat, 'hr').text, `Recorded in PeopleSoft. Request ${done.receipt.requestId}: Bereavement (Grandparent/Great Grandparent), Thu, Nov 5 to Fri, Nov 6, 16 hours.`);
   assert.equal(st.hrCard, null, 'the card is closed');
   assert.equal((await requests()).length, 1);
   assert.equal(st.lessons.length, 0, 'never posted to students');
@@ -70,7 +70,7 @@ test('Sick Leave: the UI server posts absenceType/absenceReason codes and the ch
   assert.equal(done.receipt.absenceType, 'SCK');
   assert.equal(done.receipt.absenceReason, 'SCK');
   st = await state();
-  assert.equal(lastOf(st.chat, 'hr').text, `Sent to your manager for a decision. Request ${done.receipt.requestId}: Sick Leave (Sick Personal), Fri, Nov 6, 8 hours.`);
+  assert.equal(lastOf(st.chat, 'hr').text, `Recorded in PeopleSoft. Request ${done.receipt.requestId}: Sick Leave (Sick Personal), Fri, Nov 6, 8 hours.`);
   const filed = await requests();
   assert.equal(filed.length, 1);
   assert.equal(filed[0].hours, 8);
@@ -83,7 +83,7 @@ test('Cancel through the UI server closes the card without filing', async () => 
   assert.equal(r.status, 'cancelled', JSON.stringify(r));
   st = await state();
   assert.equal(st.hrCard, null);
-  assert.equal(lastOf(st.chat, 'hr').text, 'Cancelled. Nothing was sent to your manager.');
+  assert.equal(lastOf(st.chat, 'hr').text, 'Cancelled. Nothing was recorded.');
   assert.deepEqual(await requests(), []);
 });
 

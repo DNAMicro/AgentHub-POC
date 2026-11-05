@@ -332,7 +332,7 @@ test('I1: New conversation while PeopleSoft\'s planner thinks — refused at Peo
   const stub = await startFakeAnthropic();
   t.after(() => stub.close());
   // PeopleSoft live against the fake API; its planner answers after 1.5 s. HR stays in mock mode.
-  stub.respondWith(() => ({ ...messageReply('{"steps":["route_to_manager"]}'), delayMs: 1500 }));
+  stub.respondWith(() => ({ ...messageReply('{"steps":["notify_timekeeper"]}'), delayMs: 1500 }));
   const own = await hrStack({ peoplesoftEnv: { PEOPLESOFT_MODE: 'live', ANTHROPIC_API_KEY: `sk-ant-test-${randomUUID()}`, ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0' } });
   t.after(() => own.close());
   const card = await own.ask("I need Friday off, it's a vacation day");
