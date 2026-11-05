@@ -208,7 +208,7 @@ export async function interpretProfessor({ text, roster, seeds, posts, recent = 
   emit('model_response_received', { model: r.model, purpose: 'professor chat', latencyMs: Date.now() - started, usage: r.usage, stopReason: r.stopReason, requestId: r.requestId });
   const v = r.parsed ?? {};
   return {
-    action: ['post', 'answer', 'clarify', 'schedule', 'quiz'].includes(v.action) ? v.action : 'clarify', reply: String(v.reply ?? '').slice(0, 600), topic: String(v.topic ?? '').slice(0, 120),
+    action: ['post', 'answer', 'clarify', 'schedule', 'quiz'].includes(v.action) ? v.action : 'clarify', reply: String(v.reply ?? '').slice(0, 600), topic: String(v.topic ?? '').trim().slice(0, 120),
     kind: v.kind, audience: v.audience, title: String(v.title ?? '').slice(0, 120), content: String(v.content ?? ''), verbatim: Boolean(v.content_is_verbatim), seedId: v.seed_id || null,
     model: r.model, usage: r.usage,
   };

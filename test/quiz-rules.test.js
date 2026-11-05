@@ -77,3 +77,14 @@ test('every topic has 4–6 original notes and a unique name', () => {
     for (const n of t.notes) assert.ok(n.term && n.definition && n.definition.length <= 140, `topic ${t.n} ${n.term}`);
   });
 });
+
+test('M-5: a question with an extra key is refused (only text, answers, correct and origin)', async () => {
+  const { checkQuestion, validExisting } = await import('../src/quiz-rules.js');
+  const ok = { text: 'Which statement number 1 is correct?', answers: ['a', 'b', 'c', 'd'], correct: 1 };
+  assert.equal(checkQuestion(ok).ok, true);
+  assert.equal(checkQuestion({ ...ok, origin: 'ai' }).ok, true);
+  assert.deepEqual(checkQuestion({ ...ok, explanation: 'x' }), { ok: false, problem: 'Unknown field: explanation.' });
+  assert.equal(checkQuestion([ok]).ok, false);
+  assert.equal(validExisting(['a']), true);
+  assert.equal(validExisting('a'), false);
+});

@@ -99,6 +99,7 @@ export function canvasToolReply(body, picks = {}) {
 // Part 16: Faculty's quiz drafting. Recognised by the structured-output schema: `questions` (draft/repair) or a single
 // `question` (one more). `questions` is what the scripted model "wrote": [{ text, answers, correct }]. Not a quiz
 // request -> null. Plumbing only: this proves what code does with output, not how a real model writes.
+// `questions` are the model's own shape: { text, correct_answer, wrong_answers: [3 strings] } (code places the answer).
 export function quizDraftReply(body, questions, opts = {}) {
   const props = body?.output_config?.format?.schema?.properties ?? {};
   if (props.questions) return messageReply(JSON.stringify({ questions }), opts);

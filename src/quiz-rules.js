@@ -48,9 +48,15 @@ export function defaultSettings(topicN, now) {
 const isInt = (v) => Number.isInteger(v);
 const inRange = (v, [lo, hi]) => isInt(v) && v >= lo && v <= hi;
 
+// "Draft one more" carries the question texts the page holds now: at most 20, 300 characters each.
+export const validExisting = (v) => Array.isArray(v) && v.length <= 20 && v.every((x) => typeof x === 'string' && x.length <= 300);
+
+const QUESTION_KEYS = new Set(['text', 'answers', 'correct', 'origin']);
+
 export function checkQuestion(q) {
   const bad = (problem) => ({ ok: false, problem });
-  if (!q || typeof q !== 'object') return bad('The question is missing.');
+  if (!q || typeof q !== 'object' || Array.isArray(q)) return bad('The question is missing.');
+  for (const k of Object.keys(q)) if (!QUESTION_KEYS.has(k)) return bad(`Unknown field: ${k}.`);
   const [lo, hi] = QUIZ_LIMITS.questionChars;
   if (typeof q.text !== 'string') return bad('The question needs text.');
   const len = q.text.trim().length;

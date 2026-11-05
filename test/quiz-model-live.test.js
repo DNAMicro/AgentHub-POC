@@ -15,8 +15,9 @@ const { checkQuestion } = await import('../src/quiz-rules.js');
 const { TOPICS } = await import('../src/course-schedule.js');
 test.after(() => stub.close());
 
-const good = (i) => ({ text: `Sample question number ${i}, about segmentation?`, answers: [`Alpha ${i}`, `Beta ${i}`, `Gamma ${i}`, `Delta ${i}`], correct: i % 4 });
-const bad = (i) => ({ text: `Q${i}`, answers: ['a', 'a', 'b', 'c'], correct: 0 });
+// What the model returns now: the right answer and three wrong ones. It never says where the right one goes.
+const good = (i) => ({ text: `Sample question number ${i}, about segmentation?`, correct_answer: `Alpha ${i}`, wrong_answers: [`Beta ${i}`, `Gamma ${i}`, `Delta ${i}`] });
+const bad = (i) => ({ text: `Q${i}`, correct_answer: 'a', wrong_answers: ['a', 'b', 'c'] });
 const recorder = () => { const ev = []; return { ev, emit: (type, data) => ev.push({ type, data }) }; };
 
 test('5 good questions: one call, 5 kept, origin ai', async () => {
@@ -59,7 +60,7 @@ test('repair still bad: short 2', async () => {
 
 test('a date the notes do not contain drops the question', async () => {
   stub.reset();
-  const dated = { text: 'What was decided on October 3 about segmenting?', answers: ['One', 'Two', 'Three', 'Four'], correct: 0 };
+  const dated = { text: 'What was decided on October 3 about segmenting?', correct_answer: 'One', wrong_answers: ['Two', 'Three', 'Four'] };
   stub.respondWith((body, n) => quizDraftReply(body, n === 1 ? [dated, good(2)] : []));
   const r = await draftQuiz({ topic: 8, count: 2 });
   assert.equal(r.questions.length, 1);
@@ -120,4 +121,48 @@ test('draftOne: a failed call -> question null, model_failed', async () => {
   const r = await draftOne({ topic: 8, existing: [] });
   assert.equal(r.question, null);
   assert.equal(r.by, 'model_failed');
+});
+
+// I-2 (LIVE-1): the model once marked the wrong letter. Now code places the right answer, so the key cannot disagree.
+test('I-2: code places the correct answer; a stray "correct" index from the model is ignored', async () => {
+  stub.reset();
+  const withStray = (i) => ({ ...good(i), correct: 3, answers: ['x', 'y', 'z', 'w'] }); // an old-style model answer
+  stub.respondWith((body) => quizDraftReply(body, [1, 2, 3, 4, 5, 6].map(withStray)));
+  const r = await draftQuiz({ topic: 8, count: 6 });
+  assert.equal(r.questions.length, 6);
+  r.questions.forEach((q, i) => {
+    assert.equal(q.answers[q.correct], `Alpha ${i + 1}`, `question ${i + 1}: the marked answer is the one the model called correct`);
+    assert.equal(q.correct, i % 4, 'deterministic rotation');
+    assert.ok(!q.answers.includes('x'), 'only the model answers, not the stray list');
+  });
+  assert.deepEqual([...new Set(r.questions.map((q) => q.correct))].sort(), [0, 1, 2, 3], 'spread by code');
+});
+
+test('I-2: the prompt no longer asks the model for an index or for spreading; the schema has no index', async () => {
+  stub.reset();
+  stub.respondWith((body) => quizDraftReply(body, [good(1)]));
+  await draftQuiz({ topic: 8, count: 1 });
+  const body = stub.requests[0].body;
+  const schema = body.output_config.format.schema.properties.questions.items;
+  assert.deepEqual(Object.keys(schema.properties).sort(), ['correct_answer', 'text', 'wrong_answers']);
+  assert.ok(!/index|spread/i.test(JSON.stringify(body.system)), 'no index or "spread" instruction');
+});
+
+test('I-2: wrong_answers that are not exactly three, or a missing correct_answer, drop the question', async () => {
+  stub.reset();
+  const two = { ...good(2), wrong_answers: ['Beta 2', 'Gamma 2'] };
+  const none = { text: 'Sample question number 3, about targeting?', wrong_answers: ['a1', 'b1', 'c1'] };
+  const dup = { ...good(4), wrong_answers: ['Alpha 4', 'Gamma 4', 'Delta 4'] }; // a wrong answer equal to the right one
+  stub.respondWith((body, n) => quizDraftReply(body, n === 1 ? [good(1), two, none, dup] : []));
+  const r = await draftQuiz({ topic: 8, count: 4 });
+  assert.equal(r.questions.length, 1);
+  assert.equal(r.short, 3);
+});
+
+test('I-2: draftOne places the answer by code too', async () => {
+  stub.reset();
+  stub.respondWith((body) => quizDraftReply(body, [{ ...good(9), correct: 0 }]));
+  const r = await draftOne({ topic: 8, existing: ['one?', 'two?', 'three?'] });
+  assert.equal(r.question.correct, 3); // position = the number of questions already in the quiz, mod 4
+  assert.equal(r.question.answers[3], 'Alpha 9');
 });
