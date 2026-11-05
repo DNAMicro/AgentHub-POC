@@ -47,6 +47,8 @@ async (page) => {
 
   check('before any roster request the header adds no student count', !/\d+ students/.test(await page.locator('#prof-roster').textContent()), await page.locator('#prof-roster').textContent());
 
+  check('before the count is known the header shows no student chips', await page.locator('#prof-roster .presence').count() === 0 && (await page.locator('#prof-roster').textContent()).trim() === '', await page.locator('#prof-roster').textContent());
+  await page.locator('#view-professor .panel-head').screenshot({ path: `${SHOTS}/t5-fix-header-before-count.png` });
   // 1. The roster card.
   await say('show me my class roster');
   await page.waitForSelector('#prof-log .roster-card[data-state="ready"]', { timeout: 30000 });
@@ -114,6 +116,8 @@ async (page) => {
   await page.locator('#prof-log .quiz-card [data-act="approve"]').click();
   await page.waitForSelector('#prof-log .lms-card [data-act="publish"]', { timeout: 30000 });
   check('publish prompt counts the 25 students', /your 25 students get a notification/.test(await page.locator('#prof-log .lms-card').textContent()), await page.locator('#prof-log .lms-card').textContent());
+  check('publish prompt never says "2 students"', !/\b2 students\b/.test(await page.locator('#prof-log .lms-card').textContent()));
+  await page.locator('#prof-log .lms-card').screenshot({ path: `${SHOTS}/t5-fix-publish-prompt.png` });
   await page.locator('#prof-log .lms-card [data-act="publish"]').click();
   await page.waitForFunction(() => /Published/.test(document.querySelector('#prof-log .lms-card .state-badge')?.textContent ?? '') && document.querySelectorAll('#prof-log .lms-card details.dlist li').length === 25, null, { timeout: 30000 });
   const lms = page.locator('#prof-log .lms-card');

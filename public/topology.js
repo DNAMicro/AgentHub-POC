@@ -364,9 +364,11 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     clockEl.textContent = state.live ? `live · ${new Date().toLocaleTimeString([], { hour12: false })}` : 'not live';
   }, 1000);
 
+  const warned = new Set();
+  function warnOnce(id) { if (!warned.has(id)) { warned.add(id); console.warn(`Topology: no node drawn for "${id}"`); } }
   function caption(node, text) {
     const n = nodeEls[node];
-    if (!n) return; // a node this page doesn't draw yet (CHRS before its Topology tile): nothing to caption
+    if (!n) return warnOnce(node); // a node this page doesn't draw yet (CHRS before its Topology tile): nothing to caption
     n.caption.textContent = text;
     n.g.classList.add('flash');
     clearTimeout(n.captionTimer);
@@ -492,7 +494,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
   }
   traceSelect.addEventListener('change', () => (traceSelect.value ? select({ kind: 'trace', id: traceSelect.value }) : select(null)));
 
-  const nodeName = (id) => NODES[id]?.name ?? id; // an agent this page doesn't draw yet (e.g. CHRS) is named by its id, never thrown on
+  const nodeName = (id) => { if (!NODES[id]) warnOnce(id); return NODES[id]?.name ?? id; }; // an agent this page doesn't draw yet (e.g. CHRS) is named by its id, never thrown on
   const route = (t) => (t.edge ? `${nodeName(t.from)} → ${nodeName(t.to)}` : `inside ${nodeName(t.node)}`);
   function listItem(ev) {
     const t = ev.topo;

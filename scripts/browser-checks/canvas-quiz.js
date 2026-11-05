@@ -192,7 +192,7 @@ async (page) => {
   check('Canvas card: saved as an unpublished quiz — students can’t see it yet', /Saved in Canvas as an unpublished quiz — students can't see it yet\./.test(lmsText), lmsText);
   check('Canvas card: quiz #4821 · MKTG 351 (Fall 2026)', /#4821 · MKTG 351 \(Fall 2026\)/.test(lmsText));
   check('Canvas card: facts and due date', /6 · 18 points · 10 minutes · 1 attempt/.test(lmsText) && /Mon, Nov 9, 11:59 PM/.test(lmsText), lmsText);
-  check('Canvas card: asks to publish, with the student count', /Publish it now\? Publishing makes it visible in Canvas, and your 2 students get a notification\./.test(lmsText), lmsText);
+  check('Canvas card: asks to publish, without a number until the class size is known', /Publish it now\? Publishing makes it visible in Canvas, and your students get a notification\./.test(lmsText), lmsText);
   check('Canvas card: Publish & notify students and Keep as draft', await lms.locator('[data-act="publish"]').isEnabled() && await lms.locator('[data-act="keep"]').isEnabled());
   check('the draft card is gone', await count('#prof-log .quiz-card') === 0);
   await page.evaluate(() => document.querySelector('#prof-log .lms-card').scrollIntoView({ block: 'end' }));

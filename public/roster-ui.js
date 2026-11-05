@@ -60,6 +60,7 @@ export function createRosterUi({ el, api, bubble, isShowing }) {
     const r = await api('/api/professor/roster');
     if (token !== c.token) return; // the view was left (or the card dropped) while the rows were on their way
     c.loading = false; c.loaded = true;
+    if (!r || r.status === 502) c.loaded = false; // a failed load tries again on the next render
     if (r?.ok && r.json) fill(c, entry, r.json);
     else if (r && r.status !== 404 && r.status !== 502) c.body.replaceChildren(el('p', { className: 'msg-text', textContent: ROSTER_GONE }));
     else if (r?.status === 404) gone(c);
@@ -68,7 +69,6 @@ export function createRosterUi({ el, api, bubble, isShowing }) {
   }
 
   return {
-    begin() { /* cards are dropped in sync() when their chat entry is gone */ },
     // The card for one chat entry: the same element every redraw.
     entry(m) {
       let c = cards.get(m.id);
@@ -89,6 +89,5 @@ export function createRosterUi({ el, api, bubble, isShowing }) {
     },
     kept: () => [...cards.values()].map((c) => c.li),
     sync(chat) { const ids = new Set(chat.map((m) => m.id)); for (const [k, c] of cards) if (!ids.has(k)) { c.token += 1; cards.delete(k); } },
-    reset() { cards.clear(); },
   };
 }

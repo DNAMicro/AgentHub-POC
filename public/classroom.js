@@ -311,7 +311,8 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     const kinds = list.map((d) => studentState(d)[0]);
     const delivered = kinds.filter((k) => k === 'delivered' || k === 'opened').length;
     const waiting = kinds.filter((k) => k === 'queued').length;
-    const other = list.length - delivered - waiting;
+    const failed = kinds.filter((k) => k === 'failed').length;
+    const other = list.length - delivered - waiting - failed;
     const details = el('details', { className: 'dlist', dataset: { count: String(list.length) } },
       el('summary', { textContent: `Show all ${list.length} students` }), deliveryRows(list, notified));
     details.open = foldOpen.has(key);
@@ -320,6 +321,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
       el('div', { className: 'dsum' },
         el('span', { className: 'pill ok', textContent: `Delivered to ${delivered}` }),
         ...(waiting ? [el('span', { className: 'pill', textContent: `${waiting} not online yet — they'll get it when they are` })] : []),
+        ...(failed ? [el('span', { className: 'pill', dataset: { tone: 'bad' }, textContent: `${failed} could not be delivered` })] : []),
         ...(other ? [el('span', { className: 'pill', textContent: `${other} still sending or not confirmed` })] : [])),
       details);
   }
@@ -353,7 +355,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
   let quizAsking = false; // professorState.professor.quizAsking: the assistant is still waiting for a topic
   let quizCard = null; // professorState.professor.quizCard: draft id, state, Canvas quiz number, counts (never questions or answers)
   const quiz = createQuizUi({
-    el, api, bubble, nameOf: (id) => nameOf(id), posts: () => [...posts.values()], studentCount: () => rosterCount ?? roster.length, deliveryList,
+    el, api, bubble, nameOf: (id) => nameOf(id), posts: () => [...posts.values()], studentCount: () => rosterCount, deliveryList,
     isShowing: () => !pv.view.hidden,
     sendTopic: (n, text) => sendTopicPick(n, text), // a chip tap is a structured pick: never typed text, never a reply to one student
     redraw: () => { lastRendered = ''; renderProfessor(); },
@@ -764,7 +766,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     if (rosterCount !== null) {
       const online = Number.isInteger(s.roster.online) ? s.roster.online : null;
       pv.roster.replaceChildren(el('span', { className: 'roster-count', textContent: `${rosterCount} ${rosterCount === 1 ? 'student' : 'students'}${online === null ? '' : ` · ${online} online`}` }));
-    } else pv.roster.replaceChildren(...roster.map((x) => el('span', { className: 'presence', dataset: { online: String(Boolean(x.online)) }, textContent: x.name, title: x.online ? 'Online' : 'Not online — posts arrive when they are' })));
+    } else pv.roster.replaceChildren(); // the real class size isn't known yet: show nothing rather than the two-person session list
     posts = new Map(s.lessons.map((p) => [p.key, p]));
     chat = s.chat ?? [];
     hrCard = s.hrCard ?? null;

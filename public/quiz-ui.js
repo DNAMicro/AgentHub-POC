@@ -383,7 +383,7 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, del
       const publishBtn = el('button', { type: 'button', className: 'btn-primary lms', dataset: { act: 'publish' }, disabled: v.busy || st === 'publishing', textContent: 'Publish & notify students' });
       publishBtn.addEventListener('click', () => { act(v, 'publish', {}, { ok: (b) => { v.after = 'published'; v.publishedAt = new Date().toISOString(); v.deliveries = b.deliveries ?? null; } }); });
       const ask = el('div', { className: 'lms-ask' },
-        el('p', {}, el('b', { textContent: 'Publish it now?' }), ` Publishing makes it visible in Canvas, and your ${plural(studentCount(), 'student')} get a notification.`),
+        el('p', {}, el('b', { textContent: 'Publish it now?' }), ` Publishing makes it visible in Canvas, and ${Number.isInteger(studentCount()) ? `your ${plural(studentCount(), 'student')}` : 'your students'} get a notification.`),
         publishBtn, ' ');
       if (st !== 'kept') {
         const keep = el('button', { type: 'button', className: 'btn-link', style: 'color:var(--lms-ink)', dataset: { act: 'keep' }, disabled: v.busy || st === 'publishing', textContent: 'Keep as draft' });
