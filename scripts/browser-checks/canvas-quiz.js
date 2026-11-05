@@ -212,7 +212,7 @@ async (page) => {
   await page.waitForFunction(() => document.querySelectorAll('#prof-log .lms-card .per-student li').length === 2, null, { timeout: 15000 });
   const rows = await lms.locator('.per-student li').evaluateAll((l) => l.map((x) => x.textContent));
   check('Alex Student: Notified (his tab is in the background, so not opened)', rows.some((r) => /^Alex StudentNotified — /.test(r)), rows);
-  check('Sam Student: Queued at Hub — their student agent isn’t connected', rows.some((r) => /^Sam StudentQueued at Hub — their student agent isn’t connected/.test(r)), rows);
+  check('Sam Student: Not delivered yet — Sam isn\'t online (plain words, no Hub or agent talk)', rows.some((r) => /^Sam StudentNot delivered yet — Sam isn't online\. It will arrive when they are\./.test(r)) && !rows.some((r) => /Hub|agent/i.test(r)), rows);
   check('no publish buttons left after publishing', await lms.locator('[data-act]').count() === 0);
   await page.evaluate(() => document.querySelector('#prof-log .lms-card').scrollIntoView({ block: 'end' }));
   await page.waitForTimeout(300);

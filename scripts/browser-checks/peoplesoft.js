@@ -107,7 +107,7 @@ async (page) => {
   await card.getByRole('button', { name: 'Submit request', exact: true }).click();
   await page.waitForFunction(() => !document.querySelector('#prof-log .hr-card'), null, { timeout: 30000 });
   const receipt = (await page.locator('#prof-log .msg.hr-receipt').last().locator('.msg-text').textContent().catch(() => ''))?.trim();
-  check('submit filed (receipt)', /^Recorded in PeopleSoft\./.test(receipt ?? ''), receipt);
+  check('submit filed (receipt)', /^Your time off is recorded\./.test(receipt ?? ''), receipt);
   await topo.waitForFunction(() => document.querySelector('[data-node="peoplesoft"] .status-text')?.textContent === '✓ Saved', null, { timeout: 8000 }).catch(() => {});
   await topo.waitForTimeout(300);
   watchingOn = false;

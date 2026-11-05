@@ -127,7 +127,7 @@ async (page) => {
   await press('Submit request');
   const receipt = page.locator('#prof-log .msg.hr-receipt').last();
   const receiptText = (await receipt.locator('.msg-text').textContent())?.trim();
-  check('submit: receipt names what was picked on the card', new RegExp(`^Recorded in PeopleSoft\\. Request TO-\\w+: Sick Leave \\(Family Care\\), ${DAY} to ${DAY}, 16 hours\\.$`).test(receiptText), receiptText);
+  check('submit: receipt names what was picked on the card', new RegExp(`^Your time off is recorded\\. Request TO-\\w+: Sick Leave \\(Family Care\\), ${DAY} to ${DAY}, 16 hours\\.$`).test(receiptText), receiptText);
   // The closed card: HR's question stays, answered with what was filed; no stale "pick from the dropdown".
   const record = page.locator('#prof-log .msg.hr-closed').last();
   const recordText = ((await record.textContent()) ?? '').replace(/\s+/g, ' ');
@@ -154,8 +154,10 @@ async (page) => {
   await page.waitForTimeout(300);
   check('noon: edited hours drop the time from the words', !/12:00/.test(await text('.hr-slip .hr-when')) && /12 hours/.test(await text('.hr-slip .hr-when')), await text('.hr-slip .hr-when'));
   await press('Cancel');
-  check('cancel: HR says nothing was sent', /Cancelled\. Nothing was recorded\./.test(await page.locator('#prof-log .msg[data-speaker="hr"]').last().textContent()));
   check('cancel: the card becomes "You cancelled this card"', /You cancelled this card\. Nothing was filed\./.test(await page.locator('#prof-log .msg.hr-closed').last().textContent()));
+  // Owner 2026-11-04: exactly one cancel sentence on screen (no separate HR bubble repeating it).
+  const logText = (await page.locator('#prof-log').textContent()) ?? '';
+  check('cancel: the cancel sentence appears exactly once', (logText.match(/You cancelled this card\. Nothing was filed\./g) ?? []).length === 1 && !/Cancelled\. Nothing was recorded/.test(logText), (logText.match(/cancelled/gi) ?? []).length);
 
   // 5. “I need Friday off” — no reason: amber “Choose the kind of leave”, empty name dropdown highlighted.
   //    Meanwhile a second tab watches Topology for the Hub → HR hop of this staff request.
