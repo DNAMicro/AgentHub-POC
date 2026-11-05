@@ -261,6 +261,15 @@ export function readPartial(text) {
   if (!c) return null;
   return c.kind === 'arrive' ? { mode: 'start_day_only', hours: c.hours, side: 'arrive' } : { mode: 'start_day_only', hours: c.hours };
 }
+// A follow-up that only sets the hours on an open card (“make it 4 hours instead”, “change it to 6 hours”, “4 hours
+// please”): the edit words around the one hour value are not a correction of it. Anything else (“4 or 5 hours”,
+// “make it 4 hours or maybe 6”) still reads as nothing.
+const EDIT_LEAD = /^\s*(?:(?:ok(?:ay)?|sorry|actually)[,\s]+)?(?:(?:please|can\s+you|could\s+you)\s+)?(?:(?:make|change|switch|set|put|update)\s+(?:it|that|the\s+hours|my\s+hours)\s+(?:to\s+)?|(?:just|only)\s+)?/i;
+const EDIT_TAIL = /(?:\s*,?\s*(?:instead|please|then|thanks|thank\s+you))*[\s.!]*$/i;
+export function readEditHours(text) {
+  const core = String(text ?? '').replace(EDIT_LEAD, '').replace(EDIT_TAIL, '').trim();
+  return core ? readPartial(core) : null;
+}
 // Rule A's one readable cue: { hours, kind, end } — kind 'leave' (a leaving clock time or "N hours early": the
 // leaving time is known, 17:00 − hours), 'arrive', or 'other' (a length with no time: "4 hours off", "afternoon").
 function readCue(text) {

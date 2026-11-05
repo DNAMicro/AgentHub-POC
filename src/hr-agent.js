@@ -34,7 +34,7 @@ import { createPeopleSoftLink } from './hr-peoplesoft.js';
 import { planAbsence } from './leave-rules.js';
 import { TIMEOUTS } from './timeouts.js';
 import { CREDIT_LABEL, PROOF, STANDARD_DAY, daysText, defaultReason, isPair, nameOf, shortDate, spreadOf, titleOf, whenText, workdays } from './absence-types.js';
-import { isAppointment, mentionsIllness, asksBalance, asksRequests, dayReferences, mentionedDays, mentionsDay, mentionsHours, readPartial, readRequest } from './hr-intent.js';
+import { isAppointment, mentionsIllness, asksBalance, asksRequests, dayReferences, mentionedDays, mentionsDay, mentionsHours, readPartial, readEditHours, readRequest } from './hr-intent.js';
 import { familyCare, hrStatus, reasonForRelative, selfSick } from './hr-model.js';
 
 const HOST = '127.0.0.1';
@@ -394,7 +394,7 @@ function merge(open, read, text, cardValues) {
     let partial = null;
     let startAt = null;
     if (read.partial && read.prefill.beginDate === values.beginDate && read.prefill.endDate === values.endDate) ({ partial, startAt } = read);
-    else if ((!values.beginDate || values.beginDate === values.endDate) && dayReferences(text) <= 1) partial = readPartial(text);
+    else if ((!values.beginDate || values.beginDate === values.endDate) && dayReferences(text) <= 1) partial = readPartial(text) ?? readEditHours(text);
     return { values, cardHours: null, partial, mode: partial?.mode ?? null, startAt: clockOf(partial, startAt), side: partial?.side ?? null, quote: quoteOf(read, values, before) };
   }
   return { values, ...kept, quote: quoteOf(read, values, before) };

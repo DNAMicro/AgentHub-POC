@@ -8,7 +8,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { startFakeAnthropic, messageReply } from './support/fake-anthropic.js';
-import { isAppointment, readDates, readPartial, readRequest } from '../src/hr-intent.js';
+import { isAppointment, readDates, readEditHours, readPartial, readRequest } from '../src/hr-intent.js';
 import { chooseAbsence, hrStatus, reasonForRelative, verify } from '../src/hr-model.js';
 
 const run = promisify(execFile);
@@ -914,4 +914,12 @@ test('review fix: “in the morning” counts only when it qualifies the day off
   assert.equal(readPartial('I need Friday off because the students are in the morning section'), null);
   assert.equal(readPartial('I need Nov 17 off in the afternoon')?.hours, 4);
   assert.equal(readPartial('I will be out Tuesday Nov 17 in the morning')?.hours, 4);
+});
+
+test('Part 17 scenarios: a card edit that only sets the hours is read (“make it 4 hours instead”); a real correction is not', () => {
+  for (const [t, h] of [['make it 4 hours instead', 4], ['4 hours please', 4], ['change it to 6 hours', 6], ['actually, make it 2 hours', 2], ['can you make it 3 hours please', 3]]) {
+    assert.equal(readEditHours(t)?.hours, h, t);
+  }
+  assert.equal(readPartial('make it 4 hours instead'), null); // a first message with a correction word still reads nothing
+  for (const t of ['make it 4 or 5 hours', 'make it 4 hours or maybe 6', '12 hours instead', 'make it Friday']) assert.equal(readEditHours(t), null, t);
 });
