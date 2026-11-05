@@ -231,6 +231,21 @@ test('fix 2: after the cancellation offer, “nah” and an unclear reply never 
   assert.ok(!st.lessons.some((l) => l.text.includes('is cancelled')), 'the cancellation was never sent');
 });
 
+// Owner, 2026-11-04: “I already said notify and it asked again” — a yes that only names who to tell is a yes.
+test('cancellation offer: “yes notify students” / “yes, tell them” / “ok inform everyone” send it at once', async () => {
+  for (const words of ['yes notify students', 'yes, tell them', 'ok inform everyone', 'yes let them know', 'yes please notify all students']) {
+    await noteOffer();
+    const r = await say(words);
+    assert.equal(r.action, 'post', `${words}: ${r.reply}`);
+    const st = await state();
+    assert.ok(st.lessons.some((l) => l.text === 'Marketing 351 is cancelled on Fri, Nov 6.'), `${words}: the cancellation went out`);
+  }
+  // Still asked again: a yes with something else in the same sentence.
+  await noteOffer();
+  assert.match((await say('yes notify them but change it to Monday')).reply, /^Should I send the cancellation to your students\? Reply yes or no\./);
+  assert.ok(!(await state()).lessons.some((l) => l.text.includes('is cancelled')), 'not sent on a yes with something else in it');
+});
+
 test('fix 3: a refusal anywhere in the reply is not a yes', async () => {
   for (const words of ["please don't post it", "ok, but don't tell them", 'sure, no actually']) {
     await noteOffer();

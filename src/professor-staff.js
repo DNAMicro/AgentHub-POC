@@ -62,7 +62,8 @@ const ANSWER_START = /^\s*(yes|yeah|yep|sure|ok|okay|no|nope|nah|don['’]?t|do 
 const CANCEL_WORD = /\b(cancel|cancell?ation|cancell?ed)\b/i;
 // The cancellation offer's own words: “yes, send the cancellation”, “sure, cancel the class”.
 const CANCEL_WORDS = /\b(cancel|cancell?ation|cancell?ed)\b/gi;
-const CANCEL_FILLER = /^(send|cancel|cancellation|cancelled|canceled|the|class|classes|students|my|them|to|for|me|now)$/i;
+// Naming who to tell is still a plain yes (owner, 2026-11-04: “I already said notify and it asked again”).
+const CANCEL_FILLER = /^(send|cancel|cancellation|cancelled|canceled|the|class|classes|students|my|them|to|for|me|now|notify|inform|tell|let|know|all|everyone|everybody)$/i;
 const NEGATION = /\b(no|nope|nah|not|never|don['’]?t|do not|won['’]?t|skip|cancel|neither)\b/i;
 // A short reply right after a question is an answer attempt — never a message for the class.
 const SHORT = (text) => text.trim().split(/\s+/).length <= 4;
