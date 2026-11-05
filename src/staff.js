@@ -7,7 +7,7 @@
 // Request: { type: 'staff_request', operationId, conversationId, text, formValues? }
 //   formValues (optional, only while a card is open): that card's current values in the browser, checked
 //   with checkTimeOffValues; HR merges them first, then the words.
-//   signed fields ['staff-request', operationId, conversationId]
+//   signed fields ['staff-request', operationId, conversationId] (+ service when given: 'hr' (default) | 'chrs')
 // Action:  { type: 'staff_action', operationId, formRef, action, conversationId }  (action = the A2UI action)
 //   signed fields ['staff-action', operationId, formRef, conversationId] — the Hub requires conversationId
 //   and checks it against the conversation the formRef was issued in.
@@ -25,16 +25,21 @@ export const STAFF_ACTION_MEDIA_TYPE = 'application/vnd.a2a-spike.staff-action+j
 //   roster request: { type: 'roster_request', kind: 'roster', courseId? } + metadata { hubOperationId, via, staffId,
 //     callerKind: 'staff', hubSignature } (the same staff signature HR verifies). Reply data part { roster } or { text }.
 //   roster lookup:  { type: 'roster_lookup', courseId, instructorStaffId } + metadata { hubOperationId, hubSignature }
-//     (signRosterLookup, the Hub's own). Reply data part { studentIds, names, count } or { error, text }; never emails or IDs.
+//     (signRosterLookup, the Hub's own). Reply data part { studentIds, names, count } or { error, text }: roster student IDs and names go to the Hub
+//     (it addresses deliveries from them), never emails or CWIDs.
 export const ROSTER_REQUEST_MEDIA_TYPE = 'application/vnd.a2a-spike.roster-request+json';
 export const ROSTER_LOOKUP_MEDIA_TYPE = 'application/vnd.a2a-spike.roster-lookup+json';
+export const ROSTER_UNAVAILABLE_CODE = 'roster_unavailable'; // the Hub refuses a post it can't address from CHRS's roster
+export const ROSTER_POST_FAILED_TEXT = "I couldn't get your class list just now, so nothing was sent. Try again in a moment.";
 export const ROSTER_FAILED_TEXT = "I couldn't get your class roster just now. Try again in a moment.";
 export const CHRS_REFUSED_TEXT = 'CHRS serves university staff only.';
 export const HUB_STAFF_MEDIA_TYPES = new Set([STAFF_REQUEST_MEDIA_TYPE, STAFF_ACTION_MEDIA_TYPE]);
 export const STAFF_STATUSES = ['ok', 'refused', 'not_delivered', 'outcome_unknown'];
 
 // The fields each part's signature covers (the sender's agentId and instanceId are prepended by sendSigned).
-export const staffRequestFields = (v) => ['staff-request', v?.operationId, v?.conversationId];
+// Part 17: `service` ('hr' | 'chrs', a configured staff destination) is signed when present, so it can't be added,
+// removed or changed in transit; a request without one is HR's and signs exactly the three fields it always did.
+export const staffRequestFields = (v) => ['staff-request', v?.operationId, v?.conversationId, ...(v?.service === undefined ? [] : [v.service])];
 export const staffActionFields = (v) => ['staff-action', v?.operationId, v?.formRef, v?.conversationId];
 
 // code (typed, for the sender's code — never parse `reason`): 'card_closed' = this formRef can't be acted on

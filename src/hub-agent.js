@@ -21,8 +21,10 @@ import { loadHubConfig } from './config.js';
 import { apiHost, briefReply, keyEnvName, useModel } from './llm.js';
 import { createHubRegistry } from './hub-registry.js';
 import { CONTROL_MEDIA_TYPES, DEREGISTER_MEDIA_TYPE, HEARTBEAT_MEDIA_TYPE, REGISTER_MEDIA_TYPE } from './hub-link.js';
+import { createRosterClient } from './hub-roster.js';
 import { createLessonService, verifyAgentSignature } from './hub-lessons.js';
-import { CARD_CLOSED, HUB_STAFF_MEDIA_TYPES, STAFF_ACTION_MEDIA_TYPE, STAFF_REQUEST_MEDIA_TYPE, staffActionFields, staffReply, staffRequestFields } from './staff.js';
+import { sendData } from './a2a-data.js';
+import { CARD_CLOSED, HUB_STAFF_MEDIA_TYPES, ROSTER_FAILED_TEXT, ROSTER_REQUEST_MEDIA_TYPE, STAFF_ACTION_MEDIA_TYPE, STAFF_REQUEST_MEDIA_TYPE, staffActionFields, staffReply, staffRequestFields } from './staff.js';
 import { ID } from './lessons.js';
 import { HUB_LESSON_MEDIA_TYPES, LESSON_PUBLISH_MEDIA_TYPE, LESSON_RECEIPT_MEDIA_TYPE, LESSON_STATUS_MEDIA_TYPE, STUDENT_SESSION_MEDIA_TYPE } from './lessons.js';
 import { CARD_CHANGED_MEDIA_TYPE } from './skills.js';
@@ -84,6 +86,7 @@ const SAFE_FIELDS = new Set([
   'tool', 'moment', 'recordId', 'stepCount', 'expected', // Part 15: PeopleSoft tool name (fixed list, schema-enum constrained), moment, record id, count
   'hrOutcome', // HR: card / refused / workflow_disabled … (an outcome code, never the staff member's words)
   'quizId', 'questionCount', // Part 16: Canvas quiz number and a count (never a title, question or answer)
+  'rosterCount', 'service', // Part 17: a count of roster students and the staff service (hr | chrs) — never a name, ID or email
   'unknownOutcome', // a boolean: the issuer doesn't know whether its backend acted (Topology draws it as unknown, not rejected)
 ]);
 // Lists of field NAMES (never values) that may pass, e.g. which fields a form prefilled.
@@ -125,7 +128,8 @@ export function startHubServer({ port } = {}) {
     },
   });
   // Part 9: professor-initiated lessons and student sessions (src/hub-lessons.js).
-  lessons = createLessonService({ cfg, registry, emit: (type, data) => emit(type, null, data) });
+  const roster = createRosterClient({ cfg, registry, emit: (type, data) => emit(type, null, data) });
+  lessons = createLessonService({ cfg, registry, roster, emit: (type, data) => emit(type, null, data) });
   const workerOf = Object.fromEntries(Object.entries(cfg.destinations).map(([dest, d]) => [d.worker, dest]));
   // HR (staff only): destinations with audience 'staff' are reachable only through the signed staff path —
   // never on the public card, in the student router's view, or as a student's requestedCapability.
@@ -213,7 +217,7 @@ export function startHubServer({ port } = {}) {
     let ack;
     if (part.mediaType === STUDENT_SESSION_MEDIA_TYPE) ack = await lessons.registerStudent(value);
     else if (part.mediaType === LESSON_PUBLISH_MEDIA_TYPE) ack = await lessons.publish(value);
-    else if (part.mediaType === LESSON_STATUS_MEDIA_TYPE) ack = lessons.status(value);
+    else if (part.mediaType === LESSON_STATUS_MEDIA_TYPE) ack = await lessons.status(value);
     else if (part.mediaType === LESSON_RECEIPT_MEDIA_TYPE) ack = lessons.receipt(value, msg.metadata?.studentSignature);
     bus.publish(AgentEvent.message({ messageId: randomUUID(), contextId: ctx.contextId, taskId: '', role: Role.ROLE_AGENT, parts: [jsonPart(ack ?? { status: 'rejected' })], metadata: undefined, extensions: [], referenceTaskIds: [] }));
     bus.finished();
@@ -254,7 +258,7 @@ export function startHubServer({ port } = {}) {
     emit('staff_request_received', runId, { operationId, agentId: sender, kind: isAction ? 'action' : 'request', ...(isAction ? { formRef: typeof value.formRef === 'string' ? value.formRef.slice(0, 80) : null } : { chars: typeof value.text === 'string' ? value.text.length : 0, cardValues: value.formValues !== undefined }) });
 
     // Dedupe by the sender's operation ID: the same values get the same (definite) result; other values are refused.
-    const payloadHash = hash(isAction ? { kind: 'action', sender, formRef: value.formRef, conversationId: value.conversationId, name: value.action?.name, context: value.action?.context } : { kind: 'request', sender, conversationId: value.conversationId, text: value.text, formValues: value.formValues ?? null });
+    const payloadHash = hash(isAction ? { kind: 'action', sender, formRef: value.formRef, conversationId: value.conversationId, name: value.action?.name, context: value.action?.context } : { kind: 'request', sender, service: value.service ?? 'hr', conversationId: value.conversationId, text: value.text, formValues: value.formValues ?? null });
     let record = staffOperations.get(operationId);
     if (record && record.hash !== payloadHash) return refuse('operation_reused', 'This operation ID was already used with different values.');
     if (record?.promise) {
@@ -282,15 +286,21 @@ export function startHubServer({ port } = {}) {
     // The open card's current values (optional): checked with the form's own rules, passed on to HR as data.
     const card = value.formValues === undefined ? { values: null } : checkTimeOffValues(value.formValues);
     if (card.ok === false) return { ...staffReply('refused', { reason: 'Malformed card values.' }), retryable: true };
-    // Part 17 (minimal; Task 3 finishes it): a staff request without a service is HR's, even with CHRS also configured.
-    const service = typeof value.service === 'string' ? value.service : 'hr';
+    // Part 17: the signed `service` picks the staff destination ('hr' when absent). It must be one of the staff
+    // destinations in the Hub's own configuration; anything else is refused (never guessed, never "first ready").
+    const service = value.service === undefined ? 'hr' : value.service;
+    if (typeof service !== 'string' || !staffDestinations().some((d) => d.destination === service)) {
+      emit('staff_refused', runId, { operationId, code: 'unknown_service', kind: 'request' });
+      return staffReply('refused', { reason: 'That staff service isn’t available.', code: 'unknown_service' });
+    }
+    const failureWords = service === 'chrs' ? ROSTER_FAILED_TEXT : null; // HR keeps its own wording below
     const ready = staffDestinations().filter((d) => d.destination === service && registry.isReady(d.agentId));
     if (!ready.length) {
-      emit('route_decided', runId, { operationId, decidedBy: 'staff', decision: 'unavailable', destination: null, agentId: null, skillId: null, reason: 'No staff service is ready.' });
-      return staffReply('not_delivered', { reason: 'Staff services aren’t available right now. Please try again in a little while.' });
+      emit('route_decided', runId, { operationId, decidedBy: 'staff', decision: 'unavailable', destination: null, agentId: null, skillId: null, service, reason: 'No staff service is ready.' });
+      return staffReply('not_delivered', { reason: failureWords ?? 'Staff services aren’t available right now. Please try again in a little while.' });
     }
     const { destination, agentId } = ready[0];
-    emit('route_decided', runId, { operationId, decidedBy: 'staff', decision: 'route', destination, agentId, skillId: null, reason: 'A request from university staff — the staff services destination.', model: null });
+    emit('route_decided', runId, { operationId, decidedBy: 'staff', decision: 'route', destination, agentId, skillId: null, service, reason: 'A request from university staff — the staff services destination.', model: null });
     const key = `${value.professorId}|${value.conversationId}`;
     let conv = staffConversations.get(key);
     if (!conv) {
@@ -301,10 +311,11 @@ export function startHubServer({ port } = {}) {
     const peer = registry.peer(agentId);
     const contextId = (conv.downstream[agentId] ??= randomUUID());
     const hubOperationId = randomUUID();
-    emit('forward_attempted', runId, { operationId, agentId, destination, downstreamContextId: contextId, downstreamMessageId: record.downstreamMessageId });
+    emit('forward_attempted', runId, { operationId, agentId, destination, service, downstreamContextId: contextId, downstreamMessageId: record.downstreamMessageId });
     activeFor.set(agentId, (activeFor.get(agentId) ?? 0) + 1);
     counters.active += 1;
     try {
+      if (service === 'chrs') return await rosterRequest(value, staff, { runId, operationId, agentId, contextId, hubOperationId, peer });
       const reply = await askTutor(peer.baseUrl, text, {
         runId, contextId, messageId: record.downstreamMessageId, card: registry.entry(agentId).card, timeoutMs: cfg.timeouts.dispatchMs,
         metadata: { hubOperationId, via: cfg.agentId, staffId: staff.staffId, callerKind: 'staff', ...(card.values ? { formValues: card.values } : {}), hubSignature: registry.signStaffFor(agentId, { staffId: staff.staffId, contextId, operationId: hubOperationId }) },
@@ -329,6 +340,33 @@ export function startHubServer({ port } = {}) {
       activeFor.set(agentId, activeFor.get(agentId) - 1);
       counters.active -= 1;
     }
+  }
+
+  // Part 17: "show me my class roster" — a roster_request (typed data part) to CHRS with the Hub's STAFF signature (the
+  // same one HR checks); CHRS asks the student-records stand-in. The course is the sender's own configured course, never
+  // a value from the request. The roster goes back to the Faculty agent to draw; the Hub keeps it only as long as the
+  // dedupe record of this operation, and its events carry the count alone.
+  async function rosterRequest(value, staff, { runId, operationId, agentId, contextId, hubOperationId, peer }) {
+    const courseId = Object.entries(cfg.courses ?? {}).find(([, c]) => c.professor === value.professorId)?.[0];
+    if (!courseId) return { ...staffReply('refused', { reason: 'You have no class to show a roster for.' }), retryable: true };
+    const r = await sendData(peer.baseUrl, {
+      mediaType: ROSTER_REQUEST_MEDIA_TYPE, value: { type: 'roster_request', kind: 'roster', courseId }, contextId, timeoutMs: cfg.timeouts.dispatchMs,
+      metadata: { hubOperationId, via: cfg.agentId, staffId: staff.staffId, callerKind: 'staff', hubSignature: registry.signStaffFor(agentId, { staffId: staff.staffId, contextId, operationId: hubOperationId }) },
+    });
+    if (!r.ok) {
+      registry.markReachable(agentId, r.outcome === 'uncertain' ? null : false, r.error);
+      emit('forward_failed', runId, { operationId, agentId, service: 'chrs', outcome: r.outcome === 'uncertain' ? 'unknown' : 'not_delivered', code: null });
+      return r.outcome === 'uncertain' ? staffReply('outcome_unknown', { reason: ROSTER_FAILED_TEXT }) : staffReply('not_delivered', { reason: ROSTER_FAILED_TEXT });
+    }
+    registry.markReachable(agentId, true);
+    const rows = r.value?.roster?.rows;
+    if (Array.isArray(rows)) {
+      emit('forward_completed', runId, { operationId, agentId, service: 'chrs', kind: 'roster', rosterCount: rows.length });
+      return staffReply('ok', { reply: { text: `Class roster · ${rows.length} students`, servedBy: agentId, roster: r.value.roster } });
+    }
+    // A plain sentence from CHRS (its failure words, or "staff only"): shown as is, and not kept for a repeat of this operation.
+    emit('forward_completed', runId, { operationId, agentId, service: 'chrs', kind: 'answer', rosterCount: 0 });
+    return { ...staffReply('ok', { reply: { text: typeof r.value?.text === 'string' ? r.value.text.slice(0, 500) : ROSTER_FAILED_TEXT, servedBy: agentId } }), retryable: true };
   }
 
   // An HR card → an opaque Hub reference bound to the staff member, the sending agent and its conversation.
@@ -739,6 +777,7 @@ export function startHubServer({ port } = {}) {
       // and HR (staff only) to restore its records.
       dev.post('/dev/classroom/reset', async (req, res) => {
         lessons.reset();
+        roster.reset(); // the cached CHRS roster is forgotten too (the next post asks CHRS again)
         const professors = [...new Set(Object.values(cfg.courses ?? {}).map((c) => c.professor))];
         const results = {};
         for (const id of professors) {

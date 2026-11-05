@@ -23,8 +23,15 @@ export const signStaff = (key, { staffId, contextId, operationId }) => createHma
 // signature never verifies as a lookup. It covers the course, the course's instructor and the Hub's operation id
 // (not the contextId: the Hub's lookup has none of its own). The staff member's agent has a different key, so it
 // can't make one.
-export const signRosterLookup = (key, { courseId, instructorStaffId, operationId }) => createHmac('sha256', key).update(`roster-lookup|${courseId}|${instructorStaffId}|${operationId}`).digest('base64url');
+// Every field must be a plain id (no '|' that could shift the boundaries between fields): signing refuses anything else.
+const LOOKUP_ID = /^[\w-]{1,64}$/;
+const lookupFieldsOk = (...fields) => fields.every((v) => typeof v === 'string' && LOOKUP_ID.test(v));
+export const signRosterLookup = (key, { courseId, instructorStaffId, operationId }) => {
+  if (!lookupFieldsOk(courseId, instructorStaffId, operationId)) return null;
+  return createHmac('sha256', key).update(`roster-lookup|${courseId}|${instructorStaffId}|${operationId}`).digest('base64url');
+};
 const sameSignature = (given, expected) => {
+  if (typeof given !== 'string' || typeof expected !== 'string') return false;
   const a = Buffer.from(given);
   const b = Buffer.from(expected);
   return a.length === b.length && timingSafeEqual(a, b);
@@ -39,7 +46,7 @@ export function verifyStaffSignature(key, metadata, contextId) {
 export function verifyRosterLookupSignature(key, value, metadata) {
   const { courseId, instructorStaffId } = value ?? {};
   const { hubOperationId, hubSignature } = metadata ?? {};
-  if (![courseId, instructorStaffId, hubOperationId, hubSignature].every((v) => typeof v === 'string' && v)) return null;
+  if (!lookupFieldsOk(courseId, instructorStaffId, hubOperationId) || typeof hubSignature !== 'string' || !hubSignature) return null;
   return sameSignature(hubSignature, signRosterLookup(key, { courseId, instructorStaffId, operationId: hubOperationId })) ? { courseId, instructorStaffId } : null;
 }
 import { Role } from '@a2a-js/sdk';

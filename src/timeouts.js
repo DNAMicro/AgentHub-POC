@@ -19,6 +19,8 @@ export const TIMEOUTS = Object.freeze({
   hrToolChoiceMs: 8000, // HR's AI choosing the PeopleSoft tool (HR_TOOL_CHOICE_TIMEOUT_MS)
   hrAbsenceModelMs: 30000, // HR's AI proposing the absence name on a card issue (HR_MODEL_TIMEOUT_MS)
   hrPeopleSoftCallMs: 12000, // PeopleSoft connect + one MCP call share this (PEOPLESOFT_TIMEOUT_MS). The call always keeps at least the planner + 2 s (10 s; src/hr-peoplesoft.js CALL_FLOOR_MS), so the connect gets at most 2 s; the tool choice (8 s) is outside it: 8 + 12 = 20 s < the Hub's staff wait
+  hubRosterLookupMs: 22000, // Hub -> CHRS roster lookup for a post, > CHRS's tool choice + records call (8 + 12 = 20 s) (HUB_ROSTER_LOOKUP_TIMEOUT_MS)
+  professorPublishMs: 40000, // Professor -> Hub lesson publish, > the roster lookup + the Student delivery (5 s) (PROFESSOR_PUBLISH_TIMEOUT_MS)
   hubStaffActionMs: 25000, // Hub → HR staff form action, > tool choice + MCP call (HUB_STAFF_ACTION_TIMEOUT_MS)
   hubFormActionMs: 8000, // Hub → specialist STUDENT form action, unchanged (HUB_FORM_TIMEOUT_MS)
   hubDispatchMs: 60000, // Hub → specialist chat / staff request, > absence name + tool choice + balances call (HUB_DISPATCH_TIMEOUT_MS)

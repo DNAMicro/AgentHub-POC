@@ -41,7 +41,7 @@ test('validQuizNotice accepts exactly the facts and nothing else', () => {
 });
 
 test('a quiz notice to the whole class reaches Alex with the quiz intact, Sam is queued; extra keys and lessons are refused', async () => {
-  const stack = await startStack({ library: false, uiEnv: { STUDENT_INBOX_FILE: join(mkdtempSync(join(tmpdir(), 'a2a-quiz-')), 'inbox.json') } });
+  const stack = await startStack({ library: false, chrs: true, uiEnv: { STUDENT_INBOX_FILE: join(mkdtempSync(join(tmpdir(), 'a2a-quiz-')), 'inbox.json') } });
   const prof = await professorStandIn(stack);
   const stream = await openStream(stack.ui.url);
   cleanups.push(async () => { stream.close(); await prof.close(); stack.kill(); });

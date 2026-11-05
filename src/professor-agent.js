@@ -211,7 +211,8 @@ async function publish(record) {
   emitViz('lesson_posted', null, { lessonId: record.lessonId, revision: record.revision, operationId: record.operationId, kind: record.kind, audience: record.audience === 'all' ? 'all' : 'one' });
   const ack = await hubLink.sendSigned(LESSON_PUBLISH_MEDIA_TYPE,
     { type: 'lesson_publish', operationId: record.operationId, lessonId: record.lessonId, revision: record.revision, courseId: record.courseId, kind: record.kind, author: record.author ?? 'professor', ...(record.meeting ? { meeting: record.meeting } : {}), ...(record.quiz ? { quiz: record.quiz } : {}), audience: record.audience, title: record.title, text: record.text },
-    ['publish', record.operationId, record.lessonId, record.revision, record.courseId, record.kind, record.audience, contentHash(record.title, record.text, record.kind, record.author ?? 'professor', record.meeting ?? null, record.quiz ?? null)]);
+    ['publish', record.operationId, record.lessonId, record.revision, record.courseId, record.kind, record.audience, contentHash(record.title, record.text, record.kind, record.author ?? 'professor', record.meeting ?? null, record.quiz ?? null)],
+    { timeoutMs: Number(process.env.PROFESSOR_PUBLISH_TIMEOUT_MS ?? TIMEOUTS.professorPublishMs) }); // > the Hub's roster lookup + delivery (src/timeouts.js)
   // Accepted = the Hub recorded the post and made a delivery per recipient; delivering is then its job.
   const accepted = Array.isArray(ack.deliveries) && ack.deliveries.length > 0;
   outbox.update((s) => {

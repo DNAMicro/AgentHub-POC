@@ -156,7 +156,7 @@ test('wrong professor, unknown course, unenrolled recipient and forged publishes
   };
   assert.deepEqual(await reason({ courseId: 'calc-150' }), { status: 422, reason: 'not_course_professor' });
   assert.deepEqual(await reason({ courseId: 'hist-999' }), { status: 422, reason: 'unknown_course' });
-  assert.deepEqual(await reason({ audience: 'student-sam' }), { status: 422, reason: 'recipient_not_enrolled' });
+  assert.deepEqual(await reason({ audience: 'student-nobody' }), { status: 422, reason: 'recipient_not_enrolled' }); // not on CHRS's roster
   // Someone who isn't the registered Professor instance (no key) claiming to be it.
   const forged = await sendData(s.hub.url, {
     mediaType: LESSON_PUBLISH_MEDIA_TYPE,
@@ -270,17 +270,22 @@ test('a course message to all students: one delivery each — delivered to a con
   assert.equal(res.status, 200);
   const { ack } = await res.json();
   assert.equal(ack.accepted, true);
-  assert.deepEqual(ack.deliveries.map((d) => [d.studentId, d.state]).sort(), [['student-alex', 'delivered'], ['student-sam', 'queued']], 'the Hub expanded “all” from its enrollment');
+  // Part 17: the Hub expands “all” from CHRS's class roster (25 students), not from its own enrollment list.
+  assert.equal(ack.deliveries.length, 25);
+  assert.equal(ack.deliveries.find((d) => d.studentId === 'student-alex').state, 'delivered');
+  assert.deepEqual([...new Set(ack.deliveries.filter((d) => d.studentId !== 'student-alex').map((d) => d.state))], ['queued']);
   assert.equal(ack.deliveries.find((d) => d.studentId === 'student-sam').reason, 'student_offline');
   // Sam stays queued; the Hub reports that once, not on every retry cycle (500 ms in tests).
   await new Promise((r) => setTimeout(r, 1800));
-  assert.equal(findAll(stream.events, 'hub', 'lesson_queued').length, 1, 'queued is reported once');
+  const queuedEvents = findAll(stream.events, 'hub', 'lesson_queued');
+  assert.equal(queuedEvents.length, 24, 'queued is reported once per waiting student (24), not on every retry cycle');
+  assert.equal(new Set(queuedEvents.map((e) => e.data.deliveryId)).size, 24);
   const [m] = (await inbox(s)).lessons;
   assert.equal(m.kind, 'message');
   assert.equal(m.toAll, true);
   const st = await professorState(s);
   assert.equal(st.lessons[0].kind, 'message');
-  assert.equal(st.lessons[0].deliveries.length, 2);
+  assert.equal(st.lessons[0].deliveries.length, 25);
   // Replying to it goes to its professor in person (the professor wrote it): no model answer — it waits
   // in the professor's chat, and the student is told so.
   const r = await post(`${s.ui.url}/api/runs`, { text: 'Why is it later?', lessonDeliveryId: m.deliveryId });
@@ -348,7 +353,8 @@ test('professor chat: plain messages go straight to students (tags pick who, no 
   const toAll = await posted(all);
   assert.equal(toAll.audience, 'all');
   assert.equal(toAll.text, 'Everyone, read the pricing chapter before class.');
-  assert.deepEqual(toAll.deliveries.map((d) => d.studentId).sort(), ['student-alex', 'student-sam']);
+  assert.equal(toAll.deliveries.length, 25, 'one delivery per CHRS roster student');
+  assert.ok(['student-alex', 'student-sam'].every((id) => toAll.deliveries.some((d) => d.studentId === id)));
   // Several tags: each of them.
   const both = await posted(await say(s, '@alex @sam bring your drafts on Monday.'));
   assert.equal(both.audience, 'student-alex,student-sam');

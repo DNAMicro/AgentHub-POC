@@ -4,7 +4,7 @@
 //                   one HR verifies: hubLink.verifiedStaff) -> data part { roster } or { text } (a plain failure).
 //   roster lookup   { type: 'roster_lookup', courseId, instructorStaffId } signed by the HUB ITSELF
 //                   (hubLink.verifiedRosterLookup) -> data part { studentIds, names, count } or { error, text }.
-//                   Names are "First Last" for the Hub's delivery labels; emails and student IDs never go to the Hub.
+//                   Names are "First Last" for the Hub's delivery labels; the Hub gets only roster student IDs and names, never emails or CWIDs.
 // Anything else (a text message, an unsigned or wrongly signed part) gets "CHRS serves university staff only."
 //
 // CHRS keeps no student records: it reaches the PeopleSoft student records stand-in (src/student-records-mcp.js)

@@ -183,7 +183,10 @@ export async function stopProcess(p) {
 // Hub never follows a real HR on the default port.
 // Part 15: hr: true also starts the PeopleSoft stand-in first, on its own pre-picked port with a random token
 // given to both PeopleSoft and HR (HR never points at the real 41246). It is killed with the stack.
-export async function startStack({ tutorEnv = {}, libraryEnv = {}, hubEnv = {}, uiEnv = {}, professorEnv = {}, hrEnv = {}, peoplesoftEnv = {}, canvasEnv = {}, chrsEnv = {}, studentRecordsEnv = {}, library = true, professor = false, hr = false, canvas = false, chrs = false, now = null, tutorPort, libraryPort, professorPort, hrPort, chrsPort, uiPort, waitReady = true, readyAgents } = {}) {
+export async function startStack({ tutorEnv = {}, libraryEnv = {}, hubEnv = {}, uiEnv = {}, professorEnv = {}, hrEnv = {}, peoplesoftEnv = {}, canvasEnv = {}, chrsEnv = {}, studentRecordsEnv = {}, library = true, professor = false, hr = false, canvas = false, chrs: chrsOpt, now = null, tutorPort, libraryPort, professorPort, hrPort, chrsPort, uiPort, waitReady = true, readyAgents } = {}) {
+  // Part 17: a post to the class is addressed from CHRS's roster, so a stack with the Faculty agent starts CHRS (and the
+  // student-records stand-in) too, unless chrs: false (a test of the roster_unavailable refusal).
+  const chrs = chrsOpt ?? professor;
   const tPort = tutorPort ?? (await unusedPort());
   const lPort = libraryPort ?? (await unusedPort());
   const pPort = professorPort ?? (await unusedPort());

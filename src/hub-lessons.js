@@ -34,7 +34,7 @@ export function verifyAgentSignature(registry, msg, fields) {
   return verify(e.callKey, [msg.professorId, msg.instanceId, ...fields], msg.signature) ? 'ok' : 'bad_signature';
 }
 
-export function createLessonService({ cfg, registry, emit = () => {}, file = process.env.HUB_LESSON_FILE ?? 'data/hub-lessons.json', deliverTimeoutMs = Number(process.env.HUB_DELIVER_TIMEOUT_MS ?? 5000), retryMs = Number(process.env.HUB_DELIVER_RETRY_MS ?? 3000) }) {
+export function createLessonService({ cfg, registry, roster = null, emit = () => {}, file = process.env.HUB_LESSON_FILE ?? 'data/hub-lessons.json', deliverTimeoutMs = Number(process.env.HUB_DELIVER_TIMEOUT_MS ?? 5000), retryMs = Number(process.env.HUB_DELIVER_RETRY_MS ?? 3000) }) {
   const store = createJsonStore(file, { lessons: {}, operations: {}, deliveries: {}, notices: {} });
   const sessions = new Map(); // studentId → { instanceId, callKey, since }
   const inFlight = new Set(); // deliveryIds being sent right now (never two sends at once)
@@ -79,7 +79,9 @@ export function createLessonService({ cfg, registry, emit = () => {}, file = pro
   // A post goes to one enrolled student or to 'all' — every student enrolled in the course, from the
   // Hub's own configuration. Each recipient gets their own delivery (own id, state and receipt).
   const summaryOf = (ds) => (ds.every((d) => d.state === 'delivered') ? 'delivered' : ['uncertain', 'queued', 'failed'].find((st) => ds.some((d) => d.state === st)) ?? 'queued');
-  const deliveryView = (d) => ({ studentId: d.studentId, deliveryId: d.deliveryId, state: d.state, reason: d.lastError, opened: Boolean(d.openedAt) });
+  // `name` comes from the CHRS roster (kept in memory only; the persisted delivery has the student ID alone).
+  const deliveryView = (d, names = null) => ({ studentId: d.studentId, ...(names?.[d.studentId] ? { name: names[d.studentId] } : {}), deliveryId: d.deliveryId, state: d.state, reason: d.lastError, opened: Boolean(d.openedAt) });
+  const isOnline = (sid) => sessions.has(sid) && !sessions.get(sid).unreachable;
   async function publish(msg) {
     const reject = (reason, detail = null) => {
       emit('lesson_rejected', { agentId: msg?.professorId ?? null, reason, lessonId: msg?.lessonId ?? null });
@@ -97,18 +99,34 @@ export function createLessonService({ cfg, registry, emit = () => {}, file = pro
     const course = cfg.courses?.[msg.courseId];
     if (!course) return reject('unknown_course');
     if (course.professor !== msg.professorId) return reject('not_course_professor');
-    const recipients = msg.audience === 'all' ? [...course.enrolled] : [...new Set(msg.audience.split(','))];
-    if (recipients.some((sid) => !course.enrolled.includes(sid))) return reject('recipient_not_enrolled');
-    if (!recipients.length) return reject('no_students_enrolled');
     const v = validateLesson({ kind, title: msg.title, text: msg.text });
     if (!v.ok) return reject('invalid_content', v.errors);
     // Dedupe: the same operation returns its stored outcome; the same id with different content is refused.
-    const prior = store.get().operations[msg.operationId];
-    if (prior) {
+    // (Before the roster lookup: a repeat of a post that was already accepted never needs CHRS again.)
+    const priorResult = () => {
+      const prior = store.get().operations[msg.operationId];
+      if (!prior) return null;
       if (prior.hash !== hash || prior.lessonId !== msg.lessonId || prior.revision !== msg.revision || prior.audience !== msg.audience) return reject('operation_reused');
       const ds = prior.deliveryIds.map((id) => store.get().deliveries[id]);
-      return { status: summaryOf(ds), duplicate: true, lessonId: msg.lessonId, revision: msg.revision, deliveries: ds.map(deliveryView) };
+      return { status: summaryOf(ds), duplicate: true, lessonId: msg.lessonId, revision: msg.revision, deliveries: ds.map((d) => deliveryView(d, roster?.cached(msg.courseId)?.names)) };
+    };
+    const duplicate = priorResult();
+    if (duplicate) return duplicate;
+    // Recipients come from CHRS's roster for the course, never from a list kept here: `all` is every roster student;
+    // a tagged student must be on it. CHRS unavailable -> nothing is sent (no fallback list).
+    const wanted = msg.audience === 'all' ? null : [...new Set(msg.audience.split(','))];
+    let looked = await (roster ? roster.get(msg.courseId) : { ok: false, reason: 'not_configured' });
+    if (!looked.ok) return reject('roster_unavailable');
+    if (wanted && wanted.some((sid) => !looked.roster.studentIds.includes(sid))) {
+      looked = await roster.get(msg.courseId, { fresh: true }); // the cached roster may be old: check once against a new lookup
+      if (!looked.ok) return reject('roster_unavailable');
+      if (wanted.some((sid) => !looked.roster.studentIds.includes(sid))) return reject('recipient_not_enrolled');
     }
+    const recipients = wanted ?? [...looked.roster.studentIds];
+    if (!recipients.length) return reject('no_students_enrolled');
+    const names = looked.roster.names;
+    const racing = priorResult(); // the same operation may have been accepted while the lookup ran
+    if (racing) return racing;
     const key = `${msg.lessonId}#${msg.revision}`;
     const existing = store.get().lessons[key];
     if (existing && existing.hash !== hash) return reject('revision_conflict'); // a revision is immutable
@@ -120,10 +138,10 @@ export function createLessonService({ cfg, registry, emit = () => {}, file = pro
         s.deliveries[deliveryIds[i]] ??= { deliveryId: deliveryIds[i], lessonId: msg.lessonId, revision: msg.revision, studentId, courseId: msg.courseId, professorId: msg.professorId, state: 'queued', attempts: 0, lastError: null, deliveredAt: null, openedAt: null, inboxId: null };
       });
     });
-    emit('lesson_publish_received', { agentId: msg.professorId, lessonId: msg.lessonId, revision: msg.revision, courseId: msg.courseId, kind, audience: msg.audience === 'all' ? 'all' : recipients.length > 1 ? 'some' : 'one', recipients: recipients.length });
+    emit('lesson_publish_received', { agentId: msg.professorId, lessonId: msg.lessonId, revision: msg.revision, courseId: msg.courseId, kind, audience: msg.audience === 'all' ? 'all' : recipients.length > 1 ? 'some' : 'one', recipients: recipients.length, rosterCount: looked.roster.studentIds.length });
     await Promise.all(deliveryIds.map((id) => deliver(id)));
     const ds = deliveryIds.map((id) => store.get().deliveries[id]);
-    return { status: summaryOf(ds), lessonId: msg.lessonId, revision: msg.revision, deliveries: ds.map(deliveryView) };
+    return { status: summaryOf(ds), lessonId: msg.lessonId, revision: msg.revision, deliveries: ds.map((d) => deliveryView(d, names)) };
   }
 
   // ---- delivery (Hub → Student) ---------------------------------------------------------------------
@@ -204,12 +222,25 @@ export function createLessonService({ cfg, registry, emit = () => {}, file = pro
     }
     return { status: 'ok', openedAt: store.get().deliveries[d.deliveryId].openedAt };
   }
-  function status(msg) {
+  // `enrolled` stays the people who can have a Student-agent session (names as configured); `rosterCount` /
+  // `onlineCount` come from CHRS's roster for the course (the Faculty header's "25 students · 1 online"). A roster
+  // that can't be had right now is rosterCount null (never a made-up number). Counts only: no roster names here.
+  async function status(msg) {
     const who = verifyProfessor(msg, ['status', msg?.nonce]);
     if (who !== 'ok') return { status: 'rejected', reason: who };
-    const courses = coursesOf(msg.professorId).map(([courseId, c]) => ({ courseId, title: c.title, enrolled: c.enrolled.map((sid) => ({ studentId: sid, name: cfg.studentNames?.[sid] ?? sid, online: sessions.has(sid) && !sessions.get(sid).unreachable })) }));
+    const settle = (courseId) => Promise.race([roster ? roster.get(courseId, { quiet: true }) : { ok: false }, new Promise((res) => setTimeout(() => res({ ok: false }), 2000).unref?.())]); // the polling view never waits on a slow lookup
+    const courses = await Promise.all(coursesOf(msg.professorId).map(async ([courseId, c]) => {
+      const r = await settle(courseId);
+      return {
+        courseId, title: c.title,
+        enrolled: c.enrolled.map((sid) => ({ studentId: sid, name: cfg.studentNames?.[sid] ?? sid, online: isOnline(sid) })),
+        rosterCount: r.ok ? r.roster.studentIds.length : null,
+        onlineCount: (r.ok ? r.roster.studentIds : c.enrolled).filter(isOnline).length,
+      };
+    }));
+    const names = Object.assign({}, ...coursesOf(msg.professorId).map(([courseId]) => roster?.cached(courseId)?.names ?? {}));
     const deliveries = Object.values(store.get().deliveries).filter((d) => d.professorId === msg.professorId)
-      .map(({ deliveryId, lessonId, revision, studentId, state, attempts, lastError, deliveredAt, openedAt }) => ({ deliveryId, lessonId, revision, studentId, state, attempts, lastError, deliveredAt, openedAt }));
+      .map(({ deliveryId, lessonId, revision, studentId, state, attempts, lastError, deliveredAt, openedAt }) => ({ deliveryId, lessonId, revision, studentId, ...(names[studentId] ? { name: names[studentId] } : {}), state, attempts, lastError, deliveredAt, openedAt }));
     return { status: 'ok', courses, deliveries };
   }
 
