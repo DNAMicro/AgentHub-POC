@@ -429,6 +429,32 @@ test('@assistant (live mode, scripted model): code overrides an untagged recipie
   }
 });
 
+// Part 17 faculty scenarios round 2 (R1b): the assistant's model never sees the two Student-agent sessions as "the class". It
+// gets the class size (from the roster desk's last known count, or "unknown") and, for addressing, the roster's names and
+// tags only (no email, no 888 ID, no fictional student id). Scripted model (plumbing, not judgment).
+test('R1b: the @assistant prompt carries the class size and the roster names (or nothing), never the 2-person list, an email or an ID', async () => {
+  const stub = await startFakeAnthropic();
+  stub.respondWith(() => messageReply(JSON.stringify({ action: 'answer', reply: 'Here is what I know.', kind: 'message', audience: 'all', title: '', content: '', content_is_verbatim: false, seed_id: '' })));
+  const { s } = await classroom({ professorEnv: { PROFESSOR_MODE: 'live', ANTHROPIC_API_KEY: `sk-ant-test-${randomUUID()}`, ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0' } });
+  const promptOf = () => { const r = stub.requests.filter((x) => /course assistant inside/.test(JSON.stringify(x.body.system))).at(-1); return JSON.stringify(r.body.messages); };
+  try {
+    await say(s, '@assistant what did I send this week?');
+    const before = promptOf();
+    assert.match(before, /number of students unknown/);
+    assert.match(before, /reaches every enrolled student/);
+    assert.doesNotMatch(before, /student-alex|student-sam|Alex Student|Sam Student/, 'no 2-person session list');
+    assert.equal((await say(s, 'show my class roster')).reply, 'Class roster · 25 students');
+    await say(s, '@assistant what did I send this week?');
+    const after = promptOf();
+    assert.match(after, /25 enrolled students/);
+    assert.match(after, /Mariana Aguilar \(tag @mariana\)/);
+    assert.match(after, /Alex Student \(tag @alex\)/);
+    assert.doesNotMatch(after, /csu\.fullerton\.example|888\d{6}|student-[a-z]/, 'names and tags only');
+  } finally {
+    await stub.close();
+  }
+});
+
 test('a web page on another site can’t reset the classroom, post as the professor or change skills (cross-site requests refused)', async () => {
   const { s } = await classroom();
   await postLesson(s, { title: 'Still here' });

@@ -152,6 +152,10 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
     if (!d) return null;
     const n = d.quiz.questions.length;
     const c = { draftId: d.draftId, topic: d.topic, state: d.state, canvasQuizId: d.canvasQuizId, questionCount: n, pointsTotal: n * d.quiz.pointsEach };
+    // Round 2 (R6): once published (the class is told these facts anyway) the title, due date, minutes and attempts too —
+    // never a question or an answer — so the card still reads "… Topic 3 Quiz: … is open in Canvas (quiz #4821), due
+    // Mon, Nov 9, 11:59 PM." after a reload. Before that the state (pushed to every page's stream) carries no title.
+    if (d.state === 'published') Object.assign(c, { title: String(d.quiz.title ?? ''), dueAt: d.quiz.dueAt ?? null, minutes: d.quiz.minutes ?? null, attempts: d.quiz.attempts ?? null });
     if (d.deliveries) c.deliveries = d.deliveries.map((x) => ({ studentId: x?.studentId ?? null, status: x?.status ?? x?.state ?? null }));
     // Published in Canvas but the class notice did not go out: the card must say so and offer the retry, across redraws,
     // tab changes and reloads (the page reads this summary from /author/state). The sentence only, never a list or a name.

@@ -168,6 +168,53 @@ async (page) => {
   await page.screenshot({ path: `${SHOTS}/s-f3-highlight.png` });
   await hiCard.screenshot({ path: `${SHOTS}/s-f3-highlight-card.png` });
 
+  // 7b. Round 2, R4: "who are my seniors?" highlights every senior row (which rows come only with the rows); the chat says the
+  // count only.
+  await say('who are my seniors?');
+  await page.waitForFunction(() => { const c = [...document.querySelectorAll('#prof-log .roster-card')].at(-1); return c?.dataset.state === 'ready' && c.querySelectorAll('tr.cr-hi').length > 1; }, null, { timeout: 30000 });
+  const sCard = page.locator('#prof-log .roster-card').last();
+  const sRows = sCard.locator('tr.cr-hi');
+  const sCount = await sRows.count();
+  const sLevels = await sRows.locator('td:last-child').allTextContents();
+  check('R4: every highlighted row is a Senior, and every Senior row is highlighted', sLevels.every((l) => l.trim() === 'Senior') && (await sCard.locator('tbody tr td:last-child').allTextContents()).filter((l) => l.trim() === 'Senior').length === sCount, sLevels);
+  check(`R4: the reply says the count only ("${sCount} seniors are highlighted on your roster below.")`, await page.locator('#prof-log').evaluate((l, n) => [...l.querySelectorAll(':scope > li')].some((li) => (li.querySelector('.msg-text')?.textContent ?? '') === `${n} seniors are highlighted on your roster below.`), sCount));
+  check('R4: no level or major in the chat bubbles outside the roster cards', await page.locator('#prof-log').evaluate((l) => ![...l.querySelectorAll(':scope > li:not(.roster-card)')].some((li) => /\bSenior\b|Business Admin/.test(li.textContent))));
+  await page.waitForTimeout(400);
+  await sCard.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `${SHOTS}/s2-r4-seniors.png` });
+  await sCard.screenshot({ path: `${SHOTS}/s2-r4-seniors-card.png` });
+
+  // 7c. Round 2, R2: @-suggestions come from the roster (names only), and @mariana reaches Mariana Aguilar.
+  const box = page.locator('#prof-message');
+  await box.fill('');
+  await box.click();
+  await box.pressSequentially('@agu', { delay: 40 });
+  await page.waitForFunction(() => !document.querySelector('#mention-list').hidden && /Mariana Aguilar/.test(document.querySelector('#mention-list').textContent), null, { timeout: 15000 }).catch(() => {});
+  const sugg = await page.locator('#mention-list li').allTextContents();
+  check('R2: "@agu" suggests "@mariana — Mariana Aguilar" (last-name match, roster names)', sugg.length === 1 && sugg[0] === '@mariana — Mariana Aguilar', sugg);
+  await page.locator('#view-professor').screenshot({ path: `${SHOTS}/s2-r2-suggest-agu.png` });
+  await box.fill('');
+  await box.pressSequentially('@', { delay: 40 });
+  await page.waitForTimeout(400);
+  const all = await page.locator('#mention-list li').allTextContents();
+  check('R2: "@" lists the assistant and roster students (more than the two sessions), no email or ID', all.length > 3 && /^@assistant/.test(all[0]) && all.some((t) => /Mariana Aguilar/.test(t)) && !all.some((t) => /@csu|888\d{6}|student-/.test(t)), all);
+  await page.screenshot({ path: `${SHOTS}/s2-r2-suggest-all.png` });
+  await box.fill('');
+  await box.pressSequentially('@mari', { delay: 40 });
+  await page.waitForTimeout(300);
+  await box.press('Enter');
+  check('R2: picking the suggestion writes "@mariana "', (await box.inputValue()) === '@mariana ', await box.inputValue());
+  await box.pressSequentially('please resubmit your assignment', { delay: 10 });
+  const beforeN = await page.locator('#prof-log > li').count();
+  await box.press('Enter');
+  await page.waitForFunction((n) => document.querySelectorAll('#prof-log > li').length > n && !document.querySelector('#prof-log .chat-pending'), beforeN, { timeout: 30000 });
+  await page.waitForTimeout(1500);
+  const lastPost = page.locator('#prof-log .sent-post').last();
+  const lastText = ((await lastPost.textContent()) ?? '').replace(/\s+/g, ' ');
+  check('R2: "@mariana please resubmit your assignment" went to Mariana Aguilar (not "There\'s no @mariana")', /please resubmit your assignment/.test(lastText) && /Mariana/.test(lastText) && !(await page.locator('#prof-log').textContent()).includes("There's no @mariana"), lastText.slice(0, 200));
+  await lastPost.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `${SHOTS}/s2-r2-mariana-sent.png` });
+
   // 8. F1 (only with ?f1=<Hub port>): Canvas publishes, the class list is unavailable, and the card keeps the sentence and a
   // retry button across a reload and a tab round trip; once the list is back the retry notifies the class (Canvas once).
   if (hubPort) {

@@ -771,6 +771,15 @@ export async function startUiServer({ port = 4444 } = {}) {
       res.status(502).json({ error: `${hub.name} is not reachable, so names can’t be loaded.` });
     }
   });
+  // Round 2 (R2): the class's names and tags for the Faculty view's @-suggestions (names only), fetched only while that tab shows.
+  app.get('/api/professor/roster/people', async (req, res) => {
+    try {
+      const r = await professorCall('/roster/people');
+      res.status(r.status).json(r.json);
+    } catch {
+      res.status(502).json({ error: `${hub.name} is not reachable, so names can’t be loaded.`, people: [] });
+    }
+  });
   app.get('/api/professor/quiz/:draftId', async (req, res) => {
     if (!QUIZ_ID.test(req.params.draftId)) return res.status(404).json({ error: 'Unknown draft.' });
     try {

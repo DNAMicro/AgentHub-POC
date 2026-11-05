@@ -42,13 +42,14 @@ export function createRosterUi({ el, api, bubble, isShowing }) {
     c.body.replaceChildren(head(roster.class), el('div', { className: 'cr-grid-title', textContent: 'Enrolled Students' }), table, el('p', { className: 'roster-foot', textContent: FOOTER }));
     c.li.dataset.state = 'ready';
     // A details question (“what's Mariana Aguilar's email?”): that student's row is marked and scrolled into view inside the
-    // card's own scroll box (the chat itself is not scrolled). The chat entry carries only the fictional student id.
-    const hl = entry.roster.highlight;
-    const row = hl ? [...table.querySelectorAll('tbody tr')].find((tr) => tr.dataset.student === hl) : null;
+    // card's own scroll box (the chat itself is not scrolled). Round 2 (R4): a level / major question (“who are my seniors?”)
+    // marks every matching row; which rows comes only with the rows themselves (view.highlight), never in the chat entry.
+    const hl = Array.isArray(view.highlight) && view.highlight.length ? view.highlight : entry.roster.highlight ? [entry.roster.highlight] : [];
+    const marked = [...table.querySelectorAll('tbody tr')].filter((tr) => hl.includes(tr.dataset.student));
+    for (const tr of marked) { tr.classList.add('cr-hi'); tr.setAttribute('aria-current', 'true'); }
+    const row = marked[0] ?? null;
     if (row) {
-      row.classList.add('cr-hi');
-      row.setAttribute('aria-current', 'true');
-      c.li.dataset.highlight = hl;
+      c.li.dataset.highlight = hl.length === 1 ? hl[0] : String(marked.length);
       const place = () => {
         const head = table.querySelector('thead')?.getBoundingClientRect().height ?? 0;
         table.scrollTop += row.getBoundingClientRect().top - table.getBoundingClientRect().top - head - 8;

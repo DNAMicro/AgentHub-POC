@@ -829,6 +829,7 @@ export function startHubServer({ port } = {}) {
       // Part 17: the class roster card's rows (kept in the Faculty agent's memory), for the Faculty view only.
       dev.get('/dev/agents/:agentId/author/roster', author('/roster', 'GET'));
       dev.get('/dev/agents/:agentId/author/roster/names', author('/roster/names', 'GET')); // delivery names for the Faculty view only
+      dev.get('/dev/agents/:agentId/author/roster/people', author('/roster/people', 'GET')); // round 2: @-tag suggestions (names + tags) for the Faculty view only
       dev.get('/dev/agents/:agentId/author/quiz/:draftId', (req, res) => (/^[\w-]{6,80}$/.test(req.params.draftId) ? author(`/quiz/${req.params.draftId}`, 'GET')(req, res) : res.status(404).json({ error: 'Unknown draft.' })));
       // Manual "Refresh skills": re-fetch every specialist card from its configured URL (no model calls).
       dev.post('/dev/registry/refresh', (req, res) => {

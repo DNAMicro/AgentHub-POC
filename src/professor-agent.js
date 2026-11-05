@@ -25,9 +25,9 @@ import { datesIn } from './a2ui-catalog.js';
 import { slotsIn } from './meeting-times.js';
 import { createJsonStore } from './json-store.js';
 import { AUDIENCE, ID, LESSON_PUBLISH_MEDIA_TYPE, LESSON_STATUS_MEDIA_TYPE, contentHash, validQuizNotice, validateLesson } from './lessons.js';
-import { answersCancelOffer, checkClassPost, isThanks, rearmStaff, tellGoesToCard, resetStaff, staffAction, staffConversation, staffHolding, staffTurn, staffView } from './professor-staff.js';
+import { answersCancelOffer, checkClassPost, isThanks, privateLeaveWords, rearmStaff, tellGoesToCard, resetStaff, staffAction, staffConversation, staffHolding, staffTurn, staffView } from './professor-staff.js';
 import { cardValues, ROSTER_POST_FAILED_TEXT, ROSTER_UNAVAILABLE_CODE } from './staff.js';
-import { ROSTER_GONE, TELL_DROPPED, asksRoster, createRosterDesk, dropsTell, notifyEveryone, rosterFact, sentToAllText, tellText } from './professor-roster.js';
+import { ROSTER_GONE, ROSTER_QUESTION_TEXT, TELL_DROPPED, asksAboutRoster, asksRoster, asksRosterExport, createRosterDesk, dropsTell, notInClassText, notifyEveryone, notifyIsNew, resolveTags, rosterFact, rosterFilter, sentToAllText, tagFor, tellText, whichStudentText } from './professor-roster.js';
 import { createCanvasLink } from './professor-canvas.js';
 import { createQuizDesk, chipTopicOf } from './professor-quiz.js';
 import { validExisting } from './quiz-rules.js';
@@ -384,15 +384,29 @@ async function professorChat({ operationId, text, replyTo: replyToIn = null, ans
     // A waiting class cancellation offer blocks neither desk: “notify everyone that …” with something to say is its own
     // message (the offer stays open for its yes or no); a bare “notify everyone” / “yes” is the offer's answer (staff desk).
     const offerFree = (n) => !held.offer || (held.offer === 'cancel' && n);
-    const announced = free ? notifyEveryone(said) : null;
-    const classCheck = (text, heldText = said) => checkClassPost({ text, held: heldText, entryId: ownId, forClass: true, emit: (type, data) => emitViz(type, `staff-${operationId}`, data) });
-    // Roster requests and roster facts (F3: a count, “is X in my class?”, a student's email / ID / major / year) are read by
-    // code and answered from a fresh roster lookup. They run even while the HR / class / both question waits (F4): that
-    // question keeps waiting, unchanged, and they never count as its answer.
-    const plain = !toAssistant && !reply && offerFree(true);
-    const fact = plain ? rosterFact(said) : null;
-    if (plain && (asksRoster(said) || fact)) {
-      staff = fact ? await rosterDesk.fact({ operationId, hub, fact }) : await rosterDesk.request({ operationId, hub });
+    // Round 2 (R5): while the HR / class / both question waits, a notify-everyone message WITH something to say is a new
+    // message (a bare “tell the class” is still read as the answer): handled normally, and the question keeps waiting.
+    const notifyWords = !toAssistant && !reply ? notifyEveryone(said) : null;
+    const announced = free ? notifyWords : held.question && notifyIsNew(said) ? notifyWords : null;
+    const classCheck = (text, heldText = said, opts = {}) => checkClassPost({ text, held: heldText, entryId: ownId, forClass: true, emit: (type, data) => emitViz(type, `staff-${operationId}`, data), ...opts });
+    // Roster requests and roster facts (F3: a count, “is X in my class?”, a student's email / ID / major / year), and since
+    // round 2 a level / major filter (R4: “who are my seniors?”) and an email / export ask (R3) are read by code and answered
+    // from a fresh roster lookup. They run even while the HR / class / both question waits (F4, R5): that question keeps
+    // waiting, unchanged, and they never count as its answer. R1: they also run for “@assistant …” (the tag removed), so the
+    // assistant's model never answers “how many students are in my class?” from anything else.
+    const asked = toAssistant ? said.replace(ASSISTANT_TAG, ' ').trim() : said;
+    const rosterOk = !reply && (toAssistant || offerFree(true));
+    const exporting = rosterOk && asksRosterExport(asked);
+    const filter = rosterOk && !exporting ? rosterFilter(asked) : null;
+    const fact = rosterOk && !exporting && !filter ? rosterFact(asked) : null;
+    if (rosterOk && (exporting || filter || fact || asksRoster(asked))) {
+      staff = exporting ? await rosterDesk.exportAsk({ operationId, hub })
+        : filter ? await rosterDesk.filter({ operationId, hub, filter })
+          : fact ? await rosterDesk.fact({ operationId, hub, fact }) : await rosterDesk.request({ operationId, hub });
+    } else if (rosterOk && !toAssistant && asksAboutRoster(said) && !privateLeaveWords(said)) {
+      // R3: any other question about the roster or “my students” is for the assistant, never a post (and never the HR /
+      // class / both question): one plain sentence, nothing sent. A waiting question keeps waiting.
+      staff = { action: 'clarify', check: 'roster_question', reply: ROSTER_QUESTION_TEXT, classSafe: true, entries: [{ role: 'assistant', text: ROSTER_QUESTION_TEXT, action: 'clarify' }] };
     } else if (!toAssistant && !reply && held.question && isThanks(said)) {
       // F4: “Thanks” while the held question waits is not its answer (and never counts toward the re-ask): the question keeps waiting.
       staff = { action: 'clarify', check: 'ack', reply: "You're welcome.", classSafe: true, entries: [{ role: 'assistant', text: "You're welcome.", action: 'clarify' }] };
@@ -402,7 +416,7 @@ async function professorChat({ operationId, text, replyTo: replyToIn = null, ans
       // Only a subject (“… about the midterm review”) is never sent as a fragment, and a bare “notify everyone” has nothing
       // to send: ask what to say (F5: both wait 15 minutes), and his next plain reply goes to the whole class.
       if (notify.about || !notify.rest) { staff = rosterDesk.askTell(notify.about ?? null); notify = null; }
-      else staff = await classCheck(notify.rest); // the same check a plain class message gets (illness/leave/relative words, the open card, the classifier)
+      else staff = await classCheck(notify.rest, said, { keepHeld: Boolean(held.question) }); // the same check a plain class message gets (illness/leave/relative words, the open card, the classifier); a waiting question is kept
       if (staff) notify = null;
       else staff = null; // safe to post: the staff desk is not asked
     } else if (free && offerFree(!answersCancelOffer(said)) && !/^\s*@/.test(said) && rosterDesk.waitingTell() && !tellGoesToCard(said)) {
@@ -436,7 +450,7 @@ async function professorChat({ operationId, text, replyTo: replyToIn = null, ans
       const times = !staff && !notify && !toAssistant && !reply && waiting && Date.now() - waiting.at < 15 * 60_000 && !/^\s*@/.test(said) ? slotsIn(said) : [];
       viaAssistant = toAssistant || times.length > 0;
       result = times.length ? await offerMeeting({ operationId, audience: waiting.audience, slots: times, roster })
-        : toAssistant ? await assistantTurn({ operationId, said, roster, hub }) : notify ? await notifyPost({ operationId, text: notify.rest }) : await directPost({ operationId, said: sendText, roster, to: reply });
+        : toAssistant ? await assistantTurn({ operationId, said, roster, hub }) : notify ? await notifyPost({ operationId, text: notify.rest }) : await directPost({ operationId, said: sendText, roster, to: reply, hub, guard: !staff?.continueWith });
     }
     // The class list wasn't available, so nothing went out: whatever the yes / “class” / reply took off the desk is waiting again.
     if (result.action === 'error' && result.reply === ROSTER_POST_FAILED_TEXT) {
@@ -580,8 +594,7 @@ async function hrAction({ operationId, formRef, action }) {
 
 // No @assistant: send the professor's words as written. Tags pick the students; no tag = the whole class.
 // `to`: a reply to one student's message — a message to that student only (no naming call needed).
-async function directPost({ operationId, said, roster, to = null }) {
-  const { tagged } = tagsIn(said, roster);
+async function directPost({ operationId, said, roster, to = null, hub = null, guard = true }) {
   const text = said.replace(/^\s*(@[\w-]+[\s,:]*)+/, '').trim();
   if (!text) return { action: 'error', reply: 'Write the message after the tag — nothing was sent.', post: null };
   if (to) {
@@ -590,15 +603,36 @@ async function directPost({ operationId, said, roster, to = null }) {
     if (!r.body.lesson || r.body.ack?.status === 'rejected') return { action: 'error', reply: notSentText(r), post: null };
     return { action: 'post', reply: null, post: { key: lessonKey(r.body.lesson.lessonId, r.body.lesson.revision) }, kind: 'message' };
   }
-  // A tag starts the message or follows a space — the @ inside an email address (alex@example.com) isn't one.
-  const unknownTag = [...said.matchAll(/(?:^|\s)@([\w-]+)/g)].map((m) => m[1].toLowerCase()).find((h) => !roster.some((x) => [x.studentId, x.name.split(' ')[0].toLowerCase()].includes(h)));
-  if (unknownTag && /^\s*@/.test(said)) return { action: 'error', reply: `There's no @${unknownTag} in Marketing 351, so nothing was sent.`, post: null };
-  const audience = tagged.length ? tagged.map((x) => x.studentId).join(',') : 'all';
+  // R3 (round 2): a question about the roster or “my students” is for the assistant — never posted to the class.
+  if (guard && asksAboutRoster(said)) return { action: 'error', reply: ROSTER_QUESTION_TEXT, post: null };
+  // R2 (round 2): tags resolve against the class roster (@first, @last, @first-last), not the two Student-agent sessions. A
+  // tag starts the message or follows a space — the @ inside an email address (alex@example.com) isn't one.
+  const found = await classPeople({ said, roster, operationId, hub });
+  if (found.problem) return { action: 'error', reply: found.problem, post: null };
+  const audience = found.tagged.length ? found.tagged.map((x) => x.studentId).join(',') : 'all';
   // Its model call belongs to this chat turn's run (`prof-<operationId>`), so Topology shows the hop.
   const named = await classifyPost({ text, emit: (type, data) => emitViz(type, `prof-${operationId}`, data) });
   const r = await createPost({ operationId, kind: named.kind, title: named.title, text, audience, source: 'chat', verbatim: true });
   if (!r.body.lesson || r.body.ack?.status === 'rejected') return { action: 'error', reply: notSentText(r), post: null };
   return { action: 'post', reply: null, post: { key: lessonKey(r.body.lesson.lessonId, r.body.lesson.revision) }, kind: named.kind };
+}
+
+// R2 (round 2): who the @-tags name. The class's names come from the roster desk (the last roster lookup, memory only) plus
+// the Student-agent sessions; a tag none of them settles (unknown, or two students) asks CHRS once more before answering.
+// → { people, tagged } or { problem } (nothing is sent: the question names students by name only).
+const mergePeople = (roster, known) => [...new Map([...roster.map((x) => [x.studentId, { studentId: x.studentId, name: x.name }]), ...(known ?? []).map((x) => [x.studentId, x])]).values()];
+async function classPeople({ said, roster, operationId, hub }) {
+  let people = mergePeople(roster, rosterDesk.known());
+  let r = resolveTags(said, people);
+  if (r.unknown.length || r.ambiguous.length) {
+    const fresh = await rosterDesk.names({ operationId: `${operationId}-tags`, hub, fresh: true });
+    if (!fresh) return { people, problem: ROSTER_POST_FAILED_TEXT };
+    people = mergePeople(roster, fresh);
+    r = resolveTags(said, people);
+  }
+  if (r.ambiguous.length) return { people, problem: whichStudentText(r.ambiguous[0].names) };
+  if (r.unknown.length) return { people, problem: notInClassText(r.unknown[0]) };
+  return { people, tagged: r.tagged };
 }
 
 // "Notify everyone that …" (Part 17): the rest of his sentence goes to the whole class as his own message. The Hub
@@ -614,16 +648,24 @@ async function notifyPost({ operationId, text }) {
 }
 
 // @assistant: the course assistant decides (post / answer / clarify); code checks a post before it's sent.
-async function assistantTurn({ operationId, said, roster, hub }) {
-  const nameOf = (id) => id.split(',').map((x) => roster.find((r) => r.studentId === x)?.name ?? x).join(', ');
+async function assistantTurn({ operationId, said, roster: sessions, hub }) {
+  const request = said.replace(ASSISTANT_TAG, ' ').trim();
+  // R1/R2 (round 2): code addresses students from the class roster's names; the model sees the class size and, for
+  // addressing, the roster's names and tags only (never the two Student-agent sessions as “the class”, never an email or ID).
+  const found = await classPeople({ said: request, roster: sessions, operationId, hub });
+  if (found.problem) return { reply: found.problem, action: 'clarify', post: null, check: 'tag', model: null, kind: null };
+  const roster = found.people;
+  const known = rosterDesk.known();
+  const students = known ? known.map((p) => ({ name: p.name, tag: tagFor(p, known) })) : [];
+  const classSize = rosterDesk.counts()?.count ?? null;
+  const nameOf = (id) => id.split(',').map((x) => roster.find((r) => r.studentId === x)?.name ?? 'a student').join(', ');
   const posts = postsView(hub).map((l) => ({ title: l.title, kind: l.kind, audience: l.audience === 'all' ? 'all' : nameOf(l.audience), sentAt: l.createdAt, deliveries: l.deliveries.map((d) => ({ name: nameOf(d.studentId), state: d.state, opened: d.opened })) }));
   // HR (staff only): the professor's staff messages and HR's replies are private — the model sees only that
   // they exist, marked private (never their text), and checkPost never counts them as words for students.
   const recentChat = outbox.get().chat.slice(-8, -1).map((m) => (m.staff ? { role: m.role, text: PRIVATE_STAFF_TEXT, staff: true } : m));
-  const request = said.replace(ASSISTANT_TAG, ' ').trim();
   let decision;
   try {
-    decision = await interpretProfessor({ text: request, roster, seeds: SEED_LESSONS, posts, recent: recentChat, emit: (type, data) => emitViz(type, `prof-${operationId}`, data) });
+    decision = await interpretProfessor({ text: request, roster, students, classSize, seeds: SEED_LESSONS, posts, recent: recentChat, emit: (type, data) => emitViz(type, `prof-${operationId}`, data) });
   } catch (err) {
     decision = { action: 'error', reply: `I couldn't work that out right now (${err.message ?? 'model error'}). Nothing was sent.` };
   }
@@ -667,9 +709,20 @@ function pickQuizTopic(text) {
 // Who a post or a meeting is for: a tag the professor wrote wins; a single student the model picked must
 // be tagged or named by the professor.
 function resolveAudience(d, said, roster) {
-  const { tagged, named } = tagsIn(said, roster);
+  const tags = resolveTags(said, roster);
+  if (tags.ambiguous.length) return { problem: whichStudentText(tags.ambiguous[0].names), code: 'ambiguous_tag' };
+  if (tags.unknown.length) return { problem: notInClassText(tags.unknown[0]), code: 'unknown_tag' };
+  const { tagged } = tags;
+  const { named } = tagsIn(said, roster);
   const allWords = /\b(everyone|everybody|all students|the class|whole class|all of you)\b/i.test(said);
-  let audience = d.audience === 'all' || roster.some((x) => x.studentId === d.audience) ? d.audience : null;
+  // The model names one student by tag (“@mariana”), by name, or by id; code maps it to the roster's student.
+  const one = (a) => {
+    if (typeof a !== 'string' || !a.trim()) return null;
+    if (roster.some((x) => x.studentId === a)) return a;
+    const r = resolveTags(`@${a.trim().replace(/^@/, '').toLowerCase().replace(/\s+/g, '-')}`, roster);
+    return r.tagged.length === 1 && !r.ambiguous.length ? r.tagged[0].studentId : null;
+  };
+  let audience = d.audience === 'all' ? 'all' : one(d.audience);
   let corrected = null;
   if (tagged.length === 1 && !allWords && audience !== tagged[0].studentId) { audience = tagged[0].studentId; corrected = `sent to ${tagged[0].name}, whom you tagged`; }
   if (tagged.length > 1 && !allWords) { audience = tagged.map((x) => x.studentId).join(','); corrected = `sent to ${tagged.map((x) => x.name).join(' and ')}, whom you tagged`; }
@@ -765,6 +818,13 @@ function authorRouter() {
   };
   // The names alone (no roster card needed): the Faculty view labels delivery rows with them.
   router.get('/author/roster/names', async (req, res) => res.json({ names: deliveryNames(await hubView()) }));
+  // R2 (round 2): the class's names and tags for the Faculty view's @-suggestions — names only (no email, no ID, no level,
+  // no major), from the last roster lookup in memory or one lookup when there is none. Fetched by the Faculty view only.
+  router.get('/author/roster/people', async (req, res) => {
+    const people = await rosterDesk.names({ hub: null }).catch(() => null);
+    if (!people) return res.status(503).json({ error: ROSTER_GONE, people: [] });
+    return res.json({ people: people.map((p) => ({ name: p.name, tag: tagFor(p, people) })) });
+  });
   router.get('/author/roster', async (req, res) => {
     const hub = await hubView();
     const names = deliveryNames(hub);

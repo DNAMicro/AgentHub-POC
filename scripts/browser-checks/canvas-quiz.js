@@ -247,6 +247,14 @@ async (page) => {
   await page.getByRole('tab', { name: 'Faculty view' }).click();
   await page.waitForTimeout(1200);
   check('coming back: the Canvas card is drawn again as Published', /● Published/.test(await page.locator('#prof-log .lms-card').textContent()));
+  // Round 2 (R6): after a page reload (no draft in the page any more) the published card still names the quiz and its due date.
+  await page.reload();
+  await page.waitForSelector('#prof-log .lms-card .state-badge', { timeout: 20000 });
+  await page.waitForTimeout(800);
+  const afterReload = ((await page.locator('#prof-log .lms-card').textContent()) ?? '').replace(/\s+/g, ' ');
+  check('R6: after a reload the published card reads "● Published Topic 8 Quiz: Segmentation & Targeting is open in Canvas (quiz #4821), due Mon, Nov 9, 11:59 PM."', /● Published Topic 8 Quiz: Segmentation & Targeting is open in Canvas \(quiz #4821\), due Mon, Nov 9, 11:59 PM\./.test(afterReload), afterReload.slice(0, 200));
+  await page.locator('#prof-log .lms-card').scrollIntoViewIfNeeded();
+  await page.locator('#prof-log .lms-card').screenshot({ path: '.superpowers/sdd/2026-11-05-chrs-roster/shots/s2-r6-published-after-reload.png' });
 
   // 9b. Final review C-1: only the newest topic list has live chips; a tap with the Reply chip active makes no post.
   // He messages Alex and Alex answers (that gives him a ↩ Reply button), then he asks for a quiz again.

@@ -8,7 +8,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startStack, startProfessor, post, openStream, waitFor, stopProcess } from './support/harness.js';
-import { NOTIFY_EMPTY, ROSTER_GONE, asksRoster, createRosterDesk, notifyEveryone, rosterFact, sentToAllText, tellText } from '../src/professor-roster.js';
+import { NOTIFY_EMPTY, ROSTER_GONE, asksRoster, asksRosterExport, asksAboutRoster, createRosterDesk, notifyEveryone, notifyIsNew, resolveTags, rosterFact, rosterFilter, sentToAllText, tellText } from '../src/professor-roster.js';
 import { readFileSync } from 'node:fs';
 import { ROSTER_FAILED_TEXT, ROSTER_POST_FAILED_TEXT } from '../src/staff.js';
 
@@ -264,12 +264,13 @@ test('notify everyone with nothing to tell asks "What should I tell your class?"
   assert.equal(lastOf(st.chat, 'assistant').text, NOTIFY_EMPTY);
 });
 
-test('an unrelated plain class message still posts as before; @assistant never reaches the roster desk', async () => {
+test('an unrelated plain class message still posts as before; round 2 (R1): "@assistant show my class roster" gets the same code answer', async () => {
   const r = await say(main, 'Please read chapter 5 before Monday');
   assert.equal(r.action, 'post');
   const a = await say(main, '@assistant show my class roster');
-  assert.notEqual(a.action, 'roster');
-  assert.equal((await state(main)).rosterCard, null);
+  assert.equal(a.action, 'roster'); // was: never reached the roster desk (the model answered from the 2-person session list)
+  assert.equal(a.reply, 'Class roster · 25 students');
+  assert.equal((await state(main)).lessons.length, 1, 'nothing more posted');
 });
 
 test('with an HR card open: a class announcement posts, a statement about himself is asked about, and a roster request leaves the card alone', async () => {
@@ -712,4 +713,157 @@ test('F2: with an HR card open, a day or time in the reply to "what should I tel
   assert.equal(st.hrCard.a2ui.length, before.a2ui.length, 'no update was sent to the card');
   assert.equal(st.lessons[0].text, 'About the field trip: We leave from the main entrance at 9 AM on Friday.');
   assert.equal(lastOf(st.chat, 'assistant').text, SENT);
+});
+
+// ---- Part 17 faculty scenarios, round 2 (R1–R5) ------------------------------------------------------------------------
+// The fictional roster itself (the authority the answers must match): counts come from these rows, never from a constant.
+const { createStudentRecordsStore } = await import('../src/student-records-store.js');
+const ROWS = createStudentRecordsStore().roster({ courseId: 'mkt-351', instructorStaffId: 'staff-dabirian' }).roster.rows;
+const idsWhere = (fn) => ROWS.filter(fn).map((r) => r.studentId).sort();
+const SENIORS = idsWhere((r) => r.level === 'Senior');
+const MARKETING = idsWhere((r) => /marketing/i.test(`${r.program} ${r.plan}`));
+const JUNIORS = idsWhere((r) => r.level === 'Junior');
+const SEC = { EXPORT: "I can't email or export your roster from here, but here it is to look at.", QUESTION: "That reads like a question about your roster, so I didn't send it to your class. I can show your roster, count your students, look up one student, or list students by year or major." };
+const lessonsOf = async (s) => (await state(s)).lessons;
+const highlighted = async (s) => ((await (await fetch(`${s.ui.url}/api/professor/roster`)).json()).highlight ?? []).slice().sort();
+
+test('R1a: "@assistant how many students are in my class?" gets the code count from the roster, never the 2-person session list', async () => {
+  const r = await say(main, '@assistant how many students are in my class?');
+  assert.equal(r.reply, '25 students are enrolled in Marketing 351.');
+  assert.equal((await say(main, 'how many students are in my class?')).reply, '25 students are enrolled in Marketing 351.');
+  assert.equal((await say(main, '@assistant who are my seniors?')).reply, `${SENIORS.length} seniors are highlighted on your roster below.`);
+  assert.equal((await say(main, '@assistant is Mariana Aguilar in my class?')).reply, 'Yes — Mariana Aguilar is enrolled in Marketing 351.');
+  assert.equal((await lessonsOf(main)).length, 0);
+});
+
+test('R2: @-tags resolve against the CHRS roster (@first, @last, @first-last); ambiguous asks by name; unknown is refused; @alex still works', async () => {
+  const r = await say(main, '@mariana please resubmit your assignment');
+  assert.equal(r.action, 'post', JSON.stringify(r));
+  let ls = await lessonsOf(main);
+  assert.equal(ls[0].audience, 'student-mariana-aguilar');
+  assert.equal(ls[0].text, 'please resubmit your assignment');
+  assert.deepEqual(ls[0].deliveries.map((d) => [d.studentId, d.state]), [['student-mariana-aguilar', 'queued']], 'offline: queued like Sam');
+  for (const [text, id] of [['@Aguilar your essay was excellent', 'student-mariana-aguilar'], ['@daniel-kim nice presentation', 'student-daniel-kim'], ['@Chen your draft is great', 'student-lily-chen']]) {
+    const x = await say(main, text);
+    assert.equal(x.action, 'post', text);
+    assert.equal((await lessonsOf(main))[0].audience, id, text);
+  }
+  const before = (await lessonsOf(main)).length;
+  const amb = await say(main, '@student please see me');
+  assert.equal(amb.reply, 'Which student did you mean: Alex Student or Sam Student? Nothing was sent — tag them by full name, like @alex-student.');
+  assert.equal((await say(main, '@zed hello')).reply, "There's no @zed in Marketing 351, so nothing was sent.");
+  assert.equal((await lessonsOf(main)).length, before, 'nothing sent for an ambiguous or unknown tag');
+  const alex = await say(main, '@alex Great work on the quiz!');
+  ls = await lessonsOf(main);
+  assert.equal(alex.action, 'post');
+  assert.equal(ls[0].audience, 'student-alex');
+  assert.equal(ls[0].deliveries[0].state === 'delivered' || ls[0].deliveries[0].opened, true, 'Alex is online');
+  // @assistant: the professor's tag names the roster student (mock interpreter; code resolves the tag).
+  const via = await say(main, '@assistant @mariana Great job on your project');
+  assert.equal(via.action, 'post', JSON.stringify(via));
+  assert.equal((await lessonsOf(main))[0].audience, 'student-mariana-aguilar');
+});
+
+test('R2: the Faculty view\'s @-suggestions come from the roster: 25 names and tags, no email, ID, level or major', async () => {
+  const r = await (await fetch(`${main.ui.url}/api/professor/roster/people`)).json();
+  assert.equal(r.people.length, 25);
+  assert.ok(r.people.some((p) => p.name === 'Mariana Aguilar' && p.tag === 'mariana'));
+  assert.ok(r.people.some((p) => p.name === 'Alex Student' && p.tag === 'alex'));
+  const wire = JSON.stringify(r);
+  assert.ok(!ROW_SECRET.test(wire) && !/student-|Senior|Junior|Business Admin/.test(wire), 'names and tags only');
+  assert.deepEqual(Object.keys(r.people[0]).sort(), ['name', 'tag']);
+});
+
+test('R3: "can you email me the roster?" and "export my roster to excel" show the card with one sentence; never posted, never the HR question', async () => {
+  for (const text of ['can you email me the roster?', 'export my roster to excel', 'Please print the class list', 'download my class roster as a spreadsheet']) {
+    const r = await say(main, text);
+    assert.equal(r.reply, SEC.EXPORT, text);
+    assert.equal(r.action, 'roster', text);
+    const st = await state(main);
+    assert.equal(lastOf(st.chat, 'assistant').action, 'roster', `${text}: the card follows the sentence`);
+    assert.equal(st.lessons.length, 0, `${text}: never posted`);
+  }
+  // Any other question about the roster or "my students" is not posted either (and not the HR / class / both question).
+  for (const text of ['can you tell me which of my students are online?', 'Which of my students have the roster link?']) {
+    const r = await say(main, text);
+    assert.equal(r.reply, SEC.QUESTION, text);
+    assert.notEqual(r.reply, UNSURE);
+  }
+  assert.equal((await lessonsOf(main)).length, 0);
+});
+
+test('R4: students by level or major: the card highlights exactly those rows; counts in the chat only; nothing in the outbox or the state', async () => {
+  const seniors = await say(main, 'who are my seniors?');
+  assert.equal(seniors.reply, `${SENIORS.length} seniors are highlighted on your roster below.`);
+  assert.deepEqual(await highlighted(main), SENIORS);
+  const mkt = await say(main, 'which students are marketing majors?');
+  assert.equal(mkt.reply, `${MARKETING.length} Marketing majors are highlighted on your roster below.`);
+  assert.deepEqual(await highlighted(main), MARKETING);
+  assert.equal((await say(main, 'list my juniors')).reply, `${JUNIORS.length} juniors are highlighted on your roster below.`);
+  assert.deepEqual(await highlighted(main), JUNIORS);
+  assert.equal((await say(main, 'how many seniors are in my class?')).reply, `${SENIORS.length} of your 25 students are seniors.`);
+  assert.equal((await say(main, 'how many accounting majors do I have?')).reply, '1 of your 25 students is an Accounting major.');
+  assert.equal((await say(main, 'who are my freshmen?')).reply, 'None of your students are freshmen.');
+  const st = await state(main);
+  assert.equal(st.lessons.length, 0);
+  assert.ok(!st.chat.some((m) => m.text === UNSURE || /nothing was filed/.test(m.text)));
+  const wire = JSON.stringify(st);
+  // (Alex and Sam are the two Student-agent sessions: their ids are on the state anyway, Part 9.)
+  assert.ok(!SENIORS.filter((id) => !SESSION_STUDENTS.includes(id)).some((id) => wire.includes(id)) && !/Senior|Junior|Business Admin/.test(wire), 'which students matched never reaches the state');
+  const file = readFileSync(main.files.outbox, 'utf8');
+  assert.ok(!SENIORS.some((id) => file.includes(id)) && !/"highlight"|Senior|Junior|Business Admin/.test(file), 'nor the outbox file');
+});
+
+test('R5: while the HR / class / both question waits, a notify with something to say and roster asks are new messages; the question keeps waiting', async () => {
+  assert.equal((await say(main, "I'm sick, cancel Friday's class")).reply, UNSURE);
+  const tell = await say(main, 'tell my students the midterm is postponed');
+  assert.equal(tell.action, 'post', JSON.stringify(tell));
+  let st = await state(main);
+  assert.equal(st.lessons[0].text, 'The midterm is postponed.');
+  assert.equal(st.lessons[0].deliveries.length, 25);
+  assert.equal(lastOf(st.chat, 'assistant').text, SENT);
+  assert.equal((await say(main, 'Let everyone know that grades are posted')).action, 'post');
+  assert.equal((await lessonsOf(main))[0].text, 'Grades are posted.');
+  assert.equal((await say(main, 'how many seniors are in my class?')).reply, `${SENIORS.length} of your 25 students are seniors.`);
+  assert.equal((await say(main, 'who are my seniors?')).reply, `${SENIORS.length} seniors are highlighted on your roster below.`);
+  assert.equal((await say(main, 'export my roster to excel')).reply, SEC.EXPORT);
+  // A notify that must itself be asked about keeps the waiting question (never replaced) and says it wasn't sent.
+  const own = await say(main, 'tell everyone that I am sick today');
+  assert.equal(own.reply, "I'm still holding your earlier message — answer HR, the class, or both. Your new message wasn't sent; please send it again after.");
+  // None of those counted toward the re-ask: one unclear reply is asked once, then "hr" files the FIRST held message.
+  assert.equal((await say(main, 'hmm')).reply, UNSURE);
+  const hr = await say(main, 'hr');
+  assert.equal(hr.action, 'staff', JSON.stringify(hr));
+  st = await state(main);
+  assert.equal(st.hrCard.card.title, 'Sick Leave');
+  assert.equal(st.lessons.length, 2, 'only the two notices went to the class');
+});
+
+test('R5: a held question dropped after unclear replies always says the last message wasn\'t sent when it was a message', async () => {
+  assert.equal((await say(main, "I'm sick, cancel Friday's class")).reply, UNSURE);
+  assert.equal((await say(main, 'The library closes at noon')).reply, UNSURE);
+  assert.equal((await say(main, 'The bookstore is closed')).reply, "Okay, nothing was filed or posted. Your new message wasn't sent; please send it again.");
+  // A plain unclear word or a refusal is not a message: no notice.
+  assert.equal((await say(main, "I'm sick, cancel Friday's class")).reply, UNSURE);
+  assert.equal((await say(main, 'hmm')).reply, UNSURE);
+  assert.equal((await say(main, 'huh?')).reply, 'Okay, nothing was filed or posted.');
+  assert.equal((await lessonsOf(main)).length, 0);
+});
+
+test('round 2 readers (code): rosterFilter, asksRosterExport, asksAboutRoster, resolveTags, notifyIsNew', () => {
+  assert.deepEqual(rosterFilter('who are my seniors?'), { kind: 'filter', level: 'senior', major: null, count: false });
+  assert.equal(rosterFilter('how many seniors are in my class?').count, true);
+  assert.equal(rosterFilter('which students are marketing majors?').major.label, 'Marketing');
+  assert.equal(rosterFilter('Who are the seniors majoring in finance?').major.label, 'Finance');
+  for (const t of ['how many students are in my class?', "what is Omar's major", "which seniors haven't submitted?", 'Seniors: see me after class', '@sam who are my seniors?', 'how many students are in my marketing class?']) assert.equal(rosterFilter(t), null, t);
+  for (const t of ['can you email me the roster?', 'export my roster to excel', 'print the class list']) assert.equal(asksRosterExport(t), true, t);
+  for (const t of ['show my class roster', 'Tell everyone that I will share the class list Friday', 'Please email me when you are done']) assert.equal(asksRosterExport(t), false, t);
+  assert.equal(asksAboutRoster('can you tell me which of my students are online?'), true);
+  for (const t of ['Who wants to present on Friday?', 'Remind my students that the quiz is Friday', '@sam is the roster right?']) assert.equal(asksAboutRoster(t), false, t);
+  const P = [{ studentId: 'student-alex', name: 'Alex Student' }, { studentId: 'student-sam', name: 'Sam Student' }, { studentId: 'student-mariana-aguilar', name: 'Mariana Aguilar' }];
+  assert.deepEqual(resolveTags('@Aguilar hi', P).tagged.map((x) => x.studentId), ['student-mariana-aguilar']);
+  assert.deepEqual(resolveTags('@student hi', P).ambiguous[0].names, ['Alex Student', 'Sam Student']);
+  assert.deepEqual(resolveTags('mail alex@example.com or @assistant', P), { tagged: [], ambiguous: [], unknown: [] });
+  for (const t of ['tell my students the midterm is postponed', 'Let everyone know that grades are posted', 'Tell everyone to read chapter 5']) assert.equal(notifyIsNew(t), true, t);
+  for (const t of ['tell the class please, and thanks so much', 'Tell the class, and post that the exam is postponed', 'tell the class', 'tell the class too']) assert.equal(notifyIsNew(t), false, t);
 });

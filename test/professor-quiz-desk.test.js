@@ -353,6 +353,7 @@ test('F1: a notice that failed after the publish stays on the card summary (noti
   await s.desk.action({ draftId, operationId: 'op-p', action: 'publish' });
   const c = s.desk.card();
   assert.equal(c.state, 'published');
+  assert.equal(s.desk.card().title !== undefined, true);
   assert.equal(c.noticePending, true);
   assert.equal(c.noticeText, "Published in Canvas, but I couldn't get your class list, so students weren't told yet. Press Publish again in a moment — they're notified only once.");
   assert.equal(c.deliveries, undefined);
@@ -432,7 +433,7 @@ test('Review 5: card() and every entry carry no answer key at any depth; draft()
     const k = keys(v);
     for (const bad of ['correct', 'answers', 'questions', 'text_']) assert.ok(!k.has(bad), `${bad} leaked`);
   }
-  assert.deepEqual(Object.keys(s.desk.card()).sort(), ['canvasQuizId', 'deliveries', 'draftId', 'pointsTotal', 'questionCount', 'state', 'topic']);
+  assert.deepEqual(Object.keys(s.desk.card()).sort(), ['canvasQuizId', 'deliveries', 'draftId', 'pointsTotal', 'questionCount', 'state', 'topic']); // closed by the reset: no title (round 2 R6 adds it only while published)
 });
 
 test('telemetry carries ids, counts, outcome and code only: no question, answer or title text', async () => {
@@ -626,4 +627,24 @@ test('M-8: a typed count survives the @assistant topics path', async () => {
   s.desk.topics(null, 8);
   assert.equal((await s.desk.turn('8')).action, 'quiz_draft');
   assert.equal(s.desk.draft(s.desk.card().draftId).quiz.questions.length, 8);
+});
+
+// ---- Part 17 faculty scenarios, round 2 ------------------------------------------------------------------------------
+test('R6: the card summary carries the title and due date (never a question or an answer), so a published card reads right after a reload', async () => {
+  const s = setup();
+  const { draftId } = await drafted(s);
+  const quiz = fullQuiz(s, draftId);
+  assert.equal(s.desk.card().title, undefined, 'a draft: no title on the shared state');
+  await s.desk.action({ draftId, operationId: 'op-a', action: 'approve', quiz });
+  assert.equal(s.desk.card().title, undefined, 'saved, not published: still none');
+  await s.desk.action({ draftId, operationId: 'op-p', action: 'publish' });
+  const c = s.desk.card();
+  assert.equal(c.state, 'published');
+  assert.equal(s.desk.card().title !== undefined, true);
+  assert.equal(c.title, quiz.title);
+  assert.equal(c.dueAt, quiz.dueAt);
+  assert.equal(c.minutes, quiz.minutes);
+  assert.equal(c.attempts, quiz.attempts);
+  const k = keys(c);
+  for (const secret of ['questions', 'answers', 'correct', 'text']) assert.equal(k.has(secret), false, secret);
 });

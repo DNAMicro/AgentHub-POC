@@ -241,7 +241,7 @@ test('the state, the Faculty stream and the monitor never carry the answer key',
   assert.ok(keys(d).has('correct'));
   assert.equal(JSON.stringify(await state()).includes('"correct"'), false);
   const st = await state();
-  assert.deepEqual(Object.keys(st.quizCard).sort(), ['canvasQuizId', 'draftId', 'pointsTotal', 'questionCount', 'state', 'topic']);
+  assert.deepEqual(Object.keys(st.quizCard).sort(), ['canvasQuizId', 'draftId', 'pointsTotal', 'questionCount', 'state', 'topic']); // a draft: no title on the shared state (round 2 R6 adds it only once published)
   const abort = new AbortController();
   const res = await fetch(`${s.ui.url}/api/ag-ui/professor/stream`, { signal: abort.signal });
   let text = '';

@@ -38,8 +38,115 @@ export function asksRoster(text) {
   return ROSTER_VERB.test(t) || t.split(/\s+/).length <= 4; // “roster”, “my class roster?” or a verb + the noun
 }
 
-// “Notify everyone that …”, “Tell the class: …”, “Let all my students know …”, “Inform the whole class about …”.
-const TARGET = String.raw`(?:everyone|everybody|all\s+(?:of\s+)?(?:my|the|our)?\s*students|(?:my|the|our)\s+(?:whole\s+|entire\s+)?class|the\s+whole\s+class)`;
+// R3 (round 2): “can you email me the roster?”, “export my roster to Excel”, “print the class list”. Nothing here can email,
+// export, download or print a roster: the faculty member gets the card to look at and one plain sentence. Never a post.
+export const EXPORT_TEXT = "I can't email or export your roster from here, but here it is to look at.";
+const EXPORT_WORDS = /\b(?:e-?mail(?:ed|ing)?|mail|export(?:ed|ing)?|download(?:ed|ing)?|print(?:ed|ing)?|send|sent|forward|share|save|copy|attach|excel|csv|spreadsheet|pdf|xlsx?)\b/i;
+export function asksRosterExport(text) {
+  const t = String(text ?? '').trim();
+  if (!t || /(^|\s)@\w/.test(t) || t.split(/\s+/).length > 16) return false;
+  if (!ROSTER_NOUN.test(t) || !EXPORT_WORDS.test(t)) return false;
+  return !notifyEveryone(t)?.rest; // “Tell everyone that I'll share the class list Friday” is an announcement
+}
+
+// R3 (round 2) generally: a plain message that asks something about the roster or “my students” is a question for the
+// assistant, never a post to the class (“can you email me the roster?” once reached all 25). Code reads it; the chat is told.
+export const ROSTER_QUESTION_TEXT = "That reads like a question about your roster, so I didn't send it to your class. I can show your roster, count your students, look up one student, or list students by year or major.";
+const ABOUT_STUDENTS = /\b(?:my|our)\s+(?:students|class\s+list|roster|class\s+roster|freshm[ae]n|first[-\s]years|sophomores|juniors|seniors|majors)\b/i;
+const ASKING = /\?\s*$|^\s*(?:(?:can|could|would|will)\s+you|please\s+(?:show|list|send|e-?mail|give|find|get|tell\s+me|export|print|download)|show|list|give\s+me|find|get\s+me|who|which|what|how\s+many|e-?mail|export|download|print)\b/i;
+export function asksAboutRoster(text) {
+  const t = String(text ?? '').trim();
+  if (!t || /^\s*@/.test(t)) return false;
+  return (ROSTER_NOUN.test(t) || ABOUT_STUDENTS.test(t)) && ASKING.test(t);
+}
+
+// R4 (round 2): students by academic level and/or major, read by code. “who are my seniors?”, “which students are marketing
+// majors?”, “list my juniors” → the roster card with those rows highlighted; “how many seniors are in my class?” → a count.
+// The chat says counts only (never who, never a level or a major next to a name). The match is against the roster's own
+// Academic Level and Program and Plan.
+const LEVEL_WORDS = [
+  [/^(?:freshm[ae]n|first[-\s]?years?)$/, 'freshman'],
+  [/^sophomores?$/, 'sophomore'],
+  [/^juniors?$/, 'junior'],
+  [/^seniors?$/, 'senior'],
+];
+const LEVEL_LABEL = { freshman: ['freshman', 'freshmen'], sophomore: ['sophomore', 'sophomores'], junior: ['junior', 'juniors'], senior: ['senior', 'seniors'] };
+// Major words → [what to look for in "Program Plan" (lowercase), how to say it]. Longest phrases first.
+const MAJORS = [
+  ['public relations', 'public relations', 'Public Relations'], ['information systems', 'info systems', 'Info Systems'], ['info systems', 'info systems', 'Info Systems'],
+  ['graphic design', 'graphic design', 'Graphic Design'], ['hospitality', 'hosp', 'Entertainment & Hospitality'], ['entertainment', 'ent & hosp', 'Entertainment & Hospitality'],
+  ['marketing', 'marketing', 'Marketing'], ['finance', 'finance', 'Finance'], ['management', 'management', 'Management'], ['accounting', 'accounting', 'Accounting'],
+  ['advertising', 'advertising', 'Advertising'], ['communications', 'communications', 'Communications'], ['business', 'business admin', 'Business'], ['pr', 'public relations', 'Public Relations'],
+];
+const FILTER_FILLER = new Set('who which what whom list show me find highlight give get how many are is am in on of my the our all students student class course section roster do i have there enrolled a an please can could would you tell majors major majoring studying taking any currently right now this term here'.split(' '));
+const FILTER_FRAME = /^\s*(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?(?:who|which|list|show|find|highlight|give|get|how\s+many|what)\b/i;
+// → null, or { kind: 'filter', level, major: { find, label } | null, count: boolean }
+export function rosterFilter(text) {
+  const raw = String(text ?? '').trim();
+  if (!raw || /(^|\s)@\w/.test(raw) || raw.split(/\s+/).length > 14 || !FILTER_FRAME.test(raw)) return null;
+  let t = ` ${raw.toLowerCase().replace(/\bfirst\s+years?\b/g, 'first-year').replace(/[’']s\b/g, '').replace(/\b(?:marketing|mktg)\s*351\b/g, ' ').replace(/[^a-z&\s-]/g, ' ').replace(/\s+/g, ' ')} `;
+  let major = null;
+  for (const [words, find, label] of MAJORS) {
+    // Only a major said as one: “marketing majors”, “marketing students”, “majoring in finance”, “studying finance”.
+    const re = new RegExp(String.raw` (?:(?:majoring|major|majors)\s+in\s+|studying\s+)${words}(?= )| ${words}(?=\s+(?:majors?|students?)\b)`);
+    if (re.test(t)) { major = { find, label }; t = t.replace(re, ' '); break; }
+  }
+  let level = null;
+  const left = [];
+  for (const w of t.split(/\s+/).filter(Boolean)) {
+    const hit = LEVEL_WORDS.find(([re]) => re.test(w));
+    if (hit) { if (level && level !== hit[1]) return null; level = hit[1]; continue; }
+    if (!FILTER_FILLER.has(w)) left.push(w);
+  }
+  if (left.length || (!level && !major)) return null; // anything else said (“which seniors haven't submitted?”) is not a roster filter
+  return { kind: 'filter', level, major, count: /^\s*(?:(?:can|could|would)\s+you\s+(?:tell\s+me\s+)?)?(?:please\s+)?how\s+many\b/i.test(raw) };
+}
+const filterMatches = (f, rows) => rows.filter((r) => (!f.level || String(r.level ?? '').toLowerCase() === f.level)
+  && (!f.major || `${r.program ?? ''} ${r.plan ?? ''}`.toLowerCase().includes(f.major.find)));
+// “seniors”, “Marketing majors”, “seniors majoring in Marketing” (n = 1 → singular).
+function groupLabel(f, n) {
+  const one = n === 1;
+  const lv = f.level ? LEVEL_LABEL[f.level][one ? 0 : 1] : null;
+  if (lv && f.major) return `${lv} majoring in ${f.major.label}`;
+  if (lv) return lv;
+  return `${f.major.label} ${one ? 'major' : 'majors'}`;
+}
+const article = (w) => (/^[aeiou]/i.test(w) ? 'an' : 'a');
+export const noneText = (f) => `None of your students are ${groupLabel(f, 2)}.`;
+export const filterCountText = (f, n, total) => (n === 0 ? noneText(f) : n === 1 ? `1 of your ${total} students is ${article(groupLabel(f, 1))} ${groupLabel(f, 1)}.` : `${n} of your ${total} students are ${groupLabel(f, n)}.`);
+export const filterHighlightText = (f, n) => (n === 0 ? noneText(f) : `${n} ${groupLabel(f, n)} ${n === 1 ? 'is' : 'are'} highlighted on your roster below.`);
+
+// R2 (round 2): @-tags resolve against the class roster: @first, @last, @first-last (case-insensitive), or the student id.
+// → { tagged: [{ studentId, name }], ambiguous: [{ tag, names }], unknown: [tag] }. A tag starts the message or follows a
+// space and starts with a letter (alex@example.com and “@ 3pm” are not tags); @assistant is not a student.
+export const tagsOf = (text) => [...new Set([...String(text ?? '').matchAll(/(?:^|\s)@([A-Za-z][\w-]*)/g)].map((m) => m[1].toLowerCase()))].filter((t) => t !== 'assistant');
+const slug = (s) => String(s ?? '').toLowerCase().trim().replace(/[’']/g, '').replace(/\s+/g, '-');
+function keysOf(p) {
+  const [first, ...rest] = String(p.name ?? '').trim().split(/\s+/);
+  const last = rest.join(' ');
+  return [p.studentId, slug(first), last && slug(last), last && `${slug(first)}-${slug(last)}`].filter(Boolean).map((k) => k.toLowerCase());
+}
+export function resolveTags(text, people) {
+  const tagged = [];
+  const ambiguous = [];
+  const unknown = [];
+  for (const tag of tagsOf(text)) {
+    const hits = [...new Map(people.filter((p) => keysOf(p).includes(tag)).map((p) => [p.studentId, p])).values()];
+    if (hits.length === 1) { if (!tagged.some((x) => x.studentId === hits[0].studentId)) tagged.push(hits[0]); } else if (hits.length > 1) ambiguous.push({ tag, names: hits.map((p) => p.name) });
+    else unknown.push(tag);
+  }
+  return { tagged, ambiguous, unknown };
+}
+// The tag the Faculty view suggests: the first name, or first-last when two students share it.
+export function tagFor(p, people) {
+  const first = slug(String(p.name ?? '').split(/\s+/)[0]);
+  return people.filter((x) => slug(String(x.name ?? '').split(/\s+/)[0]) === first).length > 1 ? keysOf(p)[3] ?? first : first;
+}
+export const whichStudentText = (names) => `Which student did you mean: ${names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`}? Nothing was sent — tag them by full name, like @${slug(names[0]).replace(/[^a-z0-9-]/g, '')}.`;
+export const notInClassText = (tag) => `There's no @${tag} in ${COURSE.title}, so nothing was sent.`;
+
+// “Notify everyone that …”, “Tell the class: …”, “Let all my students know …”, “Inform the whole class about …”, “Tell my students …”.
+const TARGET = String.raw`(?:everyone|everybody|all\s+(?:of\s+)?(?:my|the|our)?\s*students|(?:my|the|our)\s+students|(?:my|the|our)\s+(?:whole\s+|entire\s+)?class|the\s+whole\s+class)`;
 const NOTIFY = new RegExp(String.raw`^\s*(?:please\s+)?(?:(?:notify|tell|inform)|let)\s+${TARGET}(?:\s+know)?\b[\s,:;\-–—]*(?:(that|of|about)\b[\s,:;\-–—]*)?([\s\S]*)$`, 'i');
 const TO_VERB = new RegExp(String.raw`${TARGET}(?:\s+know)?\s+to\s+\S`, 'i'); // “tell everyone to …” (no “that”, no colon)
 // → null (not this) or { rest } with rest = the sentence to send. '' when he said nothing to tell, or when he only named a
@@ -116,6 +223,12 @@ export function matchStudents(name, rows) {
   return rows.filter((r) => { const p = parts(r); return p.first === want[0] || p.last === want[0]; });
 }
 
+// R5 (round 2): while the HR / class / both question waits, “tell my students the midterm is postponed” or “Let everyone know
+// that grades are posted” is a new message — the message follows the opening directly (“that”, “:”, “to <verb>” or a word).
+// “Tell the class, and …”, “tell the class please …”, “tell the class too” are still answers to the question.
+const NEW_NOTIFY = new RegExp(String.raw`^\s*(?:please\s+)?(?:notify|tell|inform|let)\s+${TARGET}(?:\s+know)?(?:\s*:|\s+that\b|\s+to\s+\w|\s+(?!(?:and|please|pls|too|also|as\s+well|thanks?|thx|thank|only|now|first|instead|then|both|hr|it|this|about|of)\b)[a-z0-9])`, 'i');
+export const notifyIsNew = (text) => Boolean(notifyEveryone(text)?.rest) && NEW_NOTIFY.test(String(text ?? ''));
+
 // F6: the reply to “What should I tell your class about X?” goes out as “About X: <reply>.” unless the reply already has
 // X's main words (then as he wrote it). X as he wrote it; the reply trimmed, first letter capitalised, a period added.
 const SMALL = /^(?:the|a|an|my|our|your|this|that|these|those|of|for|on|in|to|and|or|at|with|about|next|new)$/i;
@@ -131,7 +244,9 @@ export function tellText(about, reply) {
 
 // ---- the roster in memory + the staff request --------------------------------------------------------------------
 export function createRosterDesk({ hubLink, conversationId, emit = () => {}, now = () => Date.now() }) {
-  let card = null; // { rosterId, roster, at, onlineIds } — the rows live here and nowhere else
+  let card = null; // { rosterId, roster, at, highlight } — the rows (and which ones are highlighted) live here and nowhere else
+  let people = null; // [{ studentId, name: "First Last" }] from the last roster lookup — names only, memory only (tags, suggestions)
+  let peopleLookup = null; // one lookup at a time for the names
   let tell = null; // { at } — “what should I tell your class about …?” is waiting for his next plain reply
   let gen = 0; // a reset while a roster request is in flight leaves no card
   let known = null; // last known { count, online }: the Hub's counts are empty until it has asked CHRS, and empty again after 60 s
@@ -157,15 +272,19 @@ export function createRosterDesk({ hubLink, conversationId, emit = () => {}, now
     emit('roster_relayed', { status: r.status, rosterCount: Array.isArray(rows) ? rows.length : 0 });
     if (!Array.isArray(rows) || !rows.length || !r.reply.roster.class || typeof r.reply.roster.class !== 'object') return { fail: failed() };
     if (asked !== gen) return { fail: gone() }; // the classroom was reset while CHRS answered
+    people = rows.filter((x) => typeof x?.studentId === 'string').map((x) => ({ studentId: x.studentId, name: displayName(x) }));
     const course = hub?.courses?.find((c) => c.courseId === COURSE.courseId);
     const onlineIds = new Set((course?.enrolled ?? []).filter((s) => s.online).map((s) => s.studentId));
     remember(rows.length, course ? rows.filter((x) => onlineIds.has(x.studentId)).length : undefined); // no Hub view: keep the last known online count
     return { rows, roster: r.reply.roster };
   }
   // A new roster card (the rows stay in this process); highlight = one fictional student id to mark on the card.
-  function newCard(roster, highlight = null) {
-    card = { rosterId: `ro-${randomUUID().slice(0, 12)}`, roster, at: new Date(now()).toISOString() };
-    return { rosterId: card.rosterId, count: roster.rows.length, at: card.at, ...(highlight ? { highlight } : {}) };
+  // highlight: one student id (a details question: the chat entry may carry it, it names nobody's level or major), or
+  // `many`: the ids a level / major filter matched — those stay in THIS process's memory only (GET /author/roster serves
+  // them with the rows), so the outbox, the state and the streams never learn who is a senior or a Finance major.
+  function newCard(roster, highlight = null, many = null) {
+    card = { rosterId: `ro-${randomUUID().slice(0, 12)}`, roster, at: new Date(now()).toISOString(), highlight: many ?? (highlight ? [highlight] : []) };
+    return { rosterId: card.rosterId, count: roster.rows.length, at: card.at, ...(highlight ? { highlight } : {}), ...(many ? { highlighted: many.length } : {}) };
   }
 
   // Faculty chat: "show my roster". Returns { reply, entries, ... } for the Professor agent's staff-style result.
@@ -195,13 +314,45 @@ export function createRosterDesk({ hubLink, conversationId, emit = () => {}, now
     return { action: 'roster', check: 'detail', reply: text, classSafe: true, roster: { rosterId: ref.rosterId, count: ref.count }, entries: [{ role: 'assistant', text, action: 'roster_fact' }, { role: 'assistant', text: rosterCardText(ref.count), action: 'roster', roster: ref }] };
   }
 
-  // GET /author/roster: the full roster for the Faculty view, with who is online right now (Hub-reported).
+  // R4: students by level and/or major. A count question answers with the count; otherwise the roster card with those rows
+  // highlighted (0 → one sentence, no card). Counts only in the chat.
+  async function filter({ operationId, hub, filter: f }) {
+    const got = await lookup({ operationId, hub });
+    if (got.fail) return got.fail;
+    const hits = filterMatches(f, got.rows);
+    const say = (text, check) => ({ action: 'roster_fact', check, reply: text, classSafe: true, entries: [{ role: 'assistant', text, action: 'roster_fact' }] });
+    if (f.count) return say(filterCountText(f, hits.length, got.rows.length), 'filter_count');
+    if (!hits.length) return say(noneText(f), 'filter_none');
+    const ref = newCard(got.roster, null, hits.map((r) => r.studentId));
+    const text = filterHighlightText(f, hits.length);
+    return { action: 'roster', check: 'filter', reply: text, classSafe: true, roster: { rosterId: ref.rosterId, count: ref.count }, entries: [{ role: 'assistant', text, action: 'roster_fact' }, { role: 'assistant', text: rosterCardText(ref.count), action: 'roster', roster: ref }] };
+  }
+
+  // R3: “email / export / print my roster” — nothing here can; the card to look at and one plain sentence.
+  async function exportAsk({ operationId, hub }) {
+    const got = await lookup({ operationId, hub });
+    if (got.fail) return got.fail;
+    const ref = newCard(got.roster);
+    return { action: 'roster', check: 'export', reply: EXPORT_TEXT, classSafe: true, roster: { rosterId: ref.rosterId, count: ref.count }, entries: [{ role: 'assistant', text: EXPORT_TEXT, action: 'roster_fact' }, { role: 'assistant', text: rosterCardText(ref.count), action: 'roster', roster: ref }] };
+  }
+
+  // R2: the class's names for @-tags (code) and the Faculty view's suggestions: the last lookup's names, or one fresh lookup
+  // (fresh: true always asks again). → [{ studentId, name }] or null when the roster can't be had. Names only.
+  async function names({ operationId, hub = null, fresh = false } = {}) {
+    if (people && !fresh) return people;
+    peopleLookup ??= lookup({ operationId: operationId ?? `names-${randomUUID()}`, hub }).finally(() => { peopleLookup = null; });
+    const got = await peopleLookup;
+    return got.fail ? null : people;
+  }
+
+  // GET /author/roster: the full roster for the Faculty view, with who is online right now (Hub-reported) and the rows
+  // to highlight (memory only).
   function view(hub, rosterId) {
     if (!card || (rosterId && rosterId !== card.rosterId)) return null;
     const course = hub?.courses?.find((c) => c.courseId === COURSE.courseId);
     const online = (course?.enrolled ?? []).filter((s) => s.online).map((s) => s.studentId);
     if (course) noteCourse(course);
-    return { rosterId: card.rosterId, at: card.at, roster: card.roster, online };
+    return { rosterId: card.rosterId, at: card.at, roster: card.roster, online, highlight: [...card.highlight] };
   }
   const waitingTell = () => { if (tell && now() - tell.at > TELL_EXPIRES_MS) tell = null; return tell; };
   // about = the subject he named (“… about the guest speaker”), or null for a bare “notify everyone” (“What should I tell
@@ -213,6 +364,6 @@ export function createRosterDesk({ hubLink, conversationId, emit = () => {}, now
   };
   const clearTell = () => { tell = null; };
   const rearmTell = (about = null) => { tell = { at: now(), about }; };
-  const reset = () => { card = null; known = null; tell = null; gen += 1; };
-  return { request, fact, view, state, counts, noteCourse, reset, waitingTell, askTell, clearTell, rearmTell };
+  const reset = () => { card = null; known = null; tell = null; people = null; gen += 1; };
+  return { request, fact, filter, exportAsk, names, known: () => (people ? [...people] : null), view, state, counts, noteCourse, reset, waitingTell, askTell, clearTell, rearmTell };
 }

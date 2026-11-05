@@ -363,9 +363,11 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, del
     const q = v.q ? finalQuiz(v) : null;
     const published = st === 'published';
     const head = el('div', { className: 'msg-head' }, el('span', { className: 'msg-dir', textContent: `Canvas LMS · ${published ? 'Published' : st === 'kept' ? 'Kept as draft' : 'Quiz saved'}` }), el('time', { textContent: new Date().toLocaleTimeString([], { hour12: false }) }));
-    const title = q?.title ?? '';
+    // After a reload the page has no draft (the questions never come back): the server's summary carries the title and due.
+    const title = q?.title ?? card?.title ?? '';
+    const dueAt = q?.dueAt ?? card?.dueAt ?? null;
     let lead;
-    if (published) lead = el('p', { className: 'msg-text', style: 'margin:2px 0 0' }, el('span', { className: 'state-badge lms', textContent: '● Published' }), ` ${title ? `${title} is` : 'The quiz is'} open in Canvas (quiz #${quizId})${q ? `, due ${dueText(q.dueAt)}` : ''}.`);
+    if (published) lead = el('p', { className: 'msg-text', style: 'margin:2px 0 0' }, el('span', { className: 'state-badge lms', textContent: '● Published' }), ` ${title ? `${title} is` : 'The quiz is'} open in Canvas (quiz #${quizId})${dueAt ? `, due ${dueText(dueAt)}` : ''}.`);
     else if (st === 'kept') lead = el('p', { className: 'msg-text', style: 'margin:2px 0 0', textContent: `Kept as a draft in Canvas (quiz #${quizId}). Nobody was notified.` });
     else lead = el('p', { className: 'msg-text', style: 'margin:2px 0 0' }, 'Saved in Canvas as an ', el('b', { textContent: 'unpublished' }), " quiz — students can't see it yet.");
     const rows = published ? null : el('dl', { className: 'lms-row' },
@@ -374,6 +376,10 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, del
         el('dt', { textContent: 'Quiz' }), el('dd', { textContent: q.title }),
         el('dt', { textContent: 'Questions' }), el('dd', { textContent: `${q.questions.length} · ${plural(q.questions.length * q.pointsEach, 'point')} · ${plural(q.minutes, 'minute')} · ${plural(q.attempts, 'attempt')}` }),
         el('dt', { textContent: 'Due' }), el('dd', { textContent: dueText(q.dueAt) }),
+      ] : card?.title ? [
+        el('dt', { textContent: 'Quiz' }), el('dd', { textContent: card.title }),
+        el('dt', { textContent: 'Questions' }), el('dd', { textContent: `${card.questionCount} · ${plural(card.pointsTotal, 'point')}${Number.isInteger(card.minutes) ? ` · ${plural(card.minutes, 'minute')}` : ''}${Number.isInteger(card.attempts) ? ` · ${plural(card.attempts, 'attempt')}` : ''}` }),
+        ...(card.dueAt ? [el('dt', { textContent: 'Due' }), el('dd', { textContent: dueText(card.dueAt) })] : []),
       ] : []));
     const kids = [head, lead];
     if (rows) kids.push(rows);
@@ -429,7 +435,9 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, del
     v.at = v.at ?? m.at;
     v.pass = pass;
     v.card = card;
-    load(v);
+    // The draft (with its key) is served only while the card is a draft: after a reload a saved or published card is
+    // drawn from the summary alone, never asked for (that answered 404 in the console).
+    if (card?.state === 'draft') load(v);
     const st = effective(v, card);
     if (st === 'draft' && !v.approving) {
       if (!v.q) {

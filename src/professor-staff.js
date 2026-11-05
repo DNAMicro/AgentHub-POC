@@ -195,13 +195,21 @@ const CLASS_POST_PRIVATE = /\b(?:leave|sick|ill|illness|unwell|vacation|holiday|
 // forClass (F2): the words he gave after asking to tell the class (“notify everyone that …”, the reply to “What should I tell
 // your class about …?”). He named the class himself, so “we/our” is the class and “leave” as a verb (“we leave from the
 // main entrance”) is not leave; a statement about himself (I, me, my) and leave as a noun (“on leave”) are still asked about.
+// Round 2: words that may be his own leave (illness, leave, a relative) — a message with them is never answered as a roster question.
+export const privateLeaveWords = (text) => { const t = String(text ?? ''); return mentionsIllness(t) || CLASS_POST_PRIVATE.test(t) || RELATIVES.test(t); };
 const SINGULAR_ME = /(^|[^\w’'])(?:i|i['’](?:m|ll|ve|d)|im|me|my|myself)(?![\w’'])/i;
 const LEAVE_VERB = /\b(?:leave|leaving)\b(?=\s+(?:from|at|for\s+the|by|together|campus|the\s+(?:room|building|campus|parking))\b)/gi;
 const forClassWords = (t) => t.replace(LEAVE_VERB, ' ');
-export async function checkClassPost({ text, held = text, entryId, emit = () => {}, forClass = false }) {
+// keepHeld (round 2, R5): a new class message sent while the HR / class / both question already waits. If it would have to be
+// asked about too, the waiting question is kept (never replaced or dropped) and he is told the new message wasn't sent.
+export async function checkClassPost({ text, held = text, entryId, emit = () => {}, forClass = false, keepHeld = false }) {
   const said = String(text ?? '');
   const t = forClass ? forClassWords(said) : said; // the code checks read this; the classifier reads his own words
   const ask = (decidedBy, extra = {}) => {
+    if (keepHeld && fresh(pendingChoice)) {
+      emit('staff_decision', { kind: 'unsure', decidedBy, kept: true, ...extra });
+      return { action: 'clarify', check: 'staff_or_class', reply: STILL_HOLDING, entries: [{ role: 'assistant', text: STILL_HOLDING, action: 'clarify' }] };
+    }
     pendingChoice = { text: String(held ?? t), entryId, at: Date.now() };
     emit('staff_decision', { kind: 'unsure', decidedBy, ...extra });
     return { action: 'clarify', check: 'staff_or_class', reply: UNSURE_QUESTION, entries: [{ role: 'assistant', text: UNSURE_QUESTION, action: 'clarify' }] };
@@ -371,7 +379,9 @@ export async function staffTurn({ operationId, text, entryId, hubLink, bypass = 
       const r = { continueWith: held.text, entryId: held.entryId, rearm: { choice: held } };
       return fresh ? withNotice(r) : r;
     };
-    const dropped = () => say(fresh ? `${NOTHING_DONE} ${NOT_SENT}` : NOTHING_DONE, { check: 'staff_or_class_dropped' });
+    // Round 2 (R5): whenever the reply that drops the question was itself a message (new content, or two or more words that
+    // are not a choice or a refusal: “The library closes early today”), he is told it wasn't sent — always, not only for days.
+    const dropped = () => say(fresh || extra >= 2 ? `${NOTHING_DONE} ${NOT_SENT}` : NOTHING_DONE, { check: 'staff_or_class_dropped' });
     const reask = () => {
       if (held.reasked) return dropped();
       pendingChoice = { ...held, reasked: true };

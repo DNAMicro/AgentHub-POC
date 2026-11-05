@@ -802,27 +802,50 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     if (changed) renderProfessor();
   }
 
-  // @-tagging: suggestions from the class roster.
+  // @-tagging: suggestions from the class roster (round 2, R2). The names and tags come from the Faculty view's own fetch
+  // (GET /api/professor/roster/people: names only, no email or ID), asked for the first time he types "@" while this tab
+  // shows, and dropped when another tab shows — never the two Student-agent sessions, never in the state or the streams.
+  let people = null; // [{ name, tag }]
+  let peopleLoading = false;
+  let peopleAsked = 0;
+  let peopleToken = 0;
+  async function loadPeople() {
+    if (pv.view.hidden || peopleLoading || people || Date.now() - peopleAsked < 5000) return;
+    peopleLoading = true;
+    peopleAsked = Date.now();
+    const token = peopleToken;
+    const r = await api('/api/professor/roster/people').catch(() => null);
+    peopleLoading = false;
+    if (token !== peopleToken || pv.view.hidden) return; // the tab was left while the names were on their way
+    const list = Array.isArray(r?.json?.people) ? r.json.people.filter((p) => typeof p?.name === 'string' && typeof p?.tag === 'string' && /^[a-z][\w-]*$/.test(p.tag)) : [];
+    if (!list.length) return;
+    people = list;
+    if (document.activeElement === pv.input) showMentions();
+  }
+  const tagOf = (x) => x.tag ?? firstName(x).toLowerCase();
   let mentionAt = -1;
   let mentionIndex = 0;
   function mentionMatches() {
     const before = pv.input.value.slice(0, pv.input.selectionStart);
-    const m = before.match(/@([\w-]*)$/);
+    const m = before.match(/(?:^|\s)@([\w-]*)$/);
     if (!m) return null;
-    mentionAt = before.length - m[0].length;
-    // By first name (the tag itself): ids all start with "student-" and the demo surnames are all "Student".
-    return [ASSISTANT, ...roster].filter((x) => firstName(x).toLowerCase().startsWith(m[1].toLowerCase()));
+    mentionAt = before.length - m[0].length + m[0].indexOf('@');
+    if (!people) loadPeople();
+    const q = m[1].toLowerCase();
+    // By the tag, the first name or the last name (“@agu” finds Mariana Aguilar).
+    const hits = (people ?? []).filter((p) => p.tag.startsWith(q) || p.name.toLowerCase().split(/\s+/).some((w) => w.startsWith(q)));
+    return [...(firstName(ASSISTANT).startsWith(q) ? [ASSISTANT] : []), ...hits].slice(0, 8);
   }
   function showMentions() {
     const list = mentionMatches();
     if (!list?.length) { pv.mentions.hidden = true; return; }
     mentionIndex = Math.min(mentionIndex, list.length - 1);
-    pv.mentions.replaceChildren(...list.map((x, i) => el('li', { role: 'option', ariaSelected: String(i === mentionIndex), textContent: `@${firstName(x).toLowerCase()} — ${x.label ?? x.name}`, onmousedown: (e) => { e.preventDefault(); pickMention(x); } })));
+    pv.mentions.replaceChildren(...list.map((x, i) => el('li', { role: 'option', ariaSelected: String(i === mentionIndex), textContent: `@${tagOf(x)} — ${x.label ?? x.name}`, onmousedown: (e) => { e.preventDefault(); pickMention(x); } })));
     pv.mentions.hidden = false;
   }
   function pickMention(x) {
     const caret = pv.input.selectionStart;
-    const tag = `@${firstName(x).toLowerCase()} `;
+    const tag = `@${tagOf(x)} `;
     pv.input.value = pv.input.value.slice(0, mentionAt) + tag + pv.input.value.slice(caret);
     pv.input.selectionStart = pv.input.selectionEnd = mentionAt + tag.length;
     pv.mentions.hidden = true;
@@ -954,7 +977,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     professorShown: () => refreshProfessor(),
     // Another tab is showing: the quiz cards (and the answer key in them) leave the page.
     // Classmates' names leave too (they come back from the roster fetch when the tab shows again).
-    professorHidden: () => { names.clear(); namesTried.clear(); namesToken += 1; namesAsked = 0; namesLoading = false; if (lastRendered) { lastRendered = ''; renderProfessor(); } },
+    professorHidden: () => { names.clear(); namesTried.clear(); namesToken += 1; namesAsked = 0; namesLoading = false; people = null; peopleToken += 1; peopleLoading = false; peopleAsked = 0; pv.mentions.hidden = true; if (lastRendered) { lastRendered = ''; renderProfessor(); } },
     attachProfessor,
   };
 }
