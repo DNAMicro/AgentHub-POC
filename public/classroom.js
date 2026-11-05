@@ -315,7 +315,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
   const quiz = createQuizUi({
     el, api, bubble, nameOf: (id) => nameOf(id), posts: () => [...posts.values()], studentCount: () => roster.length, studentState, DELIVERY,
     isShowing: () => !pv.view.hidden,
-    sendText: (text) => { pv.input.value = text; pv.form.requestSubmit(); },
+    sendText: (text) => { const typed = pv.input.value; pv.input.value = text; pv.form.requestSubmit(); pv.input.value = typed; }, // a chip never overwrites what he had typed
     redraw: () => { lastRendered = ''; renderProfessor(); },
     pin: () => follow.pin(),
   });
@@ -852,7 +852,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     pickSlot: ({ deliveryId, slot }) => { setAbout(null); return sendChat(`I’ll take ${slot.label}.`, { lessonDeliveryId: deliveryId, meetingSlot: slot.slotId }); },
     professorShown: () => refreshProfessor(),
     // Another tab is showing: the quiz cards (and the answer key in them) leave the page.
-    professorHidden: () => { quiz.disposeAll(); if (lastRendered) { lastRendered = ''; renderProfessor(); } },
+    professorHidden: () => { if (lastRendered) { lastRendered = ''; renderProfessor(); } },
     attachProfessor,
   };
 }

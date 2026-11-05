@@ -64,10 +64,13 @@ async (page) => {
   await log.screenshot({ path: `${SHOTS}/t9-1-topics.png` });
 
   // 2. Tap Topic 8: the draft card with 5 questions.
+  await page.locator('#prof-message').fill('half a thought I was typing');
   await page.locator('.tchip[data-topic="8"]').click();
   await page.waitForSelector('#prof-log .quiz-card .q', { timeout: 30000 });
   const card = page.locator('#prof-log .quiz-card');
   const qs = card.locator('.q-list > .q');
+  check('a chip tap leaves the text he had typed in the box', await page.locator('#prof-message').inputValue() === 'half a thought I was typing');
+  await page.locator('#prof-message').fill('');
   check('tapping Topic 8 sends his message', await log.locator('.msg-text', { hasText: 'Topic 8 · Segmentation & targeting' }).count() >= 1);
   check('draft card with 5 questions, each tagged AI draft', await qs.count() === 5 && await card.locator('.q-tag.ai').count() === 5);
   check('slip: title, badge, facts line', /Topic 8 Quiz: Segmentation & Targeting/.test(await card.locator('.q-slip .t').textContent()) && /Not in Canvas yet/.test(await card.locator('.state-badge').textContent()) && /^5 questions · 15 points · 10 minutes · 1 attempt · due Mon, Nov 9, 11:59 PM$/.test(await card.locator('.q-slip .m').textContent()), await card.locator('.q-slip .m').textContent());
@@ -131,6 +134,19 @@ async (page) => {
   await page.setViewportSize({ width: 1280, height: 2400 });
   await page.waitForTimeout(400);
   await card.screenshot({ path: `${SHOTS}/t9-2-draft.png` });
+  // Leaving the Faculty tab and coming back keeps a half-done edit (and takes the answer key out of the page meanwhile).
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await qs.nth(1).locator('[data-act="edit"]').click();
+  await page.getByRole('tab', { name: 'Conversation' }).click();
+  await page.waitForTimeout(600);
+  check('while another tab shows, no answer key is in the page', await page.evaluate(() => document.querySelectorAll('[data-correct], .quiz-card .q').length) === 0);
+  await page.getByRole('tab', { name: 'Faculty view' }).click();
+  await page.waitForSelector('#prof-log .quiz-card .q.editing textarea');
+  check('back on the Faculty tab: the open edit row and his typed text are still there', await page.locator('#prof-log .quiz-card .q.editing textarea').inputValue() === typed && /Edited by you/.test(await page.locator('#prof-log .quiz-card .q.editing .q-tag').textContent()));
+  check('back on the Faculty tab: his removal and added question are still there', await page.locator('#prof-log .quiz-card .q-list > .q.removed').count() === 1 && await page.locator('#prof-log .quiz-card .q-list > .q:not(.removed)').count() === 6);
+  await page.locator('#prof-log .quiz-card .q.editing [data-act="done"]').click();
+  await page.setViewportSize({ width: 1280, height: 2400 });
+  await page.waitForTimeout(300);
   // Dark mode: the card stays readable.
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.waitForTimeout(300);
@@ -159,9 +175,14 @@ async (page) => {
   await page.waitForFunction(() => /Canvas didn't answer/.test(document.querySelector('#prof-log .quiz-card .q-error')?.textContent ?? ''), null, { timeout: 15000 });
   check('Canvas didn’t answer: the card is back with the exact sentence', await page.locator('#prof-log .quiz-card .q-error').textContent() === "Canvas didn't answer. Nothing is posted until it confirms — press Approve again; it won't post twice.");
   check('the card kept his edits after the failed attempt', await card.locator('.q-list > .q:not(.removed)').count() === 6);
-  await card.locator('[data-act="approve"]').click();
+  await page.getByRole('tab', { name: 'Conversation' }).click();
+  await page.waitForTimeout(400);
+  await page.getByRole('tab', { name: 'Faculty view' }).click();
+  await page.waitForSelector('#prof-log .quiz-card [data-act="approve"]');
+  check('after leaving and returning, the failure sentence is still on the card', /Canvas didn't answer/.test(await page.locator('#prof-log .quiz-card .q-error').textContent()));
+  await page.locator('#prof-log .quiz-card [data-act="approve"]').click();
   await page.waitForSelector('#prof-log .lms-card', { timeout: 30000 });
-  check('pressing Approve again reuses the same operation ID', ops.length === 2 && ops[0] === ops[1], ops);
+  check('pressing Approve again (after leaving and returning) reuses the same operation ID', ops.length === 2 && ops[0] === ops[1], ops);
   await page.unroute('**/api/professor/quiz/actions');
   const approved = await log.locator('li.msg', { hasText: 'You approved the quiz' }).last().textContent();
   check('his approval bubble counts what he changed', /Topic 8 Quiz: Segmentation & Targeting — 6 questions \(1 edited, 1 added, 1 removed by you\)/.test(approved), approved);
@@ -180,7 +201,7 @@ async (page) => {
   // 8. Keep as draft, then Publish: the Published card with each student's notice.
   await lms.locator('[data-act="keep"]').click();
   await page.waitForFunction(() => /Kept as a draft in Canvas \(quiz #4821\)\. Nobody was notified\./.test(document.querySelector('#prof-log .lms-card')?.textContent ?? ''), null, { timeout: 15000 });
-  check('Keep as draft: “Kept as a draft in Canvas (quiz #4821). Nobody was notified.”', true);
+  check('Keep as draft: “Kept as a draft in Canvas (quiz #4821). Nobody was notified.”', /Kept as a draft in Canvas \(quiz #4821\)\. Nobody was notified\./.test(await lms.textContent()));
   check('after Keep the card still offers Publish & notify students (and no second Keep)', await lms.locator('[data-act="publish"]').isEnabled() && await lms.locator('[data-act="keep"]').count() === 0);
   check('the student page got no notice from keeping a draft', await student.locator('#student-log .quiz-notice').count() === 0);
   await lms.locator('[data-act="publish"]').click();

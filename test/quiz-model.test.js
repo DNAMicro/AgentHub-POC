@@ -24,7 +24,8 @@ test('mock Topic 8, 5 questions: all pass checkQuestion, distinct, deterministic
   const terms = topic.notes.map((n) => n.term);
   for (const q of a.questions) {
     for (const ans of q.answers) assert.ok(terms.includes(ans));
-    const note = topic.notes.find((n) => q.text.includes(n.definition));
+    assert.doesNotMatch(q.text, /[.!?]\?$/, `doubled punctuation: ${q.text}`);
+    const note = topic.notes.find((n) => q.text.includes(n.definition.replace(/[.!?]$/, '')));
     assert.equal(q.answers[q.correct], note.term);
   }
 });

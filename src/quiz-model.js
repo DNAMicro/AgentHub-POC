@@ -98,7 +98,7 @@ function mockPool(topic) {
   const n = topic.notes.length;
   topic.notes.forEach((note, i) => {
     const others = topic.notes.filter((_, j) => j !== i).slice(0, 3).map((x) => x.term);
-    out.push({ text: `Which term matches: ${note.definition}?`, ...place(note.term, others, i), origin: 'ai' });
+    out.push({ text: `Which term matches: ${note.definition.replace(/[.!?]$/, '')}?`, ...place(note.term, others, i), origin: 'ai' });
   });
   topic.notes.forEach((note, i) => {
     const others = topic.notes.filter((_, j) => j !== i).slice(0, 3).map((x) => x.definition);

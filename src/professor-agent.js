@@ -281,7 +281,7 @@ async function createPost({ operationId, kind = 'lesson', title = '', text, audi
 const CANVAS_URL = process.env.CANVAS_URL ?? 'http://127.0.0.1:9';
 const canvasLink = createCanvasLink({ url: CANVAS_URL, token: process.env.CANVAS_TOKEN, emit: (type, runId, data) => emitViz(type, runId, data), timeoutMs: Number(process.env.CANVAS_TIMEOUT_MS ?? TIMEOUTS.professorCanvasCallMs) });
 let lastRoster = []; // enrolled students as the Hub last reported them (for “your N students”)
-const quizDesk = createQuizDesk({ canvas: canvasLink, createPost: (a) => createPost({ ...a, source: 'chat', author: 'assistant' }), now: nowFn(), emit: (type, runId, data) => emitViz(type, runId, data), roster: () => lastRoster });
+const quizDesk = createQuizDesk({ canvas: canvasLink, createPost: (a) => createPost({ ...a, source: 'chat', author: 'professor' }), now: nowFn(), emit: (type, runId, data) => emitViz(type, runId, data), roster: () => lastRoster });
 
 // ---- the professor's chat ---------------------------------------------------------------------------------
 // Every decision the model makes is checked here before anything is sent:

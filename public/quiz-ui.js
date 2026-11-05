@@ -148,9 +148,11 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, stu
     v.ui.title.textContent = v.q.title || 'Untitled quiz';
     const c = checkLine(v);
     v.ui.check.replaceWith(v.ui.check = c.node);
-    v.ui.approve.disabled = !c.ok || v.busy;
-    v.ui.add.disabled = v.busy;
-    v.ui.more.disabled = v.busy;
+    const off = v.busy || Boolean(v.discarded);
+    v.ui.approve.disabled = !c.ok || off;
+    v.ui.add.disabled = off;
+    v.ui.more.disabled = off;
+    v.ui.discard.disabled = off;
   }
 
   const fld = (label, input) => { input.id = `qf-${id()}`; return el('div', { className: 'fld' }, el('label', { htmlFor: input.id, textContent: label }), input); };
@@ -217,7 +219,7 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, stu
     const discard = el('button', { type: 'button', className: 'btn-link', dataset: { act: 'discard' }, textContent: 'Discard draft' });
     const check = el('span', { className: 'q-check' });
     const note = el('p', { className: 'q-error', hidden: true, role: 'status' });
-    v.ui = { title, meta, list, check, approve, add, more, note };
+    v.ui = { title, meta, list, check, approve, add, more, discard, note };
     add.addEventListener('click', () => {
       if (v.q.items.length >= 20) return;
       const item = { id: id(), text: '', answers: ['', '', '', ''], correct: null, tag: 'added', mode: 'edit', n: 0 };
@@ -229,7 +231,7 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, stu
     });
     more.addEventListener('click', () => oneMore(v));
     approve.addEventListener('click', () => approveQuiz(v));
-    discard.addEventListener('click', () => act(v, 'discard', {}, { ok: () => {}, label: 'Discard' }));
+    discard.addEventListener('click', () => act(v, 'discard', {}, { ok: () => { v.discarded = true; } }));
     v.body = [
       head,
       el('p', { className: 'q-lead', textContent: "Here's a draft. Change anything you like, then approve it to post it to Canvas." }),
@@ -269,23 +271,24 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, stu
     if (!retry) v.pending = null;
     return { error: text, retry, body };
   }
-  async function act(v, action, extra, { ok, label }) {
+  async function act(v, action, extra, { ok }) {
     if (v.busy) return;
     v.busy = true;
     v.doing = action;
     v.lmsNotice = null;
-    drawLms(v);
+    drawCard(v);
     refresh(v);
     const r = await send(v, action, extra);
     v.busy = false;
     v.doing = null;
     if (r.body?.ok) { ok(r.body); v.lmsNotice = null; } else v.lmsNotice = { kind: r.retry ? 'warn' : 'bad', text: r.error };
-    drawLms(v);
+    drawCard(v);
     refresh(v);
     redraw();
     pin();
-    return label;
   }
+  // The Canvas card is drawn only once the quiz is saved in Canvas.
+  const drawCard = (v) => { if (v.card && RANK[effective(v, v.card)] >= RANK.saved) drawLms(v, v.card); };
   async function approveQuiz(v) {
     const quiz = finalQuiz(v);
     if (v.busy || !checkQuiz(quiz, new Date()).ok) return;
@@ -347,9 +350,7 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, stu
     const b = RANK[v.after] ?? 0;
     return b > a ? v.after : card?.state;
   }
-  let lastCard = null;
-  function drawLms(v, card = lastCard) {
-    lastCard = card;
+  function drawLms(v, card) {
     const st = effective(v, card);
     const quizId = v.canvasQuizId ?? card?.canvasQuizId;
     const q = v.q ? finalQuiz(v) : null;
@@ -373,13 +374,13 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, stu
     else {
       const working = st === 'publishing' || v.doing === 'publish';
       const publishBtn = el('button', { type: 'button', className: 'btn-primary lms', dataset: { act: 'publish' }, disabled: v.busy || st === 'publishing', textContent: 'Publish & notify students' });
-      publishBtn.addEventListener('click', () => { act(v, 'publish', {}, { ok: (b) => { v.after = 'published'; v.publishedAt = new Date().toISOString(); v.deliveries = b.deliveries ?? null; }, label: 'Publish' }); });
+      publishBtn.addEventListener('click', () => { act(v, 'publish', {}, { ok: (b) => { v.after = 'published'; v.publishedAt = new Date().toISOString(); v.deliveries = b.deliveries ?? null; } }); });
       const ask = el('div', { className: 'lms-ask' },
         el('p', {}, el('b', { textContent: 'Publish it now?' }), ` Publishing makes it visible in Canvas, and your ${plural(studentCount(), 'student')} get a notification.`),
         publishBtn, ' ');
       if (st !== 'kept') {
         const keep = el('button', { type: 'button', className: 'btn-link', style: 'color:var(--lms-ink)', dataset: { act: 'keep' }, disabled: v.busy || st === 'publishing', textContent: 'Keep as draft' });
-        keep.addEventListener('click', () => { act(v, 'keep_draft', {}, { ok: () => { v.after = 'kept'; }, label: 'Keep' }); });
+        keep.addEventListener('click', () => { act(v, 'keep_draft', {}, { ok: () => { v.after = 'kept'; } }); });
         ask.append(keep);
       }
       if (working) ask.append(el('p', { className: 'lms-note' }, el('span', { className: 'working' }, el('i'), 'Publishing in Canvas…')));
@@ -406,6 +407,7 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, stu
     const v = view(draftId);
     v.at = v.at ?? m.at;
     v.pass = pass;
+    v.card = card;
     load(v);
     const st = effective(v, card);
     if (st === 'draft' && !v.approving) {
@@ -434,9 +436,14 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, stu
   // Forget views whose elements are no longer drawn (the card closed, was discarded or replaced).
   const begin = () => { pass += 1; };
   function sync() {
+    if (!isShowing()) {
+      // Another tab is showing: the cards (and the answer key in them) leave the DOM, but his edits, any open
+      // edit row, the pending operation ID and the notices stay in memory; they are redrawn from that state.
+      for (const v of views.values()) { v.li.replaceChildren(); v.lms.replaceChildren(); v.built = false; v.ui = null; }
+      return;
+    }
     for (const [draftId, v] of views) if (v.pass !== pass) views.delete(draftId);
   }
-  function disposeAll() { views.clear(); }
-
-  return { topicsBlock, entry, kept, begin, sync, disposeAll, dueText };
+  
+  return { topicsBlock, entry, kept, begin, sync, dueText };
 }
