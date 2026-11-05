@@ -664,6 +664,14 @@ test('F3: a details question shows the roster card with that row highlighted; th
   assert.ok(!st.chat.some((m) => m.text === UNSURE));
 });
 
+test('live run Z24: "Thanks" with nothing waiting is answered, never asked about and never posted', async () => {
+  await main.reset();
+  const r = await say(main, 'Thanks');
+  assert.equal(r.reply, "You're welcome.");
+  assert.notEqual(r.reply, UNSURE);
+  assert.equal((await state(main)).lessons.length, 0);
+});
+
 test('F4: while the HR / class / both question waits, a roster request, a roster fact and "Thanks" are answered and the question keeps waiting', async () => {
   assert.equal((await say(main, "I'm sick, cancel Friday's class")).reply, UNSURE);
   assert.equal((await say(main, 'show my class roster')).reply, 'Class roster · 25 students');
