@@ -286,8 +286,10 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
       deliveryLines(p));
     return li;
   }
+  // Plain words for why the Hub refused a post; anything unknown is a retry, never a code.
+  const notSentText = (reason) => (/student|audience|recipient|enrol/i.test(reason ?? '') ? 'Not sent — those students aren’t in this class.' : 'Not sent — please try again.');
   function deliveryLines(p) {
-    if (p.hubStatus === 'rejected') return el('p', { className: 'post-origin', dataset: { verbatim: 'false' }, textContent: `Not sent: ${p.hubReason}` });
+    if (p.hubStatus === 'rejected') return el('p', { className: 'post-origin', dataset: { verbatim: 'false' }, textContent: notSentText(p.hubReason) });
     if (!p.deliveries.length) return el('p', { className: 'post-origin', textContent: p.hubAccepted ? 'Sending…' : 'Not confirmed yet — it will be retried.' });
     return el('ul', { className: 'per-student' }, ...p.deliveries.map((d) => {
       const [k, detail] = studentState(d);
@@ -665,7 +667,9 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
       else if (m.role === 'hr') {
         // HR (staff only): the open card where HR sent it; every other HR reply (a receipt, a question,
         // a refusal) as HR's own bubble.
-        if (m.closed && m.cancelled) continue; // the closed card already says it (once)
+        // The closed card already says it (once). Older saved entries lack the flag: hidden by their exact words, but
+        // only while the card itself is still shown, so the screen never loses its only cancel line.
+        if (m.closed && (m.cancelled || m.text === 'Cancelled. Nothing was recorded.') && chat.some((x) => x.role === 'hr' && x.formRef === m.formRef && !x.closed && !x.failed)) continue;
         if (m.formRef && hrCard?.formRef === m.formRef && !m.closed && !m.failed) items.push(hrCardItem(m, hrCard));
         else if (m.formRef && !m.closed && !m.failed) items.push(hrRecord(m, chat.find((x) => x.role === 'hr' && x.formRef === m.formRef && x.closed)));
         else {

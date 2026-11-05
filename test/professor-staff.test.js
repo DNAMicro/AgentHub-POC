@@ -1232,3 +1232,69 @@ test('aboutOpenCard: the words decide (unit)', async () => {
   };
   for (const [want, texts] of Object.entries(table)) for (const t of texts) assert.equal(aboutOpenCard(t), want, t);
 });
+
+// Fix round 1 (review of the open-card rule): a 'class' verdict is only a candidate.
+test('open card: class words next to a private health reason are asked about — nothing posted, card unchanged', async () => {
+  await say('I need Friday off, it is a vacation day');
+  const card = (await state()).hrCard;
+  const dates = dataModel(card).beginDate;
+  for (const text of [
+    "no class Friday, I'm under the weather",
+    'Class is cancelled Friday, I have chemo',
+    'Lecture moved because I have the flu',
+    'class cancelled, I have covid',
+    'Students: I have a medical procedure Monday, no class',
+  ]) {
+    const r = await say(text);
+    assert.equal(r.reply, UNSURE, text);
+    const st = await state();
+    assert.equal(st.lessons.length, 0, `${text}: nothing posted`);
+    assert.equal(st.hrCard.formRef, card.formRef, `${text}: card unchanged`);
+    assert.equal(dataModel(st.hrCard).beginDate, dates);
+    await say('no'); // drop the hold
+  }
+});
+
+test('open card: a day, number or time in a long class announcement is asked about; a thanks is just acknowledged', async () => {
+  await say('I need Friday off, it is a vacation day');
+  const card = (await state()).hrCard;
+  for (const text of ['Guest speaker comes Thursday', 'Bring your laptops tomorrow', 'Room changed to 204']) {
+    const r = await say(text);
+    assert.equal(r.reply, UNSURE, text);
+    assert.equal((await state()).hrCard.formRef, card.formRef, text);
+    await say('no');
+  }
+  for (const text of ['Thanks', 'ok thanks', 'thank you']) {
+    const r = await say(text);
+    assert.notEqual(r.action, 'staff', text);
+    assert.equal((await state()).hrCard.formRef, card.formRef, `${text}: card not re-issued`);
+  }
+  assert.equal((await state()).lessons.length, 0);
+});
+
+test('open card + waiting cancellation offer: yes / no answer the offer first', async () => {
+  await say('I need Friday off, it is a vacation day');
+  let st = await state();
+  await hrAction({ operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: submitAction(st.hrCard, { absenceType: ['VAC'], absenceReason: ['VAC'], beginDate: dataModel(st.hrCard).beginDate, endDate: dataModel(st.hrCard).endDate, hours: '8' }) });
+  st = await state();
+  assert.match(lastOf(st.chat, 'assistant').text, /send a cancellation/);
+  await say('I also need Monday off'); // a second card opens while the offer waits
+  st = await state();
+  assert.ok(st.hrCard, 'a second card is open');
+  const second = st.hrCard.formRef;
+  const r = await say('yes');
+  assert.notEqual(r.action, 'staff', 'the yes is not an HR follow-up');
+  st = await state();
+  assert.equal(st.hrCard.formRef, second, 'the card is unchanged');
+  assert.match(lastOf(st.chat, 'assistant').text, /Sent to your students|cancelled on/i);
+  assert.equal(st.lessons.length, 1, 'the cancellation reached the class');
+});
+
+test('open card + waiting cancellation offer: a short answer to HR (not yes/no) still goes to HR', async () => {
+  await say('I need Friday off, it is a vacation day');
+  let st = await state();
+  await hrAction({ operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: submitAction(st.hrCard, { absenceType: ['VAC'], absenceReason: ['VAC'], beginDate: dataModel(st.hrCard).beginDate, endDate: dataModel(st.hrCard).endDate, hours: '8' }) });
+  await say('I also need Monday off');
+  const r = await say('It was my uncle');
+  assert.equal(r.action, 'staff');
+});

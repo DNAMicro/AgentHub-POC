@@ -454,7 +454,8 @@ const hrExecutor = {
       };
     // Choices when no single name fits: this message's, else the ones the open card already offered.
     // An appointment (no illness word) keeps the plain opening line; a later message that names an illness ends it.
-    state.appointment = isAppointment(text) || (followUp && open.data.appointment === true && !mentionsIllness(text));
+    state.ill = mentionsIllness(text) || (followUp && open.data.ill === true);
+    state.appointment = !state.ill && (isAppointment(text) || (followUp && open.data.appointment === true));
     state.choices = read.choices?.length ? read.choices : followUp ? open.data.choices ?? [] : [];
     if (!isPair(state.values.absenceType, state.values.absenceReason)) state.values.absenceReason = state.values.absenceType ? defaultReason(state.values.absenceType) ?? '' : '';
     state.balances = balances;
@@ -470,7 +471,7 @@ const hrExecutor = {
       intro: hrCard.question ? `${hrCard.intro} ${hrCard.question}` : hrCard.intro,
       supersedes: followUp ? openId : null,
       buildOptions: { missing: hrCard.missing },
-      data: { staffId, appointment: state.appointment, values: state.values, hours, cardHours: state.cardHours, partial: state.partial, mode: state.mode, startAt: state.startAt, side: state.side, quote: state.quote, choices: state.choices, spread: decided },
+      data: { staffId, appointment: state.appointment, ill: state.ill, values: state.values, hours, cardHours: state.cardHours, partial: state.partial, mode: state.mode, startAt: state.startAt, side: state.side, quote: state.quote, choices: state.choices, spread: decided },
       extra: { hrCard, hr: { outcome: 'card' } },
     });
   },

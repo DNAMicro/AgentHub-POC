@@ -320,9 +320,9 @@ export function startHubServer({ port } = {}) {
       const serviceError = err.tutorError ?? null;
       if (!serviceError) registry.markReachable(agentId, unknown ? null : false, err.message);
       emit('forward_failed', runId, { operationId, agentId, outcome: serviceError ? 'answered_with_error' : unknown ? 'unknown' : 'not_delivered', code: serviceError?.code ?? err.cause?.code ?? null });
-      if (serviceError) return { ...staffReply('refused', { reason: `The ${peer.displayName} could not answer: ${serviceError.message}` }), retryable: true };
-      return unknown ? staffReply('outcome_unknown', { reason: `The ${peer.displayName} didn’t answer in time. It may still be working on it.` })
-        : staffReply('not_delivered', { reason: `The ${peer.displayName} is unreachable right now. Please try again in a little while.` });
+      if (serviceError) return { ...staffReply('refused', { reason: 'Something went wrong on our side. Please try again.' }), retryable: true };
+      return unknown ? staffReply('outcome_unknown', { reason: 'HR didn’t answer in time. It may still be working on it.' })
+        : staffReply('not_delivered', { reason: 'HR can’t be reached right now. Please try again in a little while.' });
     } finally {
       activeFor.set(agentId, activeFor.get(agentId) - 1);
       counters.active -= 1;

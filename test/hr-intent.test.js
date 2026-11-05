@@ -908,3 +908,10 @@ test('owner 2026-11-04: an appointment with no illness word is not a “feel bet
   for (const t of ['I have a doctor appointment Friday', 'I need Friday afternoon off for a dentist appointment', 'a check-up on Monday', 'I have a doctor visit Monday']) assert.equal(isAppointment(t), true, t);
   for (const t of ['I am sick and have a doctor appointment Friday', 'doctor appointment, I have a fever', 'I have the flu', 'I need Friday off', 'migraine, seeing the doctor', "I'm not feeling well, dentist appointment"]) assert.equal(isAppointment(t), false, t);
 });
+
+test('review fix: “in the morning” counts only when it qualifies the day off', () => {
+  assert.equal(readPartial('I need Friday off so class in the morning is covered'), null);
+  assert.equal(readPartial('I need Friday off because the students are in the morning section'), null);
+  assert.equal(readPartial('I need Nov 17 off in the afternoon')?.hours, 4);
+  assert.equal(readPartial('I will be out Tuesday Nov 17 in the morning')?.hours, 4);
+});

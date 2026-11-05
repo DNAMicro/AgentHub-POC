@@ -122,10 +122,10 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
     const gen = resetGen;
     let res;
     try { res = await draftQuiz({ topic: n, count, emit: (type, data) => tell(type, runId, data) }); } catch { res = { questions: [], by: 'model_failed', short: count }; }
-    if (gen !== resetGen) { tell('quiz_turn', runId, { outcome: 'reset_during_draft', topic: n }); return { action: 'quiz_draft_failed', reply: 'The classroom was reset while the AI was drafting, so no draft was kept. Ask again.' }; }
+    if (gen !== resetGen) { tell('quiz_turn', runId, { outcome: 'reset_during_draft', topic: n }); return { action: 'quiz_draft_failed', reply: 'The class was reset while I was drafting, so no draft was kept. Ask again.' }; }
     if (!res || (res.by === 'model_failed' && !res.questions?.length)) {
       tell('quiz_turn', runId, { outcome: 'draft_failed', topic: n });
-      return { action: 'quiz_draft_failed', reply: "The AI couldn't draft questions just now. Ask again in a moment." };
+      return { action: 'quiz_draft_failed', reply: "I couldn't draft questions just now. Try again in a moment." };
     }
     const quiz = { topic: n, ...defaultSettings(n, clock()), questions: res.questions.map((q) => ({ ...q })) };
     const draft = { draftId: `qd-${randomUUID().slice(0, 12)}`, topic: n, state: 'draft', quiz, canvasQuizId: null, receipt: null, deliveries: null, noticeSent: false, by: res.by, model: res.model, short: res.short ?? 0, wanted: count };

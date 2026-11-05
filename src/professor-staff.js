@@ -18,7 +18,8 @@ import { CARD_CLOSED, STAFF_ACTION_MEDIA_TYPE, STAFF_REQUEST_MEDIA_TYPE, staffAc
 import { ABSENCE_TYPES, shortDate, titleOf, workdays } from './absence-types.js';
 import { COURSE } from './course-pack.js';
 import { classifyStaff } from './professor-model.js';
-import { asksBalance, asksRequests, mentionsDay, mentionsHours } from './hr-intent.js';
+import { asksBalance, asksRequests, mentionsDay, mentionsHours, mentionsIllness } from './hr-intent.js';
+const MENTION_DAYS = /\b(?:mon|tues?|wed(?:nes)?|thu(?:rs?)?|fri|sat(?:ur)?|sun)(?:day)?s?\b|\b(?:jan|feb|mar|apr|may|june?|july?|aug|sept?|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?\b|\b\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/gi;
 
 export const UNSURE_QUESTION = 'Should I file this as time off with HR, tell the class, or both?';
 export const HOLDING = "I'm still holding your earlier message — please answer HR, the class, or both. If your reply also had something new, send it again after.";
@@ -72,21 +73,29 @@ const SHORT = (text) => text.trim().split(/\s+/).length <= 4;
 // Leave words (strong): the time off itself, a reason or a relative, or an absence name from the list.
 const LEAVE_WORDS = /\b(?:off|out|leave|leaving|sick|ill|illness|unwell|vacation|holiday|absent|absence|pto|bereavement|funeral|died|passed|death|jury|witness|military|appointment|doctor|dentist|hospital|surgery|dock|sabbatical|maternity|paternity|personal|time\s+off|day\s+off|days\s+off|sorry|submit|balance)\b/i;
 const RELATIVES = /\b(?:mother|father|mom|dad|mum|grand(?:mother|father|parents?|ma|pa)|brother|sister|wife|husband|spouse|partner|son|daughter|child|children|kids?|aunt|uncle|cousin|niece|nephew|in-?laws?|family|relative)\b/i;
-// Edit cues and card-field words (weak: they count only when no class word is present).
-const CARD_EDIT = /\b(?:instead|change|changed|make\s+it|switch|move|actually|never\s?mind|also|add|each\s+day|every\s+day|first\s+day|only|reason|note|hours?|half|full|whole|all\s+day)\b/i;
+// Edit cues (they name a change to the card): “make it Friday”, “instead”, “change it to …”, “only”, “also”, “not”.
+const EDIT_CUE = /\b(?:make\s+(?:it|that)|instead|(?:change|move|switch|swap)\s+(?:it|that|this|the\s+(?:dates?|days?|hours?|times?))|not|only|also|add|never\s?mind|actually|each\s+day|every\s+day|first\s+day|half|full|whole|all\s+day|reason|note)\b/i;
 // Class words: the class, the students, or what a class announcement is made of.
 const CLASS_WORDS = /\b(?:class(?:es)?|students?|everyone|reminder|remind|read|reading|chapter|homework|quiz|exam|midterm|test|assignment|due|syllabus|lecture|slides|office\s+hours|project|grades?|announce\w*)\b/i;
+const ACK = /^\s*(?:ok(?:ay)?[\s,]+)?(?:thanks?(?:\s+(?:a\s+lot|so\s+much))?|thank\s+you(?:\s+(?:so\s+much|very\s+much))?|thx)[\s.!]*$/i;
+// Words that add no content to an answer: what is left (after days, numbers, hours and times) is what the message is about.
+const FILLER = /^(?:a|an|the|it|is|i|to|for|please|just|on|at|of|and|that|this|my|me|be|can|you|will|would|from|till|until|through|in|with|by|so|ok|okay|thanks|yes|no|day|days|hour|hours|hrs|morning|afternoon|evening|noon|am|pm|next|this|week|today|tomorrow|yesterday)$/i;
 const absenceNameIn = (text) => { const t = String(text).toLowerCase(); return ABSENCE_TYPES.some((a) => t.includes(a.name.toLowerCase())); };
-// 'hr' | 'class' | 'ask'
+const contentWords = (t) => String(t).replace(new RegExp(MENTION_DAYS.source, 'gi'), ' ').toLowerCase().replace(/[^a-z\s’']/g, ' ').split(/\s+/).filter((w) => w && !FILLER.test(w));
+// 'hr' | 'class' (a candidate: staffTurn double-checks) | 'ack' | 'ask'
 export function aboutOpenCard(text) {
   const t = String(text ?? '');
+  if (ACK.test(t)) return 'ack';
   const classy = CLASS_WORDS.test(t) || /(^|\s)@\w/.test(t);
   const strong = LEAVE_WORDS.test(t) || RELATIVES.test(t) || absenceNameIn(t);
-  const edit = mentionsHours(t) || CARD_EDIT.test(t);
+  const edit = EDIT_CUE.test(t);
   // A class message with a day in it (“before Thursday”) is still a class message; with a leave word, or words that
-  // edit the card (hours, “instead”), it could be either: asked, never guessed.
-  if (classy) return strong || edit ? 'ask' : 'class';
-  if (strong || edit || mentionsDay(t)) return 'hr';
+  // edit the card, it could be either: asked, never guessed.
+  if (classy) return strong || edit || mentionsHours(t) ? 'ask' : 'class';
+  if (strong || edit) return 'hr';
+  // A bare day, number or time answers HR only when almost nothing else is said (“Friday please”, “8 hours”,
+  // “just the morning”); a longer announcement with a day in it (“Guest speaker comes Thursday”) is asked about.
+  if (mentionsDay(t) || mentionsHours(t)) return contentWords(t).length <= 1 ? 'hr' : 'ask';
   if (SHORT(t)) return 'hr'; // a short answer to HR's own question (“yes”, “no”, “the first day only”)
   return 'ask';
 }
@@ -196,17 +205,27 @@ export async function staffTurn({ operationId, text, entryId, hubLink, bypass = 
   if (asksBalance(text) || asksRequests(text)) return sendToHr({ operationId, text, hubLink, emit, decidedBy: 'info_question' });
   // While a card is open, a plain message goes to HR as a follow-up only when CODE reads it as about this time off
   // (owner, 2026-11-04: a class reminder went to HR and moved the card's dates). A class message with no leave
-  // word goes the normal class path; anything unclear is asked about (the held-message question), never guessed.
-  // A reply to that question is read by the held-message rules below, not here.
-  if (cardOpen() && !fresh(pendingChoice)) {
+  // word goes the normal class path only after a second look (below); anything unclear is asked about (the
+  // held-message question), never guessed. A reply to that question is read by the held-message rules, and a
+  // yes/no to a waiting cancellation offer is the offer's answer first.
+  const cancelWaiting = fresh(pendingNote) && pendingNote.kind === 'cancel';
+  const answersOffer = cancelWaiting && (ANSWER_START.test(text) || CANCEL_WORD.test(text)); // only a clear yes/no (or talk of cancelling): a short answer to HR (“It was my uncle”) stays HR's
+  if (cardOpen() && !fresh(pendingChoice) && !answersOffer) {
     const where = aboutOpenCard(text);
     if (where === 'hr') {
       const formValues = card.formValues && card.formRef === openCard.formRef ? card.formValues : undefined;
       return sendToHr({ operationId, text, hubLink, emit, decidedBy: 'open_card', formValues });
     }
-    if (where === 'class') {
-      emit('staff_decision', { kind: 'class_message', decidedBy: 'open_card_words' });
-      return null;
+    if (where === 'ack') {
+      emit('staff_decision', { kind: 'acknowledged', decidedBy: 'open_card_words' });
+      return { action: 'clarify', check: 'ack', reply: "You're welcome.", entries: [{ role: 'assistant', text: "You're welcome.", action: 'clarify' }] };
+    }
+    // 'class' is only a candidate: it is posted only if the words name no illness or medical reason, the mock
+    // heuristic (or, live, the classifier) also says class message. Anything else is asked about.
+    if (where === 'class' && !mentionsIllness(text)) {
+      const c = await classifyStaff({ text, emit });
+      emit('staff_decision', { kind: c.kind, decidedBy: 'open_card_words', model: c.model ?? null, error: c.error ?? null });
+      if (c.kind === 'class_message') return null;
     }
     pendingChoice = { text, entryId, at: Date.now() };
     emit('staff_decision', { kind: 'unsure', decidedBy: 'open_card_words' });

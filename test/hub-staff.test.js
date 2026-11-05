@@ -419,3 +419,15 @@ test('requests list after submit; an open card stays open and unchanged through 
   assert.equal((await ask('my time off requests', conversationId)).reply.text.split('\n')[0], list.reply.text.split('\n')[0]);
   assert.equal(list.reply.formRef, undefined);
 });
+
+test('review fix: the opening line follows the conversation, not the latest follow-up', async () => {
+  const c1 = randomUUID();
+  const first = await ask('I have a doctor appointment on Friday', c1);
+  assert.equal(first.reply.text, 'Check it and submit.');
+  const moved = await ask('make it Monday', c1);
+  assert.equal(moved.reply.text, 'Check it and submit.', 'a follow-up keeps the original lead');
+  const c2 = randomUUID();
+  await ask('I am sick on Friday', c2);
+  const appt = await ask('I have a doctor appointment', c2);
+  assert.equal(appt.reply.text, 'Feel better soon. Check it and submit.', 'illness anywhere in the card keeps the kind words');
+});

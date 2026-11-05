@@ -255,7 +255,7 @@ const ARRIVE_AT = new RegExp(`\\b(?<verb>com(?:e|ing)\\s+in|be\\s+in|in|arriv(?:
 // “half day”, “half-day”, “half a day”, “half of the day”.
 const HALF_DAY = 'half(?:[- ]|\\s+a\\s+|\\s+of\\s+(?:the|a|my)\\s+)day';
 const DAY_WORDS_BETWEEN = `(?:(?:the|this|tomorrow|yesterday|today|on|${Object.keys(DAYS).join('|')})\\s+)*`;
-const DAY_PARTS = new RegExp(`\\b(?:off|out|sick|ill|unwell|leaving|leave|away|absent)\\s+${DAY_WORDS_BETWEEN}(?:morning|afternoon)\\b|\\b(?:morning|afternoon)\\s+off\\b|\\b(?:off|out|away|absent)\\s+(?:(?:on|for|during|in)\\s+)?(?:the\\s+)?(?:\\w+\\s+){0,3}?(?:in|for|during)\\s+the\\s+(?:morning|afternoon)\\b|\\b(?:off|out|away|absent)\\s+(?:for|during)\\s+the\\s+(?:morning|afternoon)\\b|\\bthe\\s+(?:morning|afternoon)\\s+of\\s+(?:\\w+\\s+){1,3}?off\\b|\\b${HALF_DAY}\\b`, 'gi');
+const DAY_PARTS = new RegExp(`\\b(?:off|out|sick|ill|unwell|leaving|leave|away|absent)\\s+${DAY_WORDS_BETWEEN}(?:morning|afternoon)\\b|\\b(?:morning|afternoon)\\s+off\\b|\\b(?:off|out|away|absent)\\s+(?:on\\s+)?${DAY_WORDS_BETWEEN}(?:(?:${MONTH_RE})\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?\\s+)?(?:in|for|during)\\s+the\\s+(?:morning|afternoon)\\b|\\b(?:off|out|away|absent)\\s+(?:for|during)\\s+the\\s+(?:morning|afternoon)\\b|\\bthe\\s+(?:morning|afternoon)\\s+of\\s+(?:\\w+\\s+){1,3}?off\\b|\\b${HALF_DAY}\\b`, 'gi');
 export function readPartial(text) {
   const c = readCue(text);
   if (!c) return null;
@@ -568,6 +568,6 @@ export function asksRequests(text) {
 // An appointment (doctor, dentist, check-up, visit) with no illness word: the card's opening line is the plain
 // “Check it and submit.”, not “Feel better soon.” (owner, 2026-11-04). Read by code from the professor's words.
 const APPOINTMENT = /\b(?:appointments?|check-?ups?|visit|dentist|dental|orthodontist|physical therapy)\b/i;
-const ILLNESS = /\b(?:sick|ill|illness|flu|fever|migraines?|unwell|nauseous|covid|cold|injur\w*|pain|vomit\w*|headaches?|sore|infection|not\s+feeling|under\s+the\s+weather|surgery)\b/i;
+const ILLNESS = /\b(?:sick|ill|illness|flu|fever|migraines?|unwell|nauseous|covid|cold|injur\w*|pain|vomit\w*|headaches?|sore|infection|not\s+feeling|under\s+the\s+weather|surgery|chemo\w*|medical|procedure|treatments?|diagnos\w*|cancer|dialysis|radiation|biopsy|pregnan\w*|hospital\w*)\b/i;
 export const mentionsIllness = (text) => ILLNESS.test(String(text ?? ''));
 export const isAppointment = (text) => APPOINTMENT.test(String(text ?? '')) && !ILLNESS.test(String(text ?? ''));
