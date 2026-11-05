@@ -436,12 +436,14 @@ test('R1b: the @assistant prompt carries the class size and the roster names (or
   const stub = await startFakeAnthropic();
   stub.respondWith(() => messageReply(JSON.stringify({ action: 'answer', reply: 'Here is what I know.', kind: 'message', audience: 'all', title: '', content: '', content_is_verbatim: false, seed_id: '' })));
   const { s } = await classroom({ professorEnv: { PROFESSOR_MODE: 'live', ANTHROPIC_API_KEY: `sk-ant-test-${randomUUID()}`, ANTHROPIC_BASE_URL: stub.url, TUTOR_LOAD_DOTENV: '0' } });
-  const promptOf = () => { const r = stub.requests.filter((x) => /course assistant inside/.test(JSON.stringify(x.body.system))).at(-1); return JSON.stringify(r.body.messages); };
+  const promptOf = () => { const r = stub.requests.filter((x) => /course assistant for the Marketing 351 faculty member/.test(JSON.stringify(x.body.system))).at(-1); return JSON.stringify(r.body.messages); };
   try {
     await say(s, '@assistant what did I send this week?');
     const before = promptOf();
     assert.match(before, /number of students unknown/);
     assert.match(before, /reaches every enrolled student/);
+    assert.match(before, /course_progress/); // owner 2026-11-05: topics taught come from the schedule, not from what was sent
+    assert.match(before, /Marketing 351 has covered|No Marketing 351 topics/); // whatever today is
     assert.doesNotMatch(before, /student-alex|student-sam|Alex Student|Sam Student/, 'no 2-person session list');
     assert.equal((await say(s, 'show my class roster')).reply, 'Class roster · 25 students');
     await say(s, '@assistant what did I send this week?');

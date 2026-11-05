@@ -217,3 +217,27 @@ export function dayLabel(ymd) {
   const dt = new Date(Date.UTC(y, m - 1, d));
   return `${DAYS[dt.getUTCDay()]}, ${MONTHS[m - 1]} ${d}`;
 }
+
+// “What topics have we covered so far?”, “which topics have I taught?”, “where are we in the course?”, “what's the next
+// topic?” — answered by code from the schedule (owner, 2026-11-05: the assistant once said “no topics have been posted
+// through this console”). Never a post, never a model call. Not when he tags a student, asks for a quiz or announces.
+const COVERED = /\b(?:what|which)\b[^?.!]*\b(?:topics?|chapters?|units?)\b[^?.!]*\b(?:covered|cover|taught|teach|done|gone\s+over|went\s+over|finished)\b|\bwhat\s+(?:have|did)\s+(?:we|i)\s+(?:covered?|taught|teach|done|gone\s+over)\b|\bwhere\s+are\s+we\s+in\s+the\s+(?:course|class|syllabus|schedule|semester|term)\b|\b(?:what(?:['’]s|\s+is)|which\s+is)\s+(?:the\s+|our\s+)?next\s+(?:topic|chapter|unit|lecture)\b/i;
+const ANNOUNCING = /^\s*(?:please\s+)?(?:notify|tell|let|inform|remind|announce|post|send)\b/i;
+export function asksCovered(text) {
+  const s = String(text ?? '').replace(/^\s*@assistant\b[,:]?\s*/i, '');
+  if (!s.trim() || s.split(/\s+/).length > 20) return false;
+  if (/(^|\s)@[\w-]+/.test(s) || asksQuiz(s) || ANNOUNCING.test(s)) return false;
+  return COVERED.test(s);
+}
+export function coveredText(now) {
+  const taught = taughtTopics(now);
+  if (!taught.length) return `No Marketing 351 topics have been taught yet this term — the first class is ${dayLabel(TERM.start)}.`;
+  const last = taught[taught.length - 1];
+  const next = TOPICS.find((x) => x.taught > pacificDate(now));
+  const head = taught.length === TOPICS.length
+    ? `Marketing 351 has covered all ${TOPICS.length} topics this term.`
+    : `Marketing 351 has covered ${taught.length === 1 ? 'Topic 1' : `Topics 1–${last.n}`} so far, most recently ${last.name} on ${dayLabel(last.taught)}.`;
+  const list = taught.map((x) => `${x.n}. ${x.name}`).join('\n');
+  return `${head}\n\n${list}${next ? `\n\nNext up: Topic ${next.n}, ${next.name}, on ${dayLabel(next.taught)}.` : ''}`;
+}
+

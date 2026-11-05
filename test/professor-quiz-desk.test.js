@@ -648,3 +648,23 @@ test('R6: the card summary carries the title and due date (never a question or a
   const k = keys(c);
   for (const secret of ['questions', 'answers', 'correct', 'text']) assert.equal(k.has(secret), false, secret);
 });
+
+test('owner 2026-11-05: "what topics have we covered so far?" is answered from the schedule by code — no model, no draft, no post', async () => {
+  const s = setup();
+  for (const said of ['what topics have we covered so far?', '@assistant what topics have we covered so far?', 'where are we in the course?', "what's the next topic?"]) {
+    const r = await s.desk.turn(said, { operationId: 'op-cov' });
+    assert.equal(r.action, 'course_progress', said);
+    assert.match(r.reply, /^Marketing 351 has covered Topics 1–\d+ so far, most recently .+ on \w{3}, \w{3} \d+\./, said);
+    assert.match(r.reply, /\n1\. An overview of marketing\n/);
+    assert.match(r.reply, /Next up: Topic \d+, .+, on \w{3}, \w{3} \d+\.$/);
+    assert.doesNotMatch(r.reply, /console|data|system|model|\bAI\b/i);
+  }
+  assert.equal(s.calls.draft, 0);
+  assert.equal(s.calls.post.length, 0);
+  assert.equal(await s.desk.turn('tell everyone what topics we covered'), null); // an announcement is not a question for the assistant
+});
+
+test('course progress before the term starts and after it ends', async () => {
+  assert.equal((await setup({ now: new Date('2026-08-01T20:00:00Z') }).desk.turn('what have we covered?')).reply, 'No Marketing 351 topics have been taught yet this term — the first class is Tue, Aug 25.');
+  assert.match((await setup({ now: new Date('2026-12-30T20:00:00Z') }).desk.turn('which topics have I taught?')).reply, /^Marketing 351 has covered all 20 topics this term\.\n/);
+});

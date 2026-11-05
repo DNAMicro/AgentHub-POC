@@ -31,7 +31,7 @@ import { ROSTER_GONE, ROSTER_QUESTION_TEXT, TELL_DROPPED, asksAboutRoster, asksR
 import { createCanvasLink } from './professor-canvas.js';
 import { createQuizDesk, chipTopicOf } from './professor-quiz.js';
 import { validExisting } from './quiz-rules.js';
-import { topicFromWords, countFromWords } from './course-schedule.js';
+import { topicFromWords, countFromWords, coveredText } from './course-schedule.js';
 import { TIMEOUTS } from './timeouts.js';
 import { nowFn } from './test-clock.js';
 
@@ -666,7 +666,7 @@ async function assistantTurn({ operationId, said, roster: sessions, hub }) {
   const recentChat = outbox.get().chat.slice(-8, -1).map((m) => (m.staff ? { role: m.role, text: PRIVATE_STAFF_TEXT, staff: true } : m));
   let decision;
   try {
-    decision = await interpretProfessor({ text: request, roster, students, classSize, seeds: SEED_LESSONS, posts, recent: recentChat, emit: (type, data) => emitViz(type, `prof-${operationId}`, data) });
+    decision = await interpretProfessor({ text: request, roster, students, classSize, seeds: SEED_LESSONS, posts, recent: recentChat, progress: coveredText(nowFn()()), emit: (type, data) => emitViz(type, `prof-${operationId}`, data) });
   } catch (err) {
     decision = { action: 'error', reply: `I couldn't work that out right now (${err.message ?? 'model error'}). Nothing was sent.` };
   }

@@ -2,7 +2,7 @@
 // Drafts and Canvas cards live in memory only (never in data/): Canvas forgets its quizzes on every start.
 // The answer key (`correct`) is handed out only by draft(); card(), entries and telemetry never carry questions.
 import { randomUUID } from 'node:crypto';
-import { TOPICS, TERM, taughtTopics, isTaught, topicFromWords, countFromWords, asksQuiz, dayLabel, pacificDate } from './course-schedule.js';
+import { TOPICS, TERM, taughtTopics, isTaught, topicFromWords, countFromWords, asksQuiz, asksCovered, coveredText, dayLabel, pacificDate } from './course-schedule.js';
 import { defaultSettings, checkQuiz, validExisting } from './quiz-rules.js';
 import { draftQuiz as realDraftQuiz, draftOne as realDraftOne } from './quiz-model.js';
 import { ROSTER_UNAVAILABLE_CODE } from './staff.js';
@@ -101,6 +101,8 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
   async function turn(said, { operationId, quizTopic = null } = {}) {
     const text = String(said ?? '');
     const chip = quizTopic ?? chipTopicOf(text);
+    // “What topics have we covered so far?”: the schedule answers, in code (a waiting topic question keeps waiting).
+    if (chip === null && asksCovered(text)) { tell('quiz_turn', `prof-${operationId ?? randomUUID().slice(0, 12)}`, { outcome: 'progress' }); return { action: 'course_progress', reply: coveredText(clock()) }; }
     const ask = chip === null && asksQuiz(text);
     const waiting = asking();
     if (chip === null && !ask && !(waiting && answersTopicQuestion(text))) return null;
