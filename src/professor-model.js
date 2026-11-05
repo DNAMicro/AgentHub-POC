@@ -18,7 +18,7 @@ export const PROFESSOR_MODE = process.env.PROFESSOR_MODE ?? 'mock';
 if (!['mock', 'live'].includes(PROFESSOR_MODE)) throw new Error(`Unknown PROFESSOR_MODE "${PROFESSOR_MODE}" (use mock or live).`);
 if (PROFESSOR_MODE === 'live') loadDotenvOnce();
 const STAFF_CLASSIFIER_TIMEOUT_MS = Number(process.env.PROFESSOR_STAFF_CLASSIFIER_TIMEOUT_MS ?? TIMEOUTS.professorStaffClassifierMs); // src/timeouts.js
-const LIMITS = { maxOutputTokens: 900, timeoutMs: Number(process.env.PROFESSOR_MODEL_TIMEOUT_MS ?? 45000), answer: 2000 };
+const LIMITS = { maxOutputTokens: 900, timeoutMs: Number(process.env.PROFESSOR_MODEL_TIMEOUT_MS ?? TIMEOUTS.professorModelMs), answer: 2000 };
 export const professorStatus = () => ({ mode: PROFESSOR_MODE, model: PROFESSOR_MODE === 'live' ? modelName() : 'mock extraction', keyConfigured: PROFESSOR_MODE === 'live' ? keyConfigured() : null });
 
 const SCHEMA = {

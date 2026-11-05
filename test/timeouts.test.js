@@ -34,6 +34,12 @@ test('the default budgets nest: each outer timeout is longer than the sum of wha
   assert.ok(T.hubDispatchMs > T.chrsToolChoiceMs + T.chrsRecordsCallMs);
   assert.ok(T.professorPublishMs > T.hubRosterLookupMs + 5000);
   assert.ok(T.hubAuthorProxyMs > T.professorPublishMs);
+  // Part 17 final review (finding 4): a chat post runs the Professor's staff-or-class check, its own model (naming the post
+  // or reading an @assistant message) and then the publish — all inside the Hub's author proxy, which is inside the UI's wait.
+  assert.equal(T.professorModelMs, 45000);
+  assert.ok(T.hubAuthorProxyMs > T.professorModelMs + T.professorPublishMs);
+  assert.ok(T.hubAuthorProxyMs > T.professorStaffClassifierMs + T.professorModelMs + T.professorPublishMs);
+  assert.ok(T.uiProfessorCallMs > T.hubAuthorProxyMs);
   // Students keep their short form-action wait.
   assert.equal(T.hubFormActionMs, 8000);
 });
@@ -60,6 +66,7 @@ test('each site reads its budget from the shared defaults', async () => {
   assert.match(await src('hub-agent.js'), /\/author\$\{path\}`[\s\S]{0,300}AbortSignal\.timeout\(TIMEOUTS\.hubAuthorProxyMs\)/);
   assert.match(await src('ui-server.js'), /AbortSignal\.timeout\(TIMEOUTS\.uiProfessorCallMs\)/);
   assert.match(await src('professor-staff.js'), /STAFF_TIMEOUT_MS = TIMEOUTS\.professorStaffMs/);
+  assert.match(await src('professor-model.js'), /PROFESSOR_MODEL_TIMEOUT_MS \?\? TIMEOUTS\.professorModelMs/);
   assert.match(await src('hr-model.js'), /HR_TOOL_CHOICE_TIMEOUT_MS \?\? TIMEOUTS\.hrToolChoiceMs/);
   assert.match(await src('hr-model.js'), /HR_MODEL_TIMEOUT_MS \?\? TIMEOUTS\.hrAbsenceModelMs/);
   assert.match(await src('hr-agent.js'), /PEOPLESOFT_TIMEOUT_MS \?\? TIMEOUTS\.hrPeopleSoftCallMs/);
@@ -72,9 +79,9 @@ test('Part 15 Task 5: the Professor staff classifier fits inside the proxy budge
   // The classifier runs, then the Hub staff wait: both inside the Professor → Hub proxy wait, which is inside the UI's.
   assert.ok(T.professorStaffClassifierMs + T.professorStaffMs < T.hubAuthorProxyMs);
   assert.ok(T.hubAuthorProxyMs < T.uiProfessorCallMs);
-  assert.equal(T.hubAuthorProxyMs, 80000);
+  assert.equal(T.hubAuthorProxyMs, 100000);
   assert.match(await readFile(new URL('../src/professor-model.js', import.meta.url), 'utf8'), /maxTokens: 300, timeoutMs: STAFF_CLASSIFIER_TIMEOUT_MS, schema: STAFF_SCHEMA/);
-  assert.equal(T.uiProfessorCallMs, 85000);
+  assert.equal(T.uiProfessorCallMs, 105000);
 });
 
 test('Part 16 Task 4: the Canvas budget nests inside the Faculty author route', () => {
