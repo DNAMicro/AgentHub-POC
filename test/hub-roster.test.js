@@ -108,6 +108,19 @@ test('a CHRS roster_request ignores an unsigned courseId and uses the configured
   assert.equal(r.reply.roster.rows.length, 25);
 });
 
+test('repeating the same roster operation asks CHRS again: the rows are not kept in the Hub\'s dedupe record', async () => {
+  const { st, prof } = await stack();
+  const events = follow(st.hub.url);
+  const fixed = { service: 'chrs', operationId: randomUUID(), conversationId: randomUUID() };
+  const first = await ask(prof, fixed);
+  const second = await ask(prof, fixed);
+  assert.equal(first.reply.roster.rows.length, 25);
+  assert.equal(second.reply.roster.rows.length, 25);
+  await waitFor(() => events.filter((e) => e.type === 'forward_completed' && e.data.kind === 'roster').length >= 2, { what: 'two roster forwards' });
+  assert.equal(events.filter((e) => e.type === 'forward_completed' && e.data.kind === 'roster').length, 2, 'CHRS was asked twice');
+  assert.ok(st.chrs);
+});
+
 test('a post to everyone becomes one delivery per CHRS roster student: Alex delivered, the other 24 queued', async () => {
   const { st, prof } = await stack();
   const same = { operationId: `roster-${randomUUID().slice(0, 8)}`, lessonId: `ls-${randomUUID().slice(0, 12)}` };

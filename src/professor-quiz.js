@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { TOPICS, TERM, taughtTopics, isTaught, topicFromWords, countFromWords, asksQuiz, dayLabel, pacificDate } from './course-schedule.js';
 import { defaultSettings, checkQuiz, validExisting } from './quiz-rules.js';
 import { draftQuiz as realDraftQuiz, draftOne as realDraftOne } from './quiz-model.js';
+import { ROSTER_POST_FAILED_TEXT, ROSTER_UNAVAILABLE_CODE } from './staff.js';
 
 export const CLOSED_TEXT = 'This draft was closed when the app restarted.';
 export const NOT_CONNECTED_TEXT = "Canvas isn't connected, so nothing was sent.";
@@ -212,6 +213,8 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
     } catch { r = null; }
     const ok = r && r.http >= 200 && r.http < 300 && r.body?.ack?.status !== 'rejected';
     if (ok) { d.noticeSent = true; d.deliveries = Array.isArray(r.body?.ack?.deliveries) ? r.body.ack.deliveries : []; }
+    // The class list wasn't available, so nothing was addressed (the Hub never sends to a guessed list).
+    d.noticeNoList = !ok && r?.body?.ack?.reason === ROSTER_UNAVAILABLE_CODE;
     return ok;
   }
 
@@ -237,7 +240,7 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
     const sent = await sendNotice(d);
     if (d.state === 'closed') return closedResult(d);
     if (!sent) {
-      return { ok: false, retryable: true, published: true, state: 'published', draftId: d.draftId, canvasQuizId: d.canvasQuizId, text: 'Published in Canvas, but the class notice did not go out. Press Publish again to send it; students are notified only once.' };
+      return { ok: false, retryable: true, published: true, state: 'published', draftId: d.draftId, canvasQuizId: d.canvasQuizId, text: d.noticeNoList ? ROSTER_POST_FAILED_TEXT : 'Published in Canvas, but the class notice did not go out. Press Publish again to send it; students are notified only once.' };
     }
     return { ok: true, state: 'published', draftId: d.draftId, canvasQuizId: d.canvasQuizId, deliveries: card()?.deliveries ?? [], text: publishedText(d), entries: [entry(d, `Published in Canvas (quiz #${d.canvasQuizId}). Students notified.`)] };
   }

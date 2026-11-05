@@ -25,8 +25,9 @@ import { datesIn } from './a2ui-catalog.js';
 import { slotsIn } from './meeting-times.js';
 import { createJsonStore } from './json-store.js';
 import { AUDIENCE, ID, LESSON_PUBLISH_MEDIA_TYPE, LESSON_STATUS_MEDIA_TYPE, contentHash, validQuizNotice, validateLesson } from './lessons.js';
-import { resetStaff, staffAction, staffTurn, staffView } from './professor-staff.js';
-import { cardValues } from './staff.js';
+import { guardClassPost, resetStaff, staffAction, staffConversation, staffHolding, staffTurn, staffView } from './professor-staff.js';
+import { cardValues, ROSTER_POST_FAILED_TEXT, ROSTER_UNAVAILABLE_CODE } from './staff.js';
+import { NOTIFY_EMPTY, ROSTER_GONE, asksRoster, createRosterDesk, notifyEveryone, sentToAllText } from './professor-roster.js';
 import { createCanvasLink } from './professor-canvas.js';
 import { createQuizDesk, chipTopicOf } from './professor-quiz.js';
 import { validExisting } from './quiz-rules.js';
@@ -234,7 +235,7 @@ function postsView(hub) {
     ...l,
     key: lessonKey(l.lessonId, l.revision),
     meetingState: l.meeting ? l.meeting.slots.map((x) => ({ label: x.label, bookedBy: outbox.get().meetings?.[l.meeting.meetingId]?.bookings[x.slotId]?.studentId ?? null })) : null,
-    deliveries: (byPost.get(lessonKey(l.lessonId, l.revision)) ?? []).map((d) => ({ studentId: d.studentId, state: d.state, opened: Boolean(d.openedAt), openedAt: d.openedAt, deliveredAt: d.deliveredAt, lastError: d.lastError, attempts: d.attempts })),
+    deliveries: (byPost.get(lessonKey(l.lessonId, l.revision)) ?? []).map((d) => ({ studentId: d.studentId, ...(d.name ? { name: d.name } : {}), state: d.state, opened: Boolean(d.openedAt), openedAt: d.openedAt, deliveredAt: d.deliveredAt, lastError: d.lastError, attempts: d.attempts })),
   }));
 }
 
@@ -242,6 +243,13 @@ async function hubView() {
   const nonce = randomUUID();
   const r = await hubLink.sendSigned(LESSON_STATUS_MEDIA_TYPE, { type: 'lesson_status', nonce }, ['status', nonce]).catch(() => null);
   return r?.status === 'ok' ? r : null;
+}
+
+// What the faculty member reads when the Hub refused a post. A post to the class that couldn't be addressed (the class
+// list wasn't available) gets one plain sentence; nothing technical shows.
+function notSentText(r) {
+  if (r.body.ack?.reason === ROSTER_UNAVAILABLE_CODE) return ROSTER_POST_FAILED_TEXT;
+  return `Nothing was sent: ${r.body.ack?.reason ?? Object.values(r.body.errors ?? {})[0] ?? 'refused'}.`;
 }
 
 // ---- posting (shared by the typed API and the chat) -------------------------------------------------------
@@ -256,6 +264,9 @@ async function createPost({ operationId, kind = 'lesson', title = '', text, audi
     // A repeat of the same operation: the same post — never a second one. Different content → refused.
     const l = outbox.get().lessons[prior];
     if (l.title !== v.values.title || l.text !== v.values.text || l.kind !== v.values.kind || l.audience !== audience || JSON.stringify(l.quiz ?? null) !== JSON.stringify(quiz ?? null)) return { http: 409, body: { errors: { _form: 'This post was already sent with different content.' } } };
+    // The Hub refused it without keeping anything (e.g. the class list wasn't available): sending the SAME operation
+    // again is the retry, not a "duplicate" that pretends it went out.
+    if (l.hubStatus === 'rejected' && !l.hubAccepted) return postResult(l, await publish(l));
     return { http: 200, body: { lesson: l, duplicate: true } };
   }
   if (lessonId !== null && (typeof lessonId !== 'string' || !ID.test(lessonId))) return { http: 400, body: { errors: { _form: 'Malformed lesson id.' } } };
@@ -272,7 +283,9 @@ async function createPost({ operationId, kind = 'lesson', title = '', text, audi
     s.lessons[lessonKey(record.lessonId, record.revision)] = record;
     s.operations[operationId] = lessonKey(record.lessonId, record.revision);
   });
-  const ack = await publish(record);
+  return postResult(record, await publish(record));
+}
+function postResult(record, ack) {
   return { http: ack.status === 'rejected' ? 422 : 200, body: { lesson: outbox.get().lessons[lessonKey(record.lessonId, record.revision)], ack: { status: ack.status, reason: ack.reason ?? null, accepted: Array.isArray(ack.deliveries) && ack.deliveries.length > 0, deliveries: ack.deliveries ?? [] } } };
 }
 
@@ -283,6 +296,8 @@ async function createPost({ operationId, kind = 'lesson', title = '', text, audi
 const CANVAS_URL = process.env.CANVAS_URL ?? 'http://127.0.0.1:9';
 const canvasLink = createCanvasLink({ url: CANVAS_URL, token: process.env.CANVAS_TOKEN, emit: (type, runId, data) => emitViz(type, runId, data), timeoutMs: Number(process.env.CANVAS_TIMEOUT_MS ?? TIMEOUTS.professorCanvasCallMs) });
 let lastRoster = []; // enrolled students as the Hub last reported them (for “your N students”)
+// Part 17: the class roster (CHRS) lives in this process's memory only; the outbox keeps the chat line.
+const rosterDesk = createRosterDesk({ hubLink: { sendSigned: (...a) => hubLink.sendSigned(...a) }, conversationId: () => staffConversation(), emit: (type, data) => emitViz(type, null, data) });
 const quizDesk = createQuizDesk({ canvas: canvasLink, createPost: (a) => createPost({ ...a, source: 'chat', author: 'professor' }), now: nowFn(), emit: (type, runId, data) => emitViz(type, runId, data), roster: () => lastRoster });
 
 // ---- the professor's chat ---------------------------------------------------------------------------------
@@ -348,8 +363,25 @@ async function professorChat({ operationId, text, replyTo: replyToIn = null, ans
     // other message goes to HR as a follow-up that fills the card — even one that reads like a class message.
     // Its events (incl. the live staff classifier's model call) belong to the staff run the Hub also uses
     // (`staff-<operationId>`), so the UI server relays them and Topology draws the Professor → model hop.
-    const staff = await staffTurn({ operationId, text: said, entryId: ownId, hubLink, bypass: toAssistant || Boolean(reply), card: card.fields, emit: (type, data) => emitViz(type, `staff-${operationId}`, data) });
-    // The professor answered “class” to the unsure question: the HELD message goes out as today.
+    // Part 17 (CHRS): the roster desk sits between the quiz desk and the staff desk. "Show my roster" asks CHRS (the
+    // roster stays in memory); "notify everyone that …" posts the rest to the whole class, after the privacy guard
+    // (a statement about himself with a leave word is asked about, never posted). Neither runs for @assistant messages
+    // or replies to one student, nor while the staff desk is waiting for an answer (that reply belongs to it).
+    let notify = null;
+    let staff;
+    const held = staffHolding();
+    const free = !toAssistant && !reply && !held.question;
+    if (free && (!held.offer || held.offer === 'cancel') && asksRoster(said)) {
+      staff = await rosterDesk.request({ operationId, hub });
+    } else if (free && !held.offer && (notify = notifyEveryone(said))) {
+      if (!notify.rest) { staff = { action: 'clarify', check: 'notify_empty', reply: NOTIFY_EMPTY, open: true, entries: [{ role: 'assistant', text: NOTIFY_EMPTY, action: 'clarify' }] }; notify = null; }
+      else staff = guardClassPost({ text: said, entryId: ownId, emit: (type, data) => emitViz(type, `staff-${operationId}`, data) });
+      if (staff) notify = null;
+      else staff = null; // safe to post: the staff desk is not asked
+    }
+    if (staff === undefined) staff = await staffTurn({ operationId, text: said, entryId: ownId, hubLink, bypass: toAssistant || Boolean(reply), card: card.fields, emit: (type, data) => emitViz(type, `staff-${operationId}`, data) });
+    // The professor answered “class” to the unsure question: the HELD message goes out as today (a held “notify everyone …” as the class post it was).
+    if (staff?.continueWith) { const n = notifyEveryone(staff.continueWith); if (n?.rest) notify = n; }
     const sendText = staff?.continueWith ?? said;
     const target = staff?.continueWith ? staff.entryId : ownId;
     let result;
@@ -359,12 +391,12 @@ async function professorChat({ operationId, text, replyTo: replyToIn = null, ans
     else {
       // The assistant asked "when can Alex come?": the professor's next untagged message with times answers it.
       const waiting = outbox.get().pendingMeeting;
-      const times = !staff && !toAssistant && !reply && waiting && Date.now() - waiting.at < 15 * 60_000 && !/^\s*@/.test(said) ? slotsIn(said) : [];
+      const times = !staff && !notify && !toAssistant && !reply && waiting && Date.now() - waiting.at < 15 * 60_000 && !/^\s*@/.test(said) ? slotsIn(said) : [];
       viaAssistant = toAssistant || times.length > 0;
       result = times.length ? await offerMeeting({ operationId, audience: waiting.audience, slots: times, roster })
-        : toAssistant ? await assistantTurn({ operationId, said, roster, hub }) : await directPost({ operationId, said: sendText, roster, to: reply });
+        : toAssistant ? await assistantTurn({ operationId, said, roster, hub }) : notify ? await notifyPost({ operationId, text: notify.rest }) : await directPost({ operationId, said: sendText, roster, to: reply });
     }
-    const { entries = null, continueWith, entryId, note, notice: _n, ...stored } = result;
+    const { entries = null, continueWith, entryId, note, notice: _n, open = false, confirm = null, ...stored } = result;
     // A reply to a pending question that also carried NEW content: the answer was acted on, the new part was not
     // sent (src/professor-staff.js, NOT_SENT) — say so in the chat and keep the professor's message private.
     const notice = staff?.notice ?? null;
@@ -376,14 +408,15 @@ async function professorChat({ operationId, text, replyTo: replyToIn = null, ans
       own.toAssistant = viaAssistant;
       if (entries) {
         // A staff turn (HR's reply, the unsure question, the note): each as its own chat entry, text only.
-        own.staff = true;
+        own.staff = !open; // the roster desk's answers are the professor's own business, not an HR secret
         const now = new Date().toISOString();
-        for (const e of entries) s.chat.push({ id: `${operationId}:${e.role === 'hr' ? 'h' : 'a'}`, at: now, staff: true, ...e });
+        for (const e of entries) s.chat.push({ id: `${operationId}:${e.role === 'hr' ? 'h' : 'a'}`, at: now, staff: !open, ...e });
       } else if (!viaAssistant) {
         // A held message the professor chose to send to the class is no longer private (staff: false).
         Object.assign(s.chat.find((m) => m.id === target) ?? own, { postKey: result.post?.key ?? null, problem: result.post ? null : result.reply, ...(staff?.continueWith ? { staff: false } : {}) });
         // The held message went to the class (the professor chose “class”, or said yes to the post offer): say so.
-        if (staff?.continueWith && result.post) s.chat.push({ id: `${operationId}:sent`, role: 'assistant', text: result.post.audience === 'all' || !result.post.audience ? 'Sent to your class.' : 'Sent.', at: new Date().toISOString(), action: 'sent', staff: false });
+        const sentText = confirm ?? (staff?.continueWith && result.post ? (result.post.audience === 'all' || !result.post.audience ? 'Sent to your class.' : 'Sent.') : null);
+        if (sentText && result.post) s.chat.push({ id: `${operationId}:sent`, role: 'assistant', text: sentText, at: new Date().toISOString(), action: 'sent', staff: false });
       }
       else s.chat.push({ id: `${operationId}:a`, role: 'assistant', text: result.reply, at: new Date().toISOString(), action: result.action, postKey: result.post?.key ?? null, model: result.model ?? null, ...(result.topics ? { quizTopics: { topics: result.topics, highlight: result.highlight ?? null } } : {}) });
       if (notice) {
@@ -453,7 +486,7 @@ async function quizAction(body) {
 async function postNote({ operationId, text }) {
   const r = await createPost({ operationId, kind: 'message', title: 'Class cancelled', text, audience: 'all', source: 'chat', verbatim: false });
   if (!r.body.lesson || r.body.ack?.status === 'rejected') {
-    const problem = `Nothing was sent: ${r.body.ack?.reason ?? Object.values(r.body.errors ?? {})[0] ?? 'refused'}.`;
+    const problem = notSentText(r);
     return { action: 'error', reply: problem, post: null, entries: [{ role: 'assistant', text: problem, action: 'error' }] };
   }
   const post = { key: lessonKey(r.body.lesson.lessonId, r.body.lesson.revision) };
@@ -502,7 +535,7 @@ async function directPost({ operationId, said, roster, to = null }) {
   if (to) {
     const title = `Reply: ${text.replace(/\s+/g, ' ').split(/(?<=[.!?])\s/)[0]}`.slice(0, 60);
     const r = await createPost({ operationId, kind: 'message', title, text, audience: to, source: 'chat', verbatim: true });
-    if (!r.body.lesson || r.body.ack?.status === 'rejected') return { action: 'error', reply: `Nothing was sent: ${r.body.ack?.reason ?? Object.values(r.body.errors ?? {})[0] ?? 'refused'}.`, post: null };
+    if (!r.body.lesson || r.body.ack?.status === 'rejected') return { action: 'error', reply: notSentText(r), post: null };
     return { action: 'post', reply: null, post: { key: lessonKey(r.body.lesson.lessonId, r.body.lesson.revision) }, kind: 'message' };
   }
   // A tag starts the message or follows a space — the @ inside an email address (alex@example.com) isn't one.
@@ -512,8 +545,20 @@ async function directPost({ operationId, said, roster, to = null }) {
   // Its model call belongs to this chat turn's run (`prof-<operationId>`), so Topology shows the hop.
   const named = await classifyPost({ text, emit: (type, data) => emitViz(type, `prof-${operationId}`, data) });
   const r = await createPost({ operationId, kind: named.kind, title: named.title, text, audience, source: 'chat', verbatim: true });
-  if (!r.body.lesson || r.body.ack?.status === 'rejected') return { action: 'error', reply: `Nothing was sent: ${r.body.ack?.reason ?? Object.values(r.body.errors ?? {})[0] ?? 'refused'}.`, post: null };
+  if (!r.body.lesson || r.body.ack?.status === 'rejected') return { action: 'error', reply: notSentText(r), post: null };
   return { action: 'post', reply: null, post: { key: lessonKey(r.body.lesson.lessonId, r.body.lesson.revision) }, kind: named.kind };
+}
+
+// "Notify everyone that …" (Part 17): the rest of his sentence goes to the whole class as his own message. The Hub
+// addresses it from the class list (CHRS); the reply counts the deliveries it actually made.
+async function notifyPost({ operationId, text }) {
+  const named = await classifyPost({ text, emit: (type, data) => emitViz(type, `prof-${operationId}`, data) });
+  const r = await createPost({ operationId, kind: named.kind, title: named.title, text, audience: 'all', source: 'chat', verbatim: true });
+  if (!r.body.lesson || r.body.ack?.status === 'rejected') return { action: 'error', reply: notSentText(r), post: null };
+  const sent = r.body.ack?.deliveries?.length ?? r.body.lesson.recipients?.length ?? 0;
+  const post = { key: lessonKey(r.body.lesson.lessonId, r.body.lesson.revision) };
+  // Not accepted by the Hub yet (uncertain): the post's own row says so; no count to claim.
+  return { action: 'post', reply: null, post: { ...post, audience: 'all' }, kind: named.kind, ...(sent > 0 ? { confirm: sentToAllText(sent) } : {}) };
 }
 
 // @assistant: the course assistant decides (post / answer / clarify); code checks a post before it's sent.
@@ -555,7 +600,7 @@ async function assistantTurn({ operationId, said, roster, hub }) {
       result.post = { key: lessonKey(r.body.lesson.lessonId, r.body.lesson.revision) };
       if (checked.corrected) result.reply = `${result.reply} (${checked.corrected})`;
     } else {
-      Object.assign(result, { action: 'error', reply: `Nothing was sent: ${r.body.ack?.reason ?? Object.values(r.body.errors ?? {})[0] ?? 'refused'}.` });
+      Object.assign(result, { action: 'error', reply: notSentText(r) });
     }
   }
   return result;
@@ -589,7 +634,7 @@ async function offerMeeting({ operationId, audience, slots, roster }) {
   const text = `${COURSE.professorName} would like to meet with you. Pick the time that works for you:\n${slots.map((x) => `• ${x.label}`).join('\n')}\n(Pacific Time.)`;
   outbox.update((s) => { s.meetings ??= {}; s.meetings[meeting.meetingId] = { meetingId: meeting.meetingId, slots, audience, bookings: {}, byStudent: {}, createdAt: new Date().toISOString() }; s.pendingMeeting = null; });
   const r = await createPost({ operationId, kind: 'message', title: `Meeting with ${COURSE.professorName}`, text, audience, source: 'chat', verbatim: false, author: 'assistant', meeting });
-  if (!r.body.lesson || r.body.ack?.status === 'rejected') return { action: 'error', reply: `Nothing was sent: ${r.body.ack?.reason ?? Object.values(r.body.errors ?? {})[0] ?? 'refused'}.`, post: null };
+  if (!r.body.lesson || r.body.ack?.status === 'rejected') return { action: 'error', reply: notSentText(r), post: null };
   return { action: 'post', kind: 'message', post: { key: lessonKey(r.body.lesson.lessonId, r.body.lesson.revision) }, reply: `Sent ${who} ${slots.length === 1 ? 'this time' : `${slots.length} times to choose from`}: ${slots.map((x) => x.label).join('; ')}. You’ll see the choice here.` };
 }
 
@@ -647,7 +692,20 @@ function authorRouter() {
     // Only posts the Hub never confirmed receiving; once accepted, delivery to the student is the Hub's job.
     for (const l of Object.values(outbox.get().lessons)) if (!l.hubAccepted && ['uncertain', 'not_delivered'].includes(l.hubStatus)) await publish(l);
     const hub = await hubView();
-    res.json({ course: COURSE, roster: hub?.courses?.find((c) => c.courseId === COURSE.courseId) ?? null, hubReachable: Boolean(hub), seeds: SEED_LESSONS, lessons: postsView(hub), chat: outbox.get().chat, hrCard: staffView(), quizCard: quizDesk.card(), quizAsking: quizDesk.pending() });
+    // The Hub's counts are empty until it has asked CHRS (and again after its 60 s cache): keep the last known ones so the
+    // header can read "25 students · 1 online". `rosterCard` is a reference only ({ rosterId, count, at }) — the rows
+    // are served by GET /author/roster to the Faculty view, never by the state or the streams.
+    const course = hub?.courses?.find((c) => c.courseId === COURSE.courseId) ?? null;
+    rosterDesk.noteCourse(course);
+    const counts = rosterDesk.counts();
+    res.json({ course: COURSE, roster: course || counts ? { ...(course ?? {}), count: counts?.count ?? null, online: counts?.online ?? null } : null, rosterCard: rosterDesk.state(), hubReachable: Boolean(hub), seeds: SEED_LESSONS, lessons: postsView(hub), chat: outbox.get().chat, hrCard: staffView(), quizCard: quizDesk.card(), quizAsking: quizDesk.pending() });
+  });
+  // The full class roster (names, IDs, emails, program) for the Faculty view only — like the quiz draft, never in the state,
+  // the streams or the telemetry. Gone after a restart: the chat line stays, the rows don't.
+  router.get('/author/roster', async (req, res) => {
+    const v = rosterDesk.view(await hubView(), null);
+    if (!v) return res.status(404).json({ error: ROSTER_GONE });
+    return res.json(v);
   });
   // Demo reset (requested through the Hub when the Student starts a new conversation): the posted list
   // and the remembered conversations go; the professor sends again. (The browser keeps any unsent draft.)
@@ -659,6 +717,7 @@ function authorRouter() {
     });
     resetGeneration += 1;
     recent.clear();
+    rosterDesk.reset(); // the class roster card is forgotten with the classroom
     resetStaff(); // HR: the open card, a held question or note offer; a new HR conversation
     emitViz('lessons_reset', null, {});
     // Canvas forgets its quizzes too (best effort, bounded): a failure here never blocks the classroom reset.

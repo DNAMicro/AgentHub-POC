@@ -328,6 +328,22 @@ test('a notice failure after a confirmed publish is honest and retryable without
   assert.equal(s.calls.post[0].operationId, s.calls.post[1].operationId);
 });
 
+test('Review Focus 1: the class list is unavailable when the notice goes out: the plain sentence, published stays true, and the retry sends it once', async () => {
+  let down = true;
+  const s = setup({ postResult: () => (down ? { http: 422, body: { lesson: { lessonId: 'ls-1' }, ack: { status: 'rejected', reason: 'roster_unavailable', accepted: false, deliveries: [] } } } : { http: 200, body: { ack: { status: 'accepted', deliveries: [{ studentId: 'student-alex', status: 'delivered' }] } } }) });
+  const { draftId } = await drafted(s);
+  await s.desk.action({ draftId, operationId: 'op-a', action: 'approve', quiz: fullQuiz(s, draftId) });
+  const r = await s.desk.action({ draftId, operationId: 'op-p', action: 'publish' });
+  assert.equal(r.ok, false);
+  assert.equal(r.published, true);
+  assert.equal(r.text, "I couldn't get your class list just now, so nothing was sent. Try again in a moment.");
+  assert.ok(!/roster_unavailable|CHRS|Hub/i.test(r.text));
+  down = false;
+  const again = await s.desk.action({ draftId, operationId: 'op-p2', action: 'publish' });
+  assert.equal(again.ok, true);
+  assert.equal(s.calls.publish.length, 1, 'Canvas was published once');
+});
+
 test('Review 3: reset mid-draft closes the card; the next draft has a different notice operationId', async () => {
   const s = setup();
   const first = await drafted(s);

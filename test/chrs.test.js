@@ -203,3 +203,11 @@ test('a stack with chrs: true: CHRS registers with the real Hub and becomes read
   assert.match(stack.chrs.output(), /staff only, synthetic records/);
   assert.ok(!/888\d{6}|STUDENT_RECORDS_TOKEN[^\n]*[0-9a-f]{20}/.test(stack.chrs.output()), 'no token or ID printed');
 });
+
+test('a Hub-signed roster_request with another courseId still returns the 25 rows of the configured course', async (t) => {
+  const s = await setup(t);
+  const r = await s.request({ type: 'roster_request', kind: 'roster', courseId: 'other-999' });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.value.roster.rows.length, 25);
+  assert.equal(r.value.roster.class.code, 'MKTG 351 - 01');
+});

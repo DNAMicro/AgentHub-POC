@@ -751,6 +751,15 @@ export async function startUiServer({ port = 4444 } = {}) {
     }
     professorAgUi.refresh(); // the Faculty view's state (chat + quiz card) changed
   });
+  // Part 17: the class roster rows for the Faculty view (never in the state, the streams or the telemetry).
+  app.get('/api/professor/roster', async (req, res) => {
+    try {
+      const r = await professorCall('/roster');
+      res.status(r.status).json(r.json);
+    } catch {
+      res.status(502).json({ error: `${hub.name} is not reachable, so the roster can’t be loaded.` });
+    }
+  });
   app.get('/api/professor/quiz/:draftId', async (req, res) => {
     if (!QUIZ_ID.test(req.params.draftId)) return res.status(404).json({ error: 'Unknown draft.' });
     try {

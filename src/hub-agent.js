@@ -826,6 +826,8 @@ export function startHubServer({ port } = {}) {
       // Canvas quiz card (Part 16): Approve / Publish / Keep / Discard / Draft one more, and the full draft (with the
       // answer key) for the Faculty view only. The proxy carries no authority of its own.
       dev.post('/dev/agents/:agentId/author/quiz-action', author('/quiz-action', 'POST'));
+      // Part 17: the class roster card's rows (kept in the Faculty agent's memory), for the Faculty view only.
+      dev.get('/dev/agents/:agentId/author/roster', author('/roster', 'GET'));
       dev.get('/dev/agents/:agentId/author/quiz/:draftId', (req, res) => (/^[\w-]{6,80}$/.test(req.params.draftId) ? author(`/quiz/${req.params.draftId}`, 'GET')(req, res) : res.status(404).json({ error: 'Unknown draft.' })));
       // Manual "Refresh skills": re-fetch every specialist card from its configured URL (no model calls).
       dev.post('/dev/registry/refresh', (req, res) => {

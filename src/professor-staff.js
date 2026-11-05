@@ -171,6 +171,22 @@ export function receiptText(r) {
 // The open card as /author/state shows it (the Faculty view renders it); null when none is open.
 export const staffView = () => (cardOpen() ? { formRef: openCard.formRef, a2ui: openCard.a2ui, card: openCard.hrCard } : null);
 
+// Part 17 (roster desk): the Faculty agent's other desks need the staff desk's state without owning it.
+export const staffConversation = () => conversationId;
+// A question (HR / class / both) or a note offer is waiting for its answer; a plain reply must reach staffTurn so it
+// is read as that answer. A cancellation offer alone does not block the roster desk.
+export const staffHolding = () => ({ question: fresh(pendingChoice), offer: fresh(pendingNote) ? pendingNote.kind ?? 'post' : null });
+// The privacy guard for a message that would go to the whole class (“notify everyone …”): a statement about HIMSELF with a
+// leave, illness or relative word is never posted on a guess. Returns the fixed question (and holds the message for
+// the answer, exactly like the open-card path) or null when the words are safe to post.
+export function guardClassPost({ text, entryId, emit = () => {} }) {
+  const t = String(text ?? '');
+  if (!(FIRST_PERSON_WORDS.test(t) && (mentionsIllness(t) || LEAVE_WORDS.test(t) || RELATIVES.test(t) || absenceNameIn(t)))) return null;
+  pendingChoice = { text: t, entryId, at: Date.now() };
+  emit('staff_decision', { kind: 'unsure', decidedBy: 'class_post_guard' });
+  return { action: 'clarify', check: 'staff_or_class', reply: UNSURE_QUESTION, entries: [{ role: 'assistant', text: UNSURE_QUESTION, action: 'clarify' }] };
+}
+
 export function resetStaff() {
   conversationId = randomUUID();
   openCard = null;
