@@ -15,10 +15,10 @@
 import { TIMEOUTS } from './timeouts.js';
 import { randomUUID } from 'node:crypto';
 import { CARD_CLOSED, STAFF_ACTION_MEDIA_TYPE, STAFF_REQUEST_MEDIA_TYPE, staffActionFields, staffRequestFields } from './staff.js';
-import { shortDate, titleOf, workdays } from './absence-types.js';
+import { ABSENCE_TYPES, shortDate, titleOf, workdays } from './absence-types.js';
 import { COURSE } from './course-pack.js';
 import { classifyStaff } from './professor-model.js';
-import { asksBalance, asksRequests } from './hr-intent.js';
+import { asksBalance, asksRequests, mentionsDay, mentionsHours } from './hr-intent.js';
 
 export const UNSURE_QUESTION = 'Should I file this as time off with HR, tell the class, or both?';
 export const HOLDING = "I'm still holding your earlier message — please answer HR, the class, or both. If your reply also had something new, send it again after.";
@@ -67,6 +67,29 @@ const CANCEL_FILLER = /^(send|cancel|cancellation|cancelled|canceled|the|class|c
 const NEGATION = /\b(no|nope|nah|not|never|don['’]?t|do not|won['’]?t|skip|cancel|neither)\b/i;
 // A short reply right after a question is an answer attempt — never a message for the class.
 const SHORT = (text) => text.trim().split(/\s+/).length <= 4;
+
+// ---- an open HR card: is this plain message about the time off, the class, or neither? (read by code) ----
+// Leave words (strong): the time off itself, a reason or a relative, or an absence name from the list.
+const LEAVE_WORDS = /\b(?:off|out|leave|leaving|sick|ill|illness|unwell|vacation|holiday|absent|absence|pto|bereavement|funeral|died|passed|death|jury|witness|military|appointment|doctor|dentist|hospital|surgery|dock|sabbatical|maternity|paternity|personal|time\s+off|day\s+off|days\s+off|sorry|submit|balance)\b/i;
+const RELATIVES = /\b(?:mother|father|mom|dad|mum|grand(?:mother|father|parents?|ma|pa)|brother|sister|wife|husband|spouse|partner|son|daughter|child|children|kids?|aunt|uncle|cousin|niece|nephew|in-?laws?|family|relative)\b/i;
+// Edit cues and card-field words (weak: they count only when no class word is present).
+const CARD_EDIT = /\b(?:instead|change|changed|make\s+it|switch|move|actually|never\s?mind|also|add|each\s+day|every\s+day|first\s+day|only|reason|note|hours?|half|full|whole|all\s+day)\b/i;
+// Class words: the class, the students, or what a class announcement is made of.
+const CLASS_WORDS = /\b(?:class(?:es)?|students?|everyone|reminder|remind|read|reading|chapter|homework|quiz|exam|midterm|test|assignment|due|syllabus|lecture|slides|office\s+hours|project|grades?|announce\w*)\b/i;
+const absenceNameIn = (text) => { const t = String(text).toLowerCase(); return ABSENCE_TYPES.some((a) => t.includes(a.name.toLowerCase())); };
+// 'hr' | 'class' | 'ask'
+export function aboutOpenCard(text) {
+  const t = String(text ?? '');
+  const classy = CLASS_WORDS.test(t) || /(^|\s)@\w/.test(t);
+  const strong = LEAVE_WORDS.test(t) || RELATIVES.test(t) || absenceNameIn(t);
+  const edit = mentionsHours(t) || CARD_EDIT.test(t);
+  // A class message with a day in it (“before Thursday”) is still a class message; with a leave word, or words that
+  // edit the card (hours, “instead”), it could be either: asked, never guessed.
+  if (classy) return strong || edit ? 'ask' : 'class';
+  if (strong || edit || mentionsDay(t)) return 'hr';
+  if (SHORT(t)) return 'hr'; // a short answer to HR's own question (“yes”, “no”, “the first day only”)
+  return 'ask';
+}
 // Rule B — reading a reply to the HR / class / both question (see staffTurn). Structural, and fails safe: a reply
 // that mentions a choice word or has 8 words or fewer is GUARDED — never posted or classified on its own.
 const CHOICE_WORDS = /\b(hr|human\s+resources|file|filed|filing|class|students|them|both|tell|post)\b/i;
@@ -171,11 +194,23 @@ export async function staffTurn({ operationId, text, entryId, hubLink, bypass = 
   // It files nothing and posts nothing to students; an open card is not touched (no card values are sent), and a
   // held question or note offer stays held.
   if (asksBalance(text) || asksRequests(text)) return sendToHr({ operationId, text, hubLink, emit, decidedBy: 'info_question' });
-  // While a card is open, every message without @assistant goes to HR as a follow-up (it fills the card),
-  // even one that reads like a class message — the professor finishes or cancels the card first.
-  if (cardOpen()) {
-    const formValues = card.formValues && card.formRef === openCard.formRef ? card.formValues : undefined;
-    return sendToHr({ operationId, text, hubLink, emit, decidedBy: 'open_card', formValues });
+  // While a card is open, a plain message goes to HR as a follow-up only when CODE reads it as about this time off
+  // (owner, 2026-11-04: a class reminder went to HR and moved the card's dates). A class message with no leave
+  // word goes the normal class path; anything unclear is asked about (the held-message question), never guessed.
+  // A reply to that question is read by the held-message rules below, not here.
+  if (cardOpen() && !fresh(pendingChoice)) {
+    const where = aboutOpenCard(text);
+    if (where === 'hr') {
+      const formValues = card.formValues && card.formRef === openCard.formRef ? card.formValues : undefined;
+      return sendToHr({ operationId, text, hubLink, emit, decidedBy: 'open_card', formValues });
+    }
+    if (where === 'class') {
+      emit('staff_decision', { kind: 'class_message', decidedBy: 'open_card_words' });
+      return null;
+    }
+    pendingChoice = { text, entryId, at: Date.now() };
+    emit('staff_decision', { kind: 'unsure', decidedBy: 'open_card_words' });
+    return { action: 'clarify', check: 'staff_or_class', reply: UNSURE_QUESTION, entries: [{ role: 'assistant', text: UNSURE_QUESTION, action: 'clarify' }] };
   }
   const say = (reply, extra = {}) => ({ action: 'clarify', reply, ...extra, entries: [{ role: 'assistant', text: reply, action: 'clarify' }] });
 

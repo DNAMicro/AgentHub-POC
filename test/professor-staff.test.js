@@ -1174,3 +1174,61 @@ test('cancellation: an @assistant question in between keeps the offer; a later �
   assert.ok(texts.includes('Marketing 351 is cancelled on Fri, Nov 6.'), JSON.stringify(texts));
   assert.ok(!texts.includes('yes'), 'the yes answered the offer');
 });
+
+// Owner 2026-11-04 (live bug): with an HR card open, “Reminder: please read the pricing chapter before Thursday.”
+// went to HR, never reached the class, and HR moved the card to Thu, Nov 5. Code now decides from the words.
+test('open card: a class reminder is posted to the class and the card is unchanged', async () => {
+  await say('I need Friday off, it is a vacation day');
+  let st = await state();
+  const card = st.hrCard;
+  const dates = dataModel(card).beginDate;
+  const r = await say('Reminder: please read the pricing chapter before Thursday.');
+  assert.notEqual(r.action, 'staff', 'not sent to HR');
+  st = await state();
+  assert.equal(st.hrCard.formRef, card.formRef, 'the card is the same card');
+  assert.equal(dataModel(st.hrCard).beginDate, dates, 'its dates did not move');
+  assert.equal(st.lessons.length, 1, 'the class got it');
+  assert.match(st.lessons[0].text, /pricing chapter/);
+  assert.deepEqual(await requests(), []);
+});
+
+test('open card: messages about this time off still go to HR as follow-ups', async () => {
+  await say('I need Friday off, it is a vacation day');
+  for (const text of ['make it Friday instead', '8 hours', 'yes', "it's for my grandmother", 'actually make it sick leave']) {
+    const r = await say(text);
+    assert.equal(r.action, 'staff', text);
+  }
+  assert.equal((await state()).lessons.length, 0);
+});
+
+test('open card: leave words together with class words, or words about neither, are asked about — never guessed', async () => {
+  await say('I need Friday off, it is a vacation day');
+  const before = (await state()).hrCard.formRef;
+  // Both a leave word and a class word.
+  let r = await say("I'm out Thursday, please read chapter 5 before then");
+  assert.equal(r.reply, UNSURE);
+  let st = await state();
+  assert.equal(st.lessons.length, 0);
+  assert.equal(st.hrCard.formRef, before, 'nothing went to HR');
+  // The answer is read as usual: “class” posts the held words, the card stays.
+  r = await say('class');
+  st = await state();
+  assert.equal(st.lessons.length, 1);
+  assert.equal(st.hrCard.formRef, before);
+  // Neither kind of word.
+  r = await say('Please remember to bring the signed forms with you next time, thanks');
+  assert.equal(r.reply, UNSURE);
+  st = await state();
+  assert.equal(st.lessons.length, 1, 'nothing more was posted');
+  assert.equal(st.hrCard.formRef, before);
+});
+
+test('aboutOpenCard: the words decide (unit)', async () => {
+  const { aboutOpenCard } = await import('../src/professor-staff.js');
+  const table = {
+    hr: ['make it Friday instead', '8 hours', 'yes', 'no', 'the first day only', "it's for my grandmother", 'Vacation', 'I am sick today', 'of course, make it Friday'],
+    class: ['Reminder: please read the pricing chapter before Thursday.', 'Homework is due soon', '@sam please see the quiz'],
+    ask: ["I'm out Thursday, please read chapter 5 before then", 'Please remember to bring the signed forms with you next time, thanks', 'make it Friday instead, class is fine'],
+  };
+  for (const [want, texts] of Object.entries(table)) for (const t of texts) assert.equal(aboutOpenCard(t), want, t);
+});
