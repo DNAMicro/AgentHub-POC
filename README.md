@@ -122,6 +122,7 @@ Then open **http://127.0.0.1:4444**. Start order doesn't matter: specialists kee
 | `HUB_DELIVER_TIMEOUT_MS`, `HUB_DELIVER_RETRY_MS` | Part 9: how long the Hub waits for the Student to confirm a delivery (5000) and how often it retries queued or uncertain ones (3000) |
 | `HUB_TEST_STUDENTS_WITHOUT_ENDPOINT=1` | Tests only: lets a student with no configured endpoint register with the Hub (normally refused, because it can't be challenged) |
 | `PROFESSOR_MODE` | Part 9: the Faculty agent's answers, `mock` (default, labelled) or `live` |
+| `PROFESSOR_QUIZ_DRAFT_TIMEOUT_MS`, `PROFESSOR_QUIZ_REPAIR_TIMEOUT_MS`, `PROFESSOR_QUIZ_ONE_MORE_TIMEOUT_MS`, `PROFESSOR_CANVAS_TOOL_CHOICE_TIMEOUT_MS` | Part 16: the time limits for the Faculty AI drafting a quiz (30 s), its one repair call (20 s), "draft one more" (15 s) and choosing the Canvas tool (8 s); see `src/timeouts.js` |
 | `HR_MODE` | Part 14: the HR Agent's reading of the faculty member's reason, `mock` (default, labelled heuristic) or `live` |
 | `PEOPLESOFT_MODE` | Part 15: the PeopleSoft stand-in's step planner, `mock` (default, labelled heuristic) or `live` |
 | `PEOPLESOFT_URL`, `PEOPLESOFT_TOKEN` | Part 15: where HR finds the PeopleSoft stand-in (default `http://127.0.0.1:41246`) and the secret it must send. Never printed |

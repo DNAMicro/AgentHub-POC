@@ -3,7 +3,7 @@
 // every scene-N.js and writes scripts/demo/live-walkthrough.js, which is
 //   playwright-cli -s=demo2 open --headed "http://127.0.0.1:4444/conversation"
 //   playwright-cli -s=demo2 run-code "$(cat scripts/demo/live-walkthrough.js)"
-// Query options of the opened address: from, to (steps 1-11; default: the last scene), fresh=0 (keep the conversation),
+// Query options of the opened address: from, to (steps 1-11 and 16; default: the last scene), fresh=0 (keep the conversation),
 // type=<ms per character, default 55>, auto=<secs> (rehearsal only: advance by itself), shots=<dir>
 // (rehearsal: NNN-L.png / NNN-R.png per moment). Keys (either window): -> / PageDown / Space = next,
 // N = skip the rest of this step, H = hold on/off. The overlay (step label + cursor dot) lives in its own
