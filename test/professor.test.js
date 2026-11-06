@@ -709,7 +709,9 @@ test('conversation: a marketing question the course doesn’t cover goes to the 
     assert.equal(r1.decision.agentId, 'professor');
     assert.match(r1.reply.text, /Want me to send your question to Dr\. Dabirian\?/, 'offered in fixed words (review F)');
     assert.equal(r1.reply.professor.outcome, 'offered');
-    assert.match(stub.requests.at(-1).body.system?.[0]?.text ?? JSON.stringify(stub.requests.at(-1).body.system), /SWOT analysis/, 'the prompt names a marketing concept the pack lacks as needs_professor');
+    const sys = stub.requests.at(-1).body.system?.[0]?.text ?? JSON.stringify(stub.requests.at(-1).body.system);
+    assert.match(sys, /Marketing concepts are ALWAYS answered/, 'live matrix 2026-11-06: concepts are answered, never offered (the scripted needs_professor here only exercises the offer plumbing)');
+    assert.match(JSON.stringify(stub.requests.at(-1).body.messages), /topic_notes/, 'the topic notes are given to the model');
     assert.equal((await professorState(s)).chat.length, 0, 'not sent before the student says yes');
 
     const asked = [];
