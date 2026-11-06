@@ -1010,7 +1010,7 @@ scenes.push({
       const pills = await log.locator('.sent-post .dsum .pill').last().textContent().catch(() => '');
       const text = (await log.locator('.sent-post').last().textContent()) ?? '';
       if (!/25 students notified\./.test(await log.textContent())) problems.push('Step 17 · the chat did not say “25 students notified.”');
-      if (!/Delivered to \d+/.test(text)) problems.push(`Step 17 · the delivery summary is not there (${String(pills).slice(0, 60)})`);
+      if (!/\d+ notified/.test(text)) problems.push(`Step 17 · the delivery summary is not there (${String(pills).slice(0, 60)})`);
       await click(log.locator('.sent-post').last().locator('details.dlist summary'));
       await moveTo(log.locator('.sent-post').last().locator('details.dlist'));
       await click(log.locator('.sent-post').last().locator('details.dlist summary'));

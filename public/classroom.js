@@ -259,14 +259,14 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
   const ASSISTANT = { studentId: 'assistant', name: 'assistant', label: 'Course assistant — writes, sends course lessons, answers questions' };
 
   const DELIVERY = {
-    queued: ['Not delivered yet', 'busy'], emailed: ['Emailed', 'ok'], delivered: ['Delivered', 'ok'], opened: ['Opened', 'ok'],
+    queued: ['Not delivered yet', 'busy'], emailed: ['Notified', 'ok'], delivered: ['Notified', 'ok'], opened: ['Opened', 'ok'],
     uncertain: ['Checking whether it arrived', 'warn'], failed: ['Could not be delivered', 'bad'], sending: ['Sending…', 'busy'],
   };
   function studentState(d) {
     if (d.opened) return ['opened', when(d.openedAt)];
     // Review C16: a student who isn't online was emailed by CHRS (the post still waits for them in the app).
     const first = knownName(d.studentId)?.split(' ')[0] ?? 'this student';
-    if (d.state === 'queued' && d.emailed) return ['emailed', `${first} isn't online, so they were emailed. They'll also receive it in the app when they're online.`];
+    if (d.state === 'queued' && d.emailed) return ['emailed', null]; // notified (by email); how is not said (owner, 2026-11-05)
     if (d.state === 'queued' && d.emailFailed) return ['queued', `${first} isn't online, and the email couldn't be sent. They'll receive it when they're online.`];
     if (d.state === 'queued') return ['queued', d.lastError === 'student_offline' || /refused/.test(d.lastError ?? '') ? `${first} isn't online. They'll receive it when they're online.` : 'It will be retried.'];
     if (d.state === 'delivered') return ['delivered', when(d.deliveredAt)];
@@ -335,8 +335,8 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     details.addEventListener('toggle', () => { if (details.open) foldOpen.add(key); else foldOpen.delete(key); });
     return el('div', { className: 'dlist-wrap' },
       el('div', { className: 'dsum' },
-        el('span', { className: 'pill ok', textContent: `Delivered to ${delivered}` }),
-        ...(emailed ? [el('span', { className: 'pill ok', dataset: { kind: 'emailed' }, textContent: `Emailed ${emailed}` })] : []),
+        // Owner, 2026-11-05: "just say 25 notified" — in the app or by email, both are notified.
+        ...(delivered + emailed ? [el('span', { className: 'pill ok', dataset: { kind: 'notified' }, textContent: `${delivered + emailed} notified` })] : []),
         ...(waiting ? [el('span', { className: 'pill', textContent: `${waiting} not online yet — they'll receive it when they're online` })] : []),
         ...(failed ? [el('span', { className: 'pill', dataset: { tone: 'bad' }, textContent: `${failed} could not be delivered` })] : []),
         ...(other ? [el('span', { className: 'pill', textContent: `${other} still sending or not confirmed` })] : [])),

@@ -511,7 +511,7 @@ async (page) => {
         await box.press('Enter');
         const sent = page.locator('#prof-log > li').filter({ hasText: 'no penalty' }).last();
         await sent.getByText(/Delivered/).first().waitFor({ timeout: 60000 }).catch(() => {});
-        await show(sent, 'Delivered to Alex’s Student agent', 10, [k, 'Delivered means delivered', '“Delivered” appears only after the Student agent has saved it. A student whose agent isn’t connected shows “Queued at Hub”.']);
+        await show(sent, 'Alex is notified', 10, [k, 'Notified means it arrived', '“Notified” appears only after Alex’s Student agent has saved it — or, for a student who isn’t online, after the campus email went out.']);
         await cap(k, 'Now the course assistant', '@assistant writes a lesson for the whole class. We’ll switch to the student’s screen and wait for it to arrive.');
         await typeInto(box, '@assistant write a short lesson for the whole class on the 4 Ps of marketing, with one coffee-shop example');
         await page.waitForTimeout(600);

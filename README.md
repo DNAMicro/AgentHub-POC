@@ -1061,7 +1061,7 @@ The faculty member can now ask for his class roster, and every notice to the cla
 2. CHRS verifies the Hub's staff signature, its AI picks the one records tool (`get_class_roster`), code checks the pick, and the records stand-in checks that he is this course's own instructor, plans its steps and answers.
 3. One look-only card, “CHRS · Class roster”, laid out like the CSUF Faculty Center roster: term, class, meeting row, instructor, Enrollment Status / Capacity 35 / Enrolled 25, then the grid (ID, Name, Email, Pronouns, Units, Program and Plan, Academic Level). No checkboxes, no actions.
 4. Type “notify everyone that the midterm review session moves to Thursday”. The Hub asks CHRS for the class list (a lookup signed by the Hub itself), then makes one delivery per student. His words go out as his own, with no preview: “Sent to all 25 students in Marketing 351.” Alex sees the notice; the other 24 are honestly “not online yet” and get it when they are.
-5. The delivery card for a big audience reads “Delivered to 1”, “24 not online yet — they'll get it when they are”, with the rows folded under “Show all 25 students”. Quiz notices and class cancellations use the same list.
+5. The delivery card for a big audience reads “25 notified” (Alex in the app, the other 24 by email), with the rows folded under “Show all 25 students”. Quiz notices and class cancellations use the same list.
 6. Topology gets a fifth staff agent, **CHRS** (indigo), with its own model box and its own **Student records** tile (a PeopleSoft-coloured database tile) under the model. The Hub's lookup and the MCP call light up their edges; labels say only “Roster: 25 students”.
 
 ### Notify-everyone, carefully

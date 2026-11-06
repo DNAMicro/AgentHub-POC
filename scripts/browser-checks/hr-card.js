@@ -253,7 +253,7 @@ async (page) => {
   // Part 17: the cancellation goes to all 25 students, so its card is a summary with the rows folded away.
   const cancelPost = page.locator('#prof-log .sent-post, #prof-log .post-card').last();
   const cancelSum = await cancelPost.locator('.dsum .pill').allTextContents();
-  check('cancellation: delivery summary "Delivered to 1" · "Emailed 24", fold of 25', cancelSum[0] === 'Delivered to 1' && cancelSum[1] === 'Emailed 24' && await cancelPost.locator('details.dlist li').count() === 25, cancelSum);
+  check('cancellation: delivery summary "25 notified", fold of 25', cancelSum.join(' | ') === '25 notified' && await cancelPost.locator('details.dlist li').count() === 25, cancelSum);
   await page.locator('#prof-log').screenshot({ path: `${SHOTS}/hr-14-cancellation-sent.png` });
   await page.goto(`${origin}/conversation`);
   const studentSaw = await page.waitForFunction(() => /Marketing 351 \(10:00–10:50 AM, Mihaylo Hall 2405\) is cancelled on Thu, Nov 5, Fri, Nov 6, Thu, Nov 12 and Fri, Nov 13\./.test(document.body.textContent), null, { timeout: 15000 }).then(() => true).catch(() => false);

@@ -88,14 +88,14 @@ async (page) => {
   const post = page.locator('#prof-log .sent-post').last();
   await post.locator('.dsum').waitFor();
   const sum = await post.locator('.dsum .pill').allTextContents();
-  check('summary: "Delivered to 1" and "Emailed 24" (review C16)', sum.length === 2 && sum[0] === 'Delivered to 1' && sum[1] === 'Emailed 24', sum);
+  check('summary: "25 notified" (owner, 2026-11-05: "just say 25 notified")', sum.join(' | ') === '25 notified', sum);
   check('the head says "to the whole class (25)"', /the whole class \(25\)/.test(await post.locator('.msg-head .msg-dir').textContent()));
   const fold = post.locator('details.dlist');
   check('the fold is closed and says "Show all 25 students"', await fold.evaluate((d) => !d.open) && (await fold.locator('summary').textContent()) === 'Show all 25 students');
   await fold.locator('summary').click();
   const frows = await fold.locator('.per-student li').evaluateAll((l) => l.map((x) => x.textContent));
-  check('fold lists 25 students by name', frows.length === 25 && frows.some((r) => /^Mariana AguilarEmailed — Mariana isn't online, so they were emailed\. They'll also receive it in the app when they're online\./.test(r)), frows.slice(0, 2));
-  check('Alex Student shows Delivered', frows.some((r) => /^Alex StudentDelivered/.test(r)), frows.filter((r) => /Alex/.test(r)));
+  check('fold lists 25 students by name', frows.length === 25 && frows.some((r) => /^Mariana AguilarNotified$/.test(r)), frows.slice(0, 2));
+  check('Alex Student shows Notified or Opened', frows.some((r) => /^Alex Student(Notified|Opened)/.test(r)), frows.filter((r) => /Alex/.test(r)));
   check('the fold stays open after a redraw', await page.evaluate(() => document.querySelector('#prof-log .sent-post details.dlist')?.open));
   check('header still reads "25 students · 1 online"', (await page.locator('#prof-roster').textContent()).trim() === '25 students · 1 online');
   await post.scrollIntoViewIfNeeded();
@@ -127,7 +127,7 @@ async (page) => {
   await page.waitForFunction(() => /Published/.test(document.querySelector('#prof-log .lms-card .state-badge')?.textContent ?? '') && document.querySelectorAll('#prof-log .lms-card details.dlist li').length === 25, null, { timeout: 30000 });
   const lms = page.locator('#prof-log .lms-card');
   const qsum = await lms.locator('.dsum .pill').allTextContents();
-  check('quiz published card: "Delivered to 1" + "Emailed 24"', qsum[0] === 'Delivered to 1' && qsum[1] === 'Emailed 24', qsum);
+  check('quiz published card: "25 notified"', qsum.join(' | ') === '25 notified', qsum);
   check('quiz fold lists 25 students, Alex Notified', await lms.locator('details.dlist li').count() === 25 && (await lms.locator('details.dlist li').allTextContents()).some((r) => /^Alex StudentNotified/.test(r)));
   await lms.scrollIntoViewIfNeeded();
   await page.waitForTimeout(300);
@@ -280,7 +280,7 @@ async (page) => {
     await owed.locator('[data-act="publish"]').click();
     await page.waitForFunction(() => document.querySelectorAll('#prof-log .lms-card details.dlist li').length === 25, null, { timeout: 60000 });
     const fsum = await lmsCard.locator('.dsum .pill').allTextContents();
-    check('F1: after the retry the summary replaces the sentence: "Delivered to 1" + "Emailed 24"', fsum[0] === 'Delivered to 1' && fsum[1] === 'Emailed 24' && (await owed.count()) === 0, fsum);
+    check('F1: after the retry the summary replaces the sentence: "25 notified"', fsum.join(' | ') === '25 notified' && (await owed.count()) === 0, fsum);
     await lmsCard.scrollIntoViewIfNeeded();
     await page.waitForTimeout(300);
     await page.screenshot({ path: `${SHOTS}/s-f1-4-delivered.png` });
