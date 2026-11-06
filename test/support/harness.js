@@ -132,7 +132,7 @@ export async function startHr(env = {}) {
 
 // CHRS (staff only, Part 17): class rosters; no records of its own. STUDENT_RECORDS_URL defaults to a closed port, so a
 // test CHRS never reaches a real student-records server on 41249.
-export const CHRS_READY = /\[CHRS Agent\] listening on (http:\/\/127\.0\.0\.1:\d+)/;
+export const CHRS_READY = /\[Campus Agent\] listening on (http:\/\/127\.0\.0\.1:\d+)/;
 export async function startChrs(env = {}) {
   const chrs = startProcess('src/chrs-agent.js', { PORT: '0', STUDENT_RECORDS_URL: 'http://127.0.0.1:9', ...env }, CHRS_READY);
   chrs.url = await chrs.ready;
@@ -140,7 +140,7 @@ export async function startChrs(env = {}) {
 }
 
 // PeopleSoft stand-in MCP server (Part 15): token required; records in memory.
-export const PEOPLESOFT_READY = /PeopleSoft HR MCP server \(demo stand-in\) listening on (http:\/\/127\.0\.0\.1:\d+)/;
+export const PEOPLESOFT_READY = /PeopleSoft CHRS \(HR\) MCP server \(demo stand-in\) listening on (http:\/\/127\.0\.0\.1:\d+)/;
 export async function startPeopleSoft(env = {}) {
   const ps = startProcess('src/peoplesoft-mcp.js', { PORT: '0', ...env }, PEOPLESOFT_READY);
   ps.url = await ps.ready;

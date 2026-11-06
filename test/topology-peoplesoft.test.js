@@ -19,23 +19,23 @@ test('mcp_call_result labels: ok, saved record, refused, uncertain, unavailable,
   const back = { edge: 'hr-peoplesoft', from: 'peoplesoft', to: 'hr', category: 'tool' };
   const ok = hr('mcp_call_result', { tool: 'get_leave_balances', ok: true, outcome: 'ok', recordId: null });
   assert.deepEqual(shape(ok), { ...back, phase: 'completed' });
-  assert.equal(ok.label, 'PeopleSoft HR answered');
+  assert.equal(ok.label, 'PeopleSoft CHRS answered');
   const saved = hr('mcp_call_result', { tool: 'create_absence_request', ok: true, outcome: 'ok', recordId: '00482131' });
   assert.equal(saved.label, 'Saved as 00482131');
   const refused = hr('mcp_call_result', { ok: false, outcome: 'refused', code: 'not_enough' });
   assert.deepEqual(shape(refused), { ...back, phase: 'failed' });
-  assert.equal(refused.label, 'PeopleSoft HR refused (not_enough)');
+  assert.equal(refused.label, 'PeopleSoft CHRS refused (not_enough)');
   const noCode = hr('mcp_call_result', { ok: false, outcome: 'refused', code: null });
-  assert.equal(noCode.label, 'PeopleSoft HR refused');
+  assert.equal(noCode.label, 'PeopleSoft CHRS refused');
   const uncertain = hr('mcp_call_result', { ok: false, outcome: 'uncertain', code: null });
   assert.deepEqual(shape(uncertain), { ...back, phase: 'unknown' });
-  assert.equal(uncertain.label, "PeopleSoft HR didn't answer");
+  assert.equal(uncertain.label, "PeopleSoft CHRS didn't answer");
   const unavailable = hr('mcp_call_result', { ok: false, outcome: 'unavailable', code: null });
   assert.deepEqual(shape(unavailable), { ...back, phase: 'failed' });
-  assert.equal(unavailable.label, "PeopleSoft HR didn't answer");
+  assert.equal(unavailable.label, "PeopleSoft CHRS didn't answer");
   const other = hr('mcp_call_result', { ok: false, outcome: 'tool_refused' });
   assert.deepEqual(shape(other), { ...back, phase: 'failed' });
-  assert.equal(other.label, "PeopleSoft HR didn't answer");
+  assert.equal(other.label, "PeopleSoft CHRS didn't answer");
 });
 
 test('mcp_tool_refused stays inside HR; peoplesoft_session is HR ↔ PeopleSoft registration', () => {
@@ -48,7 +48,7 @@ test('mcp_tool_refused stays inside HR; peoplesoft_session is HR ↔ PeopleSoft 
   assert.equal(up.label, 'MCP session open');
   const down = hr('peoplesoft_session', { status: 'unreachable' });
   assert.equal(down.phase, 'failed');
-  assert.equal(down.label, 'PeopleSoft HR unreachable');
+  assert.equal(down.label, 'PeopleSoft CHRS unreachable');
 });
 
 test('final-review I2: a failed tool choice is "HR’s AI didn’t answer — no call", not a wrong pick', () => {

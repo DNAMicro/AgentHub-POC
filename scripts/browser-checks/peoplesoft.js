@@ -43,11 +43,11 @@ async (page) => {
   check('no PeopleSoft model box', await topo.locator('[data-node="llm-peoplesoft"], [data-owner="peoplesoft"], [data-edge="peoplesoft-model"]').count() === 0);
   check('tile 176×80 rx 16', await ps.locator('rect.tile').evaluate((r) => [r.getAttribute('width'), r.getAttribute('height'), r.getAttribute('rx')].join(',')).catch(() => null) === '176,80,16');
   check('database icon, sparkle and sweep present', await ps.locator('.db').count() >= 2 && await ps.locator('.spark').count() === 1 && await ps.locator('.sweep').count() === 1);
-  check('name and role', (await ps.locator('.node-name').textContent().catch(() => '')) === 'PeopleSoft HR' && /MCP server/i.test(await ps.locator('.node-sub').textContent().catch(() => '')));
+  check('name and role', (await ps.locator('.node-name').textContent().catch(() => '')) === 'PeopleSoft CHRS (HR)' && /MCP server/i.test(await ps.locator('.node-sub').textContent().catch(() => '')));
   check('MCP edge HR ↔ PeopleSoft', await topo.locator('[data-edge="hr-peoplesoft"][data-kind="mcp"]').count() === 1 && (await topo.locator('[data-edge="hr-peoplesoft"] .edge-label').textContent().catch(() => '')) === 'MCP');
   check('viewBox 0 0 1100 1285', (await topo.locator('#topo').getAttribute('viewBox')) === '0 0 1100 1285');
   check('aria-label mentions PeopleSoft', /PeopleSoft/.test(await topo.locator('#topo').getAttribute('aria-label')));
-  check('legend row for MCP tool calls', await topo.locator('.legend li', { hasText: 'MCP tool call (dash-dot line = MCP to Canvas LMS, PeopleSoft HR or PeopleSoft Campus Solutions)' }).count() === 1);
+  check('legend row for MCP tool calls', await topo.locator('.legend li', { hasText: 'MCP tool call (dash-dot line = MCP to Canvas LMS, PeopleSoft CHRS (HR) or PeopleSoft Campus Solutions)' }).count() === 1);
   // Layout (SVG user units): the tile, its pill and the MCP lanes stay clear of the HR node and inside the drawing.
   const geo = await topo.evaluate(() => {
     const box = (id) => {
@@ -133,7 +133,7 @@ async (page) => {
   await ps.click();
   await topo.waitForTimeout(300);
   const detail = ((await topo.locator('#topo-detail').textContent()) ?? '').replace(/\s+/g, ' ');
-  check('details: title', /PeopleSoft HR — demo stand-in/.test(detail), detail.slice(0, 200));
+  check('details: title', /PeopleSoft CHRS \(HR\) — demo stand-in/.test(detail), detail.slice(0, 200));
   check('details: reached only by HR', detail.includes('Reached only by the HR Agent, over MCP. Fictional data.'));
   check('details: the three tools', ['get_leave_balances', 'list_absence_requests', 'create_absence_request'].every((t) => detail.includes(t)));
   check('details: last call', /Saved as \d{8}/.test(detail), detail.slice(-160));

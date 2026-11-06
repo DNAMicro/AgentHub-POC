@@ -22,7 +22,7 @@ import { checkTimeOffValues } from './forms.js';
 export const STAFF_REQUEST_MEDIA_TYPE = 'application/vnd.a2a-spike.staff-request+json';
 export const STAFF_ACTION_MEDIA_TYPE = 'application/vnd.a2a-spike.staff-action+json';
 // Part 17 (CHRS): the Hub -> CHRS typed parts (sent with sendData; the Hub signs them toward CHRS).
-//   roster request: { type: 'roster_request', kind: 'roster', courseId? } + metadata { hubOperationId, via, staffId,
+//   roster request: { type: 'roster_request', kind: 'roster', courseId?, purpose } + metadata { hubOperationId, via, staffId,
 //     callerKind: 'staff', hubSignature } (the same staff signature HR verifies). Reply data part { roster } or { text }.
 //   roster lookup:  { type: 'roster_lookup', courseId, instructorStaffId } + metadata { hubOperationId, hubSignature }
 //     (signRosterLookup, the Hub's own). Reply data part { studentIds, names, count } or { error, text }: roster student IDs and names go to the Hub
@@ -38,14 +38,24 @@ export const EMAIL_NOTICE_MEDIA_TYPE = 'application/vnd.a2a-spike.email-notice+j
 export const ROSTER_UNAVAILABLE_CODE = 'roster_unavailable'; // the Hub refuses a post it can't address from CHRS's roster
 export const ROSTER_POST_FAILED_TEXT = "I couldn't get your class list just now, so nothing was sent. Try again in a moment.";
 export const ROSTER_FAILED_TEXT = "I couldn't get your class roster just now. Try again in a moment.";
-export const CHRS_REFUSED_TEXT = 'CHRS serves university staff only.';
+export const CHRS_REFUSED_TEXT = 'Campus Agent serves university staff only.';
 export const HUB_STAFF_MEDIA_TYPES = new Set([STAFF_REQUEST_MEDIA_TYPE, STAFF_ACTION_MEDIA_TYPE]);
 export const STAFF_STATUSES = ['ok', 'refused', 'not_delivered', 'outcome_unknown'];
 
 // The fields each part's signature covers (the sender's agentId and instanceId are prepended by sendSigned).
 // Part 17: `service` ('hr' | 'chrs', a configured staff destination) is signed when present, so it can't be added,
 // removed or changed in transit; a request without one is HR's and signs exactly the three fields it always did.
-export const staffRequestFields = (v) => ['staff-request', v?.operationId, v?.conversationId, ...(v?.service === undefined ? [] : [v.service])];
+// Review #7: a roster request (service 'chrs') may carry `purpose` (why the roster is read; ROSTER_PURPOSES below). It is
+// signed when present, after service, like service itself; a request without one signs exactly what it always did.
+export const staffRequestFields = (v) => ['staff-request', v?.operationId, v?.conversationId, ...(v?.service === undefined ? [] : [v.service]), ...(v?.purpose === undefined ? [] : [`purpose:${v.purpose}`])];
+// Review #7: why the class roster / class record is read. A fixed set chosen by CODE at the caller, signed with the request
+// and written into the Campus Agent's audit log with every read. Never a free text, never from the model or the browser.
+//   view (show the roster card), fact (a count / membership / one student), question (a roster question or filter),
+//   tag (resolving @-tags, the composer's suggestions), class_info (a cancellation's class time and room),
+//   membership (comparing Canvas with the roster), recipients (the Hub addressing a post), email (the email fallback).
+export const ROSTER_PURPOSES = ['view', 'fact', 'question', 'tag', 'class_info', 'membership', 'recipients', 'email'];
+export const STAFF_ROSTER_PURPOSES = ['view', 'fact', 'question', 'tag', 'class_info', 'membership']; // the faculty member's own reads
+export const LOOKUP_ROSTER_PURPOSES = ['recipients', 'tag']; // the Hub's own lookups (signRosterLookup)
 export const staffActionFields = (v) => ['staff-action', v?.operationId, v?.formRef, v?.conversationId];
 
 // code (typed, for the sender's code — never parse `reason`): 'card_closed' = this formRef can't be acted on

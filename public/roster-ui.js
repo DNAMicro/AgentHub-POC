@@ -1,9 +1,11 @@
-// Part 17: the "CHRS · Class roster" card in the Faculty view (approved mockup
+// Part 17: the "Class roster" card in the Faculty view (approved mockup
 // docs/superpowers/specs/2026-11-05-chrs-roster-mockup.html, screen 1). The chat entry carries only a reference
 // ({ rosterId, count, at }); the rows are fetched from GET /api/professor/roster when the card is drawn, kept in this
 // element only, and never written to a stream, a log or the student's page. Everything is drawn with textContent.
 export const ROSTER_GONE = 'Ask again to see your roster.';
-const FOOTER = 'Fictional demo records. For your class only — student records are private (FERPA).';
+// Review #5: only the fields the faculty member's tasks need (no email, no pronouns; IDs arrive masked to the last 4 digits).
+export const FOOTER = 'Fictional demo records. Only what you need is shown; IDs are masked. Every roster lookup is logged. Student records are private (FERPA).';
+export const ROSTER_COLUMNS = ['', 'Name', 'ID', 'Academic Level', 'Program and Plan', 'Units'];
 
 export function createRosterUi({ el, api, bubble, isShowing }) {
   const cards = new Map(); // chat entry id -> { li, body }  (kept in place across redraws, like the quiz and HR cards)
@@ -22,17 +24,16 @@ export function createRosterUi({ el, api, bubble, isShowing }) {
         ...[['Enrollment Status', cls.enrollmentStatus], ['Enrollment Capacity', cls.capacity], ['Enrolled', cls.enrolled]].map(([k, v]) => el('span', {}, el('b', { textContent: k }), dash(v)))));
   }
   function grid(rows) {
-    const cols = ['', 'ID', 'Name', 'Email', 'Pronouns', 'Units', 'Program and Plan', 'Academic Level'];
-    const thead = el('thead', {}, el('tr', {}, ...cols.map((c) => el('th', { textContent: c, className: c === 'Units' ? 'r' : '' }))));
+    const thead = el('thead', {}, el('tr', {}, ...ROSTER_COLUMNS.map((c) => el('th', { textContent: c, className: c === 'Units' ? 'r' : '' }))));
+    // Only a masked ID is ever drawn (“•••••1234”); anything else in the field is not shown.
+    const masked = (v) => (typeof v === 'string' && /^•{5}\d{4}$/.test(v) ? v : '');
     const tbody = el('tbody', {}, ...rows.map((r, i) => el('tr', { dataset: { student: r.studentId } },
       el('td', { className: 'n', textContent: String(i + 1) }),
-      el('td', { className: 'mono', textContent: dash(r.id) }),
       el('td', {}, el('span', { className: 'lnk', textContent: dash(r.name) })),
-      el('td', { className: 'mono', textContent: dash(r.email) }),
-      el('td', { textContent: dash(r.pronouns) }),
-      el('td', { className: 'r', textContent: dash(r.units) }),
+      el('td', { className: 'mono', textContent: masked(r.maskedId) }),
+      el('td', { textContent: dash(r.level) }),
       el('td', {}, `${dash(r.program)} -`, el('br'), `${dash(r.plan)}`, el('span', { className: 'deg', textContent: dash(r.degree) })),
-      el('td', { textContent: dash(r.level) }))));
+      el('td', { className: 'r', textContent: dash(r.units) }))));
     return el('div', { className: 'roster-scroll' }, el('table', { className: 'roster' }, thead, tbody));
   }
   function fill(c, entry, view) {
@@ -89,7 +90,7 @@ export function createRosterUi({ el, api, bubble, isShowing }) {
     entry(m) {
       let c = cards.get(m.id);
       if (!c) {
-        const li = bubble({ dir: 'received', speaker: 'chrs', label: 'CHRS · Class roster', at: m.at, text: '' });
+        const li = bubble({ dir: 'received', speaker: 'chrs', label: 'Class roster', at: m.at, text: '' });
         li.classList.add('roster-card');
         li.dataset.rosterId = m.roster.rosterId;
         li.dataset.state = 'loading';

@@ -1,8 +1,9 @@
 // CHRS — a separate A2A service for university STAFF (a DEMO with synthetic records). It answers two typed data
 // parts from the Hub (src/staff.js) and nothing else:
-//   roster request  { type: 'roster_request', kind: 'roster', courseId? } with the Hub's STAFF signature (the same
-//                   one HR verifies: hubLink.verifiedStaff) -> data part { roster } or { text } (a plain failure).
-//   roster lookup   { type: 'roster_lookup', courseId, instructorStaffId } signed by the HUB ITSELF
+//   roster request  { type: 'roster_request', kind: 'roster', courseId?, purpose } with the Hub's STAFF signature (the same
+//                   one HR verifies: hubLink.verifiedStaff, plus the signed purpose) -> data part { roster } (minimal: no
+//                   email, no pronouns, IDs masked to the last 4 — review #5) or { text } (a plain failure).
+//   roster lookup   { type: 'roster_lookup', courseId, instructorStaffId, purpose } signed by the HUB ITSELF
 //                   (hubLink.verifiedRosterLookup) -> data part { studentIds, names, count } or { error, text }.
 //                   Names are "First Last" for the Hub's delivery labels; the Hub gets only roster student IDs and names, never emails or CWIDs.
 //   email notice    { type: 'email_notice', courseId, instructorStaffId, studentIds, title, text } signed by the HUB ITSELF
@@ -10,7 +11,7 @@
 //                   emailed, failed } or { error, text }. CHRS reads each student's campus email on file from Campus
 //                   Solutions (a fresh get_class_roster) and "sends" through the campus mail DEMO STAND-IN: an in-memory
 //                   outbox in this process. No real email is ever sent; the addresses never leave CHRS.
-// Anything else (a text message, an unsigned or wrongly signed part) gets "CHRS serves university staff only."
+// Anything else (a text message, an unsigned or wrongly signed part) gets "Campus Agent serves university staff only."
 //
 // CHRS keeps no student records: it reaches the PeopleSoft student records stand-in (src/student-records-mcp.js)
 // over MCP (src/chrs-records.js). Its AI chooses the tool, code checks the pick and builds the arguments; the
@@ -30,7 +31,7 @@ import { createHubLink } from './hub-link.js';
 import { apiHost, keyEnvName, useModel } from './llm.js';
 import { createRecordsLink } from './chrs-records.js';
 import { chrsStatus } from './chrs-model.js';
-import { CHRS_REFUSED_TEXT, EMAIL_NOTICE_MEDIA_TYPE, ROSTER_FAILED_TEXT, ROSTER_LOOKUP_MEDIA_TYPE, ROSTER_REQUEST_MEDIA_TYPE } from './staff.js';
+import { CHRS_REFUSED_TEXT, EMAIL_NOTICE_MEDIA_TYPE, ROSTER_FAILED_TEXT, ROSTER_LOOKUP_MEDIA_TYPE, ROSTER_REQUEST_MEDIA_TYPE, STAFF_ROSTER_PURPOSES } from './staff.js';
 import { COURSE_ID } from './student-records-store.js';
 import { TIMEOUTS } from './timeouts.js';
 
@@ -42,7 +43,7 @@ useModel(CONFIG.model); // CHRS's own model and key variable (live mode: the too
 let hubLink = null;
 let skillService = null;
 
-const log = (...args) => console.log('[CHRS Agent]', ...args);
+const log = (...args) => console.log('[Campus Agent]', ...args);
 const vizEvents = new EventEmitter();
 const emitViz = (type, runId, data) => vizEvents.emit('event', { source: 'chrs', type, runId, at: new Date().toISOString(), data });
 
@@ -98,6 +99,39 @@ function sendCampusMail({ operationId, studentIds, rows, klass, title, text }) {
   return results;
 }
 
+// ---- review #5: data minimisation -------------------------------------------------------------------------------
+// The roster that leaves this agent (toward the Hub and the Faculty agent) carries only what the faculty member's tasks
+// need: the student id the app addresses, the name, the ID masked to its last 4 digits, units, program, plan, degree and
+// academic level. Never an email, a full campus ID or pronouns: the records server already masks them
+// (mask_private_fields), and this whitelist makes sure of it whatever came back. The email stays here, read fresh
+// (includeEmail) only for the campus mail stand-in.
+const LAST4 = (id) => { const d = String(id ?? '').replace(/\D/g, ''); return d.length >= 4 ? `•••••${d.slice(-4)}` : ''; };
+const SAFE_MASK = /^•{5}\d{4}$/;
+export function minimalRoster(roster) {
+  return {
+    class: roster.class,
+    rows: roster.rows.map((r) => ({
+      studentId: r.studentId,
+      maskedId: typeof r.maskedId === 'string' && SAFE_MASK.test(r.maskedId) ? r.maskedId : LAST4(r.id),
+      name: r.name, units: r.units, program: r.program, plan: r.plan, degree: r.degree, level: r.level,
+    })),
+  };
+}
+
+// ---- review #7: the roster-read audit log --------------------------------------------------------------------------
+// Every read of the class roster / class record records who (the staff id from the Hub's signature), which course and
+// section, why (a purpose from a fixed set, signed with the request) and how many rows. In this process's memory only
+// (cleared by the classroom reset, POST /dev/chrs/reset); never a name, email or ID. Tests read it at GET /test/audit.
+const AUDIT_LIMIT = 1000;
+const audit = [];
+function logRead({ staffId, courseId, klass, purpose, rowCount, runId }) {
+  const entry = { at: new Date().toISOString(), staffId, courseId, section: typeof klass?.code === 'string' ? klass.code : null, purpose, rowCount };
+  audit.push(entry);
+  if (audit.length > AUDIT_LIMIT) audit.splice(0, audit.length - AUDIT_LIMIT);
+  log(`roster read logged: ${staffId} ${courseId} purpose=${purpose} rows=${rowCount}`);
+  emitViz('roster_read_logged', runId, { purpose, rowCount, courseId });
+}
+
 // "Lastname,Firstname" (the records' own form) -> "Firstname Lastname".
 const displayName = (row) => {
   const [last = '', first = ''] = String(row.name ?? '').split(',');
@@ -130,6 +164,7 @@ const chrsExecutor = {
       const r = await records.roster(checked.courseId, checked.instructorStaffId, { runId });
       if (!r.ok) return send({ value: { error: 'roster_unavailable', text: ROSTER_FAILED_TEXT } }, r.outcome === 'refused' ? 'refused_by_records' : r.outcome);
       const rows = r.value.roster.rows;
+      logRead({ staffId: checked.instructorStaffId, courseId: checked.courseId, klass: r.value.roster.class, purpose: checked.purpose, rowCount: rows.length, runId });
       const names = Object.fromEntries(rows.map((row) => [row.studentId, displayName(row)]));
       return send({ value: { studentIds: rows.map((row) => row.studentId), names, count: rows.length } }, 'lookup', { rosterCount: rows.length });
     }
@@ -139,6 +174,7 @@ const chrsExecutor = {
       if (!checked || checked.title.length > 200 || checked.text.length > 8000) return refuse();
       const r = await records.roster(checked.courseId, checked.instructorStaffId, { runId, moment: 'email' });
       if (!r.ok) return send({ value: { error: 'roster_unavailable', text: ROSTER_FAILED_TEXT } }, r.outcome === 'refused' ? 'refused_by_records' : r.outcome);
+      logRead({ staffId: checked.instructorStaffId, courseId: checked.courseId, klass: r.value.roster.class, purpose: 'email', rowCount: r.value.roster.rows.length, runId });
       const results = sendCampusMail({ ...checked, rows: r.value.roster.rows, klass: r.value.roster.class });
       const emailed = Object.values(results).filter((x) => x === 'emailed').length;
       const failed = checked.studentIds.length - emailed;
@@ -146,12 +182,15 @@ const chrsExecutor = {
       return send({ value: { results, emailed, failed } }, 'emailed', { emailedCount: emailed, emailFailedCount: failed });
     }
     if (kind === 'roster_request') {
-      const staffId = hubLink.verifiedStaff(incoming.metadata, ctx.contextId);
+      // Review #7: the purpose is required and must be what the Hub signed (an unknown or missing one is refused).
+      const purpose = value?.purpose;
+      const staffId = STAFF_ROSTER_PURPOSES.includes(purpose) ? hubLink.verifiedStaff(incoming.metadata, ctx.contextId, purpose) : null;
       if (!staffId || value?.kind !== 'roster') return refuse();
       const courseId = COURSE_ID; // the request's courseId is not signed, so it is ignored: the configured course only
       const r = await records.roster(courseId, staffId, { runId });
       if (!r.ok) return send({ value: { text: ROSTER_FAILED_TEXT } }, r.outcome === 'refused' ? 'refused_by_records' : r.outcome);
-      return send({ value: { roster: r.value.roster } }, 'roster', { rosterCount: r.value.roster.rows.length });
+      logRead({ staffId, courseId, klass: r.value.roster.class, purpose, rowCount: r.value.roster.rows.length, runId });
+      return send({ value: { roster: minimalRoster(r.value.roster) } }, 'roster', { rosterCount: r.value.roster.rows.length });
     }
     return refuse();
   },
@@ -171,7 +210,7 @@ function serveVizEvents(req, res) {
 
 function buildAgentCard(port) {
   return {
-    name: 'CHRS Agent',
+    name: 'Campus Agent',
     description: 'Staff services (demo, synthetic records): the class roster for a course\'s own instructor, from PeopleSoft Campus Solutions. University staff only.',
     version: '0.1.0',
     supportedInterfaces: [{ url: `http://${HOST}:${port}${JSONRPC_PATH}`, protocolBinding: 'JSONRPC', protocolVersion: A2A_PROTOCOL_VERSION, tenant: '' }],
@@ -213,6 +252,7 @@ export function startChrsServer({ port = 41248 } = {}) {
       app.post('/dev/chrs/reset', sameOriginGuard(actualPort), (req, res) => {
         mail.outbox = [];
         mail.sent.clear();
+        audit.length = 0; // review #7: the roster-read audit log goes with the classroom
         log('campus mail stand-in outbox cleared');
         res.json({ status: 'reset' });
       });
@@ -220,6 +260,7 @@ export function startChrsServer({ port = 41248 } = {}) {
       if (process.env.CHRS_TEST_HOOKS === '1') {
         // Review C16: what the campus mail stand-in "sent" (tests only; never logged, never relayed).
         app.get('/test/mail', (req, res) => res.json({ mail: mail.outbox }));
+        app.get('/test/audit', (req, res) => res.json({ audit })); // review #7: the roster-read audit log
         app.get('/test/records', async (req, res) => {
           try {
             res.json(await records.state());

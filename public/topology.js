@@ -24,10 +24,10 @@ const NODES = {
   library: { x: 710, y: 350, r: 56, name: 'Library Agent', role: 'Library specialist' },
   professor: { x: 710, y: 605, r: 56, name: 'Faculty', role: 'Marketing 351' },
   hr: { x: 710, y: 860, r: 56, name: 'HR Agent', role: 'Staff only' },
-  chrs: { x: 710, y: 1115, r: 56, name: 'CHRS Agent', role: 'Staff only' },
+  chrs: { x: 710, y: 1115, r: 56, name: 'Campus Agent', role: 'Staff only' },
   // Systems, not agents (design F: tile + icon + sparkle + sweep). Part 15 PeopleSoft, Part 16 Canvas LMS.
   canvas: { x: 985, y: 680, w: 176, h: 80, kind: 'system', name: 'Canvas LMS', role: 'MCP server' },
-  peoplesoft: { x: 985, y: 935, w: 176, h: 80, kind: 'system', name: 'PeopleSoft HR', role: 'MCP server' },
+  peoplesoft: { x: 985, y: 935, w: 176, h: 80, kind: 'system', name: 'PeopleSoft CHRS (HR)', lines: ['PeopleSoft CHRS', 'HR'], role: 'MCP server' },
   studentdb: { x: 985, y: 1190, w: 176, h: 80, kind: 'system', name: 'PeopleSoft Campus Solutions', lines: ['PeopleSoft', 'Campus Solutions'], role: 'MCP server' },
   // One model box per agent (owner). Server labels say 'model'; the browser draws it at the caller's box.
   'llm-student': { x: 130, y: 355, w: 184, h: 74, owner: 'student', name: 'Student’s model' },
@@ -36,7 +36,7 @@ const NODES = {
   'llm-library': { x: 985, y: 350, w: 184, h: 70, owner: 'library', name: 'Library’s model' },
   'llm-professor': { x: 985, y: 550, w: 184, h: 70, owner: 'professor', name: 'Faculty’s model' },
   'llm-hr': { x: 985, y: 805, w: 184, h: 70, owner: 'hr', name: 'HR’s model' },
-  'llm-chrs': { x: 985, y: 1060, w: 184, h: 70, owner: 'chrs', name: 'CHRS’s model' },
+  'llm-chrs': { x: 985, y: 1060, w: 184, h: 70, owner: 'chrs', name: 'Campus Agent’s model' },
 };
 const EDGES = {
   'student-hub': ['student', 'hub'], 'hub-tutor': ['hub', 'tutor'], 'hub-professor': ['hub', 'professor'], 'hub-library': ['hub', 'library'], 'hub-hr': ['hub', 'hr'], 'hub-chrs': ['hub', 'chrs'],
@@ -54,10 +54,10 @@ const LANE_MCP = 7; // the short MCP lines (mockup)
 const PILL_CLEAR = 43;
 // The systems (demo stand-ins): their MCP tools, edge, colour variable, session states and the busy/saved timings.
 const SYSTEMS = {
-  peoplesoft: { edge: 'hr-peoplesoft', sessionEvent: 'peoplesoft_session', color: '--ps', cls: '', icon: 'db', title: 'PeopleSoft HR — demo stand-in', reachedBy: 'the HR Agent', tools: ['get_leave_balances', 'list_absence_requests', 'create_absence_request'], saved: /^Saved/ },
+  peoplesoft: { edge: 'hr-peoplesoft', sessionEvent: 'peoplesoft_session', color: '--ps', cls: '', icon: 'db', title: 'PeopleSoft CHRS (HR) — demo stand-in', reachedBy: 'the HR Agent', tools: ['get_leave_balances', 'list_absence_requests', 'create_absence_request'], saved: /^Saved/ },
   canvas: { edge: 'professor-canvas', sessionEvent: 'canvas_session', color: '--lms', cls: ' lms', icon: 'quiz', title: 'Canvas LMS — demo stand-in', reachedBy: 'the Faculty agent', tools: ['create_quiz', 'publish_quiz'], saved: /^(Saved|Published)/ },
   // Part 17: the same PeopleSoft look for its student records, reached only by CHRS. A roster read saves nothing: no “Saved” flash.
-  studentdb: { edge: 'chrs-studentdb', sessionEvent: 'studentdb_session', color: '--ps', cls: '', icon: 'db', title: 'PeopleSoft Campus Solutions — demo stand-in', reachedBy: 'the CHRS Agent', tools: ['get_class_roster'], saved: /^(?!)/ },
+  studentdb: { edge: 'chrs-studentdb', sessionEvent: 'studentdb_session', color: '--ps', cls: '', icon: 'db', title: 'PeopleSoft Campus Solutions — demo stand-in', reachedBy: 'the Campus Agent', tools: ['get_class_roster'], saved: /^(?!)/ },
 };
 const SYSTEM_OF_EDGE = Object.fromEntries(Object.entries(SYSTEMS).map(([id, v]) => [v.edge, id]));
 const SESSION = { connected: ['✓ Connected', 'ok'], unreachable: ['✕ Unreachable', 'bad'], not_configured: ['○ Not configured', 'muted'], none: ['○ Not connected yet', 'muted'] };
@@ -495,8 +495,11 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     const tr = state.traces.get(runId);
     if (!tr) return runId.slice(0, 8);
     // A staff run that went to CHRS (a roster request, or the class's time and room before a cancellation) is named for it.
-    const staffTo = tr.destination === 'chrs' || (tr.edges.has('hub-chrs') && !tr.edges.has('hub-hr')) ? 'CHRS' : 'HR';
-    const what = tr.kind === 'form_action' ? `Form action${tr.action ? ` “${tr.action}”` : ''}` : tr.kind === 'staff' ? `Staff request (Faculty → ${staffTo})` : 'Chat';
+    const toRoster = tr.destination === 'chrs' || (tr.edges.has('hub-chrs') && !tr.edges.has('hub-hr'));
+    const toHr = tr.destination === 'hr' || tr.edges.has('hub-hr');
+    const staffTo = toRoster ? 'Campus Agent' : toHr ? 'HR' : 'Hub'; // until the Hub has routed it, the request is only known to have reached the Hub
+    const staffWhat = toRoster ? 'Roster request (Faculty → Campus Agent)' : `Staff request (Faculty → ${staffTo})`;
+    const what = tr.kind === 'form_action' ? `Form action${tr.action ? ` “${tr.action}”` : ''}` : tr.kind === 'staff' ? staffWhat : 'Chat';
     return `${what} #${tr.n}${tr.destination ? ` → ${tr.destination}` : ''}${tr.outcome ? ` · ${tr.outcome}` : ''}`;
   };
   function renderTraceOptions() {
@@ -521,10 +524,33 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     li.querySelector('.ev-trace')?.addEventListener('click', () => select({ kind: 'trace', id: ev.runId }));
     return li;
   }
+  // Review #8: repeated events (one per student) are one row with a count. The key is the run, the event type, the
+  // connection and the group the server named; a row that was trimmed or cleared is simply not found and starts over.
+  const groupRows = new Map();
   function addToList(ev) {
     const t = ev.topo;
     if (t.category === 'heartbeat' && !controls.heartbeats.checked) return;
     if (state.traceFilter && ev.runId !== state.traceFilter) return;
+    if (t.group) {
+      const key = [ev.runId ?? '', ev.source, ev.type, t.edge ?? t.node, t.group].join('|');
+      const hit = groupRows.get(key);
+      if (hit?.li.isConnected) {
+        hit.n += 1;
+        hit.li.querySelector('.ev-label').textContent = t.groupLabel.replace('{n}', hit.n);
+        hit.li.dataset.count = String(hit.n);
+        return;
+      }
+      const li = listItem(ev);
+      li.dataset.at = ev.at;
+      li.dataset.count = '1';
+      const after = [...list.children].find((x) => x.dataset.at <= ev.at);
+      list.insertBefore(li, after ?? null);
+      while (list.children.length > MAX_LIST) list.lastChild.remove();
+      groupRows.set(key, { li, n: 1 });
+      state.listed += 1;
+      count.textContent = `(${list.children.length} shown)`;
+      return;
+    }
     // Newest first, in the order the agents timestamped the events (feeds arrive on separate connections).
     const li = listItem(ev);
     li.dataset.at = ev.at;
@@ -537,6 +563,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
   const allEvents = []; // labelled events kept for re-filtering (bounded)
   function refilter() {
     list.replaceChildren();
+    groupRows.clear();
     for (const ev of allEvents) addToList(ev);
   }
   controls.heartbeats.addEventListener('change', refilter);
@@ -740,6 +767,8 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
         const tr = trace(ev.runId);
         tr.destination = ev.data.decision === 'route' ? ev.data.destination : `not routed (${ev.data.decision})`;
         renderTraceOptions();
+        // rows already listed for this run were named before the Hub had routed it: rename them
+        for (const b of list.querySelectorAll(`li[data-run="${CSS.escape(ev.runId)}"] .ev-trace`)) b.textContent = traceName(ev.runId);
       }
       renderNodes();
       if (!t) return;

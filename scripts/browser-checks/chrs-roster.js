@@ -1,4 +1,4 @@
-// Browser check: the CHRS class roster (Part 17) — the "CHRS · Class roster" card, the header count, and the delivery
+// Browser check: the CHRS class roster (Part 17) — the "Class roster" card, the header count, and the delivery
 // summary + fold for big audiences, and roster questions in general (section 7b2, 2026-11-05) (approved mockup docs/superpowers/specs/2026-11-05-chrs-roster-mockup.html, screens 1-3).
 // Run it on a SEPARATE mock stack with "today" pinned to 2026-11-04 (it presses New conversation, which resets the classroom):
 //   node scripts/demo/rehearsal-stack.js --ui 5544 --base 52340 --mock --now 2026-11-04T20:00:00Z
@@ -59,7 +59,7 @@ async (page) => {
   await page.waitForSelector('#prof-log .roster-card[data-state="ready"]', { timeout: 30000 });
   const card = page.locator('#prof-log .roster-card');
   const head = ((await card.locator('.cr-head').textContent()) ?? '').replace(/\s+/g, ' ');
-  check('card label is CHRS · Class roster', /CHRS · Class roster/.test(await card.locator('.msg-dir').textContent()));
+  check('card label is Class roster', /Class roster/.test(await card.locator('.msg-dir').textContent()));
   check('title, term line, class line', /Class Roster/.test(head) && /Fall 2026 · Regular Academic Session · California State University, Fullerton · Undergraduate/.test(head) && /MKTG 351 - 01 \(12351\) Principles of Marketing \(Lecture\)/.test(head), head);
   check('Days and Times come from the data: MoTuWeThFr 10:00AM - 10:50AM, room, instructor, dates', /MoTuWeThFr 10:00AM - 10:50AM/.test(head) && /Mihaylo Hall 2405/.test(head) && /Dr\. Dabirian/.test(head) && /08\/24\/2026 - 12\/18\/2026/.test(head), head);
   check('counts: Enrollment Status Enrolled, Capacity 35, Enrolled 25', /Enrollment StatusEnrolled/.test(head) && /Enrollment Capacity35/.test(head) && /Enrolled25/.test(head), head);

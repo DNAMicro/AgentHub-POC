@@ -71,7 +71,7 @@ const procs = [
   const out = (stream) => stream.on('data', (chunk) => {
     for (const line of String(chunk).split('\n')) {
       if (!line) continue;
-      if (name === 'ps' && /PeopleSoft HR MCP server \(demo stand-in\) listening on/.test(line)) peoplesoftUp = true;
+      if (name === 'ps' && /PeopleSoft CHRS \(HR\) MCP server \(demo stand-in\) listening on/.test(line)) peoplesoftUp = true;
       if (name === 'records' && /PeopleSoft Campus Solutions MCP server \(demo stand-in\) listening on/.test(line)) recordsUp = true;
       if (name === 'canvas' && /Canvas LMS MCP server \(demo stand-in\) listening on/.test(line)) canvasUp = true;
       console.log(`${name.padEnd(7)} | ${line}`);

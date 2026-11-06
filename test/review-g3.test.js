@@ -15,13 +15,13 @@ const chrs = (type, data) => topologyLabel({ source: 'chrs', type, data });
 
 // ---- C11 ----
 test('C11: HR-side labels say PeopleSoft HR (answered, refused with and without a code, not answered)', () => {
-  assert.equal(hr('mcp_call_result', { tool: 'get_leave_balances', ok: true, outcome: 'ok' }).label, 'PeopleSoft HR answered');
-  assert.equal(hr('mcp_call_result', { ok: false, outcome: 'refused', code: 'overlap' }).label, 'PeopleSoft HR refused (overlap)');
-  assert.equal(hr('mcp_call_result', { ok: false, outcome: 'refused' }).label, 'PeopleSoft HR refused');
-  assert.equal(hr('mcp_call_result', { ok: false, outcome: 'uncertain' }).label, "PeopleSoft HR didn't answer");
+  assert.equal(hr('mcp_call_result', { tool: 'get_leave_balances', ok: true, outcome: 'ok' }).label, 'PeopleSoft CHRS answered');
+  assert.equal(hr('mcp_call_result', { ok: false, outcome: 'refused', code: 'overlap' }).label, 'PeopleSoft CHRS refused (overlap)');
+  assert.equal(hr('mcp_call_result', { ok: false, outcome: 'refused' }).label, 'PeopleSoft CHRS refused');
+  assert.equal(hr('mcp_call_result', { ok: false, outcome: 'uncertain' }).label, "PeopleSoft CHRS didn't answer");
 });
 test('C11: HR session label', () => {
-  assert.equal(hr('peoplesoft_session', { status: 'unreachable' }).label, 'PeopleSoft HR unreachable');
+  assert.equal(hr('peoplesoft_session', { status: 'unreachable' }).label, 'PeopleSoft CHRS unreachable');
   assert.equal(hr('peoplesoft_session', { status: 'connected' }).label, 'MCP session open');
 });
 test('C11: CHRS-side labels say Campus Solutions, never "Student records" or a bare PeopleSoft', () => {
@@ -42,39 +42,39 @@ test('C11: the roster count label still names only a count', () => {
 test('C11: node names in the label module', () => {
   const src = read('src/topology.js');
   assert.match(src, /studentdb: 'PeopleSoft Campus Solutions \(demo stand-in\)'/);
-  assert.match(src, /peoplesoft: 'PeopleSoft HR \(demo stand-in\)'/);
-  assert.match(src, /chrs: 'CHRS Agent'/);
+  assert.match(src, /peoplesoft: 'PeopleSoft CHRS \(HR\) \(demo stand-in\)'/);
+  assert.match(src, /chrs: 'Campus Agent'/);
 });
 test('C11: tiles in the page are named apart, two lines for Campus Solutions, MCP SERVER sub-label, no model boxes', () => {
   const js = read('public/topology.js');
-  assert.match(js, /peoplesoft: \{ x: 985, y: 935, w: 176, h: 80, kind: 'system', name: 'PeopleSoft HR', role: 'MCP server' \}/);
+  assert.match(js, /peoplesoft: \{ x: 985, y: 935, w: 176, h: 80, kind: 'system', name: 'PeopleSoft CHRS \(HR\)', lines: \['PeopleSoft CHRS', 'HR'\], role: 'MCP server' \}/);
   assert.match(js, /studentdb: \{[^}]*name: 'PeopleSoft Campus Solutions', lines: \['PeopleSoft', 'Campus Solutions'\], role: 'MCP server' \}/);
   assert.doesNotMatch(js, /llm-peoplesoft|llm-studentdb/);
-  assert.match(js, /title: 'PeopleSoft HR — demo stand-in'/);
+  assert.match(js, /title: 'PeopleSoft CHRS \(HR\) — demo stand-in'/);
   assert.match(js, /title: 'PeopleSoft Campus Solutions — demo stand-in'/);
 });
 test('C11: the Topology description (aria) and legend name both PeopleSoft systems', () => {
   const html = read('public/index.html');
-  assert.match(html, /PeopleSoft HR \(a demo stand-in system\), reached only by the HR Agent over MCP/);
-  assert.match(html, /PeopleSoft Campus Solutions \(a demo stand-in system\), reached only by the CHRS Agent over MCP/);
-  assert.match(html, /MCP to Canvas LMS, PeopleSoft HR or PeopleSoft Campus Solutions/);
+  assert.match(html, /PeopleSoft CHRS \(HR\) \(a demo stand-in system\), reached only by the HR Agent over MCP/);
+  assert.match(html, /PeopleSoft Campus Solutions \(a demo stand-in system\), reached only by the Campus Agent over MCP/);
+  assert.match(html, /MCP to Canvas LMS, PeopleSoft CHRS \(HR\) or PeopleSoft Campus Solutions/);
 });
 test('C11: the stand-ins announce themselves by their distinct names and keep "demo stand-in"', () => {
   const hrSrc = read('src/peoplesoft-mcp.js');
   const csSrc = read('src/student-records-mcp.js');
-  assert.match(hrSrc, /PeopleSoft HR MCP server \(demo stand-in\) listening on/);
+  assert.match(hrSrc, /PeopleSoft CHRS \(HR\) MCP server \(demo stand-in\) listening on/);
   assert.match(csSrc, /PeopleSoft Campus Solutions MCP server \(demo stand-in\) listening on/);
-  assert.match(hrSrc, /Demo stand-in for PeopleSoft HR:/);
+  assert.match(hrSrc, /Demo stand-in for PeopleSoft CHRS \(HR\):/);
   assert.match(csSrc, /Demo stand-in for PeopleSoft Campus Solutions \(student records\):/);
 });
 test('C11: the readiness regexes the harness and rehearsal stack parse match the new lines', () => {
   const h = read('test/support/harness.js');
   const re = (name) => new RegExp(h.match(new RegExp(`${name} = /(.*)/;`))[1]);
-  assert.ok(re('PEOPLESOFT_READY').test('PeopleSoft HR MCP server (demo stand-in) listening on http://127.0.0.1:1234'));
+  assert.ok(re('PEOPLESOFT_READY').test('PeopleSoft CHRS (HR) MCP server (demo stand-in) listening on http://127.0.0.1:1234'));
   assert.ok(re('STUDENT_RECORDS_READY').test('PeopleSoft Campus Solutions MCP server (demo stand-in) listening on http://127.0.0.1:1234'));
   assert.ok(!re('PEOPLESOFT_READY').test('PeopleSoft Campus Solutions MCP server (demo stand-in) listening on http://127.0.0.1:1234'));
   const rs = read('scripts/demo/rehearsal-stack.js');
-  assert.match(rs, /PeopleSoft HR MCP server/);
+  assert.ok(rs.includes('PeopleSoft CHRS \\(HR\\) MCP server'));
   assert.match(rs, /PeopleSoft Campus Solutions MCP server/);
 });
 test('C11: CHRS card text and its tool-choice prompt use Campus Solutions', () => {

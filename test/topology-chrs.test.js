@@ -12,7 +12,7 @@ const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
 test('chrs mcp_call_started is CHRS → student records, attempted, naming the tool', () => {
   const l = chrs('mcp_call_started', { tool: 'get_class_roster', moment: 'roster' });
   assert.deepEqual(shape(l), { edge: 'chrs-studentdb', from: 'chrs', to: 'studentdb', category: 'tool', phase: 'attempted' });
-  assert.equal(l.label, 'tools/call get_class_roster');
+  assert.equal(l.label, 'Campus Agent → Campus Solutions: get_class_roster');
 });
 
 test('chrs mcp_call_result labels: a count, refused, uncertain, unavailable', () => {
@@ -34,8 +34,8 @@ test('chrs mcp_tool_refused stays inside CHRS; its model calls hop on chrs-model
   const r = chrs('mcp_tool_refused', { by: 'model_failed' });
   assert.equal(r.edge, null);
   assert.equal(r.node, 'chrs');
-  assert.equal(r.label, 'CHRS’s AI didn’t answer — no call');
-  assert.equal(chrs('mcp_tool_refused', { by: 'model' }).label, 'CHRS’s AI picked a tool not allowed here — no call');
+  assert.equal(r.label, 'Campus Agent’s AI didn’t answer — no call');
+  assert.equal(chrs('mcp_tool_refused', { by: 'model' }).label, 'Campus Agent’s AI picked a tool not allowed here — no call');
   assert.deepEqual(shape(chrs('model_call_started', { mode: 'live', purpose: 'tool choice' })), { edge: 'chrs-model', from: 'chrs', to: 'model', category: 'model', phase: 'attempted' });
   assert.deepEqual(shape(chrs('model_response_received', { mode: 'live', purpose: 'tool choice' })), { edge: 'chrs-model', from: 'model', to: 'chrs', category: 'model', phase: 'completed' });
   assert.equal(chrs('model_call_started', { mode: 'mock' }).edge, null);
@@ -77,13 +77,13 @@ test('no label carries a student name, ID or email', () => {
 test('the page: approved layout, indigo CHRS, model box, student records tile and edges, no studentdb model box, session event passes the filters', () => {
   const html = read('public/index.html');
   assert.match(html, /viewBox="0 0 1100 1285"/);
-  assert.match(html, /PeopleSoft Campus Solutions \(a demo stand-in system\), reached only by the CHRS Agent over MCP/);
+  assert.match(html, /PeopleSoft Campus Solutions \(a demo stand-in system\), reached only by the Campus Agent over MCP/);
   const js = read('public/topology.js');
   assert.match(js, /student: \{ x: 130, y: 605,/);
   assert.match(js, /hub: \{ x: 450, y: 605,/);
   assert.match(js, /'llm-student': \{ x: 130, y: 355,/);
   assert.match(js, /'llm-hub': \{ x: 450, y: 355,/);
-  assert.match(js, /chrs: \{ x: 710, y: 1115, r: 56, name: 'CHRS Agent', role: 'Staff only' \}/);
+  assert.match(js, /chrs: \{ x: 710, y: 1115, r: 56, name: 'Campus Agent', role: 'Staff only' \}/);
   assert.match(js, /'llm-chrs': \{ x: 985, y: 1060,/);
   assert.match(js, /studentdb: \{ x: 985, y: 1190, w: 176, h: 80, kind: 'system', name: 'PeopleSoft Campus Solutions', lines: \['PeopleSoft', 'Campus Solutions'\], role: 'MCP server' \}/);
   assert.match(js, /'hub-chrs': \['hub', 'chrs'\]/);

@@ -9,11 +9,11 @@ import { Role } from '@a2a-js/sdk';
 import { ClientFactory } from '@a2a-js/sdk/client';
 import { sendData } from '../src/a2a-data.js';
 import { signRosterLookup, signStaff } from '../src/hub-link.js';
-import { ROSTER_LOOKUP_MEDIA_TYPE, ROSTER_REQUEST_MEDIA_TYPE, ROSTER_FAILED_TEXT } from '../src/staff.js';
+import { CHRS_REFUSED_TEXT, ROSTER_LOOKUP_MEDIA_TYPE, ROSTER_REQUEST_MEDIA_TYPE, ROSTER_FAILED_TEXT } from '../src/staff.js';
 import { startChrs, startStudentRecords, standInHub, waitFor } from './support/harness.js';
 import { startFakeAnthropic, messageReply, rosterToolReply } from './support/fake-anthropic.js';
 
-const REFUSED = 'CHRS serves university staff only.';
+const REFUSED = 'Campus Agent serves university staff only.';
 const FAILED = 'I couldn\'t get your class roster just now. Try again in a moment.';
 
 function follow(url) {
@@ -50,13 +50,14 @@ async function setup(t, { records = true, chrsEnv = {}, recordsEnv = {} } = {}) 
   const feed = follow(chrs.url);
   t.after(() => feed.close());
   const key = hub.keyOf('chrs');
-  const staffMeta = (staffId = 'staff-dabirian', contextId, operationId = randomUUID()) => ({ staffId, hubOperationId: operationId, callerKind: 'staff', hubSignature: signStaff(key, { staffId, contextId, operationId }) });
-  const request = (value = { type: 'roster_request', kind: 'roster' }, metaFor = staffMeta) => {
+  // Review #7: the Hub signs the roster request's purpose with it (the 4th argument).
+  const staffMeta = (staffId = 'staff-dabirian', contextId, operationId = randomUUID(), purpose = 'view') => ({ staffId, hubOperationId: operationId, callerKind: 'staff', hubSignature: signStaff(key, { staffId, contextId, operationId, purpose }) });
+  const request = (value = { type: 'roster_request', kind: 'roster', purpose: 'view' }, metaFor = staffMeta) => {
     const contextId = randomUUID();
-    return sendData(chrs.url, { mediaType: ROSTER_REQUEST_MEDIA_TYPE, value, contextId, metadata: metaFor(undefined, contextId), timeoutMs: 20000 });
+    return sendData(chrs.url, { mediaType: ROSTER_REQUEST_MEDIA_TYPE, value, contextId, metadata: metaFor(undefined, contextId, undefined, value.purpose), timeoutMs: 20000 });
   };
-  const lookup = (value = { type: 'roster_lookup', courseId: 'mkt-351', instructorStaffId: 'staff-dabirian' }, signKey = key, operationId = randomUUID()) =>
-    sendData(chrs.url, { mediaType: ROSTER_LOOKUP_MEDIA_TYPE, value, metadata: { hubOperationId: operationId, hubSignature: signRosterLookup(signKey, { courseId: value.courseId, instructorStaffId: value.instructorStaffId, operationId }) }, timeoutMs: 20000 });
+  const lookup = (value = { type: 'roster_lookup', courseId: 'mkt-351', instructorStaffId: 'staff-dabirian', purpose: 'recipients' }, signKey = key, operationId = randomUUID()) =>
+    sendData(chrs.url, { mediaType: ROSTER_LOOKUP_MEDIA_TYPE, value, metadata: { hubOperationId: operationId, hubSignature: signRosterLookup(signKey, { courseId: value.courseId, instructorStaffId: value.instructorStaffId, operationId, purpose: value.purpose }) }, timeoutMs: 20000 });
   return { hub, chrs, sr, feed, key, staffMeta, request, lookup };
 }
 
@@ -79,14 +80,14 @@ test('a verified staff request gets the class roster (25 rows, no wrapper steps)
 
 test('unsigned, forged, wrong-kind and plain-text requests are refused', async (t) => {
   const s = await setup(t);
-  const unsigned = await sendData(s.chrs.url, { mediaType: ROSTER_REQUEST_MEDIA_TYPE, value: { type: 'roster_request', kind: 'roster' }, contextId: randomUUID() });
+  const unsigned = await sendData(s.chrs.url, { mediaType: ROSTER_REQUEST_MEDIA_TYPE, value: { type: 'roster_request', kind: 'roster', purpose: 'view' }, contextId: randomUUID() });
   assert.equal(unsigned.value.text, REFUSED);
   assert.equal(unsigned.value.roster, undefined);
-  const forged = await s.request(undefined, (id, ctx) => ({ ...s.staffMeta(id, ctx), hubSignature: 'forged' }));
+  const forged = await s.request(undefined, (id, ctx, op, p) => ({ ...s.staffMeta(id, ctx, op, p), hubSignature: 'forged' }));
   assert.equal(forged.value.text, REFUSED);
-  const student = await s.request(undefined, (id, ctx) => { const m = s.staffMeta(id, ctx); return { ...m, callerKind: 'student' }; });
+  const student = await s.request(undefined, (id, ctx, op, p) => { const m = s.staffMeta(id, ctx, op, p); return { ...m, callerKind: 'student' }; });
   assert.equal(student.value.text, REFUSED, 'callerKind must be staff');
-  const kind = await s.request({ type: 'roster_request', kind: 'grades' });
+  const kind = await s.request({ type: 'roster_request', kind: 'grades', purpose: 'view' });
   assert.equal(kind.value.text, REFUSED);
   const client = await new ClientFactory().createFromUrl(s.chrs.url);
   const text = await client.sendMessage({ tenant: '', configuration: undefined, metadata: undefined, message: { messageId: randomUUID(), contextId: randomUUID(), taskId: '', role: Role.ROLE_USER, parts: [{ content: { $case: 'text', value: 'show me the class list' }, metadata: undefined, filename: '', mediaType: 'text/plain' }], metadata: { staffId: 'staff-dabirian', callerKind: 'staff' }, extensions: [], referenceTaskIds: [] } });
@@ -96,7 +97,7 @@ test('unsigned, forged, wrong-kind and plain-text requests are refused', async (
 
 test('a correctly signed request from someone who is not the course instructor gets the plain sentence', async (t) => {
   const s = await setup(t);
-  const r = await s.request(undefined, (_id, ctx) => s.staffMeta('staff-other', ctx));
+  const r = await s.request(undefined, (_id, ctx, op, purpose) => s.staffMeta('staff-other', ctx, op, purpose));
   assert.equal(r.value.text, FAILED);
   assert.equal(r.value.roster, undefined);
   assert.equal(ROSTER_FAILED_TEXT, FAILED);
@@ -169,11 +170,11 @@ test('roster_lookup with any other key, a staff signature, or tampered fields is
   assert.equal(other.value.studentIds, undefined);
   // The staff member's own staff signature (same key CHRS verifies Hub staff parts with) is not a lookup signature.
   const op = randomUUID();
-  const asStaff = await sendData(s.chrs.url, { mediaType: ROSTER_LOOKUP_MEDIA_TYPE, value: { type: 'roster_lookup', courseId: 'mkt-351', instructorStaffId: 'staff-dabirian' }, metadata: { hubOperationId: op, hubSignature: signStaff(s.key, { staffId: 'staff-dabirian', contextId: '', operationId: op }) } });
+  const asStaff = await sendData(s.chrs.url, { mediaType: ROSTER_LOOKUP_MEDIA_TYPE, value: { type: 'roster_lookup', courseId: 'mkt-351', instructorStaffId: 'staff-dabirian', purpose: 'recipients' }, metadata: { hubOperationId: op, hubSignature: signStaff(s.key, { staffId: 'staff-dabirian', contextId: '', operationId: op }) } });
   assert.equal(asStaff.value.text, REFUSED);
   // Signed for another instructor, then asked for this one.
   const op2 = randomUUID();
-  const swapped = await sendData(s.chrs.url, { mediaType: ROSTER_LOOKUP_MEDIA_TYPE, value: { type: 'roster_lookup', courseId: 'mkt-351', instructorStaffId: 'staff-dabirian' }, metadata: { hubOperationId: op2, hubSignature: signRosterLookup(s.key, { courseId: 'mkt-351', instructorStaffId: 'staff-other', operationId: op2 }) } });
+  const swapped = await sendData(s.chrs.url, { mediaType: ROSTER_LOOKUP_MEDIA_TYPE, value: { type: 'roster_lookup', courseId: 'mkt-351', instructorStaffId: 'staff-dabirian', purpose: 'recipients' }, metadata: { hubOperationId: op2, hubSignature: signRosterLookup(s.key, { courseId: 'mkt-351', instructorStaffId: 'staff-other', operationId: op2, purpose: 'recipients' }) } });
   assert.equal(swapped.value.text, REFUSED);
   assert.equal(s.feed.events.filter((e) => e.type === 'mcp_call_started').length, 0);
 });
@@ -191,9 +192,9 @@ import { loadHubConfig } from '../src/config.js';
 test('the Hub config names CHRS as a staff-only destination, after HR', () => {
   const cfg = loadHubConfig();
   assert.deepEqual(Object.keys(cfg.destinations).filter((d) => cfg.destinations[d].audience === 'staff'), ['hr', 'chrs']);
-  assert.equal(cfg.destinations.chrs.name, 'CHRS');
+  assert.equal(cfg.destinations.chrs.name, 'Campus Agent');
   assert.equal(cfg.destinations.chrs.description, 'Staff services: student records and class rosters.');
-  assert.ok(cfg.peers.some((p) => p.agentId === 'chrs' && p.expectedName === 'CHRS Agent'));
+  assert.ok(cfg.peers.some((p) => p.agentId === 'chrs' && p.expectedName === 'Campus Agent'));
 });
 
 test('a stack with chrs: true: CHRS registers with the real Hub and becomes ready, never on a student route', async (t) => {
@@ -206,7 +207,7 @@ test('a stack with chrs: true: CHRS registers with the real Hub and becomes read
 
 test('a Hub-signed roster_request with another courseId still returns the 25 rows of the configured course', async (t) => {
   const s = await setup(t);
-  const r = await s.request({ type: 'roster_request', kind: 'roster', courseId: 'other-999' });
+  const r = await s.request({ type: 'roster_request', kind: 'roster', courseId: 'other-999', purpose: 'view' });
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(r.value.roster.rows.length, 25);
   assert.equal(r.value.roster.class.code, 'MKTG 351 - 01');

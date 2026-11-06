@@ -21,7 +21,7 @@ test('lists exactly three tools', async () => {
   const c = await connect();
   const { tools } = await c.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), ['create_absence_request', 'get_leave_balances', 'list_absence_requests']);
-  for (const t of tools) assert.match(t.description, /^Demo stand-in for PeopleSoft HR:/);
+  for (const t of tools) assert.match(t.description, /^Demo stand-in for PeopleSoft CHRS \(HR\):/);
   await c.close();
 });
 

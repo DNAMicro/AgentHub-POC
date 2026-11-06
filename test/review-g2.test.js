@@ -143,11 +143,11 @@ test('C16: the email client refuses honestly — nobody to email, CHRS not ready
 // ---- Topology labels (unit) ------------------------------------------------------------------------------------------
 test('labels: the email fallback on the Hub–CHRS edge (counts only), Canvas course size, the C15 comparison', () => {
   const hub = (type, data) => topologyLabel({ source: 'hub', type, data });
-  assert.deepEqual([hub('email_fallback_started', { recipients: 24 }).edge, hub('email_fallback_started', { recipients: 24 }).label], ['hub-chrs', "Hub asked CHRS Agent to email 24 students who aren't online"]);
-  assert.equal(hub('email_fallback_started', { recipients: 1 }).label, "Hub asked CHRS Agent to email 1 student who isn't online");
+  assert.deepEqual([hub('email_fallback_started', { recipients: 24 }).edge, hub('email_fallback_started', { recipients: 24 }).label], ['hub-chrs', "Hub asked Campus Agent to email 24 students who aren't online"]);
+  assert.equal(hub('email_fallback_started', { recipients: 1 }).label, "Hub asked Campus Agent to email 1 student who isn't online");
   const sent = hub('email_fallback_sent', { emailedCount: 24, emailFailedCount: 0 });
-  assert.deepEqual([sent.from, sent.to, sent.phase, sent.label], ['chrs', 'hub', 'completed', 'CHRS Agent emailed 24 students']);
-  assert.equal(hub('email_fallback_sent', { emailedCount: 1, emailFailedCount: 2 }).label, "CHRS Agent emailed 1 student (2 couldn't be emailed)");
+  assert.deepEqual([sent.from, sent.to, sent.phase, sent.label], ['chrs', 'hub', 'completed', 'Campus Agent emailed 24 students']);
+  assert.equal(hub('email_fallback_sent', { emailedCount: 1, emailFailedCount: 2 }).label, "Campus Agent emailed 1 student (2 couldn't be emailed)");
   assert.equal(hub('email_fallback_sent', { emailedCount: 0, emailFailedCount: 2 }).phase, 'failed');
   assert.equal(hub('email_fallback_failed', { code: 'chrs_not_ready' }).edge, null, 'not sent: stays inside the Hub');
   assert.equal(hub('email_fallback_failed', { code: 'uncertain' }).phase, 'unknown');
@@ -160,7 +160,7 @@ test('labels: the email fallback on the Hub–CHRS edge (counts only), Canvas co
   assert.equal(prof({ status: 'failed' }).phase, 'failed');
   assert.equal(topologyLabel({ source: 'chrs', type: 'email_notice_sent', data: { emailedCount: 3, emailFailedCount: 1 } }).label, 'Campus mail stand-in: 3 emailed, 1 failed');
   // A staff reply CHRS served (a roster request, the class's time and room) is named for CHRS, not HR.
-  assert.equal(hub('relay_sent', { kind: 'staff_reply', to: 'professor', status: 'ok', servedBy: 'chrs' }).label, 'Hub relayed CHRS Agent’s reply (ok)');
+  assert.equal(hub('relay_sent', { kind: 'staff_reply', to: 'professor', status: 'ok', servedBy: 'chrs' }).label, 'Hub relayed Campus Agent’s reply (ok)');
   assert.equal(hub('relay_sent', { kind: 'staff_reply', to: 'professor', status: 'ok', servedBy: 'hr' }).label, 'Hub relayed HR’s reply (ok)');
 });
 

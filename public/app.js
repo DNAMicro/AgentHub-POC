@@ -218,6 +218,30 @@ function messageItem({ dir, label, at, text, values, ids, speaker, kind, split =
   return li;
 }
 
+// Review #8: rows that repeat (a post to 25 students with 24 offline reports the same queued line 24 times) become one
+// row with a count. The key names the log, the run and what repeated; the count and the row's own text update in
+// place, both live and when history is replayed. A cleared log drops its rows, so the row is looked up by being in the page.
+const groupedRows = new Map();
+function groupedRow(log, key, count, make) {
+  const k = `${log.id}|${key}`;
+  const hit = groupedRows.get(k);
+  if (hit?.li.isConnected) {
+    hit.n += count;
+    const next = make(hit.n);
+    hit.li.querySelector('.msg-dir').textContent = next.label;
+    hit.li.querySelector('.msg-text').textContent = next.text;
+    hit.li.querySelector('time').dateTime = next.at;
+    hit.li.querySelector('time').textContent = shortTime(next.at);
+    hit.li.dataset.count = String(hit.n);
+    hit.li.querySelector('dl.ids')?.replaceChildren(...[...definitionList('ids', Object.entries(next.ids)).children]);
+    return;
+  }
+  const li = messageItem(make(count));
+  li.dataset.count = String(count);
+  appendTo(log, li);
+  groupedRows.set(k, { li, n: count });
+}
+
 function appendTo(log, item) {
   log.append(item);
   if (pending.el && log === els.studentLog && item !== pending.el) log.append(pending.el); // the indicator stays last
@@ -522,7 +546,7 @@ const errorText = (errors) => Object.entries(errors ?? {}).map(([field, msg]) =>
 
 // ---- Part 5: advertised skills, Student's cached view, propagation ---------
 
-const AGENT_NAMES = { tutor: 'Tutor Agent', library: 'Library Agent', professor: 'Marketing 351 Faculty', hr: 'HR Agent', chrs: 'CHRS Agent', hub: 'University Hub', student: 'Student agent' };
+const AGENT_NAMES = { tutor: 'Tutor Agent', library: 'Library Agent', professor: 'Marketing 351 Faculty', hr: 'HR Agent', chrs: 'Campus Agent', hub: 'University Hub', student: 'Student agent' };
 let universityName = 'California State University Fullerton';
 // Replies come from the university; the specialist that produced one is shown as attribution.
 const viaUniversity = (id) => (id && id !== 'hub' ? `${universityName} · ${AGENT_NAMES[id] ?? id}` : universityName);
@@ -1117,7 +1141,7 @@ function handle(event, { live = true } = {}) {
         break;
     }
   } else if (source === 'hub') {
-    hubEvent(hub, type, data, run);
+    hubEvent(hub, type, data, run, at);
   } else if (source === 'library') {
     if (type === 'ui_generated' || type === 'loan_operation' || (type === 'form_action_result' && data.workflowId === 'loan-renewal')) inspectorEvent(type, data, runId, at);
     switch (type) {
@@ -1222,7 +1246,7 @@ function handle(event, { live = true } = {}) {
 }
 
 // The Hub's own events, in its console. Specialist registry state also feeds the skills boxes.
-function hubEvent(panel, type, data, run) {
+function hubEvent(panel, type, data, run, at) {
   const name = (id) => AGENT_NAMES[id] ?? id;
   switch (type) {
     case 'message_received':
@@ -1248,7 +1272,10 @@ function hubEvent(panel, type, data, run) {
       panel({ dir: 'received', label: 'Lesson delivered', text: data.duplicate ? 'Already in the Student’s inbox — not stored twice.' : 'The Student agent committed it to its inbox.', ids: { delivery: data.deliveryId } });
       break;
     case 'lesson_queued':
-      panel({ dir: 'info', label: 'Lesson queued', text: `The Student agent is offline (${data.reason}); it will be delivered when it returns.`, ids: { delivery: data.deliveryId } });
+      groupedRow(els.hubLog, `lesson_queued|${run ?? ''}|${data.lessonId ?? ''}`, 1, (n) => ({ at, speaker: 'hub', dir: 'info',
+        label: n === 1 ? 'Lesson queued' : `Lesson queued — ${n} students not online`,
+        text: n === 1 ? `The Student agent is offline (${data.reason}); it will be delivered when it returns.` : `${n} students are not online (${data.reason}); each lesson will be delivered when that student returns.`,
+        ids: n === 1 ? { delivery: data.deliveryId } : { deliveries: n, lesson: data.lessonId, run } }));
       break;
     case 'lesson_uncertain':
       panel({ dir: 'error', label: 'Delivery outcome unknown', text: `${data.reason}. The Hub will ask the Student before sending again.`, ids: { delivery: data.deliveryId } });

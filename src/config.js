@@ -88,7 +88,7 @@ const SPECIALISTS = {
   // HR (staff only): time-off requests from university staff, reached only through the Hub's staff path.
   hr: { port: 41245, displayName: 'HR Agent', file: 'HR_CONFIG', model: 'HR_MODEL', label: 'HR' },
   // Part 17: CHRS (staff only): class rosters from the student-records stand-in, reached only through the Hub's staff path.
-  chrs: { port: 41248, displayName: 'CHRS Agent', file: 'CHRS_CONFIG', model: 'CHRS_MODEL', label: 'CHRS' },
+  chrs: { port: 41248, displayName: 'Campus Agent', file: 'CHRS_CONFIG', model: 'CHRS_MODEL', label: 'Campus Agent' },
 };
 
 export function loadSpecialistConfig(role) {
@@ -132,7 +132,7 @@ export function loadHubConfig() {
       // HR (staff only): reached only through the Hub's signed staff path (destination audience 'staff').
       { agentId: 'hr', expectedName: 'HR Agent', displayName: 'HR Agent', baseUrl: 'http://127.0.0.1:41245' },
       // Part 17: CHRS (staff only), after HR so the Hub's first ready staff destination stays HR.
-      { agentId: 'chrs', expectedName: 'CHRS Agent', displayName: 'CHRS Agent', baseUrl: 'http://127.0.0.1:41248' },
+      { agentId: 'chrs', expectedName: 'Campus Agent', displayName: 'Campus Agent', baseUrl: 'http://127.0.0.1:41248' },
     ],
     destinations: {
       // name/tags/examples are PUBLIC: they become the Hub card's capability skills (no worker names or URLs).
@@ -155,7 +155,7 @@ export function loadHubConfig() {
       // HR (staff only): audience 'staff' keeps it off the Hub card, out of the student router and out of
       // requestedCapability. Only the signed staff path (src/staff.js) reaches it.
       hr: { worker: 'hr', audience: 'staff', name: 'Human Resources', description: 'Staff services: time off and absences.' },
-      chrs: { worker: 'chrs', audience: 'staff', name: 'CHRS', description: 'Staff services: student records and class rosters.' },
+      chrs: { worker: 'chrs', audience: 'staff', name: 'Campus Agent', description: 'Staff services: student records and class rosters.' },
     },
     // HR (staff only, trusted data): which registered agent acts for which staff member (fictional).
     staff: { professor: { staffId: 'staff-dabirian', name: 'Dr. Dabirian' } },
