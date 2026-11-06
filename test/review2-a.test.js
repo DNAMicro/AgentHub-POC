@@ -72,9 +72,11 @@ test('names: the page tiles, model box, details panel and Agent activity names',
   assert.match(js, /reachedBy: 'the Campus Agent'/);
   assert.match(read('public/app.js'), /chrs: 'Campus Agent'/);
 });
-test('names: the staff trace is "Staff request (Faculty → HR)" to HR and "Roster request (Faculty → Campus Agent)" to the roster agent', () => {
+test('names: the staff trace is "Staff request (Faculty → HR)" to HR and "Roster request (Faculty → Campus Agent → Campus Solutions)" to the roster agent, no raw ids', () => {
   const js = read('public/topology.js');
-  assert.match(js, /toRoster \? 'Roster request \(Faculty → Campus Agent\)' : `Staff request \(Faculty → \${staffTo}\)`/);
+  assert.match(js, /toRoster \? 'Roster request \(Faculty → Campus Agent → Campus Solutions\)' : `Staff request \(Faculty → \${staffTo}\)`/);
+  assert.match(js, /chrs: 'Campus Agent'/, 'a destination is shown by its public name, never the raw id');
+  assert.doesNotMatch(js, /` → \$\{tr\.destination\}`/);
   assert.match(js, /toRoster \? 'Campus Agent' : toHr \? 'HR' : 'Hub'/);
   assert.match(js, /\.ev-trace`\)\) b\.textContent = traceName/);
 });

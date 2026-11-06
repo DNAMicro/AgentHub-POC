@@ -490,6 +490,7 @@ h2 { margin: 0; font-size: 1.07rem; font-weight: 700; color: var(--agent, var(--
 /* each agent's own model box: smaller, square-cornered, slate — a service the agent calls, not an agent */
 .topo .node.service .disc { stroke-width: 2.5; }
 .topo .node.service .node-name { font-size: 13px; }
+.topo .node[data-node="chrs"] .node-name { font-size: 12px; } /* "Campus Agent" is the widest agent name: keep it inside its circle */
 .topo .node.service .orbit { transform: none; stroke-dasharray: 8 8; }
 .topo .node.service[data-busy="true"] .orbit { animation: march 0.9s linear infinite; }
 @keyframes march { to { stroke-dashoffset: -16; } }

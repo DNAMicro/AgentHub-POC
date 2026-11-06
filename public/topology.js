@@ -491,6 +491,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     }
     return tr;
   }
+  const TRACE_DEST = { tutor: 'Tutor Agent', library: 'Library Agent', professor: 'Faculty', hr: 'HR Agent', chrs: 'Campus Agent' };
   const traceName = (runId) => {
     const tr = state.traces.get(runId);
     if (!tr) return runId.slice(0, 8);
@@ -498,9 +499,12 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     const toRoster = tr.destination === 'chrs' || (tr.edges.has('hub-chrs') && !tr.edges.has('hub-hr'));
     const toHr = tr.destination === 'hr' || tr.edges.has('hub-hr');
     const staffTo = toRoster ? 'Campus Agent' : toHr ? 'HR' : 'Hub'; // until the Hub has routed it, the request is only known to have reached the Hub
-    const staffWhat = toRoster ? 'Roster request (Faculty → Campus Agent)' : `Staff request (Faculty → ${staffTo})`;
+    // Review round 2: name the whole path a roster read takes (Faculty → Campus Agent → Campus Solutions), and never
+    // a raw agent id (the reviewer saw “#26 → chrs”).
+    const staffWhat = toRoster ? 'Roster request (Faculty → Campus Agent → Campus Solutions)' : `Staff request (Faculty → ${staffTo})`;
     const what = tr.kind === 'form_action' ? `Form action${tr.action ? ` “${tr.action}”` : ''}` : tr.kind === 'staff' ? staffWhat : 'Chat';
-    return `${what} #${tr.n}${tr.destination ? ` → ${tr.destination}` : ''}${tr.outcome ? ` · ${tr.outcome}` : ''}`;
+    const dest = tr.kind === 'staff' ? '' : tr.destination ? ` → ${TRACE_DEST[tr.destination] ?? 'a service'}` : '';
+    return `${what} #${tr.n}${dest}${tr.outcome ? ` · ${tr.outcome}` : ''}`;
   };
   function renderTraceOptions() {
     const current = traceSelect.value;
