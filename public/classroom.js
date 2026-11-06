@@ -32,6 +32,8 @@ const el = (tag, { dataset = {}, ...props } = {}, ...children) => {
 const isMessage = (x) => x?.kind === 'message';
 const untitled = (x) => x?.title || (isMessage(x) ? 'Untitled message' : 'Untitled lesson');
 const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+// A delivery report from the course assistant (review A4): drawn after the message card it reports on.
+const DELIVERY_REPORT = /^(Sent to |Your cancellation is on its way)/;
 const when = (iso) => (iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
 const store = {
   get(key) { try { return JSON.parse(localStorage.getItem(key) ?? 'null'); } catch { return null; } },
@@ -736,8 +738,11 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
         const said = m.sentTo && knownName(m.sentTo) ? String(m.text).replace(/^Sent to 1 student\b/, `Sent to ${knownName(m.sentTo)}`) : m.text;
         const li = bubble({ dir: m.action === 'error' || m.action === 'clarify' ? 'info' : 'received', speaker: 'professor', label: 'Course assistant', at: m.at, text: said });
         if (m.quizTopics?.topics) { li.classList.add('has-topics'); li.append(quiz.topicsBlock(m.quizTopics, topicsLive(mi))); } // Part 16: the topic chips
-        items.push(li);
-        if (m.postKey && posts.get(m.postKey)) items.push(postCard(posts.get(m.postKey)));
+        const card = m.postKey && posts.get(m.postKey) ? postCard(posts.get(m.postKey)) : null;
+        // A delivery report ("Sent to your 25 students: …", e.g. after a class cancellation) reads after the message it
+        // reports on, so the card comes first; anything else (an offer, an answer) keeps its card below.
+        if (card && DELIVERY_REPORT.test(String(m.text))) items.push(card, li);
+        else items.push(li, ...(card ? [card] : []));
       }
     }
     if (pending) {

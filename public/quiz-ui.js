@@ -506,8 +506,11 @@ export function createQuizUi({ el, api, bubble, nameOf, knownName = () => null, 
     }
     // The draft card is gone from the chat: his approval, then the Canvas card.
     const out = [];
-    const title = v.q ? v.q.title.trim() : '';
-    out.push(bubble({ dir: 'sent', speaker: 'student', label: 'You approved the quiz', at: v.approvedAt ?? m.at, text: v.approveText ?? `${title || `Topic ${card.topic} quiz`} — ${plural(card.questionCount, 'question')}` }));
+    const title = v.q ? v.q.title.trim() : String(card?.title ?? '').trim();
+    // After a reload the page's own wording is gone: rebuild it from the card summary (title once published, and the
+    // edit counts), so the line still says what he approved.
+    const mine = card ? byYou(card) : '';
+    out.push(bubble({ dir: 'sent', speaker: 'student', label: 'You approved the quiz', at: v.approvedAt ?? m.at, text: v.approveText ?? `${title || `Topic ${card.topic} quiz`} — ${plural(card.questionCount, 'question')}${mine ? ` (${mine} by you)` : ''}` }));
     if (st === 'draft' || st === 'saving') out.push(working('Saving to Canvas…'));
     else {
       drawLms(v, card);
