@@ -46,6 +46,7 @@ const failText = (outcome, verb) => {
 
 const timeLabel = (iso) => new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(iso));
 const dueLabel = (iso) => `${dayLabel(pacificDate(new Date(iso)))}, ${timeLabel(iso)}`;
+const withoutConcept = ({ concept, ...q }) => ({ ...q }); // eslint-disable-line no-unused-vars
 const plural = (v, w) => `${v} ${w}${v === 1 ? '' : 's'}`;
 
 // roster (optional): async () => [{ studentId, name }] | null — a FRESH class roster (CHRS, through the Hub). With it and
@@ -136,7 +137,8 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
       tell('quiz_turn', runId, { outcome: 'draft_failed', topic: n });
       return { action: 'quiz_draft_failed', reply: "I couldn't draft questions just now. Try again in a moment." };
     }
-    const quiz = { topic: n, ...defaultSettings(n, clock()), questions: res.questions.map((q) => ({ ...q })) };
+    // The idea each suggestion tests (review D12) stays in `offered` only; the quiz itself keeps just its own keys.
+    const quiz = { topic: n, ...defaultSettings(n, clock()), questions: res.questions.map(withoutConcept) };
     // offered: every question the assistant suggested for this draft (the first ones and each "Draft one more"), so Approve
     // can count what he edited or added (review B8) and "Draft one more" can compare right answers (review B7).
     const draft = { draftId: `qd-${randomUUID().slice(0, 12)}`, topic: n, state: 'draft', quiz, canvasQuizId: null, receipt: null, deliveries: null, noticeSent: false, by: res.by, model: res.model, short: res.short ?? 0, wanted: count, offered: res.questions.map((q) => ({ ...q })), changes: null, membership: null, memberNames: null };
@@ -144,17 +146,21 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
     latest = draft.draftId;
     const t = TOPICS.find((x) => x.n === n);
     let reply = `Here's a draft quiz on Topic ${n} (${t.name}) — ${plural(quiz.questions.length, 'question')}. Read every answer before approving.`;
-    if (draft.short > 0) reply += ` Only ${quiz.questions.length} of ${count} questions could be drafted — add or draft the rest.`;
+    const ideas = TOPICS.find((x) => x.n === n)?.notes.length ?? 0;
+    if (count > ideas && quiz.questions.length === ideas) reply += ` Drafted ${quiz.questions.length} of ${count} — the Topic ${n} notes cover ${plural(ideas, 'idea')}, one question each.`;
+    else if (draft.short > 0) reply += ` Only ${quiz.questions.length} of ${count} questions could be drafted — add or draft the rest.`;
     tell('quiz_turn', runId, { outcome: 'drafted', draftId: draft.draftId, topic: n, questionCount: quiz.questions.length });
     return { action: 'quiz_draft', draftId: draft.draftId, reply, short: draft.short, entries: [{ role: 'assistant', text: reply, quiz: { draftId: draft.draftId } }] };
   }
 
   // ---- views -------------------------------------------------------------------------------------------------
   const clean = (v) => structuredClone(v);
+  // question text -> the idea it tests, for the suggestions still unchanged on the page (no answers, no key).
+  const conceptsOf = (d) => Object.fromEntries((d.offered ?? []).filter((q) => q.concept).map((q) => [String(q.text).trim().toLowerCase(), q.concept]));
   function draft(draftId) {
     const d = drafts.get(draftId);
     if (!d || d.state !== 'draft') return null; // the answer key leaves the server once the quiz is saved in Canvas
-    return { draftId: d.draftId, topic: d.topic, state: d.state, canvasQuizId: d.canvasQuizId, quiz: clean(d.quiz), drafted: { by: d.by, model: d.model, short: d.short, wanted: d.wanted } };
+    return { draftId: d.draftId, topic: d.topic, state: d.state, canvasQuizId: d.canvasQuizId, quiz: clean(d.quiz), concepts: conceptsOf(d), drafted: { by: d.by, model: d.model, short: d.short, wanted: d.wanted } };
   }
   function card() {
     const d = latest ? drafts.get(latest) : null;
@@ -346,12 +352,13 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
     const earlier = (d.offered ?? []).filter((q) => holding.has(String(q.text).trim().toLowerCase())).map((q) => ({ ...q }));
     try { r = await draftOne({ topic: d.topic, existing, earlier, emit: (type, data) => tell(type, runId, data) }); } catch { r = { question: null, by: 'model_failed' }; }
     if (d.state === 'closed') return closedResult(d);
+    if (r?.exhausted) return { ok: false, retryable: false, exhausted: true, state: d.state, draftId: d.draftId, text: `Every idea in the Topic ${d.topic} notes already has a question.` };
     if (!r?.question) {
       const failed = !r || r.by === 'model_failed';
       return { ok: false, retryable: failed, state: d.state, draftId: d.draftId, text: failed ? "I couldn't draft another question just now. Try again in a moment." : 'There are no more new questions in the notes for this topic.' };
     }
     d.offered = [...(d.offered ?? []), { ...r.question }].slice(-60);
-    return { ok: true, state: d.state, draftId: d.draftId, question: { ...r.question } };
+    return { ok: true, state: d.state, draftId: d.draftId, question: withoutConcept(r.question), concept: r.question.concept ?? null };
   }
 
   async function run(body, operationId, runId) {

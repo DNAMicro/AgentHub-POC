@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.PROFESSOR_MODE = 'mock';
 const { draftQuiz, draftOne } = await import('../src/quiz-model.js');
-const { checkQuestion } = await import('../src/quiz-rules.js');
+const { checkQuestion: rawCheck } = await import('../src/quiz-rules.js');
+const checkQuestion = ({ concept, ...q }) => rawCheck(q); // eslint-disable-line no-unused-vars
 const { TOPICS } = await import('../src/course-schedule.js');
 
 test('mock Topic 8, 5 questions: all pass checkQuestion, distinct, deterministic, labelled', async () => {
@@ -32,8 +33,9 @@ test('mock Topic 8, 5 questions: all pass checkQuestion, distinct, deterministic
 
 test('mock: asking for more than the notes can make says how short', async () => {
   const r = await draftQuiz({ topic: 8, count: 20 });
-  assert.equal(r.questions.length + r.short, 20);
-  assert.ok(r.short > 0);
+  assert.equal(r.questions.length, 6, 'one question per idea: Topic 8 has six terms');
+  assert.equal(r.short, 14);
+  assert.equal(r.ideas, 6);
   for (const q of r.questions) assert.equal(checkQuestion(q).ok, true);
   assert.equal(new Set(r.questions.map((q) => q.text)).size, r.questions.length);
 });
@@ -42,11 +44,14 @@ test('mock draftOne: a question not already in the quiz; null when none is left'
   const first = await draftOne({ topic: 8, existing: [] });
   assert.equal(first.by, 'mock');
   assert.equal(checkQuestion(first.question).ok, true);
-  const all = (await draftQuiz({ topic: 8, count: 20 })).questions.map((q) => q.text);
-  const next = await draftOne({ topic: 8, existing: all.slice(0, 2) });
+  const full = (await draftQuiz({ topic: 8, count: 20 })).questions;
+  const all = full.map((q) => q.text);
+  const next = await draftOne({ topic: 8, existing: all.slice(0, 2), earlier: full.slice(0, 2) });
   assert.ok(next.question && !all.slice(0, 2).includes(next.question.text));
-  const none = await draftOne({ topic: 8, existing: all });
+  assert.ok(!full.slice(0, 2).some((q) => q.concept === next.question.concept), 'a new idea');
+  const none = await draftOne({ topic: 8, existing: all, earlier: full });
   assert.equal(none.question, null);
+  assert.equal(none.exhausted, true);
 });
 
 test('unknown topic: nothing drafted', async () => {
@@ -64,4 +69,30 @@ test('B7 mock draftOne skips a suggestion that looks like one already in the qui
   assert.ok(r.question);
   const { similarTo } = await import('../src/quiz-rules.js');
   assert.ok(![...existing, ...five].some((o) => similarTo(r.question, o)));
+});
+
+// ---- review D12 (mock mode is a LABELLED heuristic: the notes' terms in order, one question each) -----------------------
+test('D12 mock: each question carries the term it tests, in the notes’ order, all different', async () => {
+  const r = await draftQuiz({ topic: 8, count: 5 });
+  const terms = TOPICS.find((t) => t.n === 8).notes.map((n) => n.term);
+  assert.deepEqual(r.questions.map((x) => x.concept), terms.slice(0, 5));
+});
+
+test('D12 mock: every topic can give the default 5 distinct ideas', async () => {
+  for (const t of TOPICS) {
+    const r = await draftQuiz({ topic: t.n, count: 5 });
+    assert.equal(new Set(r.questions.map((x) => x.concept)).size, 5, `Topic ${t.n}`);
+  }
+});
+
+test('D12 mock draftOne walks through the unused ideas, then says every idea is covered', async () => {
+  const have = [];
+  for (let i = 0; i < 6; i += 1) {
+    const r = await draftOne({ topic: 8, existing: have.map((x) => x.text), earlier: have });
+    assert.ok(r.question, `idea ${i + 1}`);
+    assert.ok(!have.some((x) => x.concept === r.question.concept));
+    have.push(r.question);
+  }
+  const done = await draftOne({ topic: 8, existing: have.map((x) => x.text), earlier: have });
+  assert.equal(done.exhausted, true);
 });

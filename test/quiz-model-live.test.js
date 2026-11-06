@@ -11,15 +11,18 @@ process.env.ANTHROPIC_API_KEY = `sk-ant-test-${randomUUID()}`;
 process.env.ANTHROPIC_BASE_URL = stub.url;
 process.env.TUTOR_LOAD_DOTENV = '0';
 const { draftQuiz, draftOne } = await import('../src/quiz-model.js');
-const { checkQuestion } = await import('../src/quiz-rules.js');
+const { checkQuestion: rawCheck } = await import('../src/quiz-rules.js');
+const checkQuestion = ({ concept, ...q }) => rawCheck(q); // eslint-disable-line no-unused-vars
 const { TOPICS } = await import('../src/course-schedule.js');
 test.after(() => stub.close());
 
 // What the model returns now: the right answer and three wrong ones. It never says where the right one goes.
 // Each one about a different idea (review B7: near-duplicates are dropped), so the texts differ in more than a number.
 const IDEAS = ['geography', 'lifestyle', 'income', 'loyalty', 'benefits', 'occasion', 'usage', 'personality', 'culture', 'climate', 'gender', 'education'];
-const good = (i) => ({ text: `Sample ${IDEAS[(i - 1) % IDEAS.length]} question ${i}?`, correct_answer: `Alpha ${i}`, wrong_answers: [`Beta ${i}`, `Gamma ${i}`, `Delta ${i}`] });
-const bad = (i) => ({ text: `Q${i}`, correct_answer: 'a', wrong_answers: ['a', 'b', 'c'] });
+// Each question names the note term it tests (review D12); these are Topic 8's six terms.
+const TERMS = ['Market segmentation', 'Target market', 'Geographic segmentation', 'Psychographic segmentation', 'Positioning', 'Undifferentiated targeting'];
+const good = (i) => ({ concept: TERMS[(i - 1) % 6], text: `Sample ${IDEAS[(i - 1) % IDEAS.length]} question ${i}?`, correct_answer: `Alpha ${i}`, wrong_answers: [`Beta ${i}`, `Gamma ${i}`, `Delta ${i}`] });
+const bad = (i) => ({ concept: TERMS[(i - 1) % 6], text: `Q${i}`, correct_answer: 'a', wrong_answers: ['a', 'b', 'c'] });
 const recorder = () => { const ev = []; return { ev, emit: (type, data) => ev.push({ type, data }) }; };
 
 test('5 good questions: one call, 5 kept, origin ai', async () => {
@@ -41,7 +44,7 @@ test('5 good questions: one call, 5 kept, origin ai', async () => {
 
 test('3 good + 2 bad, then repair gives 2 good: 5 and two calls (repair names the problems)', async () => {
   stub.reset();
-  stub.respondWith((body, n) => quizDraftReply(body, n === 1 ? [good(1), bad(2), good(3), bad(4), good(5)] : [good(6), good(7)]));
+  stub.respondWith((body, n) => quizDraftReply(body, n === 1 ? [good(1), bad(2), good(3), bad(4), good(5)] : [good(6), good(8)]));
   const r = await draftQuiz({ topic: 8, count: 5 });
   assert.equal(stub.requests.length, 2);
   assert.equal(r.questions.length, 5);
@@ -62,7 +65,7 @@ test('repair still bad: short 2', async () => {
 
 test('a date the notes do not contain drops the question', async () => {
   stub.reset();
-  const dated = { text: 'What was decided on October 3 about segmenting?', correct_answer: 'One', wrong_answers: ['Two', 'Three', 'Four'] };
+  const dated = { concept: TERMS[0], text: 'What was decided on October 3 about segmenting?', correct_answer: 'One', wrong_answers: ['Two', 'Three', 'Four'] };
   stub.respondWith((body, n) => quizDraftReply(body, n === 1 ? [dated, good(2)] : []));
   const r = await draftQuiz({ topic: 8, count: 2 });
   assert.equal(r.questions.length, 1);
@@ -146,14 +149,14 @@ test('I-2: the prompt no longer asks the model for an index or for spreading; th
   await draftQuiz({ topic: 8, count: 1 });
   const body = stub.requests[0].body;
   const schema = body.output_config.format.schema.properties.questions.items;
-  assert.deepEqual(Object.keys(schema.properties).sort(), ['correct_answer', 'text', 'wrong_answers']);
+  assert.deepEqual(Object.keys(schema.properties).sort(), ['concept', 'correct_answer', 'text', 'wrong_answers']);
   assert.ok(!/index|spread/i.test(JSON.stringify(body.system)), 'no index or "spread" instruction');
 });
 
 test('I-2: wrong_answers that are not exactly three, or a missing correct_answer, drop the question', async () => {
   stub.reset();
   const two = { ...good(2), wrong_answers: ['Beta 2', 'Gamma 2'] };
-  const none = { text: 'Sample question number 3, about targeting?', wrong_answers: ['a1', 'b1', 'c1'] };
+  const none = { concept: TERMS[2], text: 'Sample question number 3, about targeting?', wrong_answers: ['a1', 'b1', 'c1'] };
   const dup = { ...good(4), wrong_answers: ['Alpha 4', 'Gamma 4', 'Delta 4'] }; // a wrong answer equal to the right one
   stub.respondWith((body, n) => quizDraftReply(body, n === 1 ? [good(1), two, none, dup] : []));
   const r = await draftQuiz({ topic: 8, count: 4 });
@@ -170,7 +173,7 @@ test('I-2: draftOne places the answer by code too', async () => {
 });
 
 // ---- review B7: near-duplicates are dropped like any other bad question ------------------------------------------
-const same = (i, text, answer) => ({ text, correct_answer: answer, wrong_answers: [`Wrong ${i}a`, `Wrong ${i}b`, `Wrong ${i}c`] });
+const same = (i, text, answer) => ({ concept: TERMS[(i - 1) % 6], text, correct_answer: answer, wrong_answers: [`Wrong ${i}a`, `Wrong ${i}b`, `Wrong ${i}c`] });
 
 test('B7 two questions with the same right answer: the second is dropped, the repair asks for a different idea', async () => {
   stub.reset();
@@ -206,8 +209,8 @@ test('B7 the prompt tells the model: a different idea each, never the same corre
   stub.reset();
   stub.respondWith((body) => quizDraftReply(body, [good(1)]));
   await draftQuiz({ topic: 8, count: 1 });
-  assert.match(String(stub.requests[0].body.system), /Every question must test a different idea/);
-  assert.match(String(stub.requests[0].body.system), /never two questions with the same correct answer/);
+  assert.match(String(stub.requests[0].body.system), /Two questions never share a concept/);
+  assert.match(String(stub.requests[0].body.system), /never have the same correct answer/);
 });
 
 test('B7 draftOne: a near-duplicate of an existing text, or the same right answer as an earlier question, is null', async () => {
@@ -221,4 +224,89 @@ test('B7 draftOne: a near-duplicate of an existing text, or the same right answe
   // A genuinely different idea is kept.
   stub.respondWith((body) => quizDraftReply(body, [same(3, 'Which pricing approach starts high and lowers over time?', 'Skimming')]));
   assert.ok((await draftOne({ topic: 8, existing: [earlier[0].text], earlier })).question);
+});
+
+// ---- review D12: every question names the idea it tests; code makes the ideas different -------------------------------
+const q = (i, concept, text) => ({ concept, text: text ?? `A separate ${IDEAS[i % IDEAS.length]} question number ${i}?`, correct_answer: `Right ${i}`, wrong_answers: [`Wrong ${i}a`, `Wrong ${i}b`, `Wrong ${i}c`] });
+const T8 = TOPICS.find((t) => t.n === 8).notes.map((n) => n.term);
+
+test('D12 the schema makes concept a required enum of exactly this topic’s terms', async () => {
+  stub.reset();
+  stub.respondWith((body) => quizDraftReply(body, [q(1, T8[0])]));
+  await draftQuiz({ topic: 8, count: 1 });
+  const props = stub.requests[0].body.output_config.format.schema.properties.questions.items;
+  assert.deepEqual(props.properties.concept.enum, T8);
+  assert.ok(props.required.includes('concept'));
+});
+
+test('D12 two questions on the same concept: the second is dropped, one repair names the reason and the unused ideas', async () => {
+  stub.reset();
+  stub.respondWith((body, n) => quizDraftReply(body, n === 1 ? [q(1, T8[1], 'Which group do firms aim at, demographics first?'), q(2, T8[1], 'Which customers does the firm choose to serve by age?')] : [q(3, T8[4])]));
+  const r = await draftQuiz({ topic: 8, count: 2 });
+  assert.equal(stub.requests.length, 2);
+  assert.deepEqual(r.questions.map((x) => x.concept), [T8[1], T8[4]]);
+  const repair = JSON.stringify(stub.requests[1].body.messages.at(-1));
+  assert.match(repair, /already tests/);
+  assert.ok(!repair.includes(`ideas not yet tested: ${T8[1]}`) && repair.includes(T8[0]), 'the repair lists only ideas not yet tested');
+});
+
+test('D12 a concept that is not a term of this topic is dropped (even a term of another topic)', async () => {
+  stub.reset();
+  const other = TOPICS.find((t) => t.n === 9).notes[0].term;
+  stub.respondWith((body, n) => quizDraftReply(body, n === 1 ? [q(1, other), q(2, 'Something invented'), q(3, T8[2])] : []));
+  const r = await draftQuiz({ topic: 8, count: 3 });
+  assert.deepEqual(r.questions.map((x) => x.concept), [T8[2]]);
+  assert.equal(r.short, 2);
+});
+
+test('D12 a question with no concept at all is dropped', async () => {
+  stub.reset();
+  const { concept, ...noConcept } = q(1, T8[0]); // eslint-disable-line no-unused-vars
+  stub.respondWith((body, n) => quizDraftReply(body, n === 1 ? [noConcept, q(2, T8[3])] : []));
+  const r = await draftQuiz({ topic: 8, count: 2 });
+  assert.equal(r.questions.length, 1);
+});
+
+test('D12 asking for more questions than the topic has ideas: one per idea, and it says so', async () => {
+  stub.reset();
+  stub.respondWith((body) => quizDraftReply(body, T8.map((t, i) => q(i + 1, t))));
+  const r = await draftQuiz({ topic: 8, count: 10 });
+  assert.equal(r.questions.length, 6);
+  assert.equal(r.ideas, 6);
+  assert.equal(r.short, 4);
+  assert.match(stub.requests[0].body.messages[0].content, /Write 6 original/, 'the model is asked for the 6, not 10');
+});
+
+test('D12 the smallest topic still has at least the default 5 ideas', () => {
+  assert.ok(Math.min(...TOPICS.map((t) => t.notes.length)) >= 5);
+});
+
+test('D12 draftOne: only unused ideas are offered (schema enum), and a used concept from the model is dropped', async () => {
+  stub.reset();
+  const earlier = [0, 1, 2].map((i) => ({ ...q(i + 1, T8[i]), answers: ['a', 'b', 'c', 'd'], correct: 0 }));
+  stub.respondWith((body) => quizDraftReply(body, [q(9, T8[1])])); // the model ignores the enum
+  const r = await draftOne({ topic: 8, existing: earlier.map((x) => x.text), earlier });
+  assert.deepEqual(stub.requests[0].body.output_config.format.schema.properties.question.properties.concept.enum, T8.slice(3));
+  assert.equal(r.question, null, 'a repeat concept is dropped');
+  stub.respondWith((body) => quizDraftReply(body, [q(10, T8[4])]));
+  assert.equal((await draftOne({ topic: 8, existing: earlier.map((x) => x.text), earlier })).question.concept, T8[4]);
+});
+
+test('D12 draftOne: when every idea has a question, no model call is made and it says exhausted', async () => {
+  stub.reset();
+  const earlier = T8.map((t, i) => ({ ...q(i + 1, t), answers: ['a', 'b', 'c', 'd'], correct: 0 }));
+  const r = await draftOne({ topic: 8, existing: earlier.map((x) => x.text), earlier });
+  assert.equal(stub.requests.length, 0);
+  assert.equal(r.exhausted, true);
+  assert.equal(r.question, null);
+});
+
+test('D12 a question he wrote or rewrote has no concept and frees its idea (draftOne may use it)', async () => {
+  stub.reset();
+  const kept = [{ ...q(1, T8[0]), answers: ['a', 'b', 'c', 'd'], correct: 0 }];
+  const rewritten = { text: 'My own rewritten question about everything?', answers: ['a', 'b', 'c', 'd'], correct: 0 }; // no concept
+  stub.respondWith((body) => quizDraftReply(body, [q(5, T8[5])]));
+  const r = await draftOne({ topic: 8, existing: [kept[0].text, rewritten.text], earlier: [kept[0], rewritten] });
+  assert.equal(r.question.concept, T8[5]);
+  assert.ok(stub.requests[0].body.output_config.format.schema.properties.question.properties.concept.enum.includes(T8[1]));
 });

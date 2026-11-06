@@ -110,9 +110,9 @@ export function createQuizUi({ el, api, bubble, nameOf, knownName = () => null, 
 
   // ---- one quiz (draft card, then Canvas card) ----------------------------------------------------------------
   const snap = (q) => JSON.stringify({ text: q.text, answers: q.answers, correct: q.correct });
-  function itemsFrom(questions) {
+  function itemsFrom(questions, concepts = {}) {
     return questions.map((q) => {
-      const item = { id: id(), text: q.text, answers: [...q.answers], correct: q.correct, tag: 'ai', mode: 'view', n: 0 };
+      const item = { id: id(), text: q.text, answers: [...q.answers], correct: q.correct, tag: 'ai', mode: 'view', n: 0, concept: concepts?.[String(q.text).trim().toLowerCase()] ?? null };
       item.orig = snap(item);
       return item;
     });
@@ -140,7 +140,7 @@ export function createQuizUi({ el, api, bubble, nameOf, knownName = () => null, 
       v.loaded = true;
       v.drafted = r.json.drafted ?? null;
       v.canvasQuizId = r.json.canvasQuizId ?? v.canvasQuizId;
-      if (!v.q) v.q = { ...r.json.quiz, items: itemsFrom(r.json.quiz.questions), questions: undefined };
+      if (!v.q) v.q = { ...r.json.quiz, items: itemsFrom(r.json.quiz.questions, r.json.concepts), questions: undefined };
       redraw();
     } else if (!(r && r.status === 404)) {
       setTimeout(() => { v.tried = false; if (views.has(v.draftId)) redraw(); }, 3000); // try again shortly (a closed draft, 404, is not retried)
@@ -231,6 +231,8 @@ export function createQuizUi({ el, api, bubble, nameOf, knownName = () => null, 
           el('span', { className: 'q-tools' },
             el('button', { type: 'button', className: 'icon-btn', dataset: { act: 'edit' }, textContent: 'Edit', onclick: () => { item.mode = 'edit'; drawList(v); refresh(v); } }),
             el('button', { type: 'button', className: 'icon-btn', dataset: { act: 'remove' }, textContent: 'Remove', onclick: () => { item.n = v.q.items.slice(0, i + 1).filter((x) => x.mode !== 'removed').length; item.mode = 'removed'; drawList(v); refresh(v); } }))),
+        // Which idea from the notes this suggestion tests; gone once he edits it (then it may test something else).
+        ...(item.concept && item.tag === 'ai' ? [el('p', { className: 'q-concept', textContent: `Tests: ${item.concept}` })] : []),
         el('ul', { className: 'opts' }, ...item.answers.map((a, k) => el('li', { dataset: item.correct === k ? { correct: '' } : {} }, el('span', { className: 'l', textContent: LETTERS[k] }), a))));
     }));
   }
@@ -381,12 +383,12 @@ export function createQuizUi({ el, api, bubble, nameOf, knownName = () => null, 
     const r = await send(v, 'one_more', { existing });
     v.busy = false;
     if (r.body?.ok && r.body.question) {
-      const item = { id: id(), text: r.body.question.text, answers: [...r.body.question.answers], correct: r.body.question.correct, tag: 'ai', mode: 'view', n: 0 };
+      const item = { id: id(), text: r.body.question.text, answers: [...r.body.question.answers], correct: r.body.question.correct, tag: 'ai', mode: 'view', n: 0, concept: typeof r.body.concept === 'string' ? r.body.concept : null };
       item.orig = snap(item);
       v.q.items.push(item);
       v.notice = null;
       if (v.ui) drawList(v);
-    } else v.notice = { kind: r.retry ? 'warn' : 'bad', text: r.error ?? 'No question came back.' };
+    } else v.notice = { kind: r.body?.exhausted ? 'info' : r.retry ? 'warn' : 'bad', text: r.error ?? 'No question came back.' };
     showNote(v);
     refresh(v);
   }
