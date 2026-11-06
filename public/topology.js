@@ -494,7 +494,9 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
   const traceName = (runId) => {
     const tr = state.traces.get(runId);
     if (!tr) return runId.slice(0, 8);
-    const what = tr.kind === 'form_action' ? `Form action${tr.action ? ` “${tr.action}”` : ''}` : tr.kind === 'staff' ? 'Staff request (Faculty → HR)' : 'Chat';
+    // A staff run that went to CHRS (a roster request, or the class's time and room before a cancellation) is named for it.
+    const staffTo = tr.destination === 'chrs' || (tr.edges.has('hub-chrs') && !tr.edges.has('hub-hr')) ? 'CHRS' : 'HR';
+    const what = tr.kind === 'form_action' ? `Form action${tr.action ? ` “${tr.action}”` : ''}` : tr.kind === 'staff' ? `Staff request (Faculty → ${staffTo})` : 'Chat';
     return `${what} #${tr.n}${tr.destination ? ` → ${tr.destination}` : ''}${tr.outcome ? ` · ${tr.outcome}` : ''}`;
   };
   function renderTraceOptions() {

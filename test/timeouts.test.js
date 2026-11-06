@@ -29,10 +29,18 @@ test('the default budgets nest: each outer timeout is longer than the sum of wha
   assert.equal(T.chrsRecordsCallMs, 12000);
   assert.ok(T.chrsRecordsCallMs > T.studentRecordsPlannerMs);
   assert.equal(T.hubRosterLookupMs, 22000);
-  assert.equal(T.professorPublishMs, 40000);
+  assert.equal(T.professorPublishMs, 50000);
   assert.ok(T.hubRosterLookupMs > T.chrsToolChoiceMs + T.chrsRecordsCallMs);
   assert.ok(T.hubDispatchMs > T.chrsToolChoiceMs + T.chrsRecordsCallMs);
   assert.ok(T.professorPublishMs > T.hubRosterLookupMs + 5000);
+  // Review C16: after the deliveries the Hub asks CHRS to email the students who aren't online (tool choice + records call),
+  // all inside the publish wait. Review C12: a cancellation reads the class's time and room first, then publishes.
+  assert.equal(T.hubEmailNoticeMs, 22000);
+  assert.ok(T.hubEmailNoticeMs > T.chrsToolChoiceMs + T.chrsRecordsCallMs);
+  assert.ok(T.professorPublishMs > T.hubRosterLookupMs + 5000 + T.hubEmailNoticeMs);
+  assert.equal(T.professorClassInfoMs, 25000);
+  assert.ok(T.professorClassInfoMs > T.chrsToolChoiceMs + T.chrsRecordsCallMs);
+  assert.ok(T.hubAuthorProxyMs > T.professorClassInfoMs + T.professorPublishMs);
   assert.ok(T.hubAuthorProxyMs > T.professorPublishMs);
   // Part 17 final review (finding 4): a chat post runs the Professor's staff-or-class check, its own model (naming the post
   // or reading an @assistant message) and then the publish — all inside the Hub's author proxy, which is inside the UI's wait.
@@ -82,9 +90,9 @@ test('Part 15 Task 5: the Professor staff classifier fits inside the proxy budge
   // The classifier runs, then the Hub staff wait: both inside the Professor → Hub proxy wait, which is inside the UI's.
   assert.ok(T.professorStaffClassifierMs + T.professorStaffMs < T.hubAuthorProxyMs);
   assert.ok(T.hubAuthorProxyMs < T.uiProfessorCallMs);
-  assert.equal(T.hubAuthorProxyMs, 100000);
+  assert.equal(T.hubAuthorProxyMs, 110000);
   assert.match(await readFile(new URL('../src/professor-model.js', import.meta.url), 'utf8'), /maxTokens: 300, timeoutMs: STAFF_CLASSIFIER_TIMEOUT_MS, schema: STAFF_SCHEMA/);
-  assert.equal(T.uiProfessorCallMs, 105000);
+  assert.equal(T.uiProfessorCallMs, 115000);
 });
 
 test('Part 16 Task 4: the Canvas budget nests inside the Faculty author route', () => {

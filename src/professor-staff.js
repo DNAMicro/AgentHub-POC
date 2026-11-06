@@ -154,12 +154,55 @@ const cardOpen = () => {
 // The filed days the professor has class (he teaches every weekday): Mon–Fri minus campus holidays, part days included.
 export const classDays = ({ beginDate, endDate }) => workdays(beginDate, endDate);
 const listOf = (items) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`);
-// The student message: fixed words, dates only — never why (privacy).
-export function cancellationText(days) {
-  if (!days.length) return null;
-  return `${COURSE.title} is cancelled on ${listOf(days.map(shortDate))}.`;
+// Review C12: the class's meeting time and room from the class record CHRS reads from Campus Solutions (daysAndTimes
+// "MoTuWeThFr 10:00AM - 10:50AM", room "Mihaylo Hall 2405") → { time: '10:00–10:50 AM', room } or null (never a guess:
+// an unreadable time or a placeholder room is no detail at all).
+export function classDetailsOf(klass) {
+  const m = /(\d{1,2}):(\d{2})\s*(AM|PM)\s*-\s*(\d{1,2}):(\d{2})\s*(AM|PM)/i.exec(String(klass?.daysAndTimes ?? ''));
+  const room = typeof klass?.room === 'string' ? klass.room.replace(/\s+/g, ' ').trim() : '';
+  if (!m || !room || room.length > 80 || /x{2,}|tba|tbd/i.test(room)) return null;
+  const [a, b, ma, mb] = [`${Number(m[1])}:${m[2]}`, `${Number(m[4])}:${m[5]}`, m[3].toUpperCase(), m[6].toUpperCase()];
+  return { time: ma === mb ? `${a}–${b} ${mb}` : `${a} ${ma}–${b} ${mb}`, room };
 }
-export const cancellationOffer = (days) => `You have ${COURSE.title} on ${listOf(days.map(shortDate))}. Would you like me to send a cancellation to your students?`;
+const classLabel = (info) => (info ? `${COURSE.title} (${info.time}, ${info.room})` : COURSE.title);
+// The student message: fixed words, dates (and since review C12 the class's time and room) only — never why (privacy).
+// Review A5: his own note for the students (a makeup plan) as its own paragraph, after the code-built sentence.
+export function cancellationText(days, info = null, note = null) {
+  if (!days.length) return null;
+  const base = `${classLabel(info)} is cancelled on ${listOf(days.map(shortDate))}.`;
+  return note ? `${base}\n\nFrom ${COURSE.professorName}: ${note}` : base;
+}
+export const CANCEL_NOTE_HINT = 'To add a note for your students, such as a makeup plan, reply yes followed by the note.';
+export const cancellationOffer = (days, info = null) => `You have ${classLabel(info)} on ${listOf(days.map(shortDate))}. Would you like me to send a cancellation to your students? ${CANCEL_NOTE_HINT}`;
+// Review A5: the note he adds after “yes”. His words, but they go to the students, so a note naming an illness, his leave
+// or a relative is never sent without asking (the Part 14 checks); 500 characters at most.
+export const NOTE_PRIVATE = 'Your note mentions your leave. Send the cancellation without the note? Reply yes, or write a new note.';
+export const NOTE_TOO_LONG = 'Your note is too long — keep it under 500 characters. Reply yes followed by a shorter note, or just yes.';
+const NOTE_MAX = 500;
+const YES_START = /^\s*(?:yes|yeah|yep|sure|ok|okay)\b[\s,.!:;—–-]*/i;
+// Filler between the yes and the note: “notify them”, “send it”, “please”, “go ahead”, “and add / say / tell them”, “note:”.
+const NOTE_FILLER = /^(?:(?:please|pls)(?=[\s,]+(?:go\s+ahead|send|cancel|notify|inform|tell|let|and|also|add|say|note)\b)|go\s+ahead|send\s+(?:it|that|this|the\s+cancellation|them\s+the\s+cancellation)|cancel\s+(?:it|the\s+class|class)|(?:notify|inform|tell|let)\s+(?:them|students|the\s+students|my\s+students|all\s+(?:my\s+)?students|everyone|everybody|the\s+class|my\s+class)(?:\s+know)?|and|also|plus|add(?:\s+(?:this|that|a\s+note|the\s+note|this\s+note))?|say|(?:a\s+|the\s+)?note|with\s+(?:this|a|the)\s+note|that|saying)(?![\w’'])[\s,.!:;—–-]*/i;
+// A yes followed by a change or a refusal is not a note (“yes but change Tuesday to Wednesday”, “yes, not Friday”).
+const NOT_A_NOTE = /^(?:but|except|only|not|no|nope|don['’]?t|do\s+not|never|instead|wait|actually|hold\s+on|change|move|make\s+it|to\s+hr|hr)\b/i;
+export function cancelNoteOf(text, { needYes = true } = {}) {
+  let t = String(text ?? '').trim();
+  const yes = YES_START.exec(t);
+  if (yes) t = t.slice(yes[0].length);
+  else if (needYes) return null;
+  for (let i = 0; i < 12; i += 1) {
+    const f = NOTE_FILLER.exec(t);
+    if (!f || !f[0]) break;
+    t = t.slice(f[0].length);
+  }
+  t = t.replace(/\s+/g, ' ').trim().replace(/^["“'‘]+|["”'’]+$/g, '').trim();
+  if (!t || NOT_A_NOTE.test(t) || t.split(' ').filter((w) => /[\w]/.test(w)).length < 3) return null;
+  const toVerb = /^to\s+(\S[\s\S]*)$/i.exec(t); // “tell them to read chapter 6” → “Please read chapter 6.”
+  if (toVerb) t = `Please ${toVerb[1]}`;
+  t = t[0].toUpperCase() + t.slice(1);
+  return /[.!?]$/.test(t) ? t : `${t}.`;
+}
+// “we / our” is the class here and “leave from …” is not leave (forClassWords); I / me / my with a leave word is his own.
+const notePrivate = (t) => mentionsIllness(t) || CLASS_POST_PRIVATE.test(forClassWords(t)) || RELATIVES.test(t) || (SINGULAR_ME.test(t) && TELL_LEAVE.test(t));
 // “Your time off is recorded. Request 4310288: Bereavement (Grandparent/Great Grandparent), Thu, Nov 5 – Fri, Nov 6,
 // 16 hours.” The reason is in parentheses only when it says more than the name (titleOf's subtitle).
 export function receiptText(r) {
@@ -182,7 +225,7 @@ export function rearmStaff(rearm) {
 }
 // A question (HR / class / both) or a note offer is waiting for its answer; a plain reply must reach staffTurn so it
 // is read as that answer. A cancellation offer alone does not block the roster desk.
-export const staffHolding = () => ({ question: fresh(pendingChoice), offer: fresh(pendingNote) ? pendingNote.kind ?? 'post' : null });
+export const staffHolding = () => ({ question: fresh(pendingChoice), offer: fresh(pendingNote) ? pendingNote.kind ?? 'post' : null, noteAsked: Boolean(fresh(pendingNote) && pendingNote.noteAsked) });
 // Part 17 final review: everything the roster desk would send to the whole class — the rest of “notify everyone that …” and
 // the reply to “What should I tell your class about …?” — gets the same check as a plain class message, so wrapping words
 // in the opening never weakens the Part 14 rule (“Notify everyone that Dr. Dabirian is sick today” was posted to 25).
@@ -316,7 +359,8 @@ export async function staffTurn({ operationId, text, entryId, hubLink, bypass = 
   // Monday off”, “I need Friday off”, “Please read chapter 5”). An answer starts with yes or no, talks about
   // cancelling, or is short (4 words or fewer) with no new day or leave word; anything else is a NEW message:
   // handled as usual, and the offer stays open for a later yes or no (nothing reaches students without one).
-  const answers = (n) => ANSWER_START.test(text) || CANCEL_WORD.test(text) || (SHORT(text) && !hasNewContent(n.text, text));
+  // A note he was asked to rewrite (it named his leave): whatever he writes next answers that question.
+  const answers = (n) => n.noteAsked || ANSWER_START.test(text) || CANCEL_WORD.test(text) || (SHORT(text) && !hasNewContent(n.text, text));
   if (note?.kind === 'cancel' && !answers(note)) {
     pendingNote = note;
     note = null;
@@ -327,6 +371,28 @@ export async function staffTurn({ operationId, text, entryId, hubLink, bypass = 
     const sayN = (reply, extra) => say(fresh ? `${reply} ${NOT_SENT}` : reply, extra);
     const cancel = note.kind === 'cancel';
     const declined = cancel ? CANCEL_DECLINED : NOTE_DECLINED;
+    // Review A5: “yes” followed by a note for the students (3+ words once filler is removed) sends the cancellation with
+    // it, as its own paragraph. A plain yes (“yes”, “yes notify students”, “yes please send it”) is a plain yes, at once.
+    // After “Your note mentions your leave …” any new note (with or without a yes) is read the same way.
+    if (cancel) {
+      const plainYes = YES.test(text) && text.toLowerCase().replace(/[^\w’'\s]/g, ' ').split(/\s+/).filter(Boolean).every((w) => YES_FILLER.test(w) || CANCEL_FILLER.test(w));
+      let studentNote = plainYes ? null : cancelNoteOf(text, { needYes: !note.noteAsked });
+      // A private “note” that also brings a new day or leave word (“Yes please. Also I need Monday off, my son is sick”) is
+      // a new request (it names a day), not a note: the R3 rule below answers the yes and says the new part wasn't sent.
+      if (studentNote && !note.noteAsked && notePrivate(studentNote) && fresh && mentionsDay(studentNote)) studentNote = null;
+      if (studentNote) {
+        if (studentNote.length > NOTE_MAX) {
+          pendingNote = { ...note, at: Date.now() };
+          return say(NOTE_TOO_LONG, { check: 'note_too_long' });
+        }
+        if (notePrivate(studentNote)) {
+          pendingNote = { ...note, at: Date.now(), noteAsked: true };
+          return say(NOTE_PRIVATE, { check: 'note_private' });
+        }
+        return { note: note.text, days: note.days ?? null, studentNote, rearm: { note } };
+      }
+      if (note.noteAsked && plainYes) return { note: note.text, days: note.days ?? null, rearm: { note: { ...note, noteAsked: false } } };
+    }
     // “cancel” is the offer's own word (“yes, cancel it”): not a refusal here.
     const refusal = cancel ? String(text).replace(CANCEL_WORDS, ' ') : text;
     if (NEGATION.test(refusal)) return sayN(declined, { check: 'note_declined' });
@@ -345,7 +411,7 @@ export async function staffTurn({ operationId, text, entryId, hubLink, bypass = 
     if (YES.test(text) && !pureYes) return reaskNote();
     // A long class message offered while a message was held (“Should I post this to the class: …?”) goes out as
     // the professor's own message (today's path); the neutral HR note goes out as the note.
-    if (pureYes) return told(note.kind === 'post' ? { continueWith: note.text, entryId: note.entryId, rearm: { note } } : { note: note.text, rearm: { note } });
+    if (pureYes) return told(note.kind === 'post' ? { continueWith: note.text, entryId: note.entryId, rearm: { note } } : { note: note.text, days: note.days ?? null, rearm: { note } });
     // Not a clear yes or no: ask once more; a second unclear reply declines. Never posted either way. A reply with
     // new content is an answer attempt too (never dropped silently).
     if (SHORT(text) || fresh) return reaskNote();
@@ -464,7 +530,9 @@ async function sendToHr({ operationId, text, hubLink, emit, decidedBy, model = n
 // The professor pressed a button on the open card. Returns { http, body, entries, definite }.
 // definite = HR's answer is known (store it for a repeat); an unknown outcome is retried with the SAME
 // operationId (the Hub and HR both dedupe), so it is not stored.
-export async function staffAction({ operationId, formRef, action, hubLink, emit = () => {} }) {
+// classInfo (review C12): reads the class's time and room fresh from CHRS for the cancellation offer → { time, room } or
+// null (the offer then names the course only; the cancellation itself is re-read when he says yes and is refused without it).
+export async function staffAction({ operationId, formRef, action, hubLink, emit = () => {}, classInfo = async () => null }) {
   if (!cardOpen() || openCard.formRef !== formRef) return { http: 409, body: { error: 'That card isn’t open any more.' } };
   const card = openCard;
   const value = { type: 'staff_action', operationId, formRef, action, conversationId: card.conversationId };
@@ -488,7 +556,9 @@ export async function staffAction({ operationId, formRef, action, hubLink, emit 
       const days = [...new Set([...waiting, ...classDays(reply.receipt)])].sort();
       if (days.length && current) {
         pendingNote = { text: cancellationText(days), at: Date.now(), kind: 'cancel', days };
-        entries.push({ role: 'assistant', text: cancellationOffer(days), action: 'clarify' });
+        let info = null;
+        try { info = await classInfo(); } catch { info = null; }
+        entries.push({ role: 'assistant', text: cancellationOffer(days, info), action: 'clarify' });
       }
     } else {
       entries.push({ role: 'hr', text: reply.text, formRef, closed: true, cancelled: true }); // the closed card says it; the screen skips this entry

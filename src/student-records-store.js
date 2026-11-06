@@ -10,7 +10,7 @@ export const REFUSAL_CODES = ['not_instructor', 'unknown_course'];
 const CLASS = Object.freeze({
   courseId: COURSE_ID, term: 'Fall 2026', session: 'Regular Academic Session', institution: 'California State University, Fullerton', career: 'Undergraduate',
   code: 'MKTG 351 - 01', classNumber: '12351', title: 'Principles of Marketing (Lecture)',
-  daysAndTimes: 'MoTuWeThFr 10:00AM - 10:50AM', room: 'Mihaylo Hall 1xxx', instructor: 'Dr. Dabirian', dates: '08/24/2026 - 12/18/2026',
+  daysAndTimes: 'MoTuWeThFr 10:00AM - 10:50AM', room: 'Mihaylo Hall 2405', instructor: 'Dr. Dabirian', dates: '08/24/2026 - 12/18/2026',
   enrollmentStatus: 'Enrolled', capacity: 35, enrolled: 25,
 });
 
@@ -49,15 +49,26 @@ const ROWS = PEOPLE.map(([studentId, id, last, first, pronouns, plan, degree, le
 }));
 
 export function createStudentRecordsStore() {
+  // Review C13 (tests only): students dropped from the class (add/drop activity). Empty in the demo; set only through the
+  // records server's test hook, so a test can prove every send reads the roster fresh. Reset restores the full class.
+  const dropped = new Set();
+  const rows = () => ROWS.filter((r) => !dropped.has(r.studentId));
   return {
     // Refuses the wrong course first, then anyone but the course's own instructor. The answer is a copy.
     roster({ courseId, instructorStaffId } = {}) {
       if (courseId !== COURSE_ID) return { ok: false, code: 'unknown_course', reason: 'Unknown course.' };
       if (instructorStaffId !== INSTRUCTOR_STAFF_ID) return { ok: false, code: 'not_instructor', reason: 'Only the instructor of this course can see its roster.' };
-      return { ok: true, roster: structuredClone({ class: CLASS, rows: ROWS }) };
+      const now = rows();
+      return { ok: true, roster: structuredClone({ class: { ...CLASS, enrolled: now.length }, rows: now }) };
     },
-    rosterSize: () => ROWS.length,
-    // Demo reset (New conversation): the roster is constant, so there is nothing to reseed.
-    reset() {},
+    rosterSize: () => rows().length,
+    // Test hook only: drop students (by fictional student id) or add them back. Unknown ids are ignored.
+    setDropped(ids = []) {
+      dropped.clear();
+      for (const id of ids) if (ROWS.some((r) => r.studentId === id)) dropped.add(id);
+      return rows().length;
+    },
+    // Demo reset (New conversation): the full class again.
+    reset() { dropped.clear(); },
   };
 }

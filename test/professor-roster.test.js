@@ -8,14 +8,14 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startStack, startProfessor, post, openStream, waitFor, stopProcess } from './support/harness.js';
-import { NOTIFY_EMPTY, ROSTER_GONE, ROSTER_QUERY_FAILED_TEXT, ROSTER_UNCLEAR_TEXT, asksRosterQuestion, asksRoster, asksRosterExport, asksAboutRoster, createRosterDesk, notifyEveryone, notifyIsNew, resolveTags, rosterFact, rosterFilter, sentToAllText, tellText } from '../src/professor-roster.js';
+import { NOTIFY_EMPTY, ROSTER_GONE, ROSTER_QUERY_FAILED_TEXT, ROSTER_UNCLEAR_TEXT, asksRosterQuestion, asksRoster, asksRosterExport, asksAboutRoster, createRosterDesk, notifyEveryone, notifyIsNew, resolveTags, rosterFact, rosterFilter, tellText } from '../src/professor-roster.js';
 import { readFileSync } from 'node:fs';
 import { ROSTER_FAILED_TEXT, ROSTER_POST_FAILED_TEXT } from '../src/staff.js';
 
 const UNSURE = 'Should I file this as time off with HR, tell the class, or both?';
 const FAILED_POST = "I couldn't get your class list just now, so nothing was sent. Try again in a moment.";
 const FAILED_ROSTER = "I couldn't get your class roster just now. Try again in a moment.";
-const SENT = 'Sent to all 25 students in Marketing 351.';
+const SENT = "Sent to your 25 students: 1 got it in the app, 24 were emailed because they aren't online.";
 const ROW_SECRET = /csu\.fullerton\.example|888\d{6}/;
 // Alex and Sam are the two configured Student-agent sessions (Part 9: their names were in the state before Part 17).
 const SESSION_STUDENTS = ['student-alex', 'student-sam'];
@@ -221,7 +221,6 @@ test('notify everyone (5 variants) posts the stripped text to all 25 and says ho
     assert.equal(lastOf(st.chat, 'assistant').text, SENT, said);
     assert.equal(lastOf(st.chat, 'assistant').staff, false);
   }
-  assert.equal(sentToAllText(25), SENT);
 });
 
 test('the count in the reply comes from the post’s actual deliveries; names come only from the Faculty view’s roster fetch', async () => {
@@ -379,7 +378,7 @@ test('CHRS down: the class cancellation uses the same sentence, and the offer ca
   let st = await state(s);
   const sent = st.lessons.filter((l) => l.title === 'Class cancelled' && l.deliveries.length === 25);
   assert.equal(sent.length, 1);
-  assert.equal(sent[0].text, 'Marketing 351 is cancelled on Fri, Nov 6.');
+  assert.equal(sent[0].text, 'Marketing 351 (10:00–10:50 AM, Mihaylo Hall 2405) is cancelled on Fri, Nov 6.');
   const third = await say(s, 'yes'); // the offer is used up: no second cancellation
   assert.ok(third.http === 200 || third.http === 409);
   st = await state(s);
@@ -491,7 +490,7 @@ test('final review 2: with a cancellation offer waiting, "notify everyone that �
   assert.equal(yes.action, 'post', JSON.stringify(yes));
   st = await state(main);
   assert.equal(st.lessons.filter((l) => l.title === 'Class cancelled').length, 1);
-  assert.equal(st.lessons.find((l) => l.title === 'Class cancelled').text, 'Marketing 351 is cancelled on Fri, Nov 6.');
+  assert.equal(st.lessons.find((l) => l.title === 'Class cancelled').text, 'Marketing 351 (10:00–10:50 AM, Mihaylo Hall 2405) is cancelled on Fri, Nov 6.');
 });
 
 test('final review 2b: a held class post after a cancellation offer is answered first; the offer keeps waiting', async () => {

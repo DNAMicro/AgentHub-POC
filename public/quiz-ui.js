@@ -394,7 +394,7 @@ export function createQuizUi({ el, api, bubble, nameOf, knownName = () => null, 
   // ---- the Canvas card ---------------------------------------------------------------------------------------
   function deliveries(v, card) {
     const post = posts().find((p) => p.quiz && p.quiz.canvasQuizId === (v.canvasQuizId ?? card?.canvasQuizId));
-    const list = post?.deliveries?.length ? post.deliveries : (card?.deliveries ?? []).map((d) => ({ studentId: d.studentId, state: d.status }));
+    const list = post?.deliveries?.length ? post.deliveries : (card?.deliveries ?? []).map((d) => ({ ...d, state: d.status }));
     if (!list.length) return el('p', { className: 'post-origin', textContent: post || v.after === 'published' ? 'Sending…' : '' });
     return deliveryList(list, `quiz:${v.canvasQuizId ?? card?.canvasQuizId}`, true); // more than 3 students: a summary and a fold
   }

@@ -11,7 +11,7 @@
 // Hub signs the student identity it forwards; verifiedStudent() accepts a studentId only with a valid
 // signature, so another local process can't claim to be a student. Not persisted, never logged; a
 // restart makes a new key.
-import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
 // HMAC over the forwarded student, the downstream A2A context and the Hub's operation ID.
 export const signStudent = (key, { studentId, contextId, operationId }) => createHmac('sha256', key).update(`${studentId}|${contextId}|${operationId}`).digest('base64url');
@@ -29,6 +29,14 @@ const lookupFieldsOk = (...fields) => fields.every((v) => typeof v === 'string' 
 export const signRosterLookup = (key, { courseId, instructorStaffId, operationId }) => {
   if (!lookupFieldsOk(courseId, instructorStaffId, operationId)) return null;
   return createHmac('sha256', key).update(`roster-lookup|${courseId}|${instructorStaffId}|${operationId}`).digest('base64url');
+};
+// Review C16: the Hub's own signature on an email notice toward CHRS (same key and rules as a roster lookup, its own prefix).
+// It covers the course, the instructor, the operation, the exact student ids (in order) and a hash of the title and text,
+// so nothing in it can be changed or added in transit. Any non-id field → null (nothing is signed).
+export const emailContentHash = (title, text) => createHash('sha256').update(JSON.stringify([String(title ?? ''), String(text ?? '')])).digest('base64url'); // JSON: no boundary can shift between title and text
+export const signEmailNotice = (key, { courseId, instructorStaffId, operationId, studentIds, title, text }) => {
+  if (!lookupFieldsOk(courseId, instructorStaffId, operationId) || !Array.isArray(studentIds) || !studentIds.length || studentIds.length > 500 || !lookupFieldsOk(...studentIds)) return null;
+  return createHmac('sha256', key).update(`email-notice|${courseId}|${instructorStaffId}|${operationId}|${studentIds.join(',')}|${emailContentHash(title, text)}`).digest('base64url');
 };
 const sameSignature = (given, expected) => {
   if (typeof given !== 'string' || typeof expected !== 'string') return false;
@@ -48,6 +56,14 @@ export function verifyRosterLookupSignature(key, value, metadata) {
   const { hubOperationId, hubSignature } = metadata ?? {};
   if (!lookupFieldsOk(courseId, instructorStaffId, hubOperationId) || typeof hubSignature !== 'string' || !hubSignature) return null;
   return sameSignature(hubSignature, signRosterLookup(key, { courseId, instructorStaffId, operationId: hubOperationId })) ? { courseId, instructorStaffId } : null;
+}
+// The email notice the Hub vouches for (pure): { courseId, instructorStaffId, studentIds, title, text, operationId } or null.
+export function verifyEmailNoticeSignature(key, value, metadata) {
+  const { courseId, instructorStaffId, studentIds, title, text } = value ?? {};
+  const { hubOperationId, hubSignature } = metadata ?? {};
+  if (typeof hubSignature !== 'string' || !hubSignature || typeof title !== 'string' || typeof text !== 'string') return null;
+  const expected = signEmailNotice(key, { courseId, instructorStaffId, operationId: hubOperationId, studentIds, title, text });
+  return expected && sameSignature(hubSignature, expected) ? { courseId, instructorStaffId, studentIds: [...studentIds], title, text, operationId: hubOperationId } : null;
 }
 import { Role } from '@a2a-js/sdk';
 import { ClientFactory } from '@a2a-js/sdk/client';
@@ -150,6 +166,10 @@ export function createHubLink({ agentId, hubUrl, endpoint, cardUrl, enabled, hea
     // CHRS: the roster lookup the Hub vouches for with its own signature, or null.
     verifiedRosterLookup(value, metadata) {
       return verifyRosterLookupSignature(callKey, value, metadata);
+    },
+    // CHRS (review C16): the email notice the Hub vouches for with its own signature, or null.
+    verifiedEmailNotice(value, metadata) {
+      return verifyEmailNoticeSignature(callKey, value, metadata);
     },
     async start() {
       await register();

@@ -38,10 +38,10 @@ scenes.push({
     });
     if (!sent) return;
 
-    await moment('One delivery per student: Alex has it, the others are not online yet', async () => {
+    await moment('One delivery per student: Alex has it in the app, the others were emailed', async () => {
       const pills = await log.locator('.sent-post .dsum .pill').last().textContent().catch(() => '');
       const text = (await log.locator('.sent-post').last().textContent()) ?? '';
-      if (!/Sent to all 25 students/.test(await log.textContent())) problems.push('Step 17 · the chat did not say “Sent to all 25 students”');
+      if (!/Sent to your 25 students: /.test(await log.textContent())) problems.push('Step 17 · the chat did not say “Sent to your 25 students: …”');
       if (!/Delivered to \d+/.test(text)) problems.push(`Step 17 · the delivery summary is not there (${String(pills).slice(0, 60)})`);
       await click(log.locator('.sent-post').last().locator('details.dlist summary'));
       await moveTo(log.locator('.sent-post').last().locator('details.dlist'));

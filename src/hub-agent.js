@@ -88,6 +88,7 @@ const SAFE_FIELDS = new Set([
   'quizId', 'questionCount', // Part 16: Canvas quiz number and a count (never a title, question or answer)
   'canvasCount', 'missingCount', 'extraCount', // review C15: Canvas course size and roster mismatches (counts, never who)
   'matchCount', // Part 17 roster questions: how many roster rows a query matched (a count, never who)
+  'emailedCount', 'emailFailedCount', // review C16: how many students CHRS emailed / couldn't email (counts, never who or an address)
   'rosterCount', 'service', // Part 17: a count of roster students and the staff service (hr | chrs) — never a name, ID or email
   'unknownOutcome', // a boolean: the issuer doesn't know whether its backend acted (Topology draws it as unknown, not rejected)
 ]);
@@ -817,7 +818,18 @@ export function startHubServer({ port } = {}) {
             hr = 'unreachable';
           }
         }
-        res.json({ status: 'reset', professors: results, library, hr });
+        // Review C16: CHRS's campus mail stand-in forgets what it "sent" (its outbox is memory only).
+        let chrs = 'none';
+        const chrsPeer = staffDestinations().filter((d) => d.agentId === 'chrs').map((d) => registry.peer(d.agentId)).find(Boolean);
+        if (chrsPeer) {
+          try {
+            const r = await fetch(`${chrsPeer.baseUrl}/dev/chrs/reset`, { method: 'POST', signal: AbortSignal.timeout(5000) });
+            chrs = r.ok ? 'reset' : `HTTP ${r.status}`;
+          } catch {
+            chrs = 'unreachable';
+          }
+        }
+        res.json({ status: 'reset', professors: results, library, hr, chrs });
       });
       dev.get('/dev/agents/:agentId/author/state', author('/state', 'GET'));
       dev.post('/dev/agents/:agentId/author/lessons', author('/lessons', 'POST'));

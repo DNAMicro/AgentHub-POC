@@ -1,6 +1,7 @@
 // The Faculty agent's quiz desk (Part 16). Self-contained: Canvas, the post path, the model and the clock are injected.
 // Drafts and Canvas cards live in memory only (never in data/): Canvas forgets its quizzes on every start.
 // The answer key (`correct`) is handed out only by draft(); card(), entries and telemetry never carry questions.
+import { deliveredText } from './delivery-text.js';
 import { randomUUID } from 'node:crypto';
 import { TOPICS, TERM, taughtTopics, isTaught, topicFromWords, countFromWords, asksQuiz, asksCovered, asksNextTopic, coveredText, dayLabel, pacificDate } from './course-schedule.js';
 import { defaultSettings, checkQuiz, validExisting, similarTo, savedText } from './quiz-rules.js';
@@ -164,7 +165,7 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
     // never a question or an answer — so the card still reads "… Topic 3 Quiz: … is open in Canvas (quiz #4821), due
     // Mon, Nov 9, 11:59 PM." after a reload. Before that the state (pushed to every page's stream) carries no title.
     if (d.state === 'published') Object.assign(c, { title: String(d.quiz.title ?? ''), dueAt: d.quiz.dueAt ?? null, minutes: d.quiz.minutes ?? null, attempts: d.quiz.attempts ?? null });
-    if (d.deliveries) c.deliveries = d.deliveries.map((x) => ({ studentId: x?.studentId ?? null, status: x?.status ?? x?.state ?? null }));
+    if (d.deliveries) c.deliveries = d.deliveries.map((x) => ({ studentId: x?.studentId ?? null, status: x?.status ?? x?.state ?? null, ...(x?.opened ? { opened: true } : {}), ...(x?.emailed ? { emailed: true } : {}), ...(x?.emailFailed ? { emailFailed: true } : {}) }));
     // Review B8: how many saved questions he edited or added (counts only).
     if (d.changes) Object.assign(c, { edited: d.changes.edited, added: d.changes.added });
     // Review C15: Canvas membership vs the class roster — counts and fictional student ids only (this summary is pushed to
@@ -328,7 +329,7 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
       return { ok: false, retryable: true, published: true, state: 'published', draftId: d.draftId, canvasQuizId: d.canvasQuizId, text: d.noticeFailText };
     }
     d.noticeFailText = null;
-    return { ok: true, state: 'published', draftId: d.draftId, canvasQuizId: d.canvasQuizId, deliveries: card()?.deliveries ?? [], text: publishedText(d), entries: [entry(d, `Published in Canvas (quiz #${d.canvasQuizId}). Students notified.`)] };
+    return { ok: true, state: 'published', draftId: d.draftId, canvasQuizId: d.canvasQuizId, deliveries: card()?.deliveries ?? [], text: publishedText(d), entries: [entry(d, `Published in Canvas (quiz #${d.canvasQuizId}). ${deliveredText(d.deliveries, { audience: 'all' }) ?? 'Students notified.'}`)] };
   }
   const publishedText = (d) => `Published — ${d.quiz.title} is open in Canvas (quiz #${d.canvasQuizId}), due ${dueLabel(d.quiz.dueAt)}.`;
 

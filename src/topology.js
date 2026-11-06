@@ -95,11 +95,16 @@ const HUB = {
   // Nothing was sent when CHRS wasn't configured, ready or able to sign: that stays inside the Hub.
   roster_lookup_failed: (d) => (['not_configured', 'chrs_not_ready', 'not_signed'].includes(d.code) ? inside('hub', 'request', 'failed', `Roster lookup not sent (${d.code})`)
     : hop('chrs', 'hub', 'request', d.code === 'uncertain' ? 'unknown' : 'failed', `Roster lookup failed (${d.code})`)),
+  // Review C16: the students a post couldn't reach in the app are emailed by CHRS (counts only, never who or an address).
+  email_fallback_started: (d) => hop('hub', 'chrs', 'request', 'attempted', `Hub asked CHRS Agent to email ${d.recipients} ${d.recipients === 1 ? 'student' : 'students'} who aren't online`),
+  email_fallback_sent: (d) => hop('chrs', 'hub', 'request', d.emailFailedCount ? (d.emailedCount ? 'completed' : 'failed') : 'completed', `CHRS Agent emailed ${d.emailedCount} ${d.emailedCount === 1 ? 'student' : 'students'}${d.emailFailedCount ? ` (${d.emailFailedCount} couldn't be emailed)` : ''}`),
+  email_fallback_failed: (d) => (['not_configured', 'chrs_not_ready', 'not_signed'].includes(d.code) ? inside('hub', 'request', 'failed', `Email fallback not sent (${d.code})`)
+    : hop('chrs', 'hub', 'request', d.code === 'uncertain' ? 'unknown' : 'failed', `Email fallback failed (${d.code})`)),
   route_failed: () => inside('hub', 'routing', 'failed', 'Routing failed'),
   forward_attempted: (d) => hop('hub', d.agentId, 'request', 'attempted', `Forwarded to ${NODE_NAMES[d.agentId] ?? d.agentId}`),
   forward_completed: (d) => hop(d.agentId, 'hub', d.kind === 'form_offer' ? 'form' : 'request', 'completed', d.kind === 'form_offer' ? 'Specialist returned a form' : 'Specialist answered'),
   forward_failed: (d) => hop('hub', d.agentId, 'request', d.outcome === 'unknown' ? 'unknown' : 'failed', d.outcome === 'answered_with_error' ? 'Specialist reported an error' : d.outcome === 'unknown' ? 'Specialist did not answer in time' : 'Specialist unreachable'),
-  relay_sent: (d) => (STAFF_KINDS.has(d.kind) ? (SPECIALISTS.has(d.to) ? hop('hub', d.to, d.kind === 'staff_action_result' ? 'form' : 'request', d.status === 'ok' ? 'completed' : d.status === 'outcome_unknown' || d.unknownOutcome ? 'unknown' : 'failed', `Hub relayed HR’s ${d.kind === 'staff_action_result' ? 'card result' : 'reply'} (${d.unknownOutcome ? 'outcome unknown' : d.status})`) : inside('hub', 'request', 'failed', 'Staff request refused (unverified sender)'))
+  relay_sent: (d) => (STAFF_KINDS.has(d.kind) ? (SPECIALISTS.has(d.to) ? hop('hub', d.to, d.kind === 'staff_action_result' ? 'form' : 'request', d.status === 'ok' ? 'completed' : d.status === 'outcome_unknown' || d.unknownOutcome ? 'unknown' : 'failed', `Hub relayed ${d.servedBy === 'chrs' ? 'CHRS Agent' : 'HR'}’s ${d.kind === 'staff_action_result' ? 'card result' : 'reply'} (${d.unknownOutcome ? 'outcome unknown' : d.status})`) : inside('hub', 'request', 'failed', 'Staff request refused (unverified sender)'))
     : hop('hub', 'student', d.kind === 'form_offer' ? 'form' : 'request', 'attempted', d.repeat ? 'Earlier result relayed again' : 'Hub relayed the reply')),
   // HR (staff only): the signed staff path, Professor agent → Hub → HR. Labels carry no staff words.
   staff_request_received: (d) => hop(d.agentId, 'hub', d.kind === 'action' ? 'form' : 'request', 'accepted', d.kind === 'action' ? 'Hub received a staff card action (verified)' : 'Hub received a staff request (verified)'),
@@ -151,10 +156,14 @@ const SPECIALIST = {
       d.ok ? (Number.isInteger(d.rosterCount) ? `Roster: ${d.rosterCount} students` : 'Campus Solutions answered') : d.outcome === 'refused' ? (d.code ? `Campus Solutions refused (${d.code})` : 'Campus Solutions refused') : "Campus Solutions didn't answer")
     : a === 'professor'
     ? hop('canvas', 'professor', 'tool', d.ok ? 'completed' : d.outcome === 'uncertain' ? 'unknown' : 'failed',
-      d.ok ? (d.quizId ? `${d.tool === 'publish_quiz' ? 'Published' : 'Saved as'} quiz #${d.quizId}` : 'Canvas answered') : d.outcome === 'refused' ? (d.code ? `Canvas refused (${d.code})` : 'Canvas refused') : "Canvas didn't answer")
+      d.ok ? (d.tool === 'list_course_students' && Number.isInteger(d.canvasCount) ? `Canvas: ${d.canvasCount} students in the course` : d.quizId ? `${d.tool === 'publish_quiz' ? 'Published' : 'Saved as'} quiz #${d.quizId}` : 'Canvas answered') : d.outcome === 'refused' ? (d.code ? `Canvas refused (${d.code})` : 'Canvas refused') : "Canvas didn't answer")
     : hop('peoplesoft', 'hr', 'tool', d.ok ? 'completed' : d.outcome === 'uncertain' ? 'unknown' : 'failed',
       d.ok ? (d.recordId ? `Saved as ${d.recordId}` : 'PeopleSoft HR answered') : d.outcome === 'refused' ? (d.code ? `PeopleSoft HR refused (${d.code})` : 'PeopleSoft HR refused') : "PeopleSoft HR didn't answer")),
   mcp_tool_refused: (a, d) => { const who = a === 'professor' ? 'Faculty' : a === 'chrs' ? 'CHRS' : 'HR'; return inside(a === 'professor' ? 'professor' : a === 'chrs' ? 'chrs' : 'hr', 'tool', 'failed', d.by === 'model_failed' ? `${who}’s AI didn’t answer — no call` : `${who}’s AI picked a tool not allowed here — no call`); },
+  // Review C15 (G1): Canvas's course list compared with the class roster after Approve (counts only).
+  quiz_membership: (a, d) => inside('professor', 'tool', d.status === 'ok' ? 'completed' : 'failed', d.status === 'ok' ? (d.missingCount || d.extraCount ? `Canvas vs roster: ${d.missingCount} missing, ${d.extraCount} extra` : 'Canvas matches the class roster') : "Couldn't compare Canvas with the roster"),
+  // Review C16: CHRS's campus mail stand-in (counts only).
+  email_notice_sent: (a, d) => inside('chrs', 'request', d.emailedCount ? 'completed' : 'failed', `Campus mail stand-in: ${d.emailedCount} emailed${d.emailFailedCount ? `, ${d.emailFailedCount} failed` : ''}`),
   peoplesoft_session: (a, d) => hop('hr', 'peoplesoft', 'registration', d.status === 'connected' ? 'completed' : 'failed', d.status === 'connected' ? 'MCP session open' : 'PeopleSoft HR unreachable'),
   studentdb_session: (a, d) => hop('chrs', 'studentdb', 'registration', d.status === 'connected' ? 'completed' : 'failed', d.status === 'connected' ? 'MCP session open' : d.status === 'not_configured' ? 'Campus Solutions not configured' : 'Campus Solutions unreachable'),
   canvas_session: (a, d) => hop('professor', 'canvas', 'registration', d.status === 'connected' ? 'completed' : 'failed', d.status === 'connected' ? 'MCP session open' : d.status === 'not_configured' ? 'Canvas not configured' : 'Canvas unreachable'),

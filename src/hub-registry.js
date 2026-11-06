@@ -7,7 +7,7 @@
 // separately — registration alone never means "online".
 //
 // Storage is a plain in-memory Map behind this small interface, so a durable store could replace it.
-import { signRosterLookup, signStaff, signStudent } from './hub-link.js';
+import { signEmailNotice, signRosterLookup, signStaff, signStudent } from './hub-link.js';
 import { getCard, validateCard } from './cards.js';
 
 export const STATUS = { ready: 'ready', stale: 'stale', unreachable: 'unreachable', disconnected: 'disconnected', disabled: 'disabled', invalid: 'invalid_card' };
@@ -112,6 +112,11 @@ export function createHubRegistry({ peers, expiryMs, cardFetchMs = 3000, onEvent
     signRosterLookupFor(agentId, { courseId, instructorStaffId, operationId }) {
       const key = entries.get(agentId)?.callKey;
       return key ? signRosterLookup(key, { courseId, instructorStaffId, operationId }) : null;
+    },
+    // Review C16: the Hub's own signature on an email notice toward CHRS (null if it gave no key or a field isn't an id).
+    signEmailNoticeFor(agentId, fields) {
+      const key = entries.get(agentId)?.callKey;
+      return key ? signEmailNotice(key, fields) : null;
     },
     isReady: (agentId) => entries.get(agentId)?.status === STATUS.ready,
     status: (agentId) => entries.get(agentId)?.status ?? null,

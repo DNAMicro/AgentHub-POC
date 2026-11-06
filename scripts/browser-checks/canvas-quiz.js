@@ -234,9 +234,9 @@ async (page) => {
   check('Published card: ● Published, quiz #4821, due date', /● Published/.test(pub) && /Topic 8 Quiz: Segmentation & Targeting is open in Canvas \(quiz #4821\), due Mon, Nov 9, 11:59 PM\./.test(pub), pub);
   await page.waitForFunction(() => document.querySelectorAll('#prof-log .lms-card .per-student li').length === 25, null, { timeout: 15000 });
   const rows = await lms.locator('.per-student li').evaluateAll((l) => l.map((x) => x.textContent));
-  check('Published card: 25 deliveries as a summary (Delivered to 1 · 24 not online yet) with the rows folded', rows.length === 25 && (await lms.locator('.dsum .pill').allTextContents()).join(' | ') === "Delivered to 1 | 24 not online yet — they'll get it when they are" && (await lms.locator('details.dlist').count()) === 1, rows.length);
+  check('Published card: 25 deliveries as a summary (Delivered to 1 · Emailed 24) with the rows folded', rows.length === 25 && (await lms.locator('.dsum .pill').allTextContents()).join(' | ') === 'Delivered to 1 | Emailed 24' && (await lms.locator('details.dlist').count()) === 1, rows.length);
   check('Alex Student: Notified (his tab is in the background, so not opened)', rows.some((r) => /^Alex StudentNotified — /.test(r)), rows);
-  check('Sam Student: Not delivered yet — Sam isn\'t online (plain words, no Hub or agent talk)', rows.some((r) => /^Sam StudentNot delivered yet — Sam isn't online\. It will arrive when they are\./.test(r)) && !rows.some((r) => /Hub|agent/i.test(r)), rows);
+  check('Sam Student: Emailed — Sam isn\'t online (plain words, no Hub or agent talk; review C16)', rows.some((r) => /^Sam StudentEmailed — Sam isn't online, so it was emailed\. It will also arrive in the app when they are\./.test(r)) && !rows.some((r) => /Hub|agent|CHRS/i.test(r)), rows);
   check('no publish buttons left after publishing', await lms.locator('[data-act]').count() === 0);
   await page.evaluate(() => document.querySelector('#prof-log .lms-card').scrollIntoView({ block: 'end' }));
   await page.waitForTimeout(300);

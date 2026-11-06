@@ -84,7 +84,10 @@ export function createLessonService({ cfg, registry, roster = null, emit = () =>
   // reset), so a delivery row keeps its name after the 60 s roster cache expires (final review finding 3).
   const deliveredNames = new Map(); // studentId → "First Last"
   const namesFor = (courseId) => ({ ...Object.fromEntries(deliveredNames), ...(roster?.cached(courseId)?.names ?? {}) });
-  const deliveryView = (d, names = null) => ({ studentId: d.studentId, ...(names?.[d.studentId] ? { name: names[d.studentId] } : {}), deliveryId: d.deliveryId, state: d.state, reason: d.lastError, opened: Boolean(d.openedAt) });
+  // emailed / emailFailed (review C16): a student the post couldn't reach in the app was emailed by CHRS (or the email
+  // couldn't be sent). Flags only — the address stays in CHRS. The delivery itself stays queued for the app.
+  const emailFlags = (d) => ({ ...(d.emailed ? { emailed: true } : {}), ...(d.emailFailed ? { emailFailed: true } : {}) });
+  const deliveryView = (d, names = null) => ({ studentId: d.studentId, ...(names?.[d.studentId] ? { name: names[d.studentId] } : {}), deliveryId: d.deliveryId, state: d.state, reason: d.lastError, opened: Boolean(d.openedAt), ...emailFlags(d) });
   const isOnline = (sid) => sessions.has(sid) && !sessions.get(sid).unreachable;
   async function publish(msg) {
     const reject = (reason, detail = null) => {
@@ -117,16 +120,11 @@ export function createLessonService({ cfg, registry, roster = null, emit = () =>
     const duplicate = priorResult();
     if (duplicate) return duplicate;
     // Recipients come from CHRS's roster for the course, never from a list kept here: `all` is every roster student;
-    // a tagged student must be on it. CHRS unavailable -> nothing is sent (no fallback list).
+    // a tagged student must be on it. CHRS unavailable -> nothing is sent (no fallback list). Review C13: every send reads
+    // the roster FRESH (add/drop changes it); the cache is only for the Faculty header's counts.
     const wanted = msg.audience === 'all' ? null : [...new Set(msg.audience.split(','))];
-    let looked = await (roster ? roster.get(msg.courseId) : { ok: false, reason: 'not_configured' });
+    const looked = await (roster ? roster.get(msg.courseId, { fresh: true }) : { ok: false, reason: 'not_configured' });
     if (!looked.ok) return reject('roster_unavailable');
-    if (wanted && looked.fromCache && wanted.some((sid) => !looked.roster.studentIds.includes(sid))) {
-      // The cached roster may be old: check once against a new lookup (never when this roster was just fetched, so a
-      // post waits for at most one lookup).
-      looked = await roster.get(msg.courseId, { fresh: true });
-      if (!looked.ok) return reject('roster_unavailable');
-    }
     if (wanted && wanted.some((sid) => !looked.roster.studentIds.includes(sid))) return reject('recipient_not_enrolled');
     const recipients = wanted ?? [...looked.roster.studentIds];
     if (!recipients.length) return reject('no_students_enrolled');
@@ -147,8 +145,27 @@ export function createLessonService({ cfg, registry, roster = null, emit = () =>
     });
     emit('lesson_publish_received', { agentId: msg.professorId, lessonId: msg.lessonId, revision: msg.revision, courseId: msg.courseId, kind, audience: msg.audience === 'all' ? 'all' : recipients.length > 1 ? 'some' : 'one', recipients: recipients.length, rosterCount: looked.roster.studentIds.length });
     await Promise.all(deliveryIds.map((id) => deliver(id)));
-    const ds = deliveryIds.map((id) => store.get().deliveries[id]);
+    await emailOffline(msg, deliveryIds, v.values);
+    const ds = deliveryIds.map((id) => store.get().deliveries[id]).filter(Boolean);
     return { status: summaryOf(ds), lessonId: msg.lessonId, revision: msg.revision, deliveries: ds.map((d) => deliveryView(d, names)) };
+  }
+
+  // Review C16: the students this post couldn't reach in the app (no session, or their app refused the connection — the
+  // delivery is `queued`) are emailed by CHRS before the Hub answers, so the faculty member's confirmation can count them.
+  // Never an uncertain delivery (they may have it), never twice (the record's flag; CHRS dedupes by operation and student
+  // too). The delivery stays queued: they still get it in the app when they come online.
+  async function emailOffline(msg, deliveryIds, content) {
+    if (!roster?.email) return;
+    const offline = deliveryIds.map((id) => store.get().deliveries[id]).filter((d) => d && d.state === 'queued' && !d.emailed && !d.emailFailed);
+    if (!offline.length) return;
+    const r = await roster.email({ courseId: msg.courseId, operationId: msg.operationId, studentIds: offline.map((d) => d.studentId), title: content.title, text: content.text });
+    store.update((s) => {
+      for (const d of offline) {
+        const rec = s.deliveries[d.deliveryId];
+        if (!rec) continue; // the classroom was reset meanwhile
+        if (r.ok && r.results[d.studentId] === 'emailed') { rec.emailed = true; rec.emailFailed = false; } else rec.emailFailed = true;
+      }
+    });
   }
 
   // ---- delivery (Hub → Student) ---------------------------------------------------------------------
@@ -247,7 +264,7 @@ export function createLessonService({ cfg, registry, roster = null, emit = () =>
     });
     const names = Object.assign({}, ...coursesOf(msg.professorId).map(([courseId]) => namesFor(courseId)));
     const deliveries = Object.values(store.get().deliveries).filter((d) => d.professorId === msg.professorId)
-      .map(({ deliveryId, lessonId, revision, studentId, state, attempts, lastError, deliveredAt, openedAt }) => ({ deliveryId, lessonId, revision, studentId, ...(names[studentId] ? { name: names[studentId] } : {}), state, attempts, lastError, deliveredAt, openedAt }));
+      .map(({ deliveryId, lessonId, revision, studentId, state, attempts, lastError, deliveredAt, openedAt, emailed, emailFailed }) => ({ deliveryId, lessonId, revision, studentId, ...(names[studentId] ? { name: names[studentId] } : {}), state, attempts, lastError, deliveredAt, openedAt, ...emailFlags({ emailed, emailFailed }) }));
     return { status: 'ok', courses, deliveries };
   }
 

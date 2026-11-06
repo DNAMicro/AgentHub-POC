@@ -369,7 +369,17 @@ test('professor chat: plain messages go straight to students (tags pick who, no 
   assert.equal(zed.action, 'error');
   assert.equal((await professorState(s)).lessons.length, before);
   let chat = (await professorState(s)).chat;
-  assert.equal(chat.filter((m) => m.role === 'assistant').length, 0, 'the assistant said nothing — nobody asked it');
+  // Review A4: the only assistant lines are the delivery confirmations (real counts, one per post; no student named in the
+  // stored text — the page puts the name in), never an answer nobody asked for.
+  const said = chat.filter((m) => m.role === 'assistant');
+  assert.ok(said.every((m) => m.action === 'sent'), JSON.stringify(said.map((m) => m.text)));
+  assert.deepEqual(said.map((m) => m.text), [
+    "Sent to 1 student — they aren't online, so it was emailed.",
+    "Sent to your 25 students: 1 got it in the app, 24 were emailed because they aren't online.",
+    "Sent to 2 students: 1 got it in the app, 1 was emailed because they aren't online.",
+    'Sent to 1 student — they got it in the app.',
+  ]);
+  assert.deepEqual(said.map((m) => m.sentTo ?? null), ['student-sam', null, null, 'student-alex']);
 
   // @assistant (mock interpreter, labelled): a course lesson by name, a vague request, a question.
   const lesson = await say(s, '@assistant send the Evidence before assumptions lesson to the class');
@@ -384,7 +394,9 @@ test('professor chat: plain messages go straight to students (tags pick who, no 
   assert.equal(asked.action, 'answer');
   assert.match(asked.reply, /Evidence before assumptions/);
   chat = (await professorState(s)).chat;
-  assert.equal(chat.filter((m) => m.role === 'assistant').length, 3);
+  assert.equal(chat.filter((m) => m.role === 'assistant' && m.action !== 'sent').length, 3);
+  // Review A4: the @assistant post is confirmed with the real counts too (its own entry after the assistant's reply).
+  assert.equal(chat.filter((m) => m.role === 'assistant' && m.action === 'sent').at(-1).text, "Sent to your 25 students: 1 got it in the app, 24 were emailed because they aren't online.");
 
   // The same send twice (one operation id): one post.
   const count = (await professorState(s)).lessons.length;

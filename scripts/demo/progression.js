@@ -685,7 +685,7 @@ async (page) => {
         const sent = await sentSummary.last().waitFor({ state: 'visible', timeout: 90000 }).then(() => true, () => false);
         await status(null);
         if (!sent) { await cap(k, 'The notice did not go out', 'The chat says why (for example CHRS did not answer); nothing is sent to a stale list.'); await pause(6); return; }
-        await show(logP.locator('.sent-post').last(), 'One delivery per student', 12, [k, 'Sent to the whole class', 'The count comes from CHRS, not from a fixed list. Alex has it; the others are not online yet and get it when they are.']);
+        await show(logP.locator('.sent-post').last(), 'One delivery per student', 12, [k, 'Sent to the whole class', 'The count comes from CHRS, read fresh for this send. Alex has it in the app; the others aren’t online, so CHRS emailed them — they still get it in the app when they are.']);
         await tab('conversation');
         const notice = page.locator('#student-log').getByText('midterm review session', { exact: false }).last();
         if (await notice.waitFor({ state: 'visible', timeout: 60000 }).then(() => true, () => false)) {

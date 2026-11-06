@@ -29,6 +29,12 @@ export const STAFF_ACTION_MEDIA_TYPE = 'application/vnd.a2a-spike.staff-action+j
 //     (it addresses deliveries from them), never emails or CWIDs.
 export const ROSTER_REQUEST_MEDIA_TYPE = 'application/vnd.a2a-spike.roster-request+json';
 export const ROSTER_LOOKUP_MEDIA_TYPE = 'application/vnd.a2a-spike.roster-lookup+json';
+// Review C16: the Hub asks CHRS to EMAIL the students a post couldn't reach in the app (no session, or unreachable).
+//   email notice: { type: 'email_notice', courseId, instructorStaffId, studentIds: [id, …], title, text, professorName }
+//     + metadata { hubOperationId, hubSignature } (signEmailNotice, the Hub's own key toward CHRS, like a roster lookup).
+//     Reply data part { results: { studentId: 'emailed' | 'failed' }, emailed, failed } or { error, text }. CHRS reads the
+//     addresses from Campus Solutions itself; they never come back to the Hub.
+export const EMAIL_NOTICE_MEDIA_TYPE = 'application/vnd.a2a-spike.email-notice+json';
 export const ROSTER_UNAVAILABLE_CODE = 'roster_unavailable'; // the Hub refuses a post it can't address from CHRS's roster
 export const ROSTER_POST_FAILED_TEXT = "I couldn't get your class list just now, so nothing was sent. Try again in a moment.";
 export const ROSTER_FAILED_TEXT = "I couldn't get your class roster just now. Try again in a moment.";

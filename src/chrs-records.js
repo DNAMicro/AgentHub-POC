@@ -199,7 +199,8 @@ export function createRecordsLink({ url, token, emit = () => {}, timeoutMs = TIM
     // The last session state reported (null before any): { status, tools? }. For a feed follower that connects later.
     sessionStatus: () => (reported ? { status: reported, ...(reportedExtra ?? {}), at: reportedAt } : null),
     // courseId + the instructor's staff id (from the Hub's signature, never from words) -> value { roster: { class, rows } }
-    roster: (courseId, instructorStaffId, { runId } = {}) => call('roster', { courseId, instructorStaffId }, { runId }),
+    // moment 'email' (review C16): the same tool, read fresh for the campus emails of students a notice must be emailed to.
+    roster: (courseId, instructorStaffId, { runId, moment = 'roster' } = {}) => call(moment === 'email' ? 'email' : 'roster', { courseId, instructorStaffId }, { runId }),
     // Test hook passthrough: the records server's own state (only when it runs with its test hooks).
     async state() {
       const r = await fetch(`${base}/test/state`, { signal: AbortSignal.timeout(timeoutMs) });

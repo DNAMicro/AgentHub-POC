@@ -5,6 +5,11 @@
 //   roster lookup   { type: 'roster_lookup', courseId, instructorStaffId } signed by the HUB ITSELF
 //                   (hubLink.verifiedRosterLookup) -> data part { studentIds, names, count } or { error, text }.
 //                   Names are "First Last" for the Hub's delivery labels; the Hub gets only roster student IDs and names, never emails or CWIDs.
+//   email notice    { type: 'email_notice', courseId, instructorStaffId, studentIds, title, text } signed by the HUB ITSELF
+//                   (hubLink.verifiedEmailNotice; review C16) -> data part { results: { studentId: 'emailed' | 'failed' },
+//                   emailed, failed } or { error, text }. CHRS reads each student's campus email on file from Campus
+//                   Solutions (a fresh get_class_roster) and "sends" through the campus mail DEMO STAND-IN: an in-memory
+//                   outbox in this process. No real email is ever sent; the addresses never leave CHRS.
 // Anything else (a text message, an unsigned or wrongly signed part) gets "CHRS serves university staff only."
 //
 // CHRS keeps no student records: it reaches the PeopleSoft student records stand-in (src/student-records-mcp.js)
@@ -18,14 +23,14 @@ import express from 'express';
 import { Role, AGENT_CARD_PATH, A2A_PROTOCOL_VERSION } from '@a2a-js/sdk';
 import { AgentEvent, DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
-import { hostGuard } from './local-guard.js';
+import { hostGuard, sameOriginGuard } from './local-guard.js';
 import { createSkillService } from './agent-settings.js';
 import { loadSpecialistConfig } from './config.js';
 import { createHubLink } from './hub-link.js';
 import { apiHost, keyEnvName, useModel } from './llm.js';
 import { createRecordsLink } from './chrs-records.js';
 import { chrsStatus } from './chrs-model.js';
-import { CHRS_REFUSED_TEXT, ROSTER_FAILED_TEXT, ROSTER_LOOKUP_MEDIA_TYPE, ROSTER_REQUEST_MEDIA_TYPE } from './staff.js';
+import { CHRS_REFUSED_TEXT, EMAIL_NOTICE_MEDIA_TYPE, ROSTER_FAILED_TEXT, ROSTER_LOOKUP_MEDIA_TYPE, ROSTER_REQUEST_MEDIA_TYPE } from './staff.js';
 import { COURSE_ID } from './student-records-store.js';
 import { TIMEOUTS } from './timeouts.js';
 
@@ -65,6 +70,34 @@ const reply = (ctx, { value, text }, metadata) => ({
   metadata, extensions: [], referenceTaskIds: [],
 });
 
+// ---- campus mail: a DEMO STAND-IN (review C16) --------------------------------------------------------------------
+// An in-memory outbox; nothing is ever sent anywhere. One email per (Hub operation, student): a re-sent notice never
+// emails anyone twice. Cleared by the classroom reset (POST /dev/chrs/reset). Readable only by tests (GET /test/mail).
+// CHRS_TEST_MAIL_FAIL (tests only, with CHRS_TEST_HOOKS=1): comma-separated student ids whose email "bounces".
+const mail = { outbox: [], sent: new Map() }; // sent: `${operationId}|${studentId}` -> outbox entry
+const bounces = () => (process.env.CHRS_TEST_HOOKS === '1' ? new Set(String(process.env.CHRS_TEST_MAIL_FAIL ?? '').split(',').filter(Boolean)) : new Set());
+function sendCampusMail({ operationId, studentIds, rows, klass, title, text }) {
+  const byId = new Map(rows.map((r) => [r.studentId, r]));
+  const bounced = bounces();
+  const results = {};
+  const course = String(klass?.code ?? '').split(' - ')[0] || 'Your class';
+  for (const studentId of studentIds) {
+    const key = `${operationId}|${studentId}`;
+    if (mail.sent.has(key)) { results[studentId] = 'emailed'; continue; }
+    const row = byId.get(studentId);
+    if (!row || typeof row.email !== 'string' || !row.email.includes('@') || bounced.has(studentId)) { results[studentId] = 'failed'; continue; }
+    const entry = {
+      id: `mail-${randomUUID().slice(0, 12)}`, operationId, studentId, to: row.email, subject: `${course}: ${title}`.slice(0, 200),
+      body: `${text}\n\n${klass?.instructor ?? 'Your instructor'}, ${klass?.code ?? course}\n(You weren't online in the campus app, so this notice was emailed. It will also be in the app when you sign in.)`,
+      at: new Date().toISOString(),
+    };
+    mail.outbox.push(entry);
+    mail.sent.set(key, entry);
+    results[studentId] = 'emailed';
+  }
+  return results;
+}
+
 // "Lastname,Firstname" (the records' own form) -> "Firstname Lastname".
 const displayName = (row) => {
   const [last = '', first = ''] = String(row.name ?? '').split(',');
@@ -75,9 +108,9 @@ const chrsExecutor = {
   async execute(ctx, bus) {
     const incoming = ctx.userMessage;
     const runId = incoming.metadata?.runId ?? null;
-    const part = incoming.parts.find((p) => p.content?.$case === 'data' && [ROSTER_REQUEST_MEDIA_TYPE, ROSTER_LOOKUP_MEDIA_TYPE].includes(p.mediaType));
+    const part = incoming.parts.find((p) => p.content?.$case === 'data' && [ROSTER_REQUEST_MEDIA_TYPE, ROSTER_LOOKUP_MEDIA_TYPE, EMAIL_NOTICE_MEDIA_TYPE].includes(p.mediaType));
     const value = part?.content.value ?? null;
-    const kind = !part ? 'text' : part.mediaType === ROSTER_LOOKUP_MEDIA_TYPE ? 'roster_lookup' : 'roster_request';
+    const kind = !part ? 'text' : part.mediaType === ROSTER_LOOKUP_MEDIA_TYPE ? 'roster_lookup' : part.mediaType === EMAIL_NOTICE_MEDIA_TYPE ? 'email_notice' : 'roster_request';
     const received = { messageId: incoming.messageId, contextId: ctx.contextId, taskId: ctx.taskId };
     log('received message', { ...received, kind });
     emitViz('message_received', runId, { ...received, kind });
@@ -99,6 +132,18 @@ const chrsExecutor = {
       const rows = r.value.roster.rows;
       const names = Object.fromEntries(rows.map((row) => [row.studentId, displayName(row)]));
       return send({ value: { studentIds: rows.map((row) => row.studentId), names, count: rows.length } }, 'lookup', { rosterCount: rows.length });
+    }
+    if (kind === 'email_notice') {
+      // Review C16: only the Hub's own signature over exactly these students and this text counts.
+      const checked = hubLink.verifiedEmailNotice(value, incoming.metadata);
+      if (!checked || checked.title.length > 200 || checked.text.length > 8000) return refuse();
+      const r = await records.roster(checked.courseId, checked.instructorStaffId, { runId, moment: 'email' });
+      if (!r.ok) return send({ value: { error: 'roster_unavailable', text: ROSTER_FAILED_TEXT } }, r.outcome === 'refused' ? 'refused_by_records' : r.outcome);
+      const results = sendCampusMail({ ...checked, rows: r.value.roster.rows, klass: r.value.roster.class });
+      const emailed = Object.values(results).filter((x) => x === 'emailed').length;
+      const failed = checked.studentIds.length - emailed;
+      emitViz('email_notice_sent', runId, { emailedCount: emailed, emailFailedCount: failed });
+      return send({ value: { results, emailed, failed } }, 'emailed', { emailedCount: emailed, emailFailedCount: failed });
     }
     if (kind === 'roster_request') {
       const staffId = hubLink.verifiedStaff(incoming.metadata, ctx.contextId);
@@ -164,8 +209,17 @@ export function startChrsServer({ port = 41248 } = {}) {
       app.use(JSONRPC_PATH, jsonRpcHandler({ requestHandler, userBuilder: UserBuilder.noAuthentication }));
       app.get(VIZ_PATH, serveVizEvents);
       app.use(skillService.router());
+      // Demo reset (the classroom reset, asked by the Hub): the campus mail stand-in's outbox is forgotten. Server callers only.
+      app.post('/dev/chrs/reset', sameOriginGuard(actualPort), (req, res) => {
+        mail.outbox = [];
+        mail.sent.clear();
+        log('campus mail stand-in outbox cleared');
+        res.json({ status: 'reset' });
+      });
       // Test hook only: the records server's own state (its test hook).
       if (process.env.CHRS_TEST_HOOKS === '1') {
+        // Review C16: what the campus mail stand-in "sent" (tests only; never logged, never relayed).
+        app.get('/test/mail', (req, res) => res.json({ mail: mail.outbox }));
         app.get('/test/records', async (req, res) => {
           try {
             res.json(await records.state());
@@ -198,4 +252,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const s = chrsStatus();
   log(`mode: ${s.mode} (${s.model})${s.mode === 'live' ? `, API key (${keyEnvName()}): ${s.keyConfigured ? 'configured' : 'NOT SET'}, API host: ${apiHost()}` : ''}, staff only, synthetic records`);
   log(`PeopleSoft Campus Solutions (demo stand-in, MCP): ${STUDENT_RECORDS_URL}/mcp, token (STUDENT_RECORDS_TOKEN): ${process.env.STUDENT_RECORDS_TOKEN ? 'configured' : 'NOT SET'}`);
+  log('campus mail: demo stand-in (an in-memory outbox in this process; no real email is ever sent)');
 }

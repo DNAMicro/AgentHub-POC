@@ -135,7 +135,7 @@ async (page) => {
   check('submit: no stale dropdown wording left in the chat', !/pick from the dropdown below/.test(await page.locator('#prof-log').textContent()));
   // He teaches every weekday: the assistant offers to cancel those classes (sent only on yes — see the end).
   const offer = ((await page.locator('#prof-log .msg[data-speaker="professor"]').last().textContent()) ?? '').replace(/\s+/g, ' ');
-  check('submit: the assistant offers a class cancellation for the filed days', new RegExp(`You have Marketing 351 on ${DAY} and ${DAY}\\. Would you like me to send a cancellation to your students\\?`).test(offer), offer);
+  check('submit: the assistant offers a class cancellation for the filed days', new RegExp(`You have Marketing 351 \\(10:00–10:50 AM, Mihaylo Hall 2405\\) on ${DAY} and ${DAY}\\. Would you like me to send a cancellation to your students\\? To add a note for your students, such as a makeup plan, reply yes followed by the note\\.`).test(offer), offer);
   await receipt.scrollIntoViewIfNeeded();
   await page.locator('#prof-log').screenshot({ path: `${SHOTS}/hr-6-submit-receipt.png` });
 
@@ -238,7 +238,7 @@ async (page) => {
   check('topology: hub→hr pulse seen live', topoShots.length > 0, topoShots);
   const forwarded = await topo.locator('#topo-events li', { hasText: 'Forwarded to HR Agent' }).count();
   check('topology: event list has “Forwarded to HR Agent”', forwarded > 0, forwarded);
-  const staffTrace = await topo.locator('#topo-trace option', { hasText: 'Staff request' }).first().getAttribute('value').catch(() => null);
+  const staffTrace = await topo.locator('#topo-trace option', { hasText: 'Staff request (Faculty → HR)' }).first().getAttribute('value').catch(() => null);
   if (staffTrace) await topo.locator('#topo-trace').selectOption(staffTrace);
   await topo.waitForTimeout(400);
   check('topology: staff trace uses hub-hr and hub-professor', await topo.locator('[data-edge="hub-hr"].in-trace').count() === 1 && await topo.locator('[data-edge="hub-professor"].in-trace').count() === 1);
@@ -249,14 +249,14 @@ async (page) => {
   // “yes” sends them all, with dates only, to the students.
   await say('yes');
   const sent = ((await page.locator('#prof-log').textContent()) ?? '').replace(/\s+/g, ' ');
-  check('cancellation: “yes” sends it to the students', /Sent to your students: “Marketing 351 is cancelled on Thu, Nov 5, Fri, Nov 6, Thu, Nov 12 and Fri, Nov 13\.”/.test(sent), sent.slice(-300));
+  check('cancellation: “yes” sends it to the students and the chat states the real counts (review A4)', /Sent to your 25 students: 1 got it in the app, 24 were emailed because they aren't online\./.test(sent) && /Marketing 351 \(10:00–10:50 AM, Mihaylo Hall 2405\) is cancelled on Thu, Nov 5, Fri, Nov 6, Thu, Nov 12 and Fri, Nov 13\./.test(sent), sent.slice(-300));
   // Part 17: the cancellation goes to all 25 students, so its card is a summary with the rows folded away.
   const cancelPost = page.locator('#prof-log .sent-post, #prof-log .post-card').last();
   const cancelSum = await cancelPost.locator('.dsum .pill').allTextContents();
-  check('cancellation: delivery summary "Delivered to 1" · "24 not online yet — they\'ll get it when they are", fold of 25', cancelSum[0] === 'Delivered to 1' && cancelSum[1] === "24 not online yet — they'll get it when they are" && await cancelPost.locator('details.dlist li').count() === 25, cancelSum);
+  check('cancellation: delivery summary "Delivered to 1" · "Emailed 24", fold of 25', cancelSum[0] === 'Delivered to 1' && cancelSum[1] === 'Emailed 24' && await cancelPost.locator('details.dlist li').count() === 25, cancelSum);
   await page.locator('#prof-log').screenshot({ path: `${SHOTS}/hr-14-cancellation-sent.png` });
   await page.goto(`${origin}/conversation`);
-  const studentSaw = await page.waitForFunction(() => /Marketing 351 is cancelled on Thu, Nov 5, Fri, Nov 6, Thu, Nov 12 and Fri, Nov 13\./.test(document.body.textContent), null, { timeout: 15000 }).then(() => true).catch(() => false);
+  const studentSaw = await page.waitForFunction(() => /Marketing 351 \(10:00–10:50 AM, Mihaylo Hall 2405\) is cancelled on Thu, Nov 5, Fri, Nov 6, Thu, Nov 12 and Fri, Nov 13\./.test(document.body.textContent), null, { timeout: 15000 }).then(() => true).catch(() => false);
   const studentText = (await page.locator('#view-conversation').textContent()) ?? ''; // the student's own view (the page also holds the hidden Faculty view)
   check('cancellation: the student sees it, with no reason', studentSaw && !/uncle|bereave|funeral|sick|grandmother/i.test(studentText));
   await page.screenshot({ path: `${SHOTS}/hr-15-student-sees-cancellation.png` });

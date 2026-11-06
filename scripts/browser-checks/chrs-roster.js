@@ -61,7 +61,7 @@ async (page) => {
   const head = ((await card.locator('.cr-head').textContent()) ?? '').replace(/\s+/g, ' ');
   check('card label is CHRS · Class roster', /CHRS · Class roster/.test(await card.locator('.msg-dir').textContent()));
   check('title, term line, class line', /Class Roster/.test(head) && /Fall 2026 · Regular Academic Session · California State University, Fullerton · Undergraduate/.test(head) && /MKTG 351 - 01 \(12351\) Principles of Marketing \(Lecture\)/.test(head), head);
-  check('Days and Times come from the data: MoTuWeThFr 10:00AM - 10:50AM, room, instructor, dates', /MoTuWeThFr 10:00AM - 10:50AM/.test(head) && /Mihaylo Hall 1xxx/.test(head) && /Dr\. Dabirian/.test(head) && /08\/24\/2026 - 12\/18\/2026/.test(head), head);
+  check('Days and Times come from the data: MoTuWeThFr 10:00AM - 10:50AM, room, instructor, dates', /MoTuWeThFr 10:00AM - 10:50AM/.test(head) && /Mihaylo Hall 2405/.test(head) && /Dr\. Dabirian/.test(head) && /08\/24\/2026 - 12\/18\/2026/.test(head), head);
   check('counts: Enrollment Status Enrolled, Capacity 35, Enrolled 25', /Enrollment StatusEnrolled/.test(head) && /Enrollment Capacity35/.test(head) && /Enrolled25/.test(head), head);
   check('the grid is titled Enrolled Students', /Enrolled Students/.test(await card.locator('.cr-grid-title').textContent()));
   const rows = card.locator('table.roster tbody tr');
@@ -82,19 +82,19 @@ async (page) => {
 
   // 2. Notify everyone: the card is kept through the redraw.
   await say('notify everyone that the midterm review session moves to Thursday');
-  await page.waitForFunction(() => /Sent to all 25 students in Marketing 351\./.test(document.querySelector('#prof-log').textContent), null, { timeout: 30000 });
-  check('"Sent to all 25 students in Marketing 351."', true);
+  await page.waitForFunction(() => /Sent to your 25 students: 1 got it in the app, 24 were emailed because they aren't online\./.test(document.querySelector('#prof-log').textContent), null, { timeout: 30000 });
+  check('review A4: "Sent to your 25 students: 1 got it in the app, 24 were emailed because they aren\'t online."', true);
   check('the roster card element survived the redraw', await page.evaluate(() => document.querySelector('#prof-log .roster-card')?.__keep === 'same-element') && await rows.count() === 25);
   const post = page.locator('#prof-log .sent-post').last();
   await post.locator('.dsum').waitFor();
   const sum = await post.locator('.dsum .pill').allTextContents();
-  check('summary: "Delivered to 1" and "24 not online yet — they\'ll get it when they are"', sum.length === 2 && sum[0] === 'Delivered to 1' && sum[1] === "24 not online yet — they'll get it when they are", sum);
+  check('summary: "Delivered to 1" and "Emailed 24" (review C16)', sum.length === 2 && sum[0] === 'Delivered to 1' && sum[1] === 'Emailed 24', sum);
   check('the head says "to the whole class (25)"', /the whole class \(25\)/.test(await post.locator('.msg-head .msg-dir').textContent()));
   const fold = post.locator('details.dlist');
   check('the fold is closed and says "Show all 25 students"', await fold.evaluate((d) => !d.open) && (await fold.locator('summary').textContent()) === 'Show all 25 students');
   await fold.locator('summary').click();
   const frows = await fold.locator('.per-student li').evaluateAll((l) => l.map((x) => x.textContent));
-  check('fold lists 25 students by name', frows.length === 25 && frows.some((r) => /^Mariana AguilarNot delivered yet — Mariana isn't online\. It will arrive when they are\./.test(r)), frows.slice(0, 2));
+  check('fold lists 25 students by name', frows.length === 25 && frows.some((r) => /^Mariana AguilarEmailed — Mariana isn't online, so it was emailed\. It will also arrive in the app when they are\./.test(r)), frows.slice(0, 2));
   check('Alex Student shows Delivered', frows.some((r) => /^Alex StudentDelivered/.test(r)), frows.filter((r) => /Alex/.test(r)));
   check('the fold stays open after a redraw', await page.evaluate(() => document.querySelector('#prof-log .sent-post details.dlist')?.open));
   check('header still reads "25 students · 1 online"', (await page.locator('#prof-roster').textContent()).trim() === '25 students · 1 online');
@@ -127,7 +127,7 @@ async (page) => {
   await page.waitForFunction(() => /Published/.test(document.querySelector('#prof-log .lms-card .state-badge')?.textContent ?? '') && document.querySelectorAll('#prof-log .lms-card details.dlist li').length === 25, null, { timeout: 30000 });
   const lms = page.locator('#prof-log .lms-card');
   const qsum = await lms.locator('.dsum .pill').allTextContents();
-  check('quiz published card: "Delivered to 1" + "24 not online yet — they\'ll get it when they are"', qsum[0] === 'Delivered to 1' && qsum[1] === "24 not online yet — they'll get it when they are", qsum);
+  check('quiz published card: "Delivered to 1" + "Emailed 24"', qsum[0] === 'Delivered to 1' && qsum[1] === 'Emailed 24', qsum);
   check('quiz fold lists 25 students, Alex Notified', await lms.locator('details.dlist li').count() === 25 && (await lms.locator('details.dlist li').allTextContents()).some((r) => /^Alex StudentNotified/.test(r)));
   await lms.scrollIntoViewIfNeeded();
   await page.waitForTimeout(300);
@@ -280,7 +280,7 @@ async (page) => {
     await owed.locator('[data-act="publish"]').click();
     await page.waitForFunction(() => document.querySelectorAll('#prof-log .lms-card details.dlist li').length === 25, null, { timeout: 60000 });
     const fsum = await lmsCard.locator('.dsum .pill').allTextContents();
-    check('F1: after the retry the summary replaces the sentence: "Delivered to 1" + "24 not online yet …"', fsum[0] === 'Delivered to 1' && fsum[1] === "24 not online yet — they'll get it when they are" && (await owed.count()) === 0, fsum);
+    check('F1: after the retry the summary replaces the sentence: "Delivered to 1" + "Emailed 24"', fsum[0] === 'Delivered to 1' && fsum[1] === 'Emailed 24' && (await owed.count()) === 0, fsum);
     await lmsCard.scrollIntoViewIfNeeded();
     await page.waitForTimeout(300);
     await page.screenshot({ path: `${SHOTS}/s-f1-4-delivered.png` });

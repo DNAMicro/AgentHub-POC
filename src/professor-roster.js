@@ -19,7 +19,6 @@ const TELL_EXPIRES_MS = 15 * 60_000; // like the quiz desk's waiting question
 const TELL_DROP = /^\s*(?:never\s?mind|nvm|cancel|forget\s+it|skip\s+it|drop\s+it|no\s+thanks?)\b[\s.!]*$/i;
 export const dropsTell = (text) => TELL_DROP.test(String(text ?? ''));
 export const rosterCardText = (n) => `Class roster · ${n} ${n === 1 ? 'student' : 'students'}`;
-export const sentToAllText = (n) => `Sent to all ${n} students in ${COURSE.title}.`;
 
 // ---- reading the words (code) ------------------------------------------------------------------------------------
 const WORD_LIMIT = 12; // a roster request is short; a long message that happens to contain "roster" is something else
@@ -358,10 +357,10 @@ export function createRosterDesk({ hubLink, conversationId, emit = () => {}, now
   const failed = () => ({ action: 'roster_failed', reply: ROSTER_FAILED_TEXT, classSafe: true, entries: [{ role: 'assistant', text: ROSTER_FAILED_TEXT, action: 'error', failed: true }] });
   const gone = () => ({ action: 'roster_failed', reply: ROSTER_GONE, classSafe: true, entries: [{ role: 'assistant', text: ROSTER_GONE, action: 'error', failed: true }] });
   // One fresh lookup (signed staff request, service 'chrs'). → { rows, roster, course } or a failure result.
-  async function lookup({ operationId, hub }) {
+  async function lookup({ operationId, hub, timeoutMs = TIMEOUTS.professorStaffMs }) {
     const asked = gen;
     const value = { type: 'staff_request', operationId, conversationId: conversationId(), text: 'Show my class roster.', service: 'chrs' };
-    const r = await hubLink.sendSigned(STAFF_REQUEST_MEDIA_TYPE, value, staffRequestFields(value), { timeoutMs: TIMEOUTS.professorStaffMs });
+    const r = await hubLink.sendSigned(STAFF_REQUEST_MEDIA_TYPE, value, staffRequestFields(value), { timeoutMs });
     const rows = r.status === 'ok' ? r.reply?.roster?.rows : null;
     emit('roster_relayed', { status: r.status, rosterCount: Array.isArray(rows) ? rows.length : 0 });
     if (!Array.isArray(rows) || !rows.length || !r.reply.roster.class || typeof r.reply.roster.class !== 'object') return { fail: failed() };
@@ -468,6 +467,13 @@ export function createRosterDesk({ hubLink, conversationId, emit = () => {}, now
     return got.fail ? null : people;
   }
 
+  // Review C12: the class record (meeting days/time, room …) read FRESH from CHRS, for a cancellation's offer and notice.
+  // → the class object, or null when the roster can't be had right now (the caller never guesses details).
+  async function classRecord({ operationId, hub = null }) {
+    const got = await lookup({ operationId: operationId ?? `class-${randomUUID()}`, hub, timeoutMs: TIMEOUTS.professorClassInfoMs });
+    return got.fail ? null : got.roster.class;
+  }
+
   // GET /author/roster: the full roster for the Faculty view, with who is online right now (Hub-reported) and the rows
   // to highlight (memory only).
   function view(hub, rosterId) {
@@ -488,5 +494,5 @@ export function createRosterDesk({ hubLink, conversationId, emit = () => {}, now
   const clearTell = () => { tell = null; };
   const rearmTell = (about = null) => { tell = { at: now(), about }; };
   const reset = () => { card = null; known = null; tell = null; people = null; gen += 1; };
-  return { request, fact, filter, question, exportAsk, names, known: () => (people ? [...people] : null), view, state, counts, noteCourse, reset, waitingTell, askTell, clearTell, rearmTell };
+  return { request, fact, filter, question, exportAsk, names, classRecord, known: () => (people ? [...people] : null), view, state, counts, noteCourse, reset, waitingTell, askTell, clearTell, rearmTell };
 }

@@ -826,3 +826,24 @@ test('D17 reset: no chat entries, the draft stays closed and refuses every actio
   assert.equal(s.calls.create.length + s.calls.publish.length, 0);
   assert.equal(s.desk.draft(draftId), null);
 });
+
+// Review A4: after Canvas publishes, the chat line counts the real deliveries of the class notice (from the Hub's ack).
+test('review A4: the published line counts the notice deliveries — in the app, emailed, email failed', async () => {
+  const cases = [
+    [[{ studentId: 'student-alex', state: 'delivered' }, { studentId: 'student-sam', state: 'queued', emailed: true }], "Published in Canvas (quiz #4821). Sent to your 2 students: 1 got it in the app, 1 was emailed because they aren't online."],
+    [[{ studentId: 'student-alex', state: 'delivered' }, { studentId: 'student-sam', state: 'queued', emailFailed: true }], "Published in Canvas (quiz #4821). Sent to your 2 students: 1 got it in the app; 1 isn't online yet and the email couldn't be sent — they'll get it when they're online."],
+    [[{ studentId: 'student-alex', state: 'delivered', opened: true }, { studentId: 'student-sam', state: 'delivered' }], 'Published in Canvas (quiz #4821). Sent to your 2 students: all 2 got it in the app.'],
+  ];
+  for (const [deliveries, line] of cases) {
+    const s = setup({ postResult: () => ({ http: 200, body: { lesson: { lessonId: 'ls-1' }, ack: { status: 'queued', deliveries } } }) });
+    const { draftId } = await drafted(s);
+    await s.desk.action({ draftId, operationId: 'op-a', action: 'approve', quiz: fullQuiz(s, draftId) });
+    const r = await s.desk.action({ draftId, operationId: 'op-p', action: 'publish' });
+    assert.equal(r.entries[0].text, line);
+    // The card's summary carries the flags (ids and flags only) for the Faculty view's "Emailed N".
+    const card = s.desk.card().deliveries;
+    assert.equal(card.filter((x) => x.emailed).length, deliveries.filter((x) => x.emailed).length);
+    assert.equal(card.filter((x) => x.emailFailed).length, deliveries.filter((x) => x.emailFailed).length);
+    assert.ok(card.every((x) => !('name' in x)), 'no names in the card summary');
+  }
+});

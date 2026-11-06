@@ -95,7 +95,14 @@ export function startStudentRecordsServer({ port = 41249, token = process.env.ST
       app.use((err, req, res, next) => (res.headersSent ? next(err) : res.status(err?.status === 413 ? 413 : 400).json({ error: 'bad_request' })));
 
       app.post('/dev/reset', sameOriginGuard(actualPort), needToken, (req, res) => { store.reset(); log('reset'); res.json({ status: 'reset' }); });
-      if (process.env.STUDENT_RECORDS_TEST_HOOKS === '1') app.get('/test/state', (req, res) => res.json({ rosterRows: store.rosterSize() }));
+      if (process.env.STUDENT_RECORDS_TEST_HOOKS === '1') {
+        app.get('/test/state', (req, res) => res.json({ rosterRows: store.rosterSize() }));
+        // Review C13: add/drop activity between two sends (tests only). { dropped: [studentId, …] } replaces the dropped set.
+        app.post('/test/enrollment', express.json({ limit: '16kb' }), (req, res) => {
+          const ids = Array.isArray(req.body?.dropped) ? req.body.dropped.filter((x) => typeof x === 'string') : [];
+          res.json({ rosterRows: store.setDropped(ids) });
+        });
+      }
 
       const baseUrl = `http://${HOST}:${actualPort}`;
       console.log(`PeopleSoft Campus Solutions MCP server (demo stand-in) listening on ${baseUrl}`);

@@ -17,9 +17,13 @@ const LIMITS = { maxOutputTokens: 400, toolTimeoutMs: Number(process.env.CHRS_TO
 const MOCK_LABEL = 'mock heuristic';
 export const chrsStatus = () => ({ mode: CHRS_MODE, model: CHRS_MODE === 'live' ? modelName() : MOCK_LABEL, keyConfigured: CHRS_MODE === 'live' ? keyConfigured() : null });
 
-// Which tool each moment may use. Today one moment: the instructor's class roster.
-export const CHRS_MOMENT_TOOL = { roster: 'get_class_roster' };
-const MOMENT_WORDS = { roster: 'look up the class roster (the class and the students enrolled) for the course\'s own instructor.' };
+// Which tool each moment may use: the instructor's class roster, and (review C16) the same roster read for the campus email
+// on file of students a class notice couldn't reach in the app.
+export const CHRS_MOMENT_TOOL = { roster: 'get_class_roster', email: 'get_class_roster' };
+const MOMENT_WORDS = {
+  roster: 'look up the class roster (the class and the students enrolled) for the course\'s own instructor.',
+  email: 'read the class roster, with each enrolled student\'s campus email on file, so a class notice can be emailed to the students who are not online.',
+};
 const PURPOSE = 'choose student records tool';
 const toolSystem = (moment) => `You are CHRS, a university staff service. You reach PeopleSoft Campus Solutions (a demo stand-in) through MCP tools. Pick the ONE tool that does what CHRS needs right now, from the tools listed. Return only its name; code builds the arguments.
 CHRS needs to: ${MOMENT_WORDS[moment]}`;

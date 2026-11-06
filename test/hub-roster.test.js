@@ -78,17 +78,17 @@ test('the Faculty status poll never starts a lookup: counts come from the cache 
   assert.deepEqual([s.courses[0].rosterCount, s.courses[0].onlineCount], [25, 1]);
 });
 
-test('a stranger tag is re-checked only when the roster came from the cache (never two fresh lookups)', async () => {
+test('review C13: a stranger tag is checked against a fresh lookup on every send (never the cache)', async () => {
   const { st, prof } = await stack();
   const events = follow(st.hub.url);
   const cold = await publish(prof, { audience: 'student-nobody' });
   assert.equal(cold.reason, 'recipient_not_enrolled');
   await settle();
-  assert.equal(lookups(events), 1, 'cold cache: one fresh lookup, no second');
-  const warm = await publish(prof, { audience: 'student-nobody' });
-  assert.equal(warm.reason, 'recipient_not_enrolled');
+  assert.equal(lookups(events), 1, 'one fresh lookup');
+  const again = await publish(prof, { audience: 'student-nobody' });
+  assert.equal(again.reason, 'recipient_not_enrolled');
   await settle();
-  assert.equal(lookups(events), 2, 'cached roster: one re-check');
+  assert.equal(lookups(events), 2, 'the second send looked up again (no cache reuse)');
 });
 
 test('a failed lookup is reported with a coded reason; roster rows are not kept for a repeat', async () => {
@@ -166,16 +166,17 @@ test('CHRS not running: a post is refused with roster_unavailable and nothing is
   assert.equal(st.chrs, null);
 });
 
-test('the roster is cached for the course until the classroom is reset', async () => {
+test('review C13: every send reads the roster fresh — with CHRS away the next post is refused, the header keeps the last count', async () => {
   const { st, prof } = await stack();
   assert.equal((await publish(prof)).deliveries.length, 25);
   await stopProcess(st.chrs);
-  const cached = await publish(prof);
-  assert.equal(cached.deliveries.length, 25, 'served from the Hub’s 60 s cache while CHRS is away');
+  const next = await publish(prof);
+  assert.deepEqual([next.status, next.reason], ['rejected', 'roster_unavailable'], 'no cached roster is reused for a send');
+  const s = await hubStatus(prof);
+  assert.equal(s.courses[0].rosterCount, 25, 'the header count is the last lookup (cache for status only)');
   const reset = await fetch(`${st.hub.url}/dev/classroom/reset`, { method: 'POST' });
   assert.equal((await reset.json()).status, 'reset');
-  const after = await publish(prof);
-  assert.deepEqual([after.status, after.reason], ['rejected', 'roster_unavailable'], 'the reset forgot the cached roster');
+  assert.equal((await hubStatus(prof)).courses[0].rosterCount, null, 'the reset forgot the last count');
 });
 
 test('staff requests go to the signed service: hr, chrs, none (HR), unknown (refused), and a changed service fails the signature', async () => {

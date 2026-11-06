@@ -257,12 +257,16 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
   const ASSISTANT = { studentId: 'assistant', name: 'assistant', label: 'Course assistant — writes, sends course lessons, answers questions' };
 
   const DELIVERY = {
-    queued: ['Not delivered yet', 'busy'], delivered: ['Delivered', 'ok'], opened: ['Opened', 'ok'],
+    queued: ['Not delivered yet', 'busy'], emailed: ['Emailed', 'ok'], delivered: ['Delivered', 'ok'], opened: ['Opened', 'ok'],
     uncertain: ['Checking whether it arrived', 'warn'], failed: ['Could not be delivered', 'bad'], sending: ['Sending…', 'busy'],
   };
   function studentState(d) {
     if (d.opened) return ['opened', when(d.openedAt)];
-    if (d.state === 'queued') return ['queued', d.lastError === 'student_offline' || /refused/.test(d.lastError ?? '') ? `${knownName(d.studentId)?.split(' ')[0] ?? 'this student'} isn't online. It will arrive when they are.` : 'It will be retried.'];
+    // Review C16: a student who isn't online was emailed by CHRS (the post still waits for them in the app).
+    const first = knownName(d.studentId)?.split(' ')[0] ?? 'this student';
+    if (d.state === 'queued' && d.emailed) return ['emailed', `${first} isn't online, so it was emailed. It will also arrive in the app when they are.`];
+    if (d.state === 'queued' && d.emailFailed) return ['queued', `${first} isn't online and the email couldn't be sent. It will arrive when they are.`];
+    if (d.state === 'queued') return ['queued', d.lastError === 'student_offline' || /refused/.test(d.lastError ?? '') ? `${first} isn't online. It will arrive when they are.` : 'It will be retried.'];
     if (d.state === 'delivered') return ['delivered', when(d.deliveredAt)];
     return [d.state, null]; // the raw error code is for the technical views, not the faculty member
   }
@@ -319,9 +323,10 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     if (list.length <= BIG_AUDIENCE) return deliveryRows(list, notified);
     const kinds = list.map((d) => studentState(d)[0]);
     const delivered = kinds.filter((k) => k === 'delivered' || k === 'opened').length;
+    const emailed = kinds.filter((k) => k === 'emailed').length;
     const waiting = kinds.filter((k) => k === 'queued').length;
     const failed = kinds.filter((k) => k === 'failed').length;
-    const other = list.length - delivered - waiting - failed;
+    const other = list.length - delivered - emailed - waiting - failed;
     const details = el('details', { className: 'dlist', dataset: { count: String(list.length) } },
       el('summary', { textContent: `Show all ${list.length} students` }), deliveryRows(list, notified));
     details.open = foldOpen.has(key);
@@ -329,6 +334,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     return el('div', { className: 'dlist-wrap' },
       el('div', { className: 'dsum' },
         el('span', { className: 'pill ok', textContent: `Delivered to ${delivered}` }),
+        ...(emailed ? [el('span', { className: 'pill ok', dataset: { kind: 'emailed' }, textContent: `Emailed ${emailed}` })] : []),
         ...(waiting ? [el('span', { className: 'pill', textContent: `${waiting} not online yet — they'll get it when they are` })] : []),
         ...(failed ? [el('span', { className: 'pill', dataset: { tone: 'bad' }, textContent: `${failed} could not be delivered` })] : []),
         ...(other ? [el('span', { className: 'pill', textContent: `${other} still sending or not confirmed` })] : [])),
@@ -726,7 +732,9 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
           if (m.problem) items.push(bubble({ dir: 'error', speaker: 'professor', label: 'Not sent', at: m.at, text: m.problem }));
         }
       } else {
-        const li = bubble({ dir: m.action === 'error' || m.action === 'clarify' ? 'info' : 'received', speaker: 'professor', label: 'Course assistant', at: m.at, text: m.text });
+        // Review A4: a one-student confirmation is stored as "Sent to 1 student — …"; the page shows their name when it knows it.
+        const said = m.sentTo && knownName(m.sentTo) ? String(m.text).replace(/^Sent to 1 student\b/, `Sent to ${knownName(m.sentTo)}`) : m.text;
+        const li = bubble({ dir: m.action === 'error' || m.action === 'clarify' ? 'info' : 'received', speaker: 'professor', label: 'Course assistant', at: m.at, text: said });
         if (m.quizTopics?.topics) { li.classList.add('has-topics'); li.append(quiz.topicsBlock(m.quizTopics, topicsLive(mi))); } // Part 16: the topic chips
         items.push(li);
         if (m.postKey && posts.get(m.postKey)) items.push(postCard(posts.get(m.postKey)));

@@ -20,7 +20,9 @@ export const TIMEOUTS = Object.freeze({
   hrAbsenceModelMs: 30000, // HR's AI proposing the absence name on a card issue (HR_MODEL_TIMEOUT_MS)
   hrPeopleSoftCallMs: 12000, // PeopleSoft connect + one MCP call share this (PEOPLESOFT_TIMEOUT_MS). The call always keeps at least the planner + 2 s (10 s; src/hr-peoplesoft.js CALL_FLOOR_MS), so the connect gets at most 2 s; the tool choice (8 s) is outside it: 8 + 12 = 20 s < the Hub's staff wait
   hubRosterLookupMs: 22000, // Hub -> CHRS roster lookup for a post, > CHRS's tool choice + records call (8 + 12 = 20 s) (HUB_ROSTER_LOOKUP_TIMEOUT_MS)
-  professorPublishMs: 40000, // Professor -> Hub lesson publish, > the roster lookup + the Student delivery (5 s) (PROFESSOR_PUBLISH_TIMEOUT_MS)
+  hubEmailNoticeMs: 22000, // Hub -> CHRS email notice for the students a post couldn't reach in the app (review C16), > CHRS's tool choice + records call (8 + 12 = 20 s) (HUB_EMAIL_NOTICE_TIMEOUT_MS)
+  professorPublishMs: 50000, // Professor -> Hub lesson publish, > the fresh roster lookup + the Student delivery (5 s) + the email notice (22 + 5 + 22 = 49 s) (PROFESSOR_PUBLISH_TIMEOUT_MS)
+  professorClassInfoMs: 25000, // Faculty -> Hub -> CHRS roster request for the class's time and room before a cancellation (review C12), > CHRS's tool choice + records call (PROFESSOR_CLASS_INFO_TIMEOUT_MS)
   hubStaffActionMs: 25000, // Hub → HR staff form action, > tool choice + MCP call (HUB_STAFF_ACTION_TIMEOUT_MS)
   hubFormActionMs: 8000, // Hub → specialist STUDENT form action, unchanged (HUB_FORM_TIMEOUT_MS)
   hubDispatchMs: 60000, // Hub → specialist chat / staff request, > absence name + tool choice + balances call (HUB_DISPATCH_TIMEOUT_MS)
@@ -28,6 +30,6 @@ export const TIMEOUTS = Object.freeze({
   professorRosterQueryMs: 10000, // Faculty's model reading a roster question into a query (PROFESSOR_ROSTER_QUERY_TIMEOUT_MS); runs after the roster lookup (professorStaffMs): 65 + 10 s < the Hub's author proxy
   professorModelMs: 45000, // Professor's own model naming a post (classifyPost) or reading an @assistant message (interpretProfessor) (PROFESSOR_MODEL_TIMEOUT_MS)
   professorStaffMs: 65000, // Professor → Hub staff request or action, > both Hub waits above
-  hubAuthorProxyMs: 100000, // Hub dev proxy → Professor /author/*, > the classifier + the Professor's staff wait, and > a chat post: staff classifier + post model + publish (10 + 45 + 40 = 95 s)
-  uiProfessorCallMs: 105000, // UI server → Hub dev proxy, > the proxy's wait
+  hubAuthorProxyMs: 110000, // Hub dev proxy → Professor /author/*, > the classifier + the Professor's staff wait, and > a chat post: staff classifier + post model + publish (10 + 45 + 50 = 105 s), and > a cancellation: class info + publish (25 + 50 = 75 s)
+  uiProfessorCallMs: 115000, // UI server → Hub dev proxy, > the proxy's wait
 });

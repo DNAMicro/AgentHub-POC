@@ -81,7 +81,7 @@ export function toolChoiceReply(body, picks = {}) {
 
 // Part 17: CHRS's student-records tool choice. Recognised by the single-`tool` enum schema and the plain words
 // "CHRS needs to: ..." in the system prompt. `picks` ({ roster: 'something_else' }) scripts a wrong pick. Plumbing only.
-const CHRS_PHRASES = [['roster', /class roster/i, 'get_class_roster']];
+const CHRS_PHRASES = [['email', /campus email/i, 'get_class_roster'], ['roster', /class roster/i, 'get_class_roster']]; // review C16: the email moment first (its words name the roster too)
 export function rosterToolReply(body, picks = {}) {
   if (!body?.output_config?.format?.schema?.properties?.tool) return null;
   const needs = /CHRS needs to: (.*)/.exec(String(body.system ?? ''))?.[1];

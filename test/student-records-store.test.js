@@ -10,7 +10,7 @@ test('header values are exact', () => {
   assert.deepEqual(r.roster.class, {
     courseId: 'mkt-351', term: 'Fall 2026', session: 'Regular Academic Session', institution: 'California State University, Fullerton', career: 'Undergraduate',
     code: 'MKTG 351 - 01', classNumber: '12351', title: 'Principles of Marketing (Lecture)',
-    daysAndTimes: 'MoTuWeThFr 10:00AM - 10:50AM', room: 'Mihaylo Hall 1xxx', instructor: 'Dr. Dabirian', dates: '08/24/2026 - 12/18/2026',
+    daysAndTimes: 'MoTuWeThFr 10:00AM - 10:50AM', room: 'Mihaylo Hall 2405', instructor: 'Dr. Dabirian', dates: '08/24/2026 - 12/18/2026',
     enrollmentStatus: 'Enrolled', capacity: 35, enrolled: 25,
   });
 });
