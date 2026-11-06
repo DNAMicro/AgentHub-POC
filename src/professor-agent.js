@@ -425,9 +425,11 @@ async function professorChat({ operationId, text, replyTo: replyToIn = null, ans
       // R3: any other question about the roster or “my students” is for the assistant, never a post (and never the HR /
       // class / both question): one plain sentence, nothing sent. A waiting question keeps waiting.
       staff = { action: 'clarify', check: 'roster_question', reply: ROSTER_QUESTION_TEXT, classSafe: true, entries: [{ role: 'assistant', text: ROSTER_QUESTION_TEXT, action: 'clarify' }] };
-    } else if (!toAssistant && !reply && (held.question || !held.offer) && isThanks(said)) {
+    } else if (!toAssistant && !reply && (held.question || !held.offer || !/^\s*ok/i.test(said)) && isThanks(said)) {
       // F4: “Thanks” while the held question waits is not its answer (and never counts toward the re-ask): the question keeps waiting.
-      // Live run Z24: “Thanks” with nothing waiting is answered too (it was asked “HR, the class, or both?”). A waiting offer keeps its own handling.
+      // Live run Z24: “Thanks” with nothing waiting is answered too (it was asked “HR, the class, or both?”).
+      // Live check 2026-11-05: a plain “Thanks” while an offer waits is thanks too (it was re-asked “Should I post that note
+      // to the class? Reply yes or no.”); the offer keeps waiting. Only “ok, thanks” is left to the offer (it may mean yes).
       staff = { action: 'clarify', check: 'ack', reply: "You're welcome.", classSafe: true, entries: [{ role: 'assistant', text: "You're welcome.", action: 'clarify' }] };
     } else if (announced && offerFree(Boolean(announced.rest || announced.about))) {
       notify = announced;

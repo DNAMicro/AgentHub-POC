@@ -176,7 +176,7 @@ export const CANCEL_NOTE_HINT = 'To add a note for your students, such as a make
 export const cancellationOffer = (days, info = null) => `You have ${classLabel(info)} on ${listOf(days.map(shortDate))}. Would you like me to send a cancellation to your students? ${CANCEL_NOTE_HINT}`;
 // Review A5: the note he adds after “yes”. His words, but they go to the students, so a note naming an illness, his leave
 // or a relative is never sent without asking (the Part 14 checks); 500 characters at most.
-export const NOTE_PRIVATE = 'Your note mentions your leave. Send the cancellation without the note? Reply yes, or write a new note.';
+export const NOTE_PRIVATE = 'Your note talks about you, and all your students would read it. Send the cancellation without the note? Reply yes, or write a new note about the class.';
 export const NOTE_TOO_LONG = 'Your note is too long — keep it under 500 characters. Reply yes followed by a shorter note, or just yes.';
 const NOTE_MAX = 500;
 const YES_START = /^\s*(?:yes|yeah|yep|sure|ok|okay)\b[\s,.!:;—–-]*/i;
@@ -203,6 +203,10 @@ export function cancelNoteOf(text, { needYes = true } = {}) {
 }
 // “we / our” is the class here and “leave from …” is not leave (forClassWords); I / me / my with a leave word is his own.
 const notePrivate = (t) => mentionsIllness(t) || CLASS_POST_PRIVATE.test(forClassWords(t)) || RELATIVES.test(t) || (SINGULAR_ME.test(t) && TELL_LEAVE.test(t));
+// Live check 2026-11-05: “yes, I have bronchitis so please be patient” went to all 25 students — no word list knows every
+// illness, and a classifier can read “please be patient” as a class message. So a note that talks about himself (I, I'm,
+// me, my …) is always asked about first; a note about the class (“We'll make it up on Friday”, “Read chapter 6”) is sent.
+const noteNeedsAsking = (t) => notePrivate(t) || SINGULAR_ME.test(t);
 // “Your time off is recorded. Request 4310288: Bereavement (Grandparent/Great Grandparent), Thu, Nov 5 – Fri, Nov 6,
 // 16 hours.” The reason is in parentheses only when it says more than the name (titleOf's subtitle).
 export function receiptText(r) {
@@ -373,7 +377,7 @@ export async function staffTurn({ operationId, text, entryId, hubLink, bypass = 
     const declined = cancel ? CANCEL_DECLINED : NOTE_DECLINED;
     // Review A5: “yes” followed by a note for the students (3+ words once filler is removed) sends the cancellation with
     // it, as its own paragraph. A plain yes (“yes”, “yes notify students”, “yes please send it”) is a plain yes, at once.
-    // After “Your note mentions your leave …” any new note (with or without a yes) is read the same way.
+    // After “Your note says something about you …” any new note (with or without a yes) is read the same way.
     if (cancel) {
       const plainYes = YES.test(text) && text.toLowerCase().replace(/[^\w’'\s]/g, ' ').split(/\s+/).filter(Boolean).every((w) => YES_FILLER.test(w) || CANCEL_FILLER.test(w));
       let studentNote = plainYes ? null : cancelNoteOf(text, { needYes: !note.noteAsked });
@@ -385,7 +389,7 @@ export async function staffTurn({ operationId, text, entryId, hubLink, bypass = 
           pendingNote = { ...note, at: Date.now() };
           return say(NOTE_TOO_LONG, { check: 'note_too_long' });
         }
-        if (notePrivate(studentNote)) {
+        if (noteNeedsAsking(studentNote)) {
           pendingNote = { ...note, at: Date.now(), noteAsked: true };
           return say(NOTE_PRIVATE, { check: 'note_private' });
         }

@@ -1354,7 +1354,7 @@ test('owner 2026-11-04 + review A4: choosing the class for a held message confir
 // ---- Review A5 + C12: the cancellation with time, room and an optional note ------------------------------------------
 const CANCELLED = 'Marketing 351 (10:00–10:50 AM, Mihaylo Hall 2405) is cancelled on Fri, Nov 6.';
 const COUNTS = "25 students notified.";
-const NOTE_PRIVATE = 'Your note mentions your leave. Send the cancellation without the note? Reply yes, or write a new note.';
+const NOTE_PRIVATE = 'Your note talks about you, and all your students would read it. Send the cancellation without the note? Reply yes, or write a new note about the class.';
 const cancelPosts = async () => (await state()).lessons.filter((l) => l.title === 'Class cancelled').map((l) => l.text);
 
 test('review A5: “yes” + a note sends the cancellation with the note as its own paragraph; the chat states the counts', async () => {
@@ -1396,6 +1396,28 @@ test('review A5: a note that names his illness, leave or a relative is never sen
     assert.equal(yes.action, 'post', words);
     assert.deepEqual(await cancelPosts(), [CANCELLED], `${words}: sent without the note`);
   }
+});
+
+// Live check 2026-11-05: “yes, I have bronchitis so please be patient” was sent to all 25 — the illness list didn't know
+// the word. A note about himself now needs the staff classifier to call it a class message (mock heuristic here).
+test('review A5: a note about himself (an illness no word list knows, or anything with I / me / my) is asked about, never sent', async () => {
+  for (const words of ['yes, I have bronchitis so please be patient', "yes, I'm recovering from a minor procedure", 'yes, I am not feeling great, sorry everyone', 'yes, my migraine is back', 'yes, I have a bad case of strep throat', "yes, I'll hold extra office hours on Friday"]) {
+    await noteOffer();
+    const r = await say(words);
+    assert.equal(r.reply, NOTE_PRIVATE, words);
+    assert.deepEqual(await cancelPosts(), [], `${words}: nothing sent`);
+    assert.equal((await say('yes')).action, 'post', words);
+    assert.deepEqual(await cancelPosts(), [CANCELLED], `${words}: sent without the note`);
+  }
+});
+
+// Live check 2026-11-05: “Thanks” while an offer waited was re-asked “… Reply yes or no.”
+test('a plain “Thanks” while the cancellation offer waits is answered “You\'re welcome.” and the offer still takes a yes', async () => {
+  await noteOffer();
+  assert.equal((await say('Thanks')).reply, "You're welcome.");
+  assert.deepEqual(await cancelPosts(), []);
+  assert.equal((await say('yes')).action, 'post');
+  assert.deepEqual(await cancelPosts(), [CANCELLED]);
 });
 
 test('review A5: after the leave question a new note (no yes needed) is sent; another private one asks again; no declines', async () => {
