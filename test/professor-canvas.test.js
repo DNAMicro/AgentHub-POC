@@ -82,10 +82,13 @@ async function scriptedCanvas(t, mode) {
     const handler = async () => {
       if (mode === 'throw') throw new Error('boom');
       if (mode === 'empty') return { content: [{ type: 'text', text: '{}' }], structuredContent: {} };
+      if (mode === 'badrows') return { content: [{ type: 'text', text: 'x' }], structuredContent: { students: [{ studentId: 'student-a b!', name: 'X' }], receipt: { count: 1 } } };
+      if (mode === 'norows') return { content: [{ type: 'text', text: 'x' }], structuredContent: { receipt: { count: 0 } } };
       return { content: [{ type: 'text', text: 'ok' }] };
     };
     mcp.registerTool('create_quiz', { description: 'x', inputSchema: { courseId: z.string(), quiz: z.any(), operationId: z.string() } }, handler);
     mcp.registerTool('publish_quiz', { description: 'x', inputSchema: { courseId: z.string(), quizId: z.number(), operationId: z.string() } }, handler);
+    if (mode !== 'old') mcp.registerTool('list_course_students', { description: 'x', inputSchema: { courseId: z.string() } }, handler);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on('close', () => { transport.close(); mcp.close(); });
     await mcp.connect(transport);
@@ -195,4 +198,44 @@ test('the receipt never carries steps and the link stays cache-free', async (t) 
   const b = await link.createQuiz({ quiz: validQuiz(), operationId });
   assert.equal(JSON.stringify(a).includes('steps"'), false);
   assert.deepEqual(a.value.receipt, b.value.receipt);
+});
+
+// ---- review C15: the course list (moment "check") -----------------------------------------------------------------
+test('C15 listStudents picks list_course_students: 24 ids + names, steps stripped, canvasCount in telemetry', async (t) => {
+  const { canvas, rec, link } = await setup(t);
+  const r = await link.listStudents({ operationId: 'op-c15-check', runId: 'run-c15' });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.value.students.length, 24);
+  assert.ok(!r.value.students.some((x) => x.studentId === 'student-hana-yamamoto'));
+  assert.equal('steps' in r.value.receipt, false);
+  const started = rec.ofType('mcp_call_started')[0];
+  assert.deepEqual([started.data.tool, started.data.moment, started.runId], ['list_course_students', 'check', 'run-c15']);
+  const result = rec.ofType('mcp_call_result')[0];
+  assert.deepEqual([result.data.ok, result.data.canvasCount, result.data.quizId], [true, 24, null]);
+  assert.ok(!JSON.stringify(rec.events).includes('Alex Student'), 'no names in telemetry');
+  assert.equal((await canvasRecords(canvas)).length, 0, 'read-only: no quiz made');
+});
+
+test('C15 malformed course rows are uncertain (never a partial list)', async (t) => {
+  const link = await scriptedCanvas(t, 'badrows');
+  assert.deepEqual(await link.listStudents({}), { ok: false, outcome: 'uncertain' });
+});
+
+test('C15 a course answer without a student list is uncertain', async (t) => {
+  const link = await scriptedCanvas(t, 'norows');
+  assert.deepEqual(await link.listStudents({}), { ok: false, outcome: 'uncertain' });
+});
+
+test('C15 a Canvas without the tool: no call (tool_refused)', async (t) => {
+  const link = await scriptedCanvas(t, 'old');
+  assert.deepEqual(await link.listStudents({}), { ok: false, outcome: 'tool_refused' });
+});
+
+test('C15 no token: not_configured; Canvas stopped: unavailable', async (t) => {
+  const none = createCanvasLink({ url: 'http://127.0.0.1:9', token: '' });
+  assert.deepEqual(await none.listStudents({}), { ok: false, outcome: 'not_configured' });
+  await none.close();
+  const { canvas, link } = await setup(t);
+  await stopProcess(canvas);
+  assert.deepEqual(await link.listStudents({}), { ok: false, outcome: 'unavailable' });
 });

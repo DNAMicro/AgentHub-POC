@@ -364,7 +364,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
   let quizAsking = false; // professorState.professor.quizAsking: the assistant is still waiting for a topic
   let quizCard = null; // professorState.professor.quizCard: draft id, state, Canvas quiz number, counts (never questions or answers)
   const quiz = createQuizUi({
-    el, api, bubble, nameOf: (id) => nameOf(id), posts: () => [...posts.values()], studentCount: () => rosterCount, deliveryList,
+    el, api, bubble, nameOf: (id) => nameOf(id), knownName: (id) => knownName(id) ?? null, posts: () => [...posts.values()], studentCount: () => rosterCount, deliveryList,
     isShowing: () => !pv.view.hidden,
     sendTopic: (n, text) => sendTopicPick(n, text), // a chip tap is a structured pick: never typed text, never a reply to one student
     redraw: () => { lastRendered = ''; renderProfessor(); },
@@ -789,7 +789,9 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
   // Names for delivery rows the page can't label yet: one fetch at a time, only while the tab shows.
   async function loadNames() {
     if (pv.view.hidden || namesLoading) return;
-    const ids = [...[...posts.values()].flatMap((p) => p.deliveries ?? []), ...(quizCard?.deliveries ?? [])].map((d) => d?.studentId).filter((id) => id && !knownName(id));
+    // Also the students a Canvas-vs-roster comparison flagged on the quiz card (review C15: ids in the state, names here).
+    const flagged = [...(quizCard?.membership?.missing ?? []), ...(quizCard?.membership?.extra ?? [])].map((studentId) => ({ studentId }));
+    const ids = [...[...posts.values()].flatMap((p) => p.deliveries ?? []), ...(quizCard?.deliveries ?? []), ...flagged].map((d) => d?.studentId).filter((id) => id && !knownName(id));
     if (!ids.length || (ids.every((id) => namesTried.has(id)) && Date.now() - namesAsked < 15000)) return;
     namesLoading = true;
     namesAsked = Date.now();

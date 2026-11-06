@@ -915,7 +915,8 @@ scenes.push({
     });
     if (!drafted) return;
 
-    // (c) He edits the second question; the card keeps his change.
+    // (c) He edits the second question; the card keeps his change (review B8: the review step is visible).
+    let edited = false;
     await moment('He edits a question; his change stays on the card', async () => {
       const second = card.locator('.q-list > .q').nth(1);
       await click(second.locator('[data-act="edit"]'));
@@ -925,7 +926,8 @@ scenes.push({
       await press('End');
       await typeHere(' Choose the best answer.');
       await click(card.locator('.q-list > .q').nth(1).locator('[data-act="done"]'));
-      if (!(await seen(card.locator('.q-tag', { hasText: 'Edited by you' }), 5000))) problems.push('Step 16 · the question was not tagged “Edited by you”');
+      edited = await seen(card.locator('.q-tag', { hasText: 'Edited by you' }), 5000);
+      if (!edited) problems.push('Step 16 · the question was not tagged “Edited by you”');
     });
 
     // (d) Approve: Faculty's AI picks the Canvas tool, Canvas saves the quiz unpublished.
@@ -934,9 +936,12 @@ scenes.push({
       const approve = card.locator('[data-act="approve"]');
       if (!(await approve.isEnabled().catch(() => false))) { problems.push('Step 16 · Approve is disabled (the check line names why)'); return; }
       await click(approve);
-      saved = await seen(lms.filter({ hasText: /unpublished/i }), 120000);
-      if (saved) await moveTo(lms.first());
-      else problems.push('Step 16 · Canvas did not confirm the save (the card shows the reason)');
+      saved = await seen(lms.filter({ hasText: /Saved in Canvas as a draft/ }), 120000);
+      if (saved) {
+        await moveTo(lms.first());
+        // Review B8: the confirmation counts his edit — only if the edit really happened.
+        if (edited && !(await seen(lms.filter({ hasText: /1 edited by you/ }), 5000))) problems.push('Step 16 · the Canvas confirmation did not count his edit');
+      } else problems.push('Step 16 · Canvas did not confirm the save (the card shows the reason)');
     });
     if (!saved) return;
 

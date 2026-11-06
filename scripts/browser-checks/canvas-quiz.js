@@ -77,6 +77,21 @@ async (page) => {
   check('slip: title, badge, facts line', /Topic 8 Quiz: Segmentation & Targeting/.test(await card.locator('.q-slip .t').textContent()) && /Not in Canvas yet/.test(await card.locator('.state-badge').textContent()) && /^5 questions · 15 points · 10 minutes · 1 attempt · due Mon, Nov 9, 11:59 PM$/.test(await card.locator('.q-slip .m').textContent()), await card.locator('.q-slip .m').textContent());
   check('exactly one correct answer marked per question', await card.locator('.q-list > .q').evaluateAll((l) => l.every((q) => q.querySelectorAll('.opts li[data-correct]').length === 1)));
   check('ready line and Approve enabled', /✓\s*5 questions ready · 15 points/.test(await card.locator('.q-check').textContent()) && await card.locator('[data-act="approve"]').isEnabled());
+  // Review B9: the settings students will see are unmistakable — a heading over the inputs and the defaults in words.
+  check('B9: settings heading above the inputs', (await card.locator('.q-settings-head').textContent()) === 'Settings students will see — change any before approving');
+  check('B9: the lead says the defaults in words', (await card.locator('.q-defaults').textContent()) === 'Due Mon, Nov 9 at 11:59 PM, 10 minutes, 1 attempt, 3 points each — change any below.', await card.locator('.q-defaults').textContent());
+  const minutesBox = card.locator('.q-settings input[type="number"]').nth(1);
+  await minutesBox.fill('15');
+  check('B9: the sentence follows his change (15 minutes)', /^Due Mon, Nov 9 at 11:59 PM, 15 minutes, 1 attempt, 3 points each/.test(await card.locator('.q-defaults').textContent()));
+  await minutesBox.fill('10');
+  await card.screenshot({ path: `${SHOTS}/g1-b9-settings-desktop.png` });
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.waitForTimeout(400);
+  const narrow = await card.evaluate((c) => ({ overflow: c.scrollWidth - c.clientWidth, box: c.querySelector('.q-settings-box').getBoundingClientRect().width, card: c.getBoundingClientRect().width }));
+  check('B9: at 390 px the settings fit the card (no sideways overflow)', narrow.overflow <= 1 && narrow.box <= narrow.card, narrow);
+  await card.locator('.q-settings-box').screenshot({ path: `${SHOTS}/g1-b9-settings-390.png` });
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await page.waitForTimeout(300);
   await page.evaluate(() => { document.querySelector('#prof-log .quiz-card').__keep = 'same-element'; });
 
   // 3. Edit Q2; the Faculty view keeps refreshing (a snapshot every 3 s and a redraw when the chat grows): his edit stays.
@@ -189,7 +204,15 @@ async (page) => {
   check('his approval bubble counts what he changed', /Topic 8 Quiz: Segmentation & Targeting — 6 questions \(1 edited, 1 added, 1 removed by you\)/.test(approved), approved);
   const lms = page.locator('#prof-log .lms-card');
   const lmsText = await lms.textContent();
-  check('Canvas card: saved as an unpublished quiz — students can’t see it yet', /Saved in Canvas as an unpublished quiz — students can't see it yet\./.test(lmsText), lmsText);
+  check('B8: Canvas card counts his changes: “Saved in Canvas as a draft (6 questions, 1 edited and 1 added by you). Students can’t see it yet.”', /Saved in Canvas as a draft \(6 questions, 1 edited and 1 added by you\)\. Students can't see it yet\./.test(lmsText), lmsText);
+  // Review C15: Canvas's course list compared with the class roster, above Publish (not blocking it).
+  await page.waitForFunction(() => /isn't in Canvas yet: Hana Yamamoto/.test(document.querySelector('#prof-log .lms-card .lms-members')?.textContent ?? ''), null, { timeout: 30000 }).catch(() => {});
+  const members = ((await lms.locator('.lms-members').textContent().catch(() => '')) ?? '').trim();
+  check('C15: “1 enrolled student isn’t in Canvas yet: Hana Yamamoto. They won’t see this quiz until Canvas updates.”', members === "1 enrolled student isn't in Canvas yet: Hana Yamamoto. They won't see this quiz until Canvas updates.", members);
+  check('C15: the line sits above Publish, and Publish stays enabled', await lms.evaluate((c) => { const m = c.querySelector('.lms-members'); const b = c.querySelector('[data-act="publish"]'); return Boolean(m && b && (m.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)); }) && await lms.locator('[data-act="publish"]').isEnabled());
+  const stateText = JSON.stringify(await page.evaluate(async () => (await fetch('/api/professor/state')).json()));
+  check('C15: the shared state has the id but no name', stateText.includes('student-hana-yamamoto') && !stateText.includes('Yamamoto,') && !stateText.includes('Hana Yamamoto'));
+  await lms.screenshot({ path: `${SHOTS}/g1-c15-saved.png` });
   check('Canvas card: quiz #4821 · MKTG 351 (Fall 2026)', /#4821 · MKTG 351 \(Fall 2026\)/.test(lmsText));
   check('Canvas card: facts and due date', /6 · 18 points · 10 minutes · 1 attempt/.test(lmsText) && /Mon, Nov 9, 11:59 PM/.test(lmsText), lmsText);
   check('Canvas card: asks to publish, without a number until the class size is known', /Publish it now\? Publishing makes it visible in Canvas, and your students get a notification\./.test(lmsText), lmsText);
@@ -281,6 +304,22 @@ async (page) => {
   check('once the new draft exists, the newest list’s chips are disabled too', await page.locator('.tchip:not([disabled])').count() === 0);
   await page.locator('#prof-message').fill('');
   await page.locator('#prof-reply-clear').click();
+  // Review B7: his own edit makes two questions alike — a warning line, Approve still enabled.
+  const card9 = page.locator('#prof-log .quiz-card');
+  check('B7: no look-alike warning on a fresh draft', await card9.locator('.q-alike').isHidden());
+  const right1 = await card9.locator('.q-list > .q').nth(0).locator('.opts li[data-correct]').evaluate((li) => li.childNodes[li.childNodes.length - 1].textContent);
+  await card9.locator('.q-list > .q').nth(1).locator('[data-act="edit"]').click();
+  const q2edit = card9.locator('.q-list > .q.editing');
+  // Mark as correct the answer of Q2 that is Q1's right answer (or write it into Q2's correct slot when Q2 lacks it).
+  const texts2 = await q2edit.locator('.edit-opts input[type="text"]').evaluateAll((l) => l.map((x) => x.value.trim()));
+  const at = texts2.indexOf(right1.trim());
+  if (at >= 0) await q2edit.locator('.edit-opts input[type="radio"]').nth(at).check();
+  else await q2edit.locator('.edit-opts input[type="text"]').nth(await q2edit.locator('.edit-opts input[type="radio"]').evaluateAll((r) => r.findIndex((x) => x.checked))).fill(right1);
+  await q2edit.locator('[data-act="done"]').click();
+  const alike = (await card9.locator('.q-alike').textContent()) ?? '';
+  check('B7: “Questions 1 and 2 look alike.” after he makes Q2’s right answer the same as Q1’s', alike === 'Questions 1 and 2 look alike.', alike);
+  check('B7: Approve is not blocked by the warning', await card9.locator('[data-act="approve"]').isEnabled());
+  await card9.screenshot({ path: `${SHOTS}/g1-b7-alike.png` });
   await page.locator('#prof-log .quiz-card [data-act="discard"]').click();
   await page.waitForTimeout(800);
 
@@ -291,6 +330,8 @@ async (page) => {
   await page.getByRole('tab', { name: 'Faculty view' }).click();
   await page.waitForTimeout(1500);
   check('after New conversation no Canvas card is left to press', await page.locator('#prof-log .lms-card, #prof-log .quiz-card, #prof-log [data-act]').count() === 0);
+  check('D17: no “This draft was closed …” line anywhere in the Faculty view', !/closed when the app restarted/.test(await page.locator('#prof-log').textContent()));
+  await page.locator('#prof-log').screenshot({ path: `${SHOTS}/g1-d17-after-reset.png` });
 
   await student.close();
   const injected = errors.filter((e) => /status of 503/.test(e)); // the one 503 this check injects on purpose (step 7)

@@ -88,3 +88,70 @@ test('M-5: a question with an extra key is refused (only text, answers, correct 
   assert.equal(validExisting(['a']), true);
   assert.equal(validExisting('a'), false);
 });
+
+// ---- review B7: near-duplicate questions --------------------------------------------------------------------------
+import { similarTo, stemOverlap, lookAlikePairs, lookAlikeText, normAnswer, savedText } from '../src/quiz-rules.js';
+const mc = (text, right, wrong = ['Wrong one', 'Wrong two', 'Wrong three']) => ({ text, answers: [right, ...wrong], correct: 0 });
+
+test('B7 same right answer, different wording → duplicate (answer)', () => {
+  const a = mc('What is the definition of marketing?', 'Creating and delivering value to customers');
+  const b = mc('Which statement describes what marketers do?', 'creating and delivering value to customers.');
+  assert.equal(similarTo(b, a), 'answer');
+});
+test('B7 answers are normalised: case, punctuation, articles, spaces', () => {
+  assert.equal(normAnswer('  The Marketing   Mix! '), 'marketing mix');
+  assert.equal(normAnswer('A target-market'), 'target market');
+  assert.equal(similarTo(mc('Which tool sets the product, price, place and promotion?', 'The marketing mix'), mc('Which concept groups the four Ps together?', 'marketing mix.')), 'answer');
+});
+test('B7 same stem reordered → duplicate (stem)', () => {
+  assert.equal(similarTo(mc('Which segmentation base groups buyers by lifestyle?', 'Psychographic'), mc('By lifestyle, buyers are grouped with which segmentation base?', 'Lifestyle base')), 'stem');
+});
+test('B7 plural vs singular and -ing forms still match', () => {
+  assert.ok(stemOverlap('Which targets do marketers pick?', 'Which target does a marketer picking?') >= 0.6);
+  assert.equal(similarTo(mc('What are target markets?', 'Groups a firm serves'), mc('What is a target market?', 'The group of buyers chosen')), 'stem');
+});
+test('B7 two genuinely different questions on the same topic pass', () => {
+  const pairs = [
+    ['Which segmentation base groups customers by lifestyle and values?', 'Which segmentation base groups customers by age and income?'],
+    ['Which element of the marketing mix covers distribution channels?', 'Which element of the marketing mix covers advertising and sales promotion?'],
+    ['What does SWOT stand for?', 'Which part of a SWOT analysis looks at outside threats?'],
+    ['Which definition fits the term “Marketing”?', 'Which definition fits the term “Marketing mix”?'],
+  ];
+  for (const [x, y] of pairs) assert.equal(similarTo(mc(x, 'Answer A'), mc(y, 'Answer B')), null, `${x} | ${y}`);
+});
+test('B7 every topic’s own mock questions pass the near-duplicate rule (no false alarms)', () => {
+  for (const t of TOPICS) {
+    const qs = [
+      ...t.notes.map((n, i) => mc(`Which term matches: ${n.definition}?`, n.term, t.notes.filter((_, j) => j !== i).slice(0, 3).map((x) => x.term))),
+      ...t.notes.map((n, i) => mc(`Which definition fits the term “${n.term}”?`, n.definition, t.notes.filter((_, j) => j !== i).slice(0, 3).map((x) => x.definition))),
+    ];
+    assert.deepEqual(lookAlikePairs(qs), [], `topic ${t.n}`);
+  }
+});
+test('B7 a bare earlier text (Draft one more) is compared by stem only', () => {
+  assert.equal(similarTo(mc('What is a target market?', 'X'), 'What is the target market?'), 'stem');
+  assert.equal(similarTo(mc('What is a target market?', 'X'), 'Which pricing strategy skims the market?'), null);
+});
+test('B7 blank questions (an empty added row) never look alike', () => {
+  assert.equal(similarTo({ text: '', answers: ['', '', '', ''], correct: null }, { text: '', answers: ['', '', '', ''], correct: null }), null);
+  assert.deepEqual(lookAlikePairs([{ text: '', answers: ['', '', '', ''], correct: null }, { text: '  ', answers: ['', '', '', ''], correct: null }]), []);
+});
+test('B7 the card warning: pairs are 1-based, in order, one sentence each', () => {
+  const qs = [mc('Which pricing strategy starts high?', 'Skimming'), mc('Which channel is direct?', 'Direct'), mc('What is marketing?', 'Value'), mc('Define marketing.', 'Value')];
+  assert.deepEqual(lookAlikePairs(qs), [[3, 4]]);
+  assert.equal(lookAlikeText([[5, 6]]), 'Questions 5 and 6 look alike.');
+  assert.equal(lookAlikeText([[1, 2], [5, 6]]), 'Questions 1 and 2 look alike. Questions 5 and 6 look alike.');
+  assert.equal(lookAlikeText([]), '');
+});
+test('B7 his near-duplicate edits are not blocked: checkQuiz still passes (only exact repeats fail)', () => {
+  const qz = quizOf({ questions: [mc('What is the definition of marketing?', 'Value'), mc('Which statement defines marketing best?', 'Value')] });
+  assert.equal(checkQuiz(qz, NOV4).ok, true);
+});
+
+// ---- review B8: the confirmation sentence -----------------------------------------------------------------------
+test('B8 savedText says only real counts', () => {
+  assert.equal(savedText({ questions: 5 }), "Saved in Canvas as a draft (5 questions). Students can't see it yet.");
+  assert.equal(savedText({ questions: 5, edited: 1 }), "Saved in Canvas as a draft (5 questions, 1 edited by you). Students can't see it yet.");
+  assert.equal(savedText({ questions: 6, edited: 2, added: 1 }), "Saved in Canvas as a draft (6 questions, 2 edited and 1 added by you). Students can't see it yet.");
+  assert.equal(savedText({ questions: 1, added: 1 }), "Saved in Canvas as a draft (1 question, 1 added by you). Students can't see it yet.");
+});

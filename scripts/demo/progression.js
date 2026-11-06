@@ -614,14 +614,29 @@ async (page) => {
         await status(null);
         if (!drafted) { await cap(k, 'No draft this time', 'The model did not return a draft card within two minutes, so nothing was sent anywhere.'); await pause(5); return; }
         await show(card, 'The draft — not in Canvas yet', 12, [k, 'Drafted by the AI, decided by him', 'Each question is tagged Suggested. He can edit, remove, add or ask for one more. Approve stays disabled until every question passes the check.']);
+        // Review B8: the review step is visible — he rewrites one question before approving, so “Edited by you” shows.
+        const second = card.locator('.q-list > .q').nth(1);
+        await second.locator('[data-act="edit"]').click();
+        const box = card.locator('.q-list > .q.editing textarea');
+        let edited = false;
+        if (await box.waitFor({ state: 'visible', timeout: 5000 }).then(() => true, () => false)) {
+          await box.click();
+          await box.press('End');
+          await box.pressSequentially(' Choose the best answer.', { delay: TYPE_MS });
+          await card.locator('.q-list > .q.editing [data-act="done"]').click();
+          edited = await card.locator('.q-tag', { hasText: 'Edited by you' }).first().waitFor({ state: 'visible', timeout: 5000 }).then(() => true, () => false);
+        }
+        if (edited) await show(card.locator('.q-list > .q').nth(1), 'He edits a question', 8, [k, 'His review, on the card', 'He rewrites question 2; it is now tagged “Edited by you”. The settings students will see are above the questions — he can change any before approving.']);
+        else await cap(k, 'The edit did not take', 'The question row did not open for editing this time; the draft is unchanged.');
         const approve = card.locator('[data-act="approve"]');
         if (!(await approve.isEnabled().catch(() => false))) { await cap(k, 'Approve is disabled', 'The check line on the card names the first problem; the quiz does not go anywhere until it is fixed.'); await pause(5); return; }
         await approve.click();
         await status('Live: Faculty’s AI picks the Canvas tool, Canvas plans and saves…');
-        const saved = await lms.filter({ hasText: /unpublished/i }).first().waitFor({ state: 'visible', timeout: 120000 }).then(() => true, () => false);
+        const saved = await lms.filter({ hasText: /Saved in Canvas as a draft/ }).first().waitFor({ state: 'visible', timeout: 120000 }).then(() => true, () => false);
         await status(null);
         if (!saved) { await cap(k, 'Canvas did not confirm', 'The card shows the reason and keeps his edits; nothing is posted until Canvas confirms.'); await pause(6); return; }
-        await show(lms.first(), 'Saved in Canvas, unpublished', 12, [k, 'First MCP call', 'Students can’t see it yet. The Topology tab shows the call from Faculty to Canvas LMS.']);
+        const counted = edited && await lms.filter({ hasText: /1 edited by you/ }).count() > 0;
+        await show(lms.first(), 'Saved in Canvas, unpublished', 12, [k, 'First MCP call', `Students can’t see it yet.${counted ? ' The confirmation counts his edit (“1 edited by you”).' : ''} Canvas’s course list is checked against the class roster before he publishes. The Topology tab shows the calls from Faculty to Canvas LMS.`]);
         await tab('topology');
         await show(page.locator('#topo'), 'Canvas LMS: a system, not an agent', 8, [k, 'Canvas LMS on Topology', 'A tile with its own colour, no circle and no model box; the dash-dot line is MCP.']);
         await tab('professor');

@@ -98,6 +98,7 @@ export function rosterToolReply(body, picks = {}) {
 const CANVAS_PHRASES = [
   ['approve', /approved as an unpublished draft/i, 'create_quiz'],
   ['publish', /publish the saved quiz/i, 'publish_quiz'],
+  ['check', /list the students enrolled in the course/i, 'list_course_students'], // review C15
 ];
 export function canvasToolReply(body, picks = {}) {
   if (!body?.output_config?.format?.schema?.properties?.tool) return null;

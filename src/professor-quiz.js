@@ -3,7 +3,7 @@
 // The answer key (`correct`) is handed out only by draft(); card(), entries and telemetry never carry questions.
 import { randomUUID } from 'node:crypto';
 import { TOPICS, TERM, taughtTopics, isTaught, topicFromWords, countFromWords, asksQuiz, asksCovered, asksNextTopic, coveredText, dayLabel, pacificDate } from './course-schedule.js';
-import { defaultSettings, checkQuiz, validExisting } from './quiz-rules.js';
+import { defaultSettings, checkQuiz, validExisting, similarTo, savedText } from './quiz-rules.js';
 import { draftQuiz as realDraftQuiz, draftOne as realDraftOne } from './quiz-model.js';
 import { ROSTER_UNAVAILABLE_CODE } from './staff.js';
 
@@ -11,6 +11,8 @@ export const CLOSED_TEXT = 'This draft was closed when the app restarted.';
 export const NOT_CONNECTED_TEXT = "Canvas isn't connected, so nothing was sent.";
 export const DISCARDED_TEXT = 'This draft was discarded.';
 export const NOTICE_NO_LIST_TEXT = "Published in Canvas, but I couldn't get your class list, so students weren't told yet. Press Publish again in a moment — they're notified only once.";
+// Review C15: after Approve, Canvas's course membership is compared with the class roster (never blocks Publish).
+export const MEMBERSHIP_FAILED_TEXT = "I couldn't compare Canvas with your class roster just now.";
 export const NOTICE_FAILED_TEXT = 'Published in Canvas, but the class notice did not go out. Press Publish again to send it; students are notified only once.';
 const ASK_EXPIRES_MS = 15 * 60_000; // a waiting topic question, like the assistant's waiting meeting question
 // A topic chip's own text (the page sends it as a structured pick; this is the safety net for the text itself).
@@ -45,7 +47,9 @@ const timeLabel = (iso) => new Intl.DateTimeFormat('en-US', { timeZone: 'America
 const dueLabel = (iso) => `${dayLabel(pacificDate(new Date(iso)))}, ${timeLabel(iso)}`;
 const plural = (v, w) => `${v} ${w}${v === 1 ? '' : 's'}`;
 
-export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, draftOne = realDraftOne, now = () => new Date(), emit = () => {}, classCount = null } = {}) {
+// roster (optional): async () => [{ studentId, name }] | null — a FRESH class roster (CHRS, through the Hub). With it and
+// canvas.listStudents, every Approve that saves a quiz starts one comparison in the background (review C15).
+export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, draftOne = realDraftOne, now = () => new Date(), emit = () => {}, classCount = null, roster = null } = {}) {
   const drafts = new Map();
   const discarded = new Set(); // draft ids the professor discarded (approving one says so, not "restart")
   const ops = new Map(); // operationId -> { sig, promise, done, result }
@@ -132,7 +136,9 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
       return { action: 'quiz_draft_failed', reply: "I couldn't draft questions just now. Try again in a moment." };
     }
     const quiz = { topic: n, ...defaultSettings(n, clock()), questions: res.questions.map((q) => ({ ...q })) };
-    const draft = { draftId: `qd-${randomUUID().slice(0, 12)}`, topic: n, state: 'draft', quiz, canvasQuizId: null, receipt: null, deliveries: null, noticeSent: false, by: res.by, model: res.model, short: res.short ?? 0, wanted: count };
+    // offered: every question the assistant suggested for this draft (the first ones and each "Draft one more"), so Approve
+    // can count what he edited or added (review B8) and "Draft one more" can compare right answers (review B7).
+    const draft = { draftId: `qd-${randomUUID().slice(0, 12)}`, topic: n, state: 'draft', quiz, canvasQuizId: null, receipt: null, deliveries: null, noticeSent: false, by: res.by, model: res.model, short: res.short ?? 0, wanted: count, offered: res.questions.map((q) => ({ ...q })), changes: null, membership: null, memberNames: null };
     drafts.set(draft.draftId, draft);
     latest = draft.draftId;
     const t = TOPICS.find((x) => x.n === n);
@@ -159,19 +165,32 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
     // Mon, Nov 9, 11:59 PM." after a reload. Before that the state (pushed to every page's stream) carries no title.
     if (d.state === 'published') Object.assign(c, { title: String(d.quiz.title ?? ''), dueAt: d.quiz.dueAt ?? null, minutes: d.quiz.minutes ?? null, attempts: d.quiz.attempts ?? null });
     if (d.deliveries) c.deliveries = d.deliveries.map((x) => ({ studentId: x?.studentId ?? null, status: x?.status ?? x?.state ?? null }));
+    // Review B8: how many saved questions he edited or added (counts only).
+    if (d.changes) Object.assign(c, { edited: d.changes.edited, added: d.changes.added });
+    // Review C15: Canvas membership vs the class roster — counts and fictional student ids only (this summary is pushed to
+    // every page); the names are served to the Faculty view only (memberNames, through GET /author/roster/names).
+    if (d.membership) c.membership = structuredClone(d.membership);
     // Published in Canvas but the class notice did not go out: the card must say so and offer the retry, across redraws,
     // tab changes and reloads (the page reads this summary from /author/state). The sentence only, never a list or a name.
     if (d.state === 'published' && !d.noticeSent && d.noticeFailText) { c.noticePending = true; c.noticeText = d.noticeFailText; }
     return c;
   }
+  // Review D17: a draft closed by a reset is simply not shown any more — no "closed" line in the chat. It stays closed
+  // here, so it can never be approved or published.
   function reset() {
-    const entries = [];
+    let closed = 0;
     for (const d of drafts.values()) {
-      if (d.state !== 'closed') { entries.push({ role: 'assistant', text: CLOSED_TEXT, quiz: { draftId: d.draftId } }); d.state = 'closed'; }
+      if (d.state !== 'closed') { d.state = 'closed'; closed += 1; }
     }
     pendingQuiz = null;
     resetGen += 1;
-    return { closed: entries.length, entries };
+    return { closed, entries: [] };
+  }
+  // Names of the students the last comparison flagged (studentId → "First Last"), for the Faculty view only.
+  function memberNames() {
+    const out = {};
+    for (const d of drafts.values()) if (d.state !== 'closed' && d.memberNames) Object.assign(out, d.memberNames);
+    return out;
   }
 
   // ---- actions -----------------------------------------------------------------------------------------------
@@ -179,8 +198,60 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
   const closedResult = (d, draftId = null) => ({ ok: false, closed: true, state: 'closed', draftId: d?.draftId ?? draftId, text: d || !discarded.has(draftId) ? CLOSED_TEXT : DISCARDED_TEXT });
   const refuse = (d, code, text) => ({ ok: false, refused: true, code, state: d.state, draftId: d.draftId, text });
 
+  // Review B8: what he changed, counted by code against what the assistant suggested. A saved question identical to a
+  // suggestion is unchanged; one that still looks like a suggestion (same stem, same right answer, or 3 of its 4 answers)
+  // was edited; anything else he wrote himself (added). Removed questions are not counted here.
+  const sameQ = (a, b) => a.text.trim() === String(b.text ?? '').trim() && a.correct === b.correct && JSON.stringify(a.answers.map((x) => x.trim())) === JSON.stringify((b.answers ?? []).map((x) => String(x).trim()));
+  const answersShared = (a, b) => a.answers.filter((x) => (b.answers ?? []).some((y) => String(y).trim().toLowerCase() === x.trim().toLowerCase())).length;
+  function changesOf(d, questions) {
+    const offered = d.offered ?? [];
+    let edited = 0;
+    let added = 0;
+    for (const q of questions) {
+      if (offered.some((o) => sameQ(q, o))) continue;
+      if (offered.some((o) => similarTo(q, o) || answersShared(q, o) >= 3)) edited += 1;
+      else added += 1;
+    }
+    return { edited, added };
+  }
+
+  // Review C15: Canvas's course list vs a fresh class roster, compared by student id, in the background after Approve.
+  // Never blocks Publish. The result is counts + ids (card summary) and names in memory (memberNames, Faculty view only).
+  function startComparison(d, operationId) {
+    if (typeof canvas.listStudents !== 'function' || typeof roster !== 'function') return;
+    const runId = `prof-${operationId}-check`;
+    const gen = resetGen;
+    d.membership = { status: 'checking' };
+    d.memberNames = null;
+    (async () => {
+      let canvasList = null;
+      let people = null;
+      try {
+        const [c, r] = await Promise.all([
+          canvas.listStudents({ operationId: `${operationId}-check`, runId, isClosed: () => d.state === 'closed' }).catch(() => null),
+          Promise.resolve().then(() => roster()).catch(() => null),
+        ]);
+        if (c?.ok && Array.isArray(c.value?.students)) canvasList = c.value.students;
+        if (Array.isArray(r) && r.length) people = r;
+      } catch { /* reported as failed below */ }
+      if (gen !== resetGen || d.state === 'closed' || drafts.get(d.draftId) !== d) return;
+      if (!canvasList || !people) {
+        d.membership = { status: 'failed', text: MEMBERSHIP_FAILED_TEXT };
+        tell('quiz_membership', runId, { status: 'failed', canvasCount: canvasList ? canvasList.length : null, rosterCount: people ? people.length : null });
+        return;
+      }
+      const inCanvas = new Map(canvasList.map((x) => [x.studentId, x.name]));
+      const onRoster = new Map(people.map((x) => [x.studentId, x.name]));
+      const missing = [...onRoster.keys()].filter((id) => !inCanvas.has(id));
+      const extra = [...inCanvas.keys()].filter((id) => !onRoster.has(id));
+      d.membership = { status: 'ok', canvasCount: inCanvas.size, rosterCount: onRoster.size, missing, extra };
+      d.memberNames = Object.fromEntries([...missing.map((id) => [id, onRoster.get(id)]), ...extra.map((id) => [id, inCanvas.get(id)])]);
+      tell('quiz_membership', runId, { status: 'ok', canvasCount: inCanvas.size, rosterCount: onRoster.size, missingCount: missing.length, extraCount: extra.length });
+    })();
+  }
+
   async function approve(d, quiz, operationId, runId) {
-    if (d.state === 'saved' || d.state === 'kept' || d.state === 'published') return { ok: true, already: true, state: d.state, draftId: d.draftId, canvasQuizId: d.canvasQuizId, text: d.state === 'published' ? publishedText(d) : "Saved in Canvas as an unpublished quiz — students can't see it yet." };
+    if (d.state === 'saved' || d.state === 'kept' || d.state === 'published') return { ok: true, already: true, state: d.state, draftId: d.draftId, canvasQuizId: d.canvasQuizId, ...(d.changes ?? {}), text: d.state === 'published' ? publishedText(d) : savedText({ questions: d.quiz.questions.length, ...d.changes }) };
     if (d.state !== 'draft') return { ok: false, busy: true, state: d.state, draftId: d.draftId, text: 'Still working on this draft. Wait a moment.' };
     const checked = checkQuiz(quiz, clock());
     if (!checked.ok) return { ok: false, refused: true, code: checked.code, state: d.state, draftId: d.draftId, text: checked.problem, ...(checked.index === undefined ? {} : { index: checked.index }) };
@@ -199,12 +270,15 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
     d.canvasQuizId = receipt.quizId ?? null;
     d.receipt = receipt;
     d.state = 'saved';
+    d.changes = changesOf(d, d.quiz.questions);
+    startComparison(d, operationId);
     const n = typeof classCount === 'function' ? classCount() : null; // the real class size from CHRS, never the 2-person session list
+    const by = [d.changes.edited && `${d.changes.edited} edited`, d.changes.added && `${d.changes.added} added`].filter(Boolean).join(' and ');
     return {
-      ok: true, state: 'saved', draftId: d.draftId, canvasQuizId: d.canvasQuizId, courseLabel: receipt.courseLabel ?? null,
-      text: "Saved in Canvas as an unpublished quiz — students can't see it yet.",
+      ok: true, state: 'saved', draftId: d.draftId, canvasQuizId: d.canvasQuizId, courseLabel: receipt.courseLabel ?? null, ...d.changes,
+      text: savedText({ questions: d.quiz.questions.length, ...d.changes }),
       prompt: `Publish it now? Publishing makes it visible in Canvas, and ${Number.isInteger(n) ? `your ${n} ${n === 1 ? 'student' : 'students'}` : 'your students'} get a notification.`,
-      entries: [entry(d, `Saved in Canvas as quiz #${d.canvasQuizId}`)],
+      entries: [entry(d, `Saved in Canvas as quiz #${d.canvasQuizId} (${plural(d.quiz.questions.length, 'question')}${by ? `, ${by} by you` : ''}).`)],
     };
   }
 
@@ -266,12 +340,16 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
     const existing = body.existing ?? d.quiz.questions.map((q) => String(q?.text ?? ''));
     if (existing.length >= MAX_EXISTING) return refuse(d, 'bad_question', 'A quiz can have at most 20 questions.');
     let r;
-    try { r = await draftOne({ topic: d.topic, existing, emit: (type, data) => tell(type, runId, data) }); } catch { r = { question: null, by: 'model_failed' }; }
+    // The full questions (right answers included) the assistant suggested that are still in the quiz as he holds it.
+    const holding = new Set(existing.map((t) => String(t).trim().toLowerCase()));
+    const earlier = (d.offered ?? []).filter((q) => holding.has(String(q.text).trim().toLowerCase())).map((q) => ({ ...q }));
+    try { r = await draftOne({ topic: d.topic, existing, earlier, emit: (type, data) => tell(type, runId, data) }); } catch { r = { question: null, by: 'model_failed' }; }
     if (d.state === 'closed') return closedResult(d);
     if (!r?.question) {
       const failed = !r || r.by === 'model_failed';
       return { ok: false, retryable: failed, state: d.state, draftId: d.draftId, text: failed ? "I couldn't draft another question just now. Try again in a moment." : 'There are no more new questions in the notes for this topic.' };
     }
+    d.offered = [...(d.offered ?? []), { ...r.question }].slice(-60);
     return { ok: true, state: d.state, draftId: d.draftId, question: { ...r.question } };
   }
 
@@ -326,7 +404,7 @@ export function createQuizDesk({ canvas, createPost, draftQuiz = realDraftQuiz, 
     return promise;
   }
 
-  return { turn, action, draft, card, reset, pending: () => Boolean(asking()), topics: (highlight = null, count = 5) => {
+  return { turn, action, draft, card, reset, memberNames, pending: () => Boolean(asking()), topics: (highlight = null, count = 5) => {
     if (!taughtTopics(clock()).length) return beforeTerm();
     const open = openDraft();
     if (open) return { action: 'quiz_draft_open', reply: openText(open) };

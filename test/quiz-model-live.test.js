@@ -16,7 +16,9 @@ const { TOPICS } = await import('../src/course-schedule.js');
 test.after(() => stub.close());
 
 // What the model returns now: the right answer and three wrong ones. It never says where the right one goes.
-const good = (i) => ({ text: `Sample question number ${i}, about segmentation?`, correct_answer: `Alpha ${i}`, wrong_answers: [`Beta ${i}`, `Gamma ${i}`, `Delta ${i}`] });
+// Each one about a different idea (review B7: near-duplicates are dropped), so the texts differ in more than a number.
+const IDEAS = ['geography', 'lifestyle', 'income', 'loyalty', 'benefits', 'occasion', 'usage', 'personality', 'culture', 'climate', 'gender', 'education'];
+const good = (i) => ({ text: `Sample ${IDEAS[(i - 1) % IDEAS.length]} question ${i}?`, correct_answer: `Alpha ${i}`, wrong_answers: [`Beta ${i}`, `Gamma ${i}`, `Delta ${i}`] });
 const bad = (i) => ({ text: `Q${i}`, correct_answer: 'a', wrong_answers: ['a', 'b', 'c'] });
 const recorder = () => { const ev = []; return { ev, emit: (type, data) => ev.push({ type, data }) }; };
 
@@ -165,4 +167,58 @@ test('I-2: draftOne places the answer by code too', async () => {
   const r = await draftOne({ topic: 8, existing: ['one?', 'two?', 'three?'] });
   assert.equal(r.question.correct, 3); // position = the number of questions already in the quiz, mod 4
   assert.equal(r.question.answers[3], 'Alpha 9');
+});
+
+// ---- review B7: near-duplicates are dropped like any other bad question ------------------------------------------
+const same = (i, text, answer) => ({ text, correct_answer: answer, wrong_answers: [`Wrong ${i}a`, `Wrong ${i}b`, `Wrong ${i}c`] });
+
+test('B7 two questions with the same right answer: the second is dropped, the repair asks for a different idea', async () => {
+  stub.reset();
+  stub.respondWith((body, n) => quizDraftReply(body, n === 1
+    ? [good(1), good(2), same(5, 'What is the definition of marketing?', 'Creating value for customers'), same(6, 'Which statement defines the job of marketers?', 'creating value for customers.')]
+    : [good(9)]));
+  const r = await draftQuiz({ topic: 8, count: 4 });
+  assert.equal(stub.requests.length, 2, 'one repair call');
+  assert.equal(r.questions.length, 4);
+  assert.equal(r.questions.filter((q) => /creating value/i.test(q.answers[q.correct])).length, 1);
+  const repair = JSON.stringify(stub.requests[1].body.messages.at(-1));
+  assert.match(repair, /same correct answer as another question/);
+});
+
+test('B7 a reworded repeat of a stem is dropped; repair still short → "drafted N of M"', async () => {
+  stub.reset();
+  stub.respondWith((body, n) => quizDraftReply(body, n === 1
+    ? [same(1, 'Which segmentation base groups buyers by lifestyle?', 'Psychographic'), same(2, 'By lifestyle, buyers are grouped with which segmentation base?', 'Lifestyle base')]
+    : [same(3, 'Which base of segmentation groups buyers by their lifestyle?', 'Lifestyle grouping')]));
+  const r = await draftQuiz({ topic: 8, count: 2 });
+  assert.equal(r.questions.length, 1);
+  assert.equal(r.short, 1);
+});
+
+test('B7 the repair is checked against the questions already kept (not only against itself)', async () => {
+  stub.reset();
+  stub.respondWith((body, n) => quizDraftReply(body, n === 1 ? [same(1, 'What is a target market?', 'The buyers a firm chooses to serve'), bad(2)] : [same(3, 'Which group is the target market?', 'the buyers a firm chooses to serve')]));
+  const r = await draftQuiz({ topic: 8, count: 2 });
+  assert.equal(r.questions.length, 1);
+});
+
+test('B7 the prompt tells the model: a different idea each, never the same correct answer twice', async () => {
+  stub.reset();
+  stub.respondWith((body) => quizDraftReply(body, [good(1)]));
+  await draftQuiz({ topic: 8, count: 1 });
+  assert.match(String(stub.requests[0].body.system), /Every question must test a different idea/);
+  assert.match(String(stub.requests[0].body.system), /never two questions with the same correct answer/);
+});
+
+test('B7 draftOne: a near-duplicate of an existing text, or the same right answer as an earlier question, is null', async () => {
+  stub.reset();
+  stub.respondWith((body) => quizDraftReply(body, [same(1, 'What are target markets?', 'Chosen buyer groups')]));
+  assert.equal((await draftOne({ topic: 8, existing: ['What is a target market?'] })).question, null);
+  stub.respondWith((body) => quizDraftReply(body, [same(2, 'Which word names the buyers a firm decides to serve?', 'Target market')]));
+  const earlier = [{ text: 'What do we call the segment a firm picks?', answers: ['Target market', 'Niche', 'Mass', 'Cluster'], correct: 0 }];
+  assert.equal((await draftOne({ topic: 8, existing: [earlier[0].text], earlier })).question, null);
+  assert.match(JSON.stringify(stub.requests.at(-1).body), /its correct answer must not be the correct answer of any of them/);
+  // A genuinely different idea is kept.
+  stub.respondWith((body) => quizDraftReply(body, [same(3, 'Which pricing approach starts high and lowers over time?', 'Skimming')]));
+  assert.ok((await draftOne({ topic: 8, existing: [earlier[0].text], earlier })).question);
 });

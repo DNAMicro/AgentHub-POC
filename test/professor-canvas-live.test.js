@@ -75,3 +75,29 @@ test('no tools listed, or an unknown moment: no model call, model_failed', async
   assert.equal((await chooseCanvasTool({ moment: 'nope', tools: ['create_quiz'] })).by, 'model_failed');
   assert.equal(stub.requests.length, 0);
 });
+
+// ---- review C15: the third moment ("check") ------------------------------------------------------------------------
+test('C15 live: the model picks list_course_students and the course list comes back', async (t) => {
+  const { link } = await setup(t);
+  stub.respondWith((body) => canvasToolReply(body));
+  const r = await link.listStudents({ runId: 'run-x' });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.value.students.length, 24);
+  assert.match(String(stub.requests[0].body.system), /list the students enrolled in the course in Canvas/);
+});
+
+test('C15 live: create_quiz picked at the check moment is refused, nothing called', async (t) => {
+  const { canvas, rec, link } = await setup(t);
+  stub.respondWith((body) => canvasToolReply(body, { check: 'create_quiz' }));
+  assert.deepEqual(await link.listStudents({}), { ok: false, outcome: 'tool_refused' });
+  const refused = rec.ofType('mcp_tool_refused')[0];
+  assert.deepEqual([refused.data.tool, refused.data.moment, refused.data.expected], ['create_quiz', 'check', 'list_course_students']);
+  assert.equal(rec.ofType('mcp_call_started').length, 0);
+  assert.equal((await canvasRecords(canvas)).length, 0);
+});
+
+test('C15 live: a failed tool choice at the check moment is tool_choice_failed', async (t) => {
+  const { link } = await setup(t);
+  stub.respondWith(() => ({ status: 500 }));
+  assert.deepEqual(await link.listStudents({}), { ok: false, outcome: 'tool_choice_failed' });
+});

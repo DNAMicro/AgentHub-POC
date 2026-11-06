@@ -10,7 +10,7 @@ import { TOPICS, dayLabel, taughtTopics } from '../src/course-schedule.js';
 
 const NOW = '2026-11-04T20:00:00Z'; // Wed Nov 4 2026, Pacific noon: topics 1-16 taught
 const MOCK = { hubEnv: { ROUTER_MODE: 'mock', HUB_STUDENTS: 'student-alex,student-sam' }, tutorEnv: { TUTOR_MODE: 'mock', TUTOR_SCOPE_ENFORCEMENT: 'off' } };
-const SAVED_TEXT = "Saved in Canvas as an unpublished quiz — students can't see it yet.";
+const SAVED_TEXT = "Saved in Canvas as a draft (5 questions). Students can't see it yet.";
 const TOPICS_REPLY = "Which topic should the quiz cover? Here's what Marketing 351 has covered so far — through Topic 16 (Tue, Nov 3).";
 let s;
 const stacks = [];
@@ -155,7 +155,7 @@ test('approve saves one unpublished quiz #4821; the same operationId is not a se
   assert.equal((await quizzes()).length, 1, 'one quiz in Canvas');
   const mine = (await state()).chat.filter((m) => m.quiz?.draftId === r.draftId && /Saved in Canvas/.test(m.text));
   assert.equal(mine.length, 1, 'the replay did not add a second chat entry');
-  assert.equal(mine[0].text, 'Saved in Canvas as quiz #4821');
+  assert.equal(mine[0].text, 'Saved in Canvas as quiz #4821 (5 questions).');
 
   // Direct to the Faculty agent (no UI check in between): a quiz on topic 19 is refused as not taught.
   const { r: r2 } = await (async () => { await act({ draftId: r.draftId, action: 'discard' }); return draftTopic8(); })();
@@ -265,7 +265,8 @@ test('New conversation mid-draft closes the card; Canvas is empty; the next quiz
   assert.equal(reset.professors[Object.keys(reset.professors)[0]] !== undefined, true);
   const st = await state();
   assert.equal(st.quizCard.state, 'closed');
-  assert.ok(st.chat.some((m) => m.text === 'This draft was closed when the app restarted.'));
+  assert.ok(!st.chat.some((m) => m.text === 'This draft was closed when the app restarted.'), 'review D17: no closed line in the chat');
+  assert.equal(st.chat.length, 0, 'the reset leaves an empty chat');
   assert.deepEqual(await quizzes(), []);
   assert.equal((await getDraft(r.draftId)).http, 404, 'a closed draft is not served');
   const late = await act({ draftId: r.draftId, action: 'publish' });
@@ -502,4 +503,79 @@ test('I-3 + M-1: "draft one more" is told his edited list; the key is not served
   await act({ draftId: r.draftId, action: 'approve', quiz: fullQuiz(d) });
   assert.equal((await getDraft(r.draftId)).http, 404, 'M-1: saved in Canvas, no key to fetch');
   assert.equal((await fetch(`${s.professor.url}/author/quiz/${r.draftId}`)).status, 404);
+});
+
+// ---- review fixes (G1): B8 counts, C15 Canvas vs the class roster ----------------------------------------------------
+const membershipOf = async (on = s) => (await state(on)).quizCard?.membership ?? null;
+const settledMembership = (on = s) => waitFor(async () => { const m = await membershipOf(on); return m && m.status !== 'checking' ? m : null; }, { what: 'Canvas vs roster comparison', timeout: 15000 });
+
+test('B8: the confirmation counts his edits and additions (real counts from code)', async () => {
+  const { r, d } = await draftTopic8();
+  const quiz = fullQuiz(d);
+  quiz.questions[1] = { ...quiz.questions[1], text: `${quiz.questions[1].text.replace(/\?$/, '')} in your own words?` };
+  quiz.questions.push({ text: 'A coffee chain targets frequent app users. Which basis of segmentation is this?', answers: ['Geographic', 'Demographic', 'Psychographic', 'Usage-rate'], correct: 3 });
+  const a = await act({ draftId: r.draftId, action: 'approve', quiz });
+  assert.equal(a.http, 200, JSON.stringify(a));
+  assert.equal(a.text, "Saved in Canvas as a draft (6 questions, 1 edited and 1 added by you). Students can't see it yet.");
+  assert.deepEqual([a.edited, a.added], [1, 1]);
+  const st = await state();
+  assert.deepEqual([st.quizCard.edited, st.quizCard.added], [1, 1]);
+  assert.ok(st.chat.some((m) => m.text === 'Saved in Canvas as quiz #4821 (6 questions, 1 edited and 1 added by you).'));
+});
+
+test('C15: after Approve, Canvas is compared with a fresh class roster: 1 enrolled student is not in Canvas yet', async () => {
+  const { r, d } = await draftTopic8();
+  await act({ draftId: r.draftId, action: 'approve', quiz: fullQuiz(d) });
+  const m = await settledMembership();
+  assert.deepEqual(m, { status: 'ok', canvasCount: 24, rosterCount: 25, missing: ['student-hana-yamamoto'], extra: [] });
+  const st = JSON.stringify(await state());
+  assert.ok(!st.includes('Yamamoto') && !st.includes('Hana '), 'no names in the shared state');
+  const names = await (await fetch(`${s.ui.url}/api/professor/roster/names`)).json();
+  assert.equal(names.names['student-hana-yamamoto'], 'Hana Yamamoto', 'the Faculty view resolves the name through the names path');
+  // Publish is not blocked by the mismatch.
+  const p = await act({ draftId: r.draftId, action: 'publish' });
+  assert.equal(p.http, 200, JSON.stringify(p));
+});
+
+test('C15: telemetry for the comparison carries counts only', async () => {
+  const stream = await openStream(s.ui.url);
+  try {
+    const { r, d } = await draftTopic8();
+    await act({ draftId: r.draftId, action: 'approve', quiz: fullQuiz(d) });
+    await settledMembership();
+    const ev = await waitFor(() => stream.events.find((e) => e.type === 'quiz_membership'), { what: 'quiz_membership event', timeout: 8000 });
+    assert.deepEqual([ev.data.status, ev.data.canvasCount, ev.data.rosterCount, ev.data.missingCount, ev.data.extraCount], ['ok', 24, 25, 1, 0]);
+    const all = JSON.stringify(stream.events);
+    assert.ok(!all.includes('Yamamoto') && !all.includes('student-hana-yamamoto'), 'no name or id in telemetry');
+    assert.ok(stream.events.some((e) => e.type === 'mcp_call_started' && e.data?.tool === 'list_course_students'));
+  } finally { stream.close(); }
+});
+
+test('C15: New conversation forgets the comparison; the next approval compares again', async () => {
+  const { r, d } = await draftTopic8();
+  await act({ draftId: r.draftId, action: 'approve', quiz: fullQuiz(d) });
+  await settledMembership();
+  await post(`${s.hub.url}/dev/classroom/reset`, {});
+  const names = await (await fetch(`${s.ui.url}/api/professor/roster/names`)).json();
+  assert.equal(names.names['student-hana-yamamoto'], undefined, 'a closed draft names nobody');
+  const { r: r2, d: d2 } = await draftTopic8();
+  await act({ draftId: r2.draftId, action: 'approve', quiz: fullQuiz(d2) });
+  assert.deepEqual((await settledMembership()).missing, ['student-hana-yamamoto']);
+});
+
+test('C15: CHRS down — "I couldn\'t compare …"; Canvas still publishes', async () => {
+  const own = await start({ chrs: true });
+  try {
+    const r0 = await say('make a quiz on segmentation', own);
+    const d0 = await getDraft(r0.draftId, own);
+    await stopProcess(own.chrs);
+    const a = await act({ draftId: r0.draftId, action: 'approve', quiz: fullQuiz(d0) }, own);
+    assert.equal(a.http, 200);
+    const m = await waitFor(async () => { const x = (await state(own)).quizCard?.membership; return x?.status === 'failed' ? x : null; }, { what: 'failed comparison', timeout: 70000 });
+    assert.equal(m.text, "I couldn't compare Canvas with your class roster just now.");
+    assert.equal(m.missing, undefined, 'no list on a failed comparison');
+    const p = await act({ draftId: r0.draftId, action: 'publish' }, own);
+    assert.ok(p.ok || p.published, JSON.stringify(p)); // published in Canvas (the class notice needs the roster too)
+    assert.equal((await quizzes(own))[0].published, true);
+  } finally { own.kill(); }
 });

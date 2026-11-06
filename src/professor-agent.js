@@ -308,7 +308,9 @@ const CANVAS_URL = process.env.CANVAS_URL ?? 'http://127.0.0.1:9';
 const canvasLink = createCanvasLink({ url: CANVAS_URL, token: process.env.CANVAS_TOKEN, emit: (type, runId, data) => emitViz(type, runId, data), timeoutMs: Number(process.env.CANVAS_TIMEOUT_MS ?? TIMEOUTS.professorCanvasCallMs) });
 // Part 17: the class roster (CHRS) lives in this process's memory only; the outbox keeps the chat line.
 const rosterDesk = createRosterDesk({ hubLink: { sendSigned: (...a) => hubLink.sendSigned(...a) }, conversationId: () => staffConversation(), emit: (type, data) => emitViz(type, null, data), readQuery: readRosterQuery });
-const quizDesk = createQuizDesk({ canvas: canvasLink, createPost: (a) => createPost({ ...a, source: 'chat', author: 'professor' }), now: nowFn(), emit: (type, runId, data) => emitViz(type, runId, data), classCount: () => rosterDesk.counts()?.count ?? null });
+// roster: review C15 — after Approve the desk compares Canvas's course list with a FRESH class roster (the roster desk's
+// signed CHRS request through the Hub; names stay in memory and reach only the Faculty view).
+const quizDesk = createQuizDesk({ canvas: canvasLink, createPost: (a) => createPost({ ...a, source: 'chat', author: 'professor' }), now: nowFn(), emit: (type, runId, data) => emitViz(type, runId, data), classCount: () => rosterDesk.counts()?.count ?? null, roster: () => rosterDesk.names({ operationId: `quiz-roster-${randomUUID().slice(0, 12)}`, fresh: true }) });
 
 // ---- the professor's chat ---------------------------------------------------------------------------------
 // Every decision the model makes is checked here before anything is sent:
@@ -823,7 +825,8 @@ function authorRouter() {
     return names;
   };
   // The names alone (no roster card needed): the Faculty view labels delivery rows with them.
-  router.get('/author/roster/names', async (req, res) => res.json({ names: deliveryNames(await hubView()) }));
+  // Also the names of students a Canvas-vs-roster comparison flagged (review C15), from the quiz desk's memory.
+  router.get('/author/roster/names', async (req, res) => res.json({ names: { ...deliveryNames(await hubView()), ...quizDesk.memberNames() } }));
   // R2 (round 2): the class's names and tags for the Faculty view's @-suggestions — names only (no email, no ID, no level,
   // no major), from the last roster lookup in memory or one lookup when there is none. Fetched by the Faculty view only.
   router.get('/author/roster/people', async (req, res) => {
@@ -841,10 +844,9 @@ function authorRouter() {
   // Demo reset (requested through the Hub when the Student starts a new conversation): the posted list
   // and the remembered conversations go; the professor sends again. (The browser keeps any unsent draft.)
   router.post('/author/reset', async (req, res) => {
-    const closed = quizDesk.reset(); // the quiz card closes first, so a call in flight sees isClosed() and Canvas's reset generation
+    quizDesk.reset(); // the quiz card closes first, so a call in flight sees isClosed() and Canvas's reset generation (review D17: no "closed" line in the chat)
     outbox.update((s) => {
       s.lessons = {}; s.operations = {}; s.chat = []; s.chatOps = {}; s.meetings = {}; s.pendingMeeting = null;
-      for (const e of closed.entries) s.chat.push({ id: `reset-${e.quiz.draftId}`, at: new Date().toISOString(), ...e });
     });
     resetGeneration += 1;
     recent.clear();

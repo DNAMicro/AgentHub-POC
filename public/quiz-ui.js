@@ -10,7 +10,7 @@
 //     choose a tool) keep the same operation ID, so pressing the button again can't post twice.
 // The answer key (which answer is correct) is fetched only by the Faculty view, only while it is showing, and
 // is never put on the student's page. Everything is set with textContent.
-import { checkQuiz, summaryLine } from '/shared/quiz-rules.js';
+import { checkQuiz, summaryLine, lookAlikePairs, lookAlikeText, savedText } from '/shared/quiz-rules.js';
 import { dayLabel, pacificDate } from '/shared/course-schedule.js';
 
 const RANK = { draft: 0, saving: 1, saved: 2, kept: 3, publishing: 4, published: 5 };
@@ -50,7 +50,39 @@ export function quizFactsLine(q, el) {
     el('b', { textContent: dueText(q.dueAt) }));
 }
 
-export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, deliveryList, isShowing, sendTopic, redraw, pin }) {
+// Review B9: the settings students will see, in words (from the values on the card right now).
+export function settingsText(q) {
+  const parts = [];
+  if (validDate(q?.dueAt)) parts.push(`Due ${dueDay(q.dueAt)} at ${timeFmt.format(new Date(q.dueAt)).replace(/ /g, ' ')}`);
+  if (Number.isInteger(q?.minutes)) parts.push(plural(q.minutes, 'minute'));
+  if (Number.isInteger(q?.attempts)) parts.push(plural(q.attempts, 'attempt'));
+  if (Number.isInteger(q?.pointsEach)) parts.push(`${plural(q.pointsEach, 'point')} each`);
+  return parts.length ? `${parts.join(', ')} — change any below.` : 'Fill in the settings below.';
+}
+
+// Review C15: Canvas's course list compared with the class roster (counts + ids from the card summary; names only when
+// the Faculty view has them). → [{ kind, text }] lines, or [] when there is nothing to say yet.
+export function membershipLines(m, knownName = () => null) {
+  if (!m || typeof m !== 'object') return [];
+  if (m.status === 'checking') return [{ kind: 'info', text: 'Comparing Canvas with your class roster…' }];
+  if (m.status !== 'ok') return [{ kind: 'warn', text: "I couldn't compare Canvas with your class roster just now." }];
+  const missing = Array.isArray(m.missing) ? m.missing : [];
+  const extra = Array.isArray(m.extra) ? m.extra : [];
+  const who = (ids) => { const names = ids.map((id) => knownName(id)); return names.every(Boolean) ? `: ${names.join(', ')}` : ''; };
+  if (!missing.length && !extra.length) return [{ kind: 'ok', text: `Canvas matches your class roster (${plural(m.rosterCount ?? m.canvasCount ?? 0, 'student')}).` }];
+  const out = [];
+  if (missing.length) {
+    const one = missing.length === 1;
+    out.push({ kind: 'warn', text: `${missing.length} enrolled ${one ? "student isn't" : "students aren't"} in Canvas yet${who(missing)}. They won't see this quiz until Canvas updates.` });
+  }
+  if (extra.length) {
+    const one = extra.length === 1;
+    out.push({ kind: 'warn', text: `${extra.length} ${one ? "student in Canvas isn't" : "students in Canvas aren't"} on your class roster${who(extra)}.` });
+  }
+  return out;
+}
+
+export function createQuizUi({ el, api, bubble, nameOf, knownName = () => null, posts, studentCount, deliveryList, isShowing, sendTopic, redraw, pin }) {
   const views = new Map(); // draftId -> view
   let seq = 0;
   let pass = 0; // one render pass of the chat; views not drawn in a pass are forgotten
@@ -150,6 +182,12 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, del
     v.ui.title.textContent = v.q.title || 'Untitled quiz';
     const c = checkLine(v);
     v.ui.check.replaceWith(v.ui.check = c.node);
+    // Review B7: questions that look alike (same right answer or a strongly overlapping question). A warning only — his
+    // questions are his choice, so Approve is never blocked by it.
+    const alike = lookAlikeText(lookAlikePairs(finalQuiz(v).questions));
+    v.ui.alike.hidden = !alike;
+    v.ui.alike.textContent = alike;
+    v.ui.defaults.textContent = settingsText(v.q);
     const off = v.busy || Boolean(v.discarded);
     v.ui.approve.disabled = !c.ok || off;
     v.ui.add.disabled = off;
@@ -223,7 +261,9 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, del
     const discard = el('button', { type: 'button', className: 'btn-link', dataset: { act: 'discard' }, textContent: 'Discard draft' });
     const check = el('span', { className: 'q-check' });
     const note = el('p', { className: 'q-error', hidden: true, role: 'status' });
-    v.ui = { title, meta, list, check, approve, add, more, discard, note };
+    const alike = el('p', { className: 'q-alike', hidden: true, role: 'status' });
+    const defaults = el('p', { className: 'q-defaults' });
+    v.ui = { title, meta, list, check, approve, add, more, discard, note, alike, defaults };
     add.addEventListener('click', () => {
       if (v.q.items.length >= 20) return;
       const item = { id: id(), text: '', answers: ['', '', '', ''], correct: null, tag: 'added', mode: 'edit', n: 0 };
@@ -238,12 +278,15 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, del
     discard.addEventListener('click', () => act(v, 'discard', {}, { ok: () => { v.discarded = true; } }));
     v.body = [
       head,
-      el('p', { className: 'q-lead', textContent: "Here's a draft. Change anything you like, then approve it to post it to Canvas." }),
+      el('p', { className: 'q-lead' }, "Here's a draft. Change anything you like, then approve it to post it to Canvas. ", defaults),
       el('section', { className: 'q-slip', ariaLabel: 'Summary' }, title, el('span', { className: 'state-badge', textContent: 'Not in Canvas yet' }), meta),
       el('p', { className: 'q-from', textContent: from }),
-      el('div', { className: 'q-settings' }, fld('Quiz title', inTitle), fld('Points each', inPoints), fld('Minutes', inMinutes), fld('Due (Pacific)', inDue), fld('Attempts', inAttempts)),
+      el('section', { className: 'q-settings-box', ariaLabel: 'Quiz settings' },
+        el('h4', { className: 'q-settings-head', textContent: 'Settings students will see — change any before approving' }),
+        el('div', { className: 'q-settings' }, fld('Quiz title', inTitle), fld('Points each', inPoints), fld('Minutes', inMinutes), fld('Due (Pacific)', inDue), fld('Attempts', inAttempts))),
       list,
       el('div', { className: 'add-row' }, add, more),
+      alike,
       el('div', { className: 'q-actions' }, approve, discard, check),
       note,
     ];
@@ -311,6 +354,7 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, del
       v.canvasQuizId = r.body.canvasQuizId ?? v.canvasQuizId;
       v.courseLabel = r.body.courseLabel ?? v.courseLabel;
       v.prompt = r.body.prompt ?? v.prompt;
+      if (Number.isInteger(r.body.edited)) v.changes = { edited: r.body.edited, added: r.body.added ?? 0 };
     } else {
       v.approving = false; // the card reopens with the plain sentence
       v.notice = { kind: r.retry ? 'warn' : 'bad', text: r.error };
@@ -371,7 +415,12 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, del
     let lead;
     if (published) lead = el('p', { className: 'msg-text', style: 'margin:2px 0 0' }, el('span', { className: 'state-badge lms', textContent: '● Published' }), ` ${title ? `${title} is` : 'The quiz is'} open in Canvas (quiz #${quizId})${dueAt ? `, due ${dueText(dueAt)}` : ''}.`);
     else if (st === 'kept') lead = el('p', { className: 'msg-text', style: 'margin:2px 0 0', textContent: `Kept as a draft in Canvas (quiz #${quizId}). Nobody was notified.` });
-    else lead = el('p', { className: 'msg-text', style: 'margin:2px 0 0' }, 'Saved in Canvas as an ', el('b', { textContent: 'unpublished' }), " quiz — students can't see it yet.");
+    else {
+      // Review B8: the confirmation counts what he edited or added — the server's counts (approve answer, then the summary).
+      const ch = Number.isInteger(card?.edited) ? { edited: card.edited, added: card.added ?? 0 } : v.changes ?? null;
+      const n = q ? q.questions.length : card?.questionCount;
+      lead = el('p', { className: 'msg-text', style: 'margin:2px 0 0', textContent: ch && Number.isInteger(n) ? savedText({ questions: n, ...ch }) : "Saved in Canvas as a draft. Students can't see it yet." });
+    }
     const rows = published ? null : el('dl', { className: 'lms-row' },
       el('dt', { textContent: 'Canvas quiz' }), el('dd', { className: 'mono', textContent: `#${quizId} · ${v.courseLabel ?? COURSE_LABEL}` }),
       ...(q ? [
@@ -385,6 +434,9 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, del
       ] : []));
     const kids = [head, lead];
     if (rows) kids.push(rows);
+    // Review C15: Canvas vs the class roster, above Publish (never blocks it).
+    const lines = membershipLines(card?.membership, knownName);
+    if (lines.length) kids.push(el('div', { className: 'lms-members', dataset: { members: card.membership.status } }, ...lines.map((x) => el('p', { className: 'lms-member', dataset: { kind: x.kind }, role: 'status', textContent: x.text }))));
     const publishBtn = el('button', { type: 'button', className: 'btn-primary lms', dataset: { act: 'publish' }, disabled: v.busy || st === 'publishing', textContent: 'Publish & notify students' });
     // Canvas published but the class notice did not go out (e.g. the class list was unavailable): Publish again sends only
     // the notice (Canvas is not published twice; the notice's operation id is fixed). A failed attempt keeps the sentence.
@@ -426,12 +478,15 @@ export function createQuizUi({ el, api, bubble, nameOf, posts, studentCount, del
   // → an array of nodes (maybe empty) for the entry, or null to draw the entry as an ordinary bubble.
   function entry(m, card, chat) {
     if (!isShowing()) return [];
+    if (m.text === CLOSED_TEXT) return []; // review D17: an older "closed" line is not shown either
     const draftId = m.quiz.draftId;
     const live = card?.draftId === draftId && card.state !== 'closed';
     if (m.action !== 'quiz_draft') return live ? [] : null; // the cards say what these entries say
+    // Review D17: a draft closed by a restart or reset is not drawn at all (no card, no "closed" line). The server keeps
+    // it closed, so it can never be approved or published.
     if (!live) {
       views.delete(draftId);
-      return chat.some((x) => x !== m && x.quiz?.draftId === draftId) ? [] : [bubble({ dir: 'info', speaker: 'professor', label: 'Course assistant · Quiz draft', at: m.at, text: CLOSED_TEXT })];
+      return [];
     }
     const v = view(draftId);
     v.at = v.at ?? m.at;

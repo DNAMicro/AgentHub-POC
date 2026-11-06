@@ -391,10 +391,12 @@ export async function readRosterQuery({ question, allowed, emit = () => {} }) {
 // Same contract as HR's chooseTool (src/hr-model.js): the Faculty AI returns a tool NAME only; code accepts it only
 // if it is in Canvas's tools/list and is the moment's own tool, and builds every argument itself. Mock: the
 // labelled heuristic picks the moment's tool. A failed call picks nothing (no fallback, no guessed tool).
-export const CANVAS_MOMENT_TOOL = { approve: 'create_quiz', publish: 'publish_quiz' };
+// check (review C15): right after Approve, read who is in the Canvas course to compare it with the class roster.
+export const CANVAS_MOMENT_TOOL = { approve: 'create_quiz', publish: 'publish_quiz', check: 'list_course_students' };
 const CANVAS_MOMENT_WORDS = {
   approve: 'save the quiz the faculty member just approved as an unpublished draft in Canvas.',
   publish: 'publish the saved quiz so students can see it in Canvas.',
+  check: 'list the students enrolled in the course in Canvas, to compare them with the class roster.',
 };
 const CANVAS_TOOL_TIMEOUT_MS = Number(process.env.PROFESSOR_CANVAS_TOOL_CHOICE_TIMEOUT_MS ?? TIMEOUTS.professorCanvasToolChoiceMs);
 const CANVAS_TOOL_PURPOSE = 'choose Canvas tool';

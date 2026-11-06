@@ -3,14 +3,19 @@
 // numbering from 4821. A retried operation ID can't create or publish twice while the process runs.
 // The answer key is kept here (a quiz needs it) but never leaves in a result or in list().
 import { checkQuiz } from './quiz-rules.js';
+import { CLASS_MEMBERS, ADDED_YESTERDAY } from './class-seed.js';
 
 export const CANVAS_REFUSAL_CODES = ['bad_question', 'bad_settings', 'due_in_past', 'unknown_course', 'unknown_quiz', 'operation_reused', 'reset_during_call', 'not_taught'];
 export const COURSE_ID = 'mkt-351';
 export const COURSE_LABEL = 'MKTG 351 (Fall 2026)';
 const FIRST_QUIZ = 4821;
+// Review C15: who is in the Canvas course (student id + display name; never an email or a campus ID). Seeded on every
+// start and reset from the shared fictional seed, minus the student added in the records system yesterday (Canvas syncs
+// overnight) — one realistic mismatch for the Faculty agent's comparison to find.
+const seedMembers = () => CLASS_MEMBERS.filter(([id]) => id !== ADDED_YESTERDAY).map(([studentId, first, last]) => ({ studentId, name: `${first} ${last}` }));
 
 export function createCanvasStore({ now = () => new Date() } = {}) {
-  const state = { quizzes: [], operations: new Map(), next: FIRST_QUIZ, generation: 0 }; // Map: any operation id string is a plain key
+  const state = { quizzes: [], operations: new Map(), next: FIRST_QUIZ, generation: 0, members: seedMembers() }; // Map: any operation id string is a plain key
   const fail = (code, reason) => ({ ok: false, code, reason });
   const view = (r) => ({ quizId: r.quizId, courseId: r.courseId, courseLabel: r.courseLabel, published: r.published, title: r.title, questionCount: r.questionCount, pointsTotal: r.pointsTotal, minutes: r.minutes, attempts: r.attempts, dueAt: r.dueAt });
 
@@ -50,6 +55,11 @@ export function createCanvasStore({ now = () => new Date() } = {}) {
       state.operations.set(operationId, { request, result });
       return result;
     },
+    // Review C15: the course's students (read-only). A copy, sorted as seeded.
+    students({ courseId } = {}) {
+      if (courseId !== COURSE_ID) return fail('unknown_course', 'Canvas has no such course.');
+      return { ok: true, students: state.members.map((m) => ({ ...m })) };
+    },
     // Public view of every quiz (no questions, no answer key), oldest first.
     list: () => state.quizzes.map(view),
     // Demo reset (New conversation): empty, numbering back to 4821.
@@ -57,6 +67,7 @@ export function createCanvasStore({ now = () => new Date() } = {}) {
       state.quizzes = [];
       state.operations = new Map();
       state.next = FIRST_QUIZ;
+      state.members = seedMembers();
       state.generation += 1;
     },
   };

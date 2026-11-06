@@ -202,6 +202,13 @@ export function createCanvasLink({ url, token, emit = () => {}, timeoutMs = TIME
     }
     if (!value || typeof value !== 'object' || !value.receipt || typeof value.receipt !== 'object') return done({ ok: false, outcome: 'uncertain' });
     const receipt = value.receipt;
+    // Review C15: the course list. Only well-formed rows (a student id and a name) count; a malformed list is uncertain.
+    if (moment === 'check') {
+      const rows = Array.isArray(value.students) ? value.students : null;
+      if (!rows || rows.length > 500 || !rows.every((x) => x && typeof x.studentId === 'string' && /^[\w-]{1,64}$/.test(x.studentId) && typeof x.name === 'string' && x.name.length <= 120)) return done({ ok: false, outcome: 'uncertain' });
+      const students = rows.map((x) => ({ studentId: x.studentId, name: x.name }));
+      return done({ ok: true, value: { receipt: withoutSteps(receipt), students } }, { canvasCount: students.length, stepCount: receipt.stepCount ?? null });
+    }
     return done({ ok: true, value: { receipt: withoutSteps(receipt) } }, { quizId: receipt.quizId ?? null, stepCount: receipt.stepCount ?? (Array.isArray(receipt.steps) ? receipt.steps.length : null) });
   }
 
@@ -212,6 +219,8 @@ export function createCanvasLink({ url, token, emit = () => {}, timeoutMs = TIME
     // quiz: the Faculty's checked quiz { title, questions, settings... } (built by code) -> value { receipt }
     createQuiz: ({ quiz, operationId, runId, isClosed }) => call('approve', { courseId: COURSE_ID, quiz, operationId }, { runId, operationId, isClosed }),
     publishQuiz: ({ quizId, operationId, runId, isClosed }) => call('publish', { courseId: COURSE_ID, quizId, operationId }, { runId, operationId, isClosed }),
+    // Review C15: -> value { receipt, students: [{ studentId, name }] } (read-only; nothing to dedupe).
+    listStudents: ({ operationId = null, runId, isClosed } = {}) => call('check', { courseId: COURSE_ID }, { runId, operationId, isClosed }),
     // Shutdown: end the MCP session at Canvas (DELETE), then close the client. Best effort and bounded.
     async close() {
       warmStopped = true;

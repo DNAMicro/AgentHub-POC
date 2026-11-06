@@ -1,4 +1,4 @@
-// Canvas LMS stand-in MCP server: two tools, a token, a reset. Mock planner only; no network.
+// Canvas LMS stand-in MCP server: three tools, a token, a reset. Mock planner only; no network.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -24,10 +24,10 @@ const q = (i) => ({ text: `${QUESTION} (variant ${i})`, answers: ['Alpha', 'Beta
 const quiz = (extra = {}) => ({ topic: 1, ...defaultSettings(1, new Date(NOW)), questions: [q(1), q(2), q(3)], ...extra });
 const create = (c, over = {}) => c.callTool({ name: 'create_quiz', arguments: { courseId: 'mkt-351', quiz: quiz(), operationId: 'create-0001', ...over } });
 
-test('lists exactly two tools with the stand-in prefix', async () => {
+test('lists exactly three tools with the stand-in prefix', async () => {
   const c = await connect();
   const { tools } = await c.listTools();
-  assert.deepEqual(tools.map((t) => t.name).sort(), ['create_quiz', 'publish_quiz']);
+  assert.deepEqual(tools.map((t) => t.name).sort(), ['create_quiz', 'list_course_students', 'publish_quiz']);
   for (const t of tools) assert.match(t.description, /^Demo stand-in for Canvas LMS:/);
   await c.close();
 });
@@ -205,4 +205,48 @@ test('CANVAS_NOW is ignored without the test hook, and an invalid one refuses to
   p.stdout.on('data', (d) => (out += d)); p.stderr.on('data', (d) => (out += d));
   assert.equal(await new Promise((r) => p.on('exit', r)), 1);
   assert.match(out, /CANVAS_NOW must be an ISO date-time/);
+});
+
+// ---- review C15: list_course_students -----------------------------------------------------------------------------
+const listStudents = (c, courseId = 'mkt-351') => c.callTool({ name: 'list_course_students', arguments: { courseId } });
+
+test('C15 list_course_students: 24 students (the one added yesterday is missing), ids + names only, steps kept inside', async () => {
+  await reset();
+  const c = await connect();
+  const r = await listStudents(c);
+  assert.notEqual(r.isError, true, JSON.stringify(r));
+  const { students, receipt } = r.structuredContent;
+  assert.equal(students.length, 24);
+  assert.ok(!students.some((x) => x.studentId === 'student-hana-yamamoto'), 'Canvas syncs overnight: not there yet');
+  assert.ok(students.some((x) => x.studentId === 'student-alex' && x.name === 'Alex Student'));
+  for (const x of students) assert.deepEqual(Object.keys(x).sort(), ['name', 'studentId']);
+  assert.ok(!/888\d{6}|@/.test(JSON.stringify(students)), 'no campus IDs or emails in Canvas');
+  assert.equal(receipt.count, 24);
+  assert.equal(receipt.stepCount, receipt.steps.length);
+  await c.close();
+});
+
+test('C15 list_course_students: an unknown course is a refusal with a code from the fixed set', async () => {
+  const c = await connect();
+  const r = await listStudents(c, 'mkt-999');
+  assert.equal(r.isError, true);
+  assert.equal(r.structuredContent.code, 'unknown_course');
+  await c.close();
+});
+
+test('C15 list_course_students: read-only (creating a quiz does not change it) and a reset reseeds the same 24', async () => {
+  await reset();
+  const c = await connect();
+  const before = (await listStudents(c)).structuredContent.students;
+  await create(c, { operationId: 'create-c15-1' });
+  await reset();
+  const c2 = await connect();
+  const after = (await listStudents(c2)).structuredContent.students;
+  assert.deepEqual(after, before);
+  await c.close();
+  await c2.close();
+});
+
+test('C15 list_course_students: needs the token', async () => {
+  await assert.rejects(() => connect('wrong-token'));
 });

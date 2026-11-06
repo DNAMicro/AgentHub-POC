@@ -54,3 +54,14 @@ test('unknown topic: nothing drafted', async () => {
   assert.equal(r.questions.length, 0);
   assert.equal(r.short, 5);
 });
+
+test('B7 mock draftOne skips a suggestion that looks like one already in the quiz', async () => {
+  const { draftQuiz: dq, draftOne: d1 } = await import('../src/quiz-model.js');
+  const five = (await dq({ topic: 8, count: 5 })).questions;
+  // He reworded the first question; the mock must not offer anything that repeats it or the others.
+  const existing = [five[0].text.replace('Which term matches:', 'Which term fits:'), ...five.slice(1).map((q) => q.text)];
+  const r = await d1({ topic: 8, existing, earlier: five });
+  assert.ok(r.question);
+  const { similarTo } = await import('../src/quiz-rules.js');
+  assert.ok(![...existing, ...five].some((o) => similarTo(r.question, o)));
+});

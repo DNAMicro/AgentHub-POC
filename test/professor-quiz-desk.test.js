@@ -118,9 +118,10 @@ test('approve: saved unpublished, Canvas gets the checked quiz, exact copy, outc
   assert.equal(r.ok, true);
   assert.equal(r.state, 'saved');
   assert.equal(r.canvasQuizId, 4821);
-  assert.equal(r.text, "Saved in Canvas as an unpublished quiz — students can't see it yet.");
+  assert.equal(r.text, "Saved in Canvas as a draft (4 questions). Students can't see it yet.");
   assert.equal(r.prompt, 'Publish it now? Publishing makes it visible in Canvas, and your students get a notification.');
-  assert.deepEqual(r.entries.map((e) => e.text), ['Saved in Canvas as quiz #4821']);
+  assert.deepEqual(r.entries.map((e) => e.text), ['Saved in Canvas as quiz #4821 (4 questions).']);
+  assert.deepEqual([r.edited, r.added], [0, 0]);
   assert.equal(s.calls.create.length, 1);
   assert.equal(s.calls.create[0].runId, 'prof-op-a1');
   assert.equal(s.desk.card().state, 'saved');
@@ -382,7 +383,7 @@ test('Review 3: reset mid-draft closes the card; the next draft has a different 
   await s.desk.action({ draftId: first.draftId, operationId: 'op-a', action: 'approve', quiz: fullQuiz(s, first.draftId) });
   const rs = s.desk.reset();
   assert.equal(rs.closed, 1);
-  assert.equal(rs.entries[0].text, CLOSED_TEXT);
+  assert.deepEqual(rs.entries, [], 'review D17: no "closed" line goes into the chat');
   assert.equal(CLOSED_TEXT, 'This draft was closed when the app restarted.');
   assert.equal(s.desk.card().state, 'closed');
   const late = await s.desk.action({ draftId: first.draftId, operationId: 'op-late', action: 'publish' });
@@ -433,7 +434,7 @@ test('Review 5: card() and every entry carry no answer key at any depth; draft()
     const k = keys(v);
     for (const bad of ['correct', 'answers', 'questions', 'text_']) assert.ok(!k.has(bad), `${bad} leaked`);
   }
-  assert.deepEqual(Object.keys(s.desk.card()).sort(), ['canvasQuizId', 'deliveries', 'draftId', 'pointsTotal', 'questionCount', 'state', 'topic']); // closed by the reset: no title (round 2 R6 adds it only while published)
+  assert.deepEqual(Object.keys(s.desk.card()).sort(), ['added', 'canvasQuizId', 'deliveries', 'draftId', 'edited', 'pointsTotal', 'questionCount', 'state', 'topic']); // closed by the reset: no title (round 2 R6 adds it only while published)
 });
 
 test('telemetry carries ids, counts, outcome and code only: no question, answer or title text', async () => {
@@ -668,4 +669,160 @@ test('owner 2026-11-05: "what topics have we covered so far?" is answered from t
 test('course progress before the term starts and after it ends', async () => {
   assert.equal((await setup({ now: new Date('2026-08-01T20:00:00Z') }).desk.turn('what have we covered?')).reply, 'No Marketing 351 topics have been taught yet this term — the first class is Tue, Aug 25.');
   assert.match((await setup({ now: new Date('2026-12-30T20:00:00Z') }).desk.turn('which topics have I taught?')).reply, /^Marketing 351 has covered all 20 topics this term\.\n/);
+});
+
+// ---- review fixes (G1) ----------------------------------------------------------------------------------------------
+const flush = () => new Promise((r) => setTimeout(r, 5));
+const ROSTER = [['student-alex', 'Alex Student'], ['student-sam', 'Sam Student'], ['student-hana-yamamoto', 'Hana Yamamoto']].map(([studentId, name]) => ({ studentId, name }));
+function c15({ canvasList = ROSTER.slice(0, 2), canvasResult = null, roster = async () => ROSTER, now = NOW } = {}) {
+  const s = setup({ now });
+  const events = s.events;
+  const listCalls = [];
+  s.desk = createQuizDesk({
+    canvas: {
+      createQuiz: async (a) => ({ ok: true, value: { receipt: { quizId: 4821, courseLabel: 'MKTG 351 (Fall 2026)', questionCount: a.quiz.questions.length } } }),
+      publishQuiz: async (a) => ({ ok: true, value: { receipt: { quizId: a.quizId, published: true } } }),
+      listStudents: async (a) => { listCalls.push(a); return canvasResult ?? { ok: true, value: { receipt: {}, students: canvasList } }; },
+    },
+    createPost: async () => ({ http: 200, body: { ack: { status: 'accepted', deliveries: [] } } }),
+    draftQuiz: async ({ count }) => ({ questions: Array.from({ length: count }, (_, i) => mkQ(i + 1)), by: 'mock', model: 'm', short: 0 }),
+    draftOne: async ({ existing }) => ({ question: { ...mkQ(70 + existing.length), text: `An extra question number ${existing.length} here?` }, by: 'mock', model: 'm' }),
+    now: () => now, emit: (type, runId, data) => events.push({ type, runId, data }), roster,
+  });
+  return { ...s, listCalls };
+}
+const approveIt = async (s, draftId, edit = (q) => q, op = 'op-a') => s.desk.action({ draftId, operationId: op, action: 'approve', quiz: edit(fullQuiz(s, draftId)) });
+const settled = async (s) => { for (let i = 0; i < 50 && s.desk.card()?.membership?.status === 'checking'; i += 1) await flush(); return s.desk.card().membership; };
+
+test('B8 counts: a reworded stem and a changed right answer are "edited"; a new question is "added"; removed is not counted', async () => {
+  const s = c15();
+  const { draftId } = await drafted(s);
+  const r = await approveIt(s, draftId, (q) => {
+    q.questions[0] = { ...q.questions[0], text: 'Which statement number 1 is correct here?' };
+    q.questions[1] = { ...q.questions[1], correct: (q.questions[1].correct + 1) % 4 };
+    q.questions.splice(2, 1);
+    q.questions.push({ text: 'A brand-new question he wrote himself today?', answers: ['w', 'x', 'y', 'z'], correct: 2 });
+    return q;
+  });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.deepEqual([r.edited, r.added], [2, 1]);
+  assert.equal(r.text, "Saved in Canvas as a draft (4 questions, 2 edited and 1 added by you). Students can't see it yet.");
+  assert.deepEqual([s.desk.card().edited, s.desk.card().added], [2, 1]);
+});
+
+test('B8 counts: a "Draft one more" suggestion kept as is counts as unchanged, not added', async () => {
+  const s = c15();
+  const { draftId } = await drafted(s);
+  const more = await s.desk.action({ draftId, operationId: 'op-m', action: 'one_more', existing: fullQuiz(s, draftId).questions.map((q) => q.text) });
+  const r = await approveIt(s, draftId, (q) => ({ ...q, questions: [...q.questions, more.question] }));
+  assert.deepEqual([r.edited, r.added], [0, 0]);
+  assert.equal(r.text, "Saved in Canvas as a draft (5 questions). Students can't see it yet.");
+});
+
+test('B7 desk: Draft one more gets the suggested questions still in his list (with right answers) as `earlier`', async () => {
+  const s = setup();
+  const seen = [];
+  s.desk = createQuizDesk({ canvas: {}, createPost: async () => ({}), draftQuiz: async ({ count }) => ({ questions: Array.from({ length: count }, (_, i) => mkQ(i + 1)), by: 'mock', short: 0 }), draftOne: async (a) => { seen.push(a); return { question: null, by: 'mock' }; }, now: () => NOW });
+  const { draftId } = await drafted(s);
+  const texts = fullQuiz(s, draftId).questions.map((q) => q.text);
+  await s.desk.action({ draftId, operationId: 'op-m1', action: 'one_more', existing: [texts[0], 'His own new question text?'] });
+  assert.deepEqual(seen[0].earlier.map((q) => q.text), [texts[0]]);
+  assert.equal(seen[0].earlier[0].answers.length, 4, 'right answers travel with the earlier question');
+});
+
+test('C15 match: Canvas and the roster agree → "matches" (counts only)', async () => {
+  const s = c15({ canvasList: ROSTER });
+  const { draftId } = await drafted(s);
+  await approveIt(s, draftId);
+  assert.deepEqual(await settled(s), { status: 'ok', canvasCount: 3, rosterCount: 3, missing: [], extra: [] });
+  assert.deepEqual(s.desk.memberNames(), {});
+});
+
+test('C15 one enrolled student missing from Canvas: their id in the card, their name only in memberNames()', async () => {
+  const s = c15();
+  const { draftId } = await drafted(s);
+  await approveIt(s, draftId);
+  const m = await settled(s);
+  assert.deepEqual([m.missing, m.extra, m.canvasCount, m.rosterCount], [['student-hana-yamamoto'], [], 2, 3]);
+  assert.ok(!JSON.stringify(s.desk.card()).includes('Hana'), 'no name in the card summary');
+  assert.deepEqual(s.desk.memberNames(), { 'student-hana-yamamoto': 'Hana Yamamoto' });
+  const ev = s.events.find((e) => e.type === 'quiz_membership');
+  assert.deepEqual(ev.data, { status: 'ok', canvasCount: 2, rosterCount: 3, missingCount: 1, extraCount: 0 });
+  assert.equal(ev.runId, 'prof-op-a-check');
+});
+
+test('C15 one extra student in Canvas who is not on the roster', async () => {
+  const s = c15({ canvasList: [...ROSTER, { studentId: 'student-dropped', name: 'Former Student' }] });
+  const { draftId } = await drafted(s);
+  await approveIt(s, draftId);
+  const m = await settled(s);
+  assert.deepEqual([m.missing, m.extra], [[], ['student-dropped']]);
+  assert.deepEqual(s.desk.memberNames(), { 'student-dropped': 'Former Student' });
+});
+
+test('C15 both: one missing and one extra', async () => {
+  const s = c15({ canvasList: [ROSTER[0], { studentId: 'student-x', name: 'X Person' }], roster: async () => ROSTER.slice(0, 2) });
+  const { draftId } = await drafted(s);
+  await approveIt(s, draftId);
+  const m = await settled(s);
+  assert.deepEqual([m.missing, m.extra, m.canvasCount, m.rosterCount], [['student-sam'], ['student-x'], 2, 2]);
+});
+
+test('C15 Canvas down or roster down → failed with the fixed sentence; Publish is not blocked', async () => {
+  for (const opts of [{ canvasResult: { ok: false, outcome: 'unavailable' } }, { roster: async () => null }, { roster: async () => { throw new Error('boom'); } }]) {
+    const s = c15(opts);
+    const { draftId } = await drafted(s);
+    await approveIt(s, draftId);
+    const m = await settled(s);
+    assert.deepEqual(m, { status: 'failed', text: "I couldn't compare Canvas with your class roster just now." });
+    assert.deepEqual(s.desk.memberNames(), {});
+    const p = await s.desk.action({ draftId, operationId: 'op-p', action: 'publish' });
+    assert.equal(p.ok, true);
+  }
+});
+
+test('C15 the comparison runs once per saved quiz (a replayed Approve does not ask again) and uses the check moment', async () => {
+  const s = c15();
+  const { draftId } = await drafted(s);
+  const quiz = fullQuiz(s, draftId);
+  await s.desk.action({ draftId, operationId: 'op-a', action: 'approve', quiz });
+  await s.desk.action({ draftId, operationId: 'op-a', action: 'approve', quiz }); // same operationId: the stored result
+  await s.desk.action({ draftId, operationId: 'op-a2', action: 'approve', quiz }); // already saved
+  await settled(s);
+  assert.equal(s.listCalls.length, 1);
+  assert.equal(s.listCalls[0].runId, 'prof-op-a-check');
+});
+
+test('C15 a reset while comparing leaves nothing behind; the closed draft names nobody', async () => {
+  let release;
+  const s = c15({ roster: () => new Promise((r) => { release = () => r(ROSTER); }) });
+  const { draftId } = await drafted(s);
+  await approveIt(s, draftId);
+  assert.equal(s.desk.card().membership.status, 'checking');
+  s.desk.reset();
+  release();
+  await flush();
+  assert.equal(s.desk.card().membership.status, 'checking', 'the late answer is ignored');
+  assert.deepEqual(s.desk.memberNames(), {});
+});
+
+test('C15 without listStudents or roster (older wiring) no comparison is started', async () => {
+  const s = setup();
+  const { draftId } = await drafted(s);
+  await s.desk.action({ draftId, operationId: 'op-a', action: 'approve', quiz: fullQuiz(s, draftId) });
+  assert.equal(s.desk.card().membership, undefined);
+});
+
+test('D17 reset: no chat entries, the draft stays closed and refuses every action', async () => {
+  const s = setup();
+  const { draftId } = await drafted(s);
+  const rs = s.desk.reset();
+  assert.deepEqual(rs, { closed: 1, entries: [] });
+  for (const action of ['approve', 'publish', 'keep_draft', 'one_more']) {
+    const r = await s.desk.action({ draftId, operationId: `op-${action}`, action, ...(action === 'approve' ? { quiz: { topic: 8 } } : {}) });
+    assert.equal(r.ok, false, action);
+    assert.equal(r.closed, true, action);
+  }
+  assert.equal(s.calls.create.length + s.calls.publish.length, 0);
+  assert.equal(s.desk.draft(draftId), null);
 });

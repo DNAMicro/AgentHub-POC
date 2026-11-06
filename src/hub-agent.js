@@ -86,6 +86,7 @@ const SAFE_FIELDS = new Set([
   'tool', 'moment', 'recordId', 'stepCount', 'expected', // Part 15: PeopleSoft tool name (fixed list, schema-enum constrained), moment, record id, count
   'hrOutcome', // HR: card / refused / workflow_disabled … (an outcome code, never the staff member's words)
   'quizId', 'questionCount', // Part 16: Canvas quiz number and a count (never a title, question or answer)
+  'canvasCount', 'missingCount', 'extraCount', // review C15: Canvas course size and roster mismatches (counts, never who)
   'matchCount', // Part 17 roster questions: how many roster rows a query matched (a count, never who)
   'rosterCount', 'service', // Part 17: a count of roster students and the staff service (hr | chrs) — never a name, ID or email
   'unknownOutcome', // a boolean: the issuer doesn't know whether its backend acted (Topology draws it as unknown, not rejected)

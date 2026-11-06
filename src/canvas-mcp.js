@@ -1,5 +1,5 @@
 // Canvas LMS stand-in: an MCP server (Streamable HTTP, stateful sessions) over the in-memory Canvas quiz store.
-// DEMO STAND-IN, not real Canvas. Two tools. Every call needs the bearer token.
+// DEMO STAND-IN, not real Canvas. Three tools (create_quiz, publish_quiz, list_course_students). Every call needs the bearer token.
 // Model proposes, code decides: Canvas's own AI (canvas-model.js) only plans optional steps; the store decides
 // checks and pass/fail. Nothing is saved to disk. Never log the token, a question, an answer or a title.
 import { randomUUID, timingSafeEqual } from 'node:crypto';
@@ -17,6 +17,7 @@ import { apiHost } from './llm.js';
 const HOST = '127.0.0.1';
 const DEMO = 'Demo stand-in for Canvas LMS:';
 const PUBLISH_STEPS = ['check_quiz_exists', 'set_published'];
+const MEMBERS_STEPS = ['check_course', 'read_course_members']; // read-only, fixed like publish (no planner)
 const log = (...a) => console.log('[Canvas]', ...a);
 
 const asResult = (value, isError = false) => ({ content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value, ...(isError ? { isError: true } : {}) });
@@ -75,6 +76,24 @@ function buildServer(store, stepsByOp) {
       return asResult({ receipt: { ...result.quiz, steps: PUBLISH_STEPS, stepCount: PUBLISH_STEPS.length } });
     } catch {
       log(`error operationId=${op}`);
+      throw new Error('Canvas could not complete the call');
+    }
+  });
+  // Review C15: who is in the Canvas course, so the Faculty agent can compare it with the class roster. Read-only.
+  server.registerTool('list_course_students', {
+    description: `${DEMO} list the students enrolled in a course in Canvas (student id and name only). Read-only.`,
+    inputSchema: { courseId },
+  }, async ({ courseId: course }) => {
+    try {
+      const result = store.students({ courseId: course });
+      if (!result.ok) {
+        log(`refused list_course_students code=${result.code}`);
+        return refusal(result.code, result.reason);
+      }
+      log(`listed course students count=${result.students.length}`);
+      return asResult({ students: result.students, receipt: { courseId: course, count: result.students.length, steps: MEMBERS_STEPS, stepCount: MEMBERS_STEPS.length } });
+    } catch {
+      log('error list_course_students');
       throw new Error('Canvas could not complete the call');
     }
   });

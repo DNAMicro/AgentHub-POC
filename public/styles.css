@@ -952,6 +952,28 @@ body:has(#view-conversation:not([hidden]), #view-professor:not([hidden])) { heig
 .q-settings { display: grid; grid-template-columns: minmax(0, 2fr) 4.6rem 4.6rem minmax(13.5rem, 1.7fr) 4.6rem; gap: 10px; margin-bottom: 16px; }
 .fld label { display: block; font-size: .78rem; font-weight: 700; margin-bottom: 4px; }
 .q-settings input[type="datetime-local"] { font-size: .8rem; }
+/* Review B9: the settings box, unmistakable — a heading and the defaults said in words in the lead. */
+.q-defaults { display: block; margin: 6px 0 0; font-weight: 600; }
+.q-settings-box { border: 1px solid color-mix(in srgb, var(--professor) 35%, var(--border)); border-radius: 12px; padding: 10px 12px 2px; margin: 0 0 16px; background: color-mix(in srgb, var(--professor) 4%, var(--surface)); }
+.q-settings-head { margin: 0 0 8px; font-size: .9rem; font-weight: 700; color: var(--text); }
+.q-settings-box .q-settings { margin-bottom: 10px; }
+@media (max-width: 720px) {
+  .q-settings { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); }
+  .q-settings .fld:first-child, .q-settings .fld:has(input[type="datetime-local"]) { grid-column: 1 / -1; }
+  /* Narrow screens: the question takes its own line; the tag and Edit / Remove wrap below it (they overflowed at 390 px). */
+  .q-top { flex-wrap: wrap; row-gap: 4px; }
+  .q-top .stem { flex: 1 1 100%; order: 2; }
+  .q-tools { margin-left: auto; }
+  .opts { margin-left: 8px; }
+}
+/* Review B7: questions that look alike (a warning, never a block). */
+.quiz-card .q-alike { margin: 10px 0 0; font-size: .86rem; font-weight: 600; color: var(--amber-ink); }
+/* Review C15: Canvas course list vs the class roster, on the Canvas card above Publish. */
+.lms-members { margin: 10px 0 0; display: grid; gap: 6px; }
+.lms-member { margin: 0; font-size: .88rem; padding: 6px 10px; border-radius: 8px; background: var(--field); }
+.lms-member[data-kind="ok"] { color: var(--ok); background: var(--ok-bg); }
+.lms-member[data-kind="warn"] { color: var(--amber-ink); background: var(--amber-tint); }
+.lms-member[data-kind="info"] { color: var(--muted); }
 .fld input, .fld textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: .9rem; padding: 7px 9px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--text); }
 .fld textarea { resize: vertical; min-height: 54px; line-height: 1.4; }
 .q-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; counter-reset: q; }

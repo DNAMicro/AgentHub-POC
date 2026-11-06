@@ -80,3 +80,26 @@ test('publish is idempotent; unknown id is unknown_quiz; wrong course is unknown
   assert.equal(s.publish({ courseId: 'mkt-351', quizId: 4822, operationId: 'p1' }).code, 'operation_reused');
   assert.equal(s.list()[0].published, true);
 });
+
+// ---- review C15: the Canvas course list -----------------------------------------------------------------------------
+import { CLASS_MEMBERS, ADDED_YESTERDAY } from '../src/class-seed.js';
+import { createStudentRecordsStore } from '../src/student-records-store.js';
+
+test('C15 class seed matches the student records roster: same 25 ids and names', () => {
+  const rows = createStudentRecordsStore().roster({ courseId: 'mkt-351', instructorStaffId: 'staff-dabirian' }).roster.rows;
+  assert.deepEqual(CLASS_MEMBERS.map(([id]) => id), rows.map((r) => r.studentId));
+  assert.deepEqual(CLASS_MEMBERS.map(([, first, last]) => `${last},${first}`), rows.map((r) => r.name));
+  assert.ok(rows.some((r) => r.studentId === ADDED_YESTERDAY));
+});
+
+test('C15 store.students: everyone but the student added yesterday; copies, so a caller cannot change Canvas', () => {
+  const store = createCanvasStore();
+  const r = store.students({ courseId: 'mkt-351' });
+  assert.equal(r.ok, true);
+  assert.equal(r.students.length, CLASS_MEMBERS.length - 1);
+  r.students[0].name = 'Changed';
+  r.students.pop();
+  assert.equal(store.students({ courseId: 'mkt-351' }).students.length, 24);
+  assert.notEqual(store.students({ courseId: 'mkt-351' }).students[0].name, 'Changed');
+  assert.deepEqual(store.students({ courseId: 'nope' }), { ok: false, code: 'unknown_course', reason: 'Canvas has no such course.' });
+});
