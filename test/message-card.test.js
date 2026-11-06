@@ -205,6 +205,17 @@ test('audience variations resolve by code against the roster: marketing majors, 
   }
 });
 
+// Live check 2026-11-06: “message all freshmen about tutoring” and “send a note to students who aren't business majors
+// about the guest speaker” got the HR / class / both question. A class message without first-person words opens the card.
+test('instructions about a subject open the card, never the HR / class / both question', async () => {
+  for (const said of ['message all freshmen about tutoring', "send a note to students who aren't business majors about the guest speaker", 'notify everyone about the field trip', 'message the marketing majors about the career fair', 'send a message to all seniors about the capstone', 'tell everyone about the review session']) {
+    await post(`${s.hub.url}/dev/classroom/reset`, {});
+    const r = await say(said);
+    assert.notEqual(r.check, 'staff_or_class', `${said}: ${JSON.stringify(r)}`);
+    assert.ok(r.messageCard || r.action === 'preview', `${said}: ${JSON.stringify(r).slice(0, 300)}`);
+  }
+});
+
 test('zero matches: “None of your students are freshmen, so there\'s no one to send this to.” and no Send', async () => {
   assert.equal(FRESHMEN.length, 0, 'the fictional class has no freshmen');
   const c = (await say('send a message to all freshmen to bring laptops')).messageCard;

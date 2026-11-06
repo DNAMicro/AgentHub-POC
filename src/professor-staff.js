@@ -330,6 +330,11 @@ export async function checkClassPost({ text, held = text, entryId, emit = () => 
   };
   if (mentionsIllness(t) || CLASS_POST_PRIVATE.test(t) || RELATIVES.test(t) || (FIRST_PERSON_WORDS.test(t) && (LEAVE_WORDS.test(t) || absenceNameIn(t)))) return ask('class_post_guard');
   if (cardOpen() && ((forClass ? SINGULAR_ME : FIRST_PERSON_WORDS).test(t) || (forClass ? tellCardEdit(t) : EDIT_CUE.test(t)))) return ask('open_card_words');
+  // Every message now opens a preview card he confirms (review E), so the staff classifier is asked only when the
+  // words talk about HIM (I, I'm, me, my …) — a live check sent “message all freshmen about tutoring” and “send a note to
+  // students who aren't business majors about the guest speaker” to the HR / class / both question. The code guards
+  // above (illness, leave, relatives, first person + leave) still always ask.
+  if (!SINGULAR_ME.test(t)) { emit('staff_decision', { kind: 'class_message', decidedBy: 'class_post_no_first_person' }); return null; }
   const c = await classifyStaff({ text: said, emit });
   emit('staff_decision', { kind: c.kind, decidedBy: 'class_post_check', model: c.model ?? null, error: c.error ?? null });
   if (c.kind === 'class_message') return null;
