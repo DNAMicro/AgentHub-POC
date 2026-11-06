@@ -1096,7 +1096,7 @@ test('cancellation: any filed weekday (no “both” needed) offers it; “yes�
   assert.equal(p.kind, 'message');
   assert.equal(p.audience, 'all');
   assert.doesNotMatch(`${p.title} ${p.text}`, /grand|passed|funeral|bereave|sick|leave|vacation/i, 'never why');
-  assert.equal(lastOf(after.chat, 'assistant').text, "Sent to your 25 students: 1 got it in the app, 24 were emailed because they aren't online.");
+  assert.equal(lastOf(after.chat, 'assistant').text, "Sent to your 25 students. 1 student received it in the app. 24 students aren't online, so they were emailed.");
 });
 
 test('cancellation: a part day counts; campus holidays and weekends are not class days', async () => {
@@ -1348,12 +1348,12 @@ test('owner 2026-11-04 + review A4: choosing the class for a held message confir
   await say('class');
   const st = await state();
   assert.equal(st.lessons.length, 1, 'the held message was posted');
-  assert.equal(lastOf(st.chat, 'assistant').text, "Sent to your 25 students: 1 got it in the app, 24 were emailed because they aren't online.");
+  assert.equal(lastOf(st.chat, 'assistant').text, "Sent to your 25 students. 1 student received it in the app. 24 students aren't online, so they were emailed.");
 });
 
 // ---- Review A5 + C12: the cancellation with time, room and an optional note ------------------------------------------
 const CANCELLED = 'Marketing 351 (10:00–10:50 AM, Mihaylo Hall 2405) is cancelled on Fri, Nov 6.';
-const COUNTS = "Sent to your 25 students: 1 got it in the app, 24 were emailed because they aren't online.";
+const COUNTS = "Sent to your 25 students. 1 student received it in the app. 24 students aren't online, so they were emailed.";
 const NOTE_PRIVATE = 'Your note mentions your leave. Send the cancellation without the note? Reply yes, or write a new note.';
 const cancelPosts = async () => (await state()).lessons.filter((l) => l.title === 'Class cancelled').map((l) => l.text);
 

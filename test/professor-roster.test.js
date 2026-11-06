@@ -15,7 +15,7 @@ import { ROSTER_FAILED_TEXT, ROSTER_POST_FAILED_TEXT } from '../src/staff.js';
 const UNSURE = 'Should I file this as time off with HR, tell the class, or both?';
 const FAILED_POST = "I couldn't get your class list just now, so nothing was sent. Try again in a moment.";
 const FAILED_ROSTER = "I couldn't get your class roster just now. Try again in a moment.";
-const SENT = "Sent to your 25 students: 1 got it in the app, 24 were emailed because they aren't online.";
+const SENT = "Sent to your 25 students. 1 student received it in the app. 24 students aren't online, so they were emailed.";
 const ROW_SECRET = /csu\.fullerton\.example|888\d{6}/;
 // Alex and Sam are the two configured Student-agent sessions (Part 9: their names were in the state before Part 17).
 const SESSION_STUDENTS = ['student-alex', 'student-sam'];

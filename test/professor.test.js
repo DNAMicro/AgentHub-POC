@@ -374,10 +374,10 @@ test('professor chat: plain messages go straight to students (tags pick who, no 
   const said = chat.filter((m) => m.role === 'assistant');
   assert.ok(said.every((m) => m.action === 'sent'), JSON.stringify(said.map((m) => m.text)));
   assert.deepEqual(said.map((m) => m.text), [
-    "Sent to 1 student — they aren't online, so it was emailed.",
-    "Sent to your 25 students: 1 got it in the app, 24 were emailed because they aren't online.",
-    "Sent to 2 students: 1 got it in the app, 1 was emailed because they aren't online.",
-    'Sent to 1 student — they got it in the app.',
+    "Sent to 1 student. They aren't online, so they were emailed.",
+    "Sent to your 25 students. 1 student received it in the app. 24 students aren't online, so they were emailed.",
+    "Sent to 2 students. 1 student received it in the app. 1 student isn't online, so they were emailed.",
+    'Sent to 1 student, who received it in the app.',
   ]);
   assert.deepEqual(said.map((m) => m.sentTo ?? null), ['student-sam', null, null, 'student-alex']);
 
@@ -396,7 +396,7 @@ test('professor chat: plain messages go straight to students (tags pick who, no 
   chat = (await professorState(s)).chat;
   assert.equal(chat.filter((m) => m.role === 'assistant' && m.action !== 'sent').length, 3);
   // Review A4: the @assistant post is confirmed with the real counts too (its own entry after the assistant's reply).
-  assert.equal(chat.filter((m) => m.role === 'assistant' && m.action === 'sent').at(-1).text, "Sent to your 25 students: 1 got it in the app, 24 were emailed because they aren't online.");
+  assert.equal(chat.filter((m) => m.role === 'assistant' && m.action === 'sent').at(-1).text, "Sent to your 25 students. 1 student received it in the app. 24 students aren't online, so they were emailed.");
 
   // The same send twice (one operation id): one post.
   const count = (await professorState(s)).lessons.length;

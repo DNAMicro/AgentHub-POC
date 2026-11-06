@@ -182,7 +182,7 @@ Reuse existing persistence where possible to maintain an outbox and Student inbo
 
 Show distinct states:
 - Draft.
-- Not delivered yet — <first name> isn't online. It will arrive when they are.
+- Not delivered yet — <first name> isn't online. They'll receive it when they're online.
 - Delivered to Student inbox.
 - Opened in Student UI.
 - Failed or delivery uncertain, with an explanation.
@@ -201,7 +201,7 @@ Keep original lessons and revisions distinguishable. Replayed telemetry must nev
 - Delivery outcomes at the Hub: Student not connected or connection refused → **queued** (`student_offline` / the error); timeout or connection lost mid-request → **uncertain**; refused by the Student → **failed** with its reason. A pump (`HUB_DELIVER_RETRY_MS`, default 3000) retries queued and uncertain deliveries. Registration of the student flushes immediately. An **uncertain** delivery is first **queried** (`lesson_query`): if the Student has it, it is marked delivered with nothing re-sent (`lesson_reconciled found: true`); otherwise it is sent again. The Student also answers a repeated delivery with its existing entry (no second entry).
 - Publish ack to the Faculty agent: `{ status: delivered | queued | uncertain | failed | rejected, reason, lessonId, revision, deliveryId }`. A `deliveryId` means the Hub **accepted** the lesson (`hubAccepted`, `ack.accepted`); from then on delivery to the student is the Hub's job, and the Faculty view says “Posted — …” (queued, delivered, “the Hub is confirming delivery”, or refused by the student's agent). Only when the Faculty agent→Hub leg itself got no answer (no `deliveryId`) does it show “Not confirmed by the Hub”, keep the draft, and re-send with the **same operation id** the next time its state is read (the Hub dedupes).
 - An endpoint that **refuses the connection** marks the Student's session `unreachable` at the Hub. The roster shows the student offline, and the Hub stops attempting until the Student registers again (registration delivers immediately). This avoids a request against a dead endpoint every few seconds and a false “online”.
-- Faculty view chips: Sending… · Not delivered yet — <first name> isn't online. It will arrive when they are. · Delivered · Opened by the student · Delivery uncertain — the Hub is checking with the student · Failed · Refused by the Hub (reason) · Not confirmed by the Hub — will retry. The draft is the text box itself.
+- Faculty view chips: Sending… · Not delivered yet — <first name> isn't online. They'll receive it when they're online. · Delivered · Opened by the student · Delivery uncertain — the Hub is checking with the student · Failed · Refused by the Hub (reason) · Not confirmed by the Hub — will retry. The draft is the text box itself.
 - Receipts: “opened” is queued in the inbox (`pendingReceipts`) and sent when the session is up. The Hub records `openedAt` once.
 
 ## 8. KEEP THE CONTENT AND ROUTING SAFE

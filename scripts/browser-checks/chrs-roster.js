@@ -82,8 +82,8 @@ async (page) => {
 
   // 2. Notify everyone: the card is kept through the redraw.
   await say('notify everyone that the midterm review session moves to Thursday');
-  await page.waitForFunction(() => /Sent to your 25 students: 1 got it in the app, 24 were emailed because they aren't online\./.test(document.querySelector('#prof-log').textContent), null, { timeout: 30000 });
-  check('review A4: "Sent to your 25 students: 1 got it in the app, 24 were emailed because they aren\'t online."', true);
+  await page.waitForFunction(() => /Sent to your 25 students\. 1 student received it in the app\. 24 students aren't online, so they were emailed\./.test(document.querySelector('#prof-log').textContent), null, { timeout: 30000 });
+  check('review A4: "Sent to your 25 students. 1 student received it in the app. 24 students aren\'t online, so they were emailed."', true);
   check('the roster card element survived the redraw', await page.evaluate(() => document.querySelector('#prof-log .roster-card')?.__keep === 'same-element') && await rows.count() === 25);
   const post = page.locator('#prof-log .sent-post').last();
   await post.locator('.dsum').waitFor();
@@ -94,7 +94,7 @@ async (page) => {
   check('the fold is closed and says "Show all 25 students"', await fold.evaluate((d) => !d.open) && (await fold.locator('summary').textContent()) === 'Show all 25 students');
   await fold.locator('summary').click();
   const frows = await fold.locator('.per-student li').evaluateAll((l) => l.map((x) => x.textContent));
-  check('fold lists 25 students by name', frows.length === 25 && frows.some((r) => /^Mariana AguilarEmailed — Mariana isn't online, so it was emailed\. It will also arrive in the app when they are\./.test(r)), frows.slice(0, 2));
+  check('fold lists 25 students by name', frows.length === 25 && frows.some((r) => /^Mariana AguilarEmailed — Mariana isn't online, so they were emailed\. They'll also receive it in the app when they're online\./.test(r)), frows.slice(0, 2));
   check('Alex Student shows Delivered', frows.some((r) => /^Alex StudentDelivered/.test(r)), frows.filter((r) => /Alex/.test(r)));
   check('the fold stays open after a redraw', await page.evaluate(() => document.querySelector('#prof-log .sent-post details.dlist')?.open));
   check('header still reads "25 students · 1 online"', (await page.locator('#prof-roster').textContent()).trim() === '25 students · 1 online');
