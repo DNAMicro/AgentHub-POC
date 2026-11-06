@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentHub Guide</title>
+<meta name="description" content="What you can do in the AgentHub demo, as a student and as the faculty member, with example phrases to try.">
+<style>
+  :root {
+    --bg: #f6f4ef; --surface: #ffffff; --ink: #1d232b; --muted: #5b6573; --line: #e3ded3;
+    --student: #1f4fbf; --student-tint: #e8eefc; --faculty: #a3214f; --faculty-tint: #f9e9ef;
+    --accent: #b4790a; --chip: #f1eee6; --chip-ink: #2a313a; --ok: #1d7a47; --warn: #8a5a00; --warn-tint: #fff5df;
+    --radius: 12px; --shadow: 0 1px 2px rgba(20, 24, 31, .06), 0 2px 10px rgba(20, 24, 31, .05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14171c; --surface: #1c2027; --ink: #e8eaee; --muted: #a2abb8; --line: #2d333d;
+      --student: #8fb0ff; --student-tint: #1d2742; --faculty: #f08cb0; --faculty-tint: #3a1d29;
+      --accent: #f0b54a; --chip: #262b34; --chip-ink: #e1e5eb; --ok: #6fd39c; --warn: #f0c46a; --warn-tint: #33280f;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .3);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14171c; --surface: #1c2027; --ink: #e8eaee; --muted: #a2abb8; --line: #2d333d;
+    --student: #8fb0ff; --student-tint: #1d2742; --faculty: #f08cb0; --faculty-tint: #3a1d29;
+    --accent: #f0b54a; --chip: #262b34; --chip-ink: #e1e5eb; --ok: #6fd39c; --warn: #f0c46a; --warn-tint: #33280f;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3);
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 16px; }
+  header.top { padding: 40px 0 24px; border-bottom: 1px solid var(--line); }
+  .eyebrow { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); font-weight: 700; margin: 0 0 6px; }
+  h1 { font-size: clamp(28px, 4.4vw, 40px); line-height: 1.15; margin: 0 0 10px; letter-spacing: -.01em; }
+  .lead { color: var(--muted); max-width: 720px; margin: 0; font-size: 17px; }
+  h2 { font-size: 22px; margin: 0 0 4px; }
+  h3 { font-size: 18px; margin: 0; }
+  p { margin: 0 0 10px; }
+  a { color: var(--student); }
+  code, kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .92em; }
+  kbd { background: var(--chip); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
+
+  .start { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin: 24px 0 8px; }
+  .step { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); }
+  .step > b { display: block; margin-bottom: 4px; }
+  .step .n { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 13px; font-weight: 700; margin-bottom: 8px; }
+  .step p { color: var(--muted); font-size: 15px; margin: 0; }
+
+  .note { background: var(--warn-tint); border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent); color: var(--ink); border-radius: var(--radius); padding: 12px 14px; font-size: 15px; margin: 16px 0 0; }
+  .note b { color: var(--warn); }
+
+  .bar { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(6px); border-bottom: 1px solid var(--line); padding: 12px 0; margin-top: 24px; }
+  .bar .wrap { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .seg { display: inline-flex; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 3px; }
+  .seg button { border: 0; background: none; color: var(--muted); font: inherit; font-size: 15px; font-weight: 600; padding: 7px 14px; border-radius: 999px; cursor: pointer; }
+  .seg button[aria-pressed="true"][data-show="student"] { background: var(--student); color: #fff; }
+  .seg button[aria-pressed="true"][data-show="faculty"] { background: var(--faculty); color: #fff; }
+  .seg button[aria-pressed="true"][data-show="all"] { background: var(--ink); color: var(--bg); }
+  .search { flex: 1 1 220px; min-width: 0; }
+  .search input { width: 100%; font: inherit; font-size: 15px; padding: 9px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+  .search input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  section.agent { padding: 28px 0 8px; }
+  .agent-head { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 16px; }
+  .badge { flex: 0 0 auto; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 18px; }
+  .student .badge { background: var(--student); color: var(--surface); }
+  .faculty .badge { background: var(--faculty); color: var(--surface); }
+  .agent-head p { color: var(--muted); margin: 2px 0 0; font-size: 15px; }
+  .where { display: inline-block; font-size: 13px; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin-left: 6px; vertical-align: middle; }
+  .student .where { background: var(--student-tint); color: var(--student); }
+  .faculty .where { background: var(--faculty-tint); color: var(--faculty); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr)); gap: 14px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px 16px 14px; border-top: 4px solid var(--line); min-width: 0; }
+  .student .card { border-top-color: var(--student); }
+  .faculty .card { border-top-color: var(--faculty); }
+  .card .what { color: var(--muted); font-size: 15px; margin: 4px 0 12px; }
+  .say { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .say li { display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; align-items: start; }
+  .phrase { background: var(--chip); color: var(--chip-ink); border-radius: 8px; padding: 7px 10px; font-size: 15px; overflow-wrap: anywhere; }
+  .phrase::before { content: "“"; color: var(--muted); }
+  .phrase::after { content: "”"; color: var(--muted); }
+  .copy { font: inherit; font-size: 13px; font-weight: 600; border: 1px solid var(--line); background: var(--surface); color: var(--muted); border-radius: 8px; padding: 6px 10px; cursor: pointer; white-space: nowrap; }
+  .copy:hover { color: var(--ink); border-color: var(--muted); }
+  .copy[data-done] { color: var(--ok); border-color: var(--ok); }
+  .result { grid-column: 1 / -1; font-size: 14px; color: var(--muted); padding-left: 2px; }
+  .result::before { content: "→ "; color: var(--accent); font-weight: 700; }
+  .tip { margin: 12px 0 0; font-size: 14px; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 10px; }
+  .tip b { color: var(--ink); }
+  .empty { display: none; color: var(--muted); padding: 24px 0; text-align: center; }
+
+  footer { border-top: 1px solid var(--line); margin-top: 32px; padding: 20px 0 40px; color: var(--muted); font-size: 14px; }
+  [hidden] { display: none !important; }
+  @media (max-width: 520px) {
+    .say li { grid-template-columns: 1fr; }
+    .copy { justify-self: start; }
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <p class="eyebrow">AgentHub · Marketing 351 demo</p>
+    <h1>What you can do, and what to say</h1>
+    <p class="lead">AgentHub is a small, fictional university run by AI agents. You talk to it in plain words. This guide lists what each side can do, grouped by task, with phrases you can copy and try.</p>
+
+    <div class="start">
+      <div class="step"><span class="n">1</span><b>Open the app</b><p>With the demo running, go to <code>http://127.0.0.1:4444</code> in your browser.</p></div>
+      <div class="step"><span class="n">2</span><b>Pick your side</b><p>The <b>Conversation</b> tab is you as the student Alex Student. The <b>Faculty view</b> tab is you as the instructor, Dr. Dabirian.</p></div>
+      <div class="step"><span class="n">3</span><b>Type, don't click</b><p>Write in the box at the bottom and press <kbd>Enter</kbd>. There are no menus: you ask, and the right agent answers.</p></div>
+      <div class="step"><span class="n">4</span><b>Start over any time</b><p><b>New conversation</b> (under the student chat) clears both screens and resets the class, loans and records.</p></div>
+    </div>
+
+    <p class="note"><b>Everything here is fictional.</b> The students, emails, grades, HR, Canvas and PeopleSoft systems are demo stand-ins. No real email is sent and nothing is booked. Answers come from AI models, so the wording can differ a little from this guide.</p>
+  </div>
+</header>
+
+<nav class="bar" aria-label="Filter">
+  <div class="wrap">
+    <div class="seg" role="group" aria-label="Show">
+      <button type="button" data-show="all" aria-pressed="true">Both</button>
+      <button type="button" data-show="student" aria-pressed="false">Student</button>
+      <button type="button" data-show="faculty" aria-pressed="false">Faculty</button>
+    </div>
+    <label class="search"><span class="sr" hidden>Search</span><input type="search" id="q" placeholder="Search tasks or phrases — e.g. roster, quiz, renew" aria-label="Search tasks or phrases"></label>
+  </div>
+</nav>
+
+<main class="wrap">
+
+<!-- ====================================================== STUDENT ====================================================== -->
+<section class="agent student" data-agent="student">
+  <div class="agent-head">
+    <div class="badge" aria-hidden="true">S</div>
+    <div>
+      <h2>Student <span class="where">Conversation tab</span></h2>
+      <p>You are Alex Student. Your Student agent sends your words to the university, which finds the right service: the Marketing 351 course assistant, the Tutor, or the Library.</p>
+    </div>
+  </div>
+
+  <div class="grid">
+    <article class="card">
+      <h3>Marketing questions</h3>
+      <p class="what">Dr. Dabirian's course assistant explains course ideas using the course notes.</p>
+      <ul class="say">
+        <li><span class="phrase">What are the 4 Ps of marketing?</span><button class="copy" type="button">Copy</button><span class="result">An explanation with an example</span></li>
+        <li><span class="phrase">Can you explain price elasticity simply</span><button class="copy" type="button">Copy</button></li>
+      </ul>
+    </article>
+
+    <article class="card">
+      <h3>Class facts</h3>
+      <p class="what">When and where the class meets, exams, topics, office hours and the syllabus, answered straight away.</p>
+      <ul class="say">
+        <li><span class="phrase">When does Marketing 351 meet?</span><button class="copy" type="button">Copy</button><span class="result">Tue &amp; Thu, 10:00–11:15 AM in Mihaylo Hall 2405</span></li>
+        <li><span class="phrase">When is the final exam for Marketing 351?</span><button class="copy" type="button">Copy</button></li>
+        <li><span class="phrase">What topic are we covering next in marketing?</span><button class="copy" type="button">Copy</button></li>
+        <li><span class="phrase">What are Dr. Dabirian's office hours?</span><button class="copy" type="button">Copy</button></li>
+        <li><span class="phrase">Can I get the Marketing 351 syllabus?</span><button class="copy" type="button">Copy</button><span class="result">A summary of the units, exams and grading</span></li>
+        <li><span class="phrase">Is my marketing class cancelled on Thursday?</span><button class="copy" type="button">Copy</button><span class="result">Checks the cancellations Dr. Dabirian sent you</span></li>
+        <li><span class="phrase">When is the marketing quiz due?</span><button class="copy" type="button">Copy</button></li>
+      </ul>
+      <p class="tip"><b>Grades</b> live in Canvas: the assistant will tell you so rather than guess.</p>
+    </article>
+
+    <article class="card">
+      <h3>Classmates</h3>
+      <p class="what">Who is in your class, with their year, major and campus email so you can contact them.</p>
+      <ul class="say">
+        <li><span class="phrase">Who is in my class</span><button class="copy" type="button">Copy</button><span class="result">All 24 classmates with year, major and email</span></li>
+        <li><span class="phrase">How many students are in my marketing class?</span><button class="copy" type="button">Copy</button></li>
+        <li><span class="phrase">Is Mariana Aguilar in my class?</span><button class="copy" type="button">Copy</button></li>
+        <li><span class="phrase">What's Sam Student's email?</span><button class="copy" type="button">Copy</button></li>
+        <li><span class="phrase">Who are the seniors in my marketing class?</span><button class="copy" type="button">Copy</button></li>
+        <li><span class="phrase">Can I get the emails of the juniors in my marketing class?</span><button class="copy" type="button">Copy</button></li>
+      </ul>
+      <p class="tip"><b>Private:</b> student IDs, phone numbers, pronouns and grades of other students are never shared.</p>
+    </article>
+
+    <article class="card">
+      <h3>Writing to Dr. Dabirian</h3>
+      <p class="what">Address your message to Dr. Dabirian and it goes straight to them. Simple facts are answered for you instead.</p>
+      <ul class="say">
+        <li><span class="phrase">Hi Dr. Dabirian can I turn in my homework late</span><button class="copy" type="button">Copy</button><span class="result">“Sent to Dr. Dabirian — they’ll get back to you here.”</span></li>
+        <li><span class="phrase">Can you ask Dr. Dabirian if I can bring a laptop?</span><button class="copy" type="button">Copy</button><span class="result">Sent at once</span></li>
+        <li><span class="phrase">Can I get an extension on the homework?</span><button class="copy" type="button">Copy</button><span class="result">“That’s Dr. Dabirian’s call. Want me to send your question to them?” — answer <b>yes</b> or <b>no</b></span></li>
+        <li><span class="phrase">Hi Dr. Dabirian, when is the final?</span><button class="copy" type="button">Copy</button><span class="result">A simple fact, so the assistant answers it</span></li>
+      </ul>
+      <p class="tip"><b>Nothing is sent on a guess.</b> When the assistant offers to pass a question on, it waits for your yes (for 15 minutes).</p>
+    </article>
+
+    <article class="card">
+      <h3>Messages from Dr. Dabirian</h3>
+      <p class="what">Messages, class cancellations and quiz notices appear in your chat. Lessons appear in your inbox.</p>
+      <ul class="say">
+        <li><span class="phrase">↩ Reply (button under a message from Dr. Dabirian)</span><button class="copy" type="button" hidden>Copy</button><span class="result">Your reply goes to Dr. Dabirian’s chat</span></li>
+        <li><span class="phrase">What did Dr. Dabirian say in the last message?</span><button class="copy" type="button">Copy</button></li>
+      </ul>
+      <p class="tip"><b>Quiz notices</b> are information only: take the quiz in Canvas.</p>
+    </article>
+
+    <article class="card">
+      <h3>Tutoring</h3>
+      <p class="what">Ask for an in-person tutoring session. The Tutor sends a form, filled in from your words where it can.</p>
+      <ul class="say">
+        <li><span class="phrase">I need in-person tutoring for calculus next Wednesday morning</span><button class="copy" type="button">Copy</button><span class="result">A tutoring request form; press <b>Send tutoring request</b> → a request ID like TR-…</span></li>
+      </ul>
+    </article>
+
+    <article class="card">
+      <h3>Library: study rooms</h3>
+      <p class="what">Book a group study room. You see live demo availability and review before confirming.</p>
+      <ul class="say">
+        <li><span class="phrase">Can I book a group study room for 4 people next Tuesday afternoon?</span><button class="copy" type="button">Copy</button><span class="result">A booking form → <b>Show available times</b> → <b>Review booking</b> → <b>Confirm demo booking</b> → a booking ID like BK-…</span></li>
+      </ul>
+    </article>
+
+    <article class="card">
+      <h3>Library: loans and renewals</h3>
+      <p class="what">See the books you have out and renew one. The renewal screen is built for you on the spot.</p>
+      <ul class="say">
+        <li><span class="phrase">What books do I have checked out?</span><button class="copy" type="button">Copy</button></li>
+        <li><span class="phrase">Can I renew my calculus book</span><button class="copy" type="button">Copy</button><span class="result">A renewal form with the dates you may pick</span></li>
+        <li><span class="phrase">When is the library open?</span><button class="copy" type="button">Copy</button><span class="result">It may ask which day you mean</span></li>
+      </ul>
+    </article>
+
+    <article class="card">
+      <h3>Fill a form by chatting</h3>
+      <p class="what">While a form is open, type a value in the chat and your Student agent puts it in the form. You still press the form’s button yourself.</p>
+      <ul class="say">
+        <li><span class="phrase">december 1</span><button class="copy" type="button">Copy</button><span class="result">With the renewal form open: fills the new return date (if the date is allowed)</span></li>
+      </ul>
+    </article>
+
+    <article class="card">
+      <h3>Not available to students</h3>
+      <p class="what">Some services belong to staff only, and some questions are outside the university’s services.</p>
+      <ul class="say">
+        <li><span class="phrase">I want to request time off from my campus job</span><button class="copy" type="button">Copy</button><span class="result">Time off (HR) is for staff only, so it is not offered</span></li>
+        <li><span class="phrase">What's the weather tomorrow?</span><button class="copy" type="button">Copy</button><span class="result">A polite “not something I can help with here”</span></li>
+        <li><span class="phrase">Can you tell everyone in my marketing class that the study group meets tonight?</span><button class="copy" type="button">Copy</button><span class="result">Only Dr. Dabirian can message the whole class; it offers to pass it on</span></li>
+      </ul>
+    </article>
+  </div>
+</section>
+
+<!-- ====================================================== FACULTY ====================================================== -->
+<section class="agent faculty" data-agent="faculty">
+  <div class="agent-head">
+    <div class="badge" aria-hidden="true">F</div>
+    <div>
+      <h2>Faculty <span class="where">Faculty view tab</span></h2>
+      <p>You are Dr. Dabirian, teaching Marketing 351 (25 students). Write to your class, or ask your course assistant. It also reaches HR, Canvas and the class roster for you.</p>
+    </div>
+  </div>
+
+  <div class="grid">
+    <article class="card">
+      <h3>Message your class</h3>
+      <p class="what">Every message opens a <b>preview card</b> first: the exact text and who gets it. Nothing goes out until you press <b>Send</b>.</p>
+      <ul class="say">
+        <li><span class="phrase">Reminder: the case study write-up is due Friday at noon.</span><button class="copy" type="button">Copy</button><span class="result">Your exact words, to all 25 students</span></li>
+        <li><span class="phrase">notify everyone that office hours move to 3 PM on Wednesday</span><button class="copy" type="button">Copy</button></li>
+        <li><span class="phrase">tell everyone to read chapter 5 before Tuesday</span><button class="copy" type="button">Copy</button><span class="result">“Please read chapter 5 before Tuesday.”</span></li>
+        <li><span class="phrase">notify everyone about the midterm review</span><button class="copy" type="button">Copy</button><span class="result">The card asks what to say about it</span></li>
+      </ul>
+      <p class="tip"><b>On the card:</b> edit the text, press <b>Send</b> or <b>Don’t send</b>, or simply type <b>yes</b> / <b>no</b>. You then see “25 students notified.”</p>
+    </article>
+
+    <article class="card">
+      <h3>Message some students</h3>
+      <p class="what">Tag students with @, or name a group by year or major. The list is read fresh from the class roster.</p>
+      <ul class="say">
+        <li><span class="phrase">@mariana-aguilar please see me about your project outline</span><button class="copy" type="button">Copy</button><span class="result">To Mariana Aguilar only</span></li>
+        <li><span class="phrase">message the marketing majors to bring laptops on Thursday</span><button class="copy" type="button">Copy</button><span class="result">To your 15 Marketing majors</span></li>
+        <li><span class="phrase">send a message to all seniors to inform them of a mandatory lab work</span><button class="copy" type="button">Copy</button><span class="result">To your 10 seniors, with a drafted message for you to check</span></li>
+        <li><span class="phrase">message Alex and Sam about the study group</span><button class="copy" type="button">Copy</button></li>
+      </ul>
+      <p class="tip"><b>Tip:</b> type <b>@</b> to get name suggestions. Tags look like <code>@first-last</code>.</p>
+    </article>
+
+    <article class="card">
+      <h3>Class roster</h3>
+      <p class="what">See who is enrolled and ask questions about your class. Records come from the student records system (IDs are masked).</p>
+      <ul class="say">
+        <li><span class="phrase">show me my class roster</span><button class="copy" type="button">Copy</button><span class="result">A roster card: name, masked ID, year, program and plan, units</span></li>
+        <li><span class="phrase">how many seniors in my class</span><button class="copy" type="button">Copy</button><span class="result">“10 of your 25 students are seniors.”</span></li>
+        <li><span class="phrase">who are my seniors?</span><button class="copy" type="button">Copy</button><span class="result">They are highlighted on the roster</span></li>
+        <li><span class="phrase">how many marketing majors do I have?</span><button class="copy" type="button">Copy</button></li>
+        <li><span class="phrase">Is Sam Student in my class?</span><button class="copy" type="button">Copy</button></li>
+        <li><span class="phrase">list students with fewer than 12 units</span><button class="copy" type="button">Copy</button></li>
+      </ul>
+      <p class="tip"><b>Look only:</b> the roster can’t be emailed or exported, and every lookup is logged.</p>
+    </article>
+
+    <article class="card">
+      <h3>Time off (HR)</h3>
+      <p class="what">Say what you need. HR answers with a filled-in card: check it and press <b>Submit</b>.</p>
+      <ul class="say">
+        <li><span class="phrase">I would like to take vacation on Thursday Nov 12</span><button class="copy" type="button">Copy</button><span class="result">A Vacation card for that day → Submit → “Your time off is recorded.”</span></li>
+        <li><span class="phrase">doctor appointment Tuesday morning</span><button class="copy" type="button">Copy</button><span class="result">A half day (4 hours)</span></li>
+        <li><span class="phrase">jury duty Nov 19</span><button class="copy" type="button">Copy</button></li>
+        <li><span class="phrase">make it 4 hours instead</span><button class="copy" type="button">Copy</button><span class="result">With a card open: changes the card</span></li>
+        <li><span class="phrase">how much vacation do I have left?</span><button class="copy" type="button">Copy</button></li>
+        <li><span class="phrase">what time off have I requested?</span><button class="copy" type="button">Copy</button></li>
+      </ul>
+      <p class="tip"><b>Missing class?</b> If the days you file include a class day, a <b>cancellation card</b> appears with the notice your students would get. Add an optional note (for example a makeup plan), then <b>Send to students</b> or <b>Don’t send</b>. It never mentions why you are out.</p>
+    </article>
+
+    <article class="card">
+      <h3>Quizzes (Canvas)</h3>
+      <p class="what">Your assistant drafts a quiz from a topic you have already taught. You edit it, save it in Canvas, then publish.</p>
+      <ul class="say">
+        <li><span class="phrase">make a quiz</span><button class="copy" type="button">Copy</button><span class="result">Buttons for the topics you’ve taught: tap one</span></li>
+        <li><span class="phrase">make a 6 question quiz on topic 8</span><button class="copy" type="button">Copy</button><span class="result">A draft card; each question tests a different idea</span></li>
+      </ul>
+      <p class="tip"><b>On the card:</b> edit questions or settings, <b>Draft one more</b>, then <b>Approve</b> (saved in Canvas, students can’t see it yet) and <b>Publish</b>. Students get a quiz notice.</p>
+    </article>
+
+    <article class="card">
+      <h3>Course progress and your assistant</h3>
+      <p class="what">Ask where the class is in the course, or start a message with <b>@assistant</b> to ask for help.</p>
+      <ul class="say">
+        <li><span class="phrase">what topics have we covered so far?</span><button class="copy" type="button">Copy</button></li>
+        <li><span class="phrase">what's the next topic?</span><button class="copy" type="button">Copy</button></li>
+        <li><span class="phrase">@assistant write a short reminder to the class that the group project proposal is due next Monday</span><button class="copy" type="button">Copy</button><span class="result">A drafted message on a preview card</span></li>
+        <li><span class="phrase">@assistant what is the difference between segmentation and targeting?</span><button class="copy" type="button">Copy</button></li>
+      </ul>
+    </article>
+
+    <article class="card">
+      <h3>Answer your students</h3>
+      <p class="what">Students’ questions for you arrive as cards marked <b>Waiting for your answer</b>. The tab shows how many are waiting.</p>
+      <ul class="say">
+        <li><span class="phrase">↩ Reply (button on the student’s card)</span><button class="copy" type="button" hidden>Copy</button><span class="result">Your answer opens a preview card addressed to that student</span></li>
+      </ul>
+    </article>
+  </div>
+</section>
+
+<p class="empty" id="empty">Nothing matches that search. Try a shorter word such as “roster”, “quiz” or “renew”.</p>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Behind the scenes: the <b>Agent activity</b> and <b>Topology</b> tabs show each message travelling between the agents (the Hub, Tutor, Library, Faculty, HR, Campus Agent, Canvas and PeopleSoft stand-ins), in real time.</p>
+    <p>AgentHub demo · Marketing 351 is a fictional course for this demo · all people and records are made up.</p>
+  </div>
+</footer>
+
+<script>
+(() => {
+  const buttons = [...document.querySelectorAll('.seg button')];
+  const sections = [...document.querySelectorAll('section.agent')];
+  const cards = [...document.querySelectorAll('.card')];
+  const q = document.getElementById('q');
+  const empty = document.getElementById('empty');
+  let show = 'all';
+  try { const saved = localStorage.getItem('agenthub-guide-show'); if (['all', 'student', 'faculty'].includes(saved)) show = saved; } catch {}
+
+  function apply() {
+    const term = q.value.trim().toLowerCase();
+    let any = false;
+    for (const b of buttons) b.setAttribute('aria-pressed', String(b.dataset.show === show));
+    for (const s of sections) {
+      const on = show === 'all' || s.dataset.agent === show;
+      let visible = 0;
+      for (const c of s.querySelectorAll('.card')) {
+        const hit = !term || c.textContent.toLowerCase().includes(term);
+        c.hidden = !hit;
+        if (hit) visible++;
+      }
+      s.hidden = !on || visible === 0;
+      if (!s.hidden) any = true;
+    }
+    empty.style.display = any ? 'none' : 'block';
+  }
+  for (const b of buttons) b.addEventListener('click', () => {
+    show = b.dataset.show;
+    try { localStorage.setItem('agenthub-guide-show', show); } catch {}
+    apply();
+  });
+  q.addEventListener('input', apply);
+
+  for (const btn of document.querySelectorAll('.copy')) {
+    btn.addEventListener('click', async () => {
+      const text = btn.previousElementSibling.textContent.trim();
+      try { await navigator.clipboard.writeText(text); } catch {
+        const t = document.createElement('textarea'); t.value = text; document.body.append(t); t.select();
+        try { document.execCommand('copy'); } catch {} t.remove();
+      }
+      btn.textContent = 'Copied'; btn.dataset.done = '';
+      setTimeout(() => { btn.textContent = 'Copy'; delete btn.dataset.done; }, 1400);
+    });
+  }
+  apply();
+})();
+</script>
+</body>
+</html>
