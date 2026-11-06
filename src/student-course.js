@@ -81,6 +81,8 @@ function addressed(t) {
   return CLOSING.test(t) && t.replace(CLOSING, '').split(/\s+/).filter(Boolean).length >= 3;
 }
 export const addressesProfessor = (text) => addressed(s(text));
+// The message without its address (“Hi Dr. Dabirian, when is the final?” → “when is the final?”).
+const withoutAddress = (t) => { const m = OPENING.exec(t); return (m ? t.slice(m[0].length) : t.replace(CLOSING, '')).trim(); };
 const MISSES_CLASS = /\b(?:i(?:'ll| will| am going to|'m going to| won't be able to| can't| cannot)?\s+(?:miss|be\s+missing|be\s+absent|be\s+out|not\s+(?:be\s+)?(?:in|at)\s+class))\b/i;
 // Only the faculty member can decide: extensions, make-ups, excused absences, grade disputes, accommodations, dropping.
 const DECISION = /\b(?:extensions?|extend\s+(?:the\s+|my\s+)?(?:deadline|due\s+date)|more\s+time\s+(?:on|for|to)|make[- ]?up\s+(?:exam|quiz|test|work|assignment|class|the)|make\s+up\s+(?:the|my|an?)\s+(?:exam|quiz|test|midterm|final|class|work)|retake|re-take|excused?\s+(?:absence|from)|excused|excuse\s+(?:my|me|the)|regrade|re-grade|dispute\s+(?:my|the|a)\s+(?:grade|score)|(?:my\s+)?grade\s+(?:is|was|looks)\s+wrong|wrong\s+grade|an?\s+incomplete|accommodations?|(?:drop|withdraw\s+from)\s+(?:the|this|my)\s+(?:class|course))\b/i;
@@ -270,11 +272,24 @@ function officeText(notices) {
 }
 
 // ---- the entry point -----------------------------------------------------------------------------------------------
-export function courseAnswer(question, { now = new Date(), notices = [] } = {}) {
+// Owner, 2026-11-06: “the assistant should answer simple fact questions” — written to Dr. Dabirian, a question the class
+// facts settle (“Hi Dr. Dabirian, when is the final?”, “Dr. Dabirian, who is in my class?”) is answered by the assistant;
+// anything else written to them (a decision, a request, something the facts don't cover) is sent to them at once.
+// An explicit “ask / tell Dr. Dabirian …” is always sent.
+const SEND_TO_PROFESSOR = { topic: 'to_professor', text: SENT_TEXT, send: true };
+export function courseAnswer(question, opts = {}) {
   const t = s(question);
   if (!t || t.length > 600) return null;
+  if (ASKS_PROFESSOR.test(t)) return SEND_TO_PROFESSOR;
+  if (addressed(t)) {
+    const known = factAnswer(withoutAddress(t), opts);
+    return known && !known.offer ? known : SEND_TO_PROFESSOR;
+  }
+  return factAnswer(t, opts);
+}
+function factAnswer(t, { now = new Date(), notices = [] } = {}) {
+  if (!t) return null;
   if (CLASS_MESSAGE.test(t)) return { topic: 'class_message', text: OFFER_CLASS_TEXT, offer: 'class_message' };
-  if (addressed(t) || ASKS_PROFESSOR.test(t)) return { topic: 'to_professor', text: SENT_TEXT, send: true };
   if (MISSES_CLASS.test(t) && /\bclass|lecture|exam|quiz|midterm|final\b/i.test(t)) return { topic: 'ask_professor', text: OFFER_ASK_TEXT, offer: 'ask' };
   if (IDENTITY.test(t)) return { topic: 'identity', text: IDENTITY_TEXT };
   if (asksAboutClassmates(t)) return { topic: 'classmates', text: null, roster: true }; // answered from the class list (src/classmates.js)

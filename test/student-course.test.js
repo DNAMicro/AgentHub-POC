@@ -176,6 +176,12 @@ test('a message for the whole class, a request for Dr. Dabirian, a decision only
     assert.equal(at(q).text, SENT_TEXT, q);
     assert.equal(at(q).offer, undefined, q);
   }
+  // Owner, 2026-11-06: “the assistant should answer simple fact questions” — even when written to Dr. Dabirian.
+  for (const [q, topic] of [['Hi Dr. Dabirian, when is the final?', 'exam'], ['Dr. Dabirian, when does class meet?', 'meeting'], ['Dr. Dabirian, what are your office hours?', 'office_hours'], ['Hi Dr. Dabirian, who is in my class?', 'classmates']]) {
+    assert.equal(at(q)?.topic, topic, q);
+    assert.notEqual(at(q).send, true, q);
+  }
+  for (const q of ['Dr. Dabirian, can you tell everyone the study group is at 6?', 'Dr. Dabirian, I will miss class Tuesday', 'Hi Dr. Dabirian, can I get an extension?', 'Can you ask Dr. Dabirian when the final is?']) assert.equal(at(q)?.send, true, `${q}: not a fact the assistant settles, or an explicit ask`);
   for (const q of ['Hi Dr. Dabirian', 'Hi professor!', "What are Dr. Dabirian's office hours?", "Dr. Dabirian's office hours?", 'Who teaches Marketing 351?', 'Hi, when is the final?']) assert.notEqual(at(q)?.send, true, q);
   for (const q of ["I'll miss class on Tuesday", 'I will be absent from class Thursday']) {
     assert.equal(at(q)?.offer, 'ask', q);
@@ -379,6 +385,9 @@ test('end to end: a message written to Dr. Dabirian is sent at once (owner, 2026
   r = await ask('yes');
   assert.equal(r.text, ALREADY_SENT_TEXT, 'nothing waits for a yes; a yes sends nothing again');
   assert.equal((await handOvers(s)).length, 1);
+  r = await ask('Hi Dr. Dabirian, when is the final?');
+  assert.match(r.text, /^The Marketing 351 final exam is Thu, Dec 17/, 'a simple fact is answered by the assistant');
+  assert.equal((await handOvers(s)).length, 1, 'and not sent');
 });
 
 test('end to end: ↩ Reply to Dr. Dabirian’s own message is still a direct relay (the student pressed Reply)', async () => {
