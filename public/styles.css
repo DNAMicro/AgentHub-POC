@@ -138,6 +138,13 @@ h1 { margin: 0; font-size: 1.2rem; font-weight: 700; letter-spacing: -0.01em; }
 .badge[data-mode="live"] { color: var(--text); border-color: var(--border-strong); font-weight: 600; }
 .badge[data-mode="live"]::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--bad); margin-right: 6px; vertical-align: 1px; }
 .state { font-weight: 600; }
+.guide-link {
+  font-size: 0.8rem; font-weight: 600; padding: 2px 10px; border-radius: 999px; white-space: nowrap; text-decoration: none;
+  color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.guide-link::before { content: "?"; display: inline-grid; place-items: center; width: 14px; height: 14px; margin-right: 5px; border-radius: 50%; background: var(--accent); color: var(--surface, #fff); font-size: 10px; font-weight: 800; vertical-align: 1px; }
+.guide-link:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.guide-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .state:is([data-state="routing"], [data-state="sending"], [data-state="waiting"], [data-state="uncertain"]) { color: var(--warn); background: var(--warn-bg); border-color: transparent; }
 .state[data-state="completed"] { color: var(--ok); }
 .state[data-state="failed"] { color: var(--bad); background: var(--bad-bg); border-color: transparent; }
