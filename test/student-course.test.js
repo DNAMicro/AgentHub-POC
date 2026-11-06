@@ -298,6 +298,9 @@ test('end to end: class facts and classmates are answered by the course assistan
   ]) {
     const r = await ask(q);
     if (want instanceof RegExp) assert.match(r.text, want, q); else assert.equal(r.text, want, q);
+    // Security review: classmates' names and emails stay in the student's reply — the agent's event feed says only what it did.
+    const published = find(r.events, 'professor', 'reply_published');
+    if (/@csu\.fullerton\.example/.test(r.text)) assert.match(published?.data?.text ?? 'NO EVENT', /^Answered from the class list \(\w+\)\.$/, `${q}: feed redacted`);
     assert.equal(r.servedBy, 'professor', q);
     assert.equal(r.professor.onBehalf, true, `${q}: labelled “Dr. Dabirian’s course assistant”, never “Dr. Dabirian”`);
     assert.equal(r.professor.outcome, 'answer');

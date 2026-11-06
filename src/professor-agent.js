@@ -170,7 +170,7 @@ async function handleChat(ctx, bus, runId) {
         : { kind: 'not_enrolled', text: CLASSMATES_FAILED_TEXT, count: 0 };
     if (lesson) recordReply(incoming.messageId, { studentId: student, text: question, about, relayed: false }, { text: `Answered from the class list (${a.kind}).`, model: null, needsProfessor: false, onBehalf: true });
     emitViz('course_fact_answered', runId, { topic: 'classmates', offered: false, kind: a.kind, rosterCount: a.count });
-    return reply(a.text, { outcome: 'answer', decidedBy: 'code', topic: 'classmates' }, moved);
+    return reply(a.text, { outcome: 'answer', decidedBy: 'code', topic: 'classmates' }, { ...moved, shownAs: `Answered from the class list (${a.kind}).` });
   }
   if (known) {
     if (lesson) recordReply(incoming.messageId, { studentId: student, text: question, about, relayed: false }, { text: known.text, model: null, needsProfessor: false, onBehalf: true });
@@ -248,12 +248,14 @@ function bookSlot(meetingId, slotId, student) {
   if (r.status === 'booked') r.text = `Booked: ${r.slot.label} (Pacific Time) with ${COURSE.professorName}. Demo booking — no calendar invite is sent.`;
   return { needsProfessor: false, ...r };
 }
-function publishReply(ctx, bus, runId, incoming, text, metadata, question = null, extra = {}) {
+// extra.shownAs (classmates answers, owner 2026-11-06): the words used for the event feed and the model's history instead
+// of the real text — classmates' names and emails go into this student's reply message only.
+function publishReply(ctx, bus, runId, incoming, text, metadata, question = null, { shownAs = null, ...extra } = {}) {
   const message = { messageId: randomUUID(), contextId: ctx.contextId, taskId: '', role: Role.ROLE_AGENT, parts: [textPart(text)], metadata, extensions: [], referenceTaskIds: [] };
   bus.publish(AgentEvent.message(message));
   bus.finished();
-  emitViz('reply_published', runId, { messageId: message.messageId, contextId: ctx.contextId, inReplyTo: incoming.messageId, text, professor: metadata.professor });
-  if (question !== null) recent.set(ctx.contextId, [...(recent.get(ctx.contextId) ?? []), { question, answer: text, ...extra }].slice(-4));
+  emitViz('reply_published', runId, { messageId: message.messageId, contextId: ctx.contextId, inReplyTo: incoming.messageId, text: shownAs ?? text, professor: metadata.professor });
+  if (question !== null) recent.set(ctx.contextId, [...(recent.get(ctx.contextId) ?? []), { question, answer: shownAs ?? text, ...extra }].slice(-4));
 }
 
 const executor = {
