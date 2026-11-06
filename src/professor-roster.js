@@ -633,6 +633,14 @@ export function createRosterDesk({ hubLink, conversationId, emit = () => {}, now
     return got.fail ? null : got.rows;
   }
 
+  // Owner, 2026-11-06: the class list for a STUDENT's question about classmates (purpose 'classmates': the Campus Agent
+  // returns name, year, major and campus email only). Read fresh every time, within the student path's budget (25 s <
+  // the Hub's 60 s dispatch). → the rows, or null when the class list can't be had (nothing is guessed).
+  async function classmates({ operationId }) {
+    const got = await lookup({ operationId: operationId ?? `classmates-${randomUUID()}`, hub: null, timeoutMs: TIMEOUTS.professorMessageRosterMs, purpose: 'classmates' });
+    return got.fail ? null : got.rows;
+  }
+
   // Review C12: the class record (meeting days/time, room …) read FRESH from CHRS, for a cancellation's offer and notice.
   // → the class object, or null when the roster can't be had right now (the caller never guesses details).
   async function classRecord({ operationId, hub = null }) {
@@ -660,5 +668,5 @@ export function createRosterDesk({ hubLink, conversationId, emit = () => {}, now
   const clearTell = () => { tell = null; };
   const rearmTell = (about = null) => { tell = { at: now(), about }; };
   const reset = () => { card = null; known = null; tell = null; people = null; gen += 1; };
-  return { request, fact, filter, question, exportAsk, names, classRecord, rows, known: () => (people ? [...people] : null), view, state, counts, noteCourse, reset, waitingTell, askTell, clearTell, rearmTell };
+  return { request, fact, filter, question, exportAsk, names, classRecord, rows, classmates, known: () => (people ? [...people] : null), view, state, counts, noteCourse, reset, waitingTell, askTell, clearTell, rearmTell };
 }

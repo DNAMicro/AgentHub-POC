@@ -8,7 +8,8 @@
 //   offer: 'ask' (the student asked for the faculty member), 'decision' (only the faculty member can decide it),
 //          'class_message' (a message for the whole class) — the agent holds the question and waits for yes / no.
 // notices: the posts this (Hub-verified) student was sent: [{ title, text, kind, createdAt, quiz?, meeting? }].
-// Privacy: never a classmate's name, count, email, ID, level or major — the answer about other students is a fixed decline.
+// Classmates (owner, 2026-11-06): { topic: 'classmates', roster: true } — the agent reads the class list and answers with
+// classmatesAnswer (src/classmates.js): names, count, year, major and campus email; never an ID, phone or grades.
 import { COURSE } from './course-pack.js';
 import { HOLIDAYS } from './absence-types.js';
 import {
@@ -74,7 +75,7 @@ const NOT_A_NAME = new Set(['Dr', 'Dabirian', 'Marketing', 'Mktg', 'Canvas', 'Pr
   'Today', 'Tomorrow', 'Tonight', 'Personal', 'Quiz', 'Exam', 'Midterm', 'Final', 'Syllabus', 'Office',
   ...WEEKDAY_NAMES, ...MONTHS, 'January', 'February', 'March', 'April', 'June', 'July', 'August', 'September', 'October', 'November', 'December']);
 const NAMED_DOES = /\b(?:[Ii]s|[Aa]re|[Dd]oes|[Dd]id|[Hh]as|[Cc]an|[Ww]ill|[Ww]as)\s+([A-Z][a-z]+(?:[- ][A-Z][a-z]+)?)\s+(?:in|taking|take|took|enrolled|registered|have|had|has|get|got|done|finish\w*|submit\w*|see|seen|know|still|also|even|really|a|an|on|passing|failing|doing|coming|going|attend\w*)\b/;
-const NAMED_OWNS = /\b([A-Z][a-z]+(?:[- ][A-Z][a-z]+)?)'s\s+(?:e-?mail|phone|number|cell|id|student\s+id|cwid|major|minor|grade|grades|score|scores|address|contact|year|level|schedule|pronouns|gpa|units|class\s+standing|info\w*|details|instagram|snapchat|socials?)\b/;
+const NAMED_OWNS = /\b([A-Z][a-z]+(?:[- ][A-Z][a-z]+)?)'s\s+(?:e-?mail|E-?mail|phone|number|cell|id|ID|Id|student\s+(?:id|ID)|cwid|CWID|major|minor|grade|grades|score|scores|address|contact|year|level|schedule|pronouns|gpa|GPA|units|class\s+standing|info\w*|details|instagram|snapchat|socials?)\b/;
 const PEOPLE = [
   /\bclass-?mates?\b/i,
   /\bwho(?:'s|\s+is|\s+are)?\s+else\b/i,
@@ -90,9 +91,14 @@ const PEOPLE = [
   /\b(?:is|are)\s+(?:my\s+)?(?:friend|roommate|buddy|boyfriend|girlfriend|partner|cousin|brother|sister)\b[^?.!]*\b(?:in|taking)\b/i,
   /\b(?:is|are)\s+(?!we\b|i\b|you\b|it\b|there\b|they\b)[a-z][\w.'-]*(?:\s+[a-z][\w.'-]*)?\s+(?:in|taking|enrolled\s+in|registered\s+for)\s+(?:my|our|the|this)\s+(?:marketing\s+)?(?:class|course|section)\b/i,
   /\b(?:e-?mails?|phone\s+numbers?|contact\s+info\w*)\s+(?:of|for)\s+(?:a\s+|an?other\s+|my\s+|the\s+)?(?:students?|classmates?|someone|somebody|people)\b/i,
+  // Owner, 2026-11-06 (classmates' emails may be shared): “the emails of the juniors”, “names of everyone in my class”, “class email list”.
+  /\b(?:e-?mails?|e-?mail\s+addresses|names?|contact\s+info\w*|contacts)\s+(?:of|for)\s+(?:all\s+(?:of\s+)?)?(?:the\s+|my\s+|our\s+)?(?:juniors?|seniors?|sophomores?|freshm[ae]n|first[- ]years?|[a-z]+\s+majors?|majors?|students?|classmates?|everyone|everybody|people)\b/i,
+  /\b(?:class|student|classmates?)\s+(?:e-?mail|contact)\s+(?:list|addresses|info\w*)\b/i,
 ];
+// “How can I contact Owen Bennett?”, “email Mariana Aguilar”: a first + last name after a contact verb.
+const NAMED_CONTACT = /\b(?:contact|reach|e-?mail|message|text|get\s+(?:a\s+)?hold\s+of|get\s+in\s+touch\s+with)\s+([A-Z][a-z]+[- ][A-Z][a-z]+)\b/;
 function namesSomeone(t) {
-  for (const re of [NAMED_DOES, NAMED_OWNS]) {
+  for (const re of [NAMED_DOES, NAMED_OWNS, NAMED_CONTACT]) {
     const m = re.exec(t);
     if (m && !m[1].split(/[- ]/).some((w) => NOT_A_NAME.has(w))) return true;
   }
@@ -253,7 +259,7 @@ export function courseAnswer(question, { now = new Date(), notices = [] } = {}) 
   if (CLASS_MESSAGE.test(t)) return { topic: 'class_message', text: OFFER_CLASS_TEXT, offer: 'class_message' };
   if (ASKS_PROFESSOR.test(t) || (MISSES_CLASS.test(t) && /\bclass|lecture|exam|quiz|midterm|final\b/i.test(t))) return { topic: 'ask_professor', text: OFFER_ASK_TEXT, offer: 'ask' };
   if (IDENTITY.test(t)) return { topic: 'identity', text: IDENTITY_TEXT };
-  if (asksAboutClassmates(t)) return { topic: 'classmates', text: PRIVACY_TEXT };
+  if (asksAboutClassmates(t)) return { topic: 'classmates', text: null, roster: true }; // answered from the class list (src/classmates.js)
   if (DECISION.test(t)) return { topic: 'decision', text: OFFER_DECISION_TEXT, offer: 'decision' };
   if (WHO_TEACHES.test(t)) return { topic: 'instructor', text: WHO_TEACHES_TEXT };
   if (GRADING_Q.test(t)) return { topic: 'grading', text: gradingText() };

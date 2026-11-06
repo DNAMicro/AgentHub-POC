@@ -118,6 +118,15 @@ export function minimalRoster(roster) {
   };
 }
 
+// Owner, 2026-11-06: what a student may learn about classmates — name, academic level, plan (major) and campus email.
+const EMAIL_SHAPE = /^[^\s@]{1,64}@[^\s@]{1,128}$/;
+export function classmatesRoster(roster) {
+  return {
+    class: roster.class,
+    rows: roster.rows.map((r) => ({ studentId: r.studentId, name: r.name, level: r.level, plan: r.plan, ...(typeof r.email === 'string' && EMAIL_SHAPE.test(r.email) ? { email: r.email } : {}) })),
+  };
+}
+
 // ---- review #7: the roster-read audit log --------------------------------------------------------------------------
 // Every read of the class roster / class record records who (the staff id from the Hub's signature), which course and
 // section, why (a purpose from a fixed set, signed with the request) and how many rows. In this process's memory only
@@ -187,10 +196,13 @@ const chrsExecutor = {
       const staffId = STAFF_ROSTER_PURPOSES.includes(purpose) ? hubLink.verifiedStaff(incoming.metadata, ctx.contextId, purpose) : null;
       if (!staffId || value?.kind !== 'roster') return refuse();
       const courseId = COURSE_ID; // the request's courseId is not signed, so it is ignored: the configured course only
-      const r = await records.roster(courseId, staffId, { runId });
+      // Owner, 2026-11-06: purpose 'classmates' (a student's question about classmates) reads the campus emails too
+      // (moment 'email', includeEmail) and returns only name, year, major and email — never the ID, units or degree.
+      const classmates = purpose === 'classmates';
+      const r = await records.roster(courseId, staffId, { runId, ...(classmates ? { moment: 'email' } : {}) });
       if (!r.ok) return send({ value: { text: ROSTER_FAILED_TEXT } }, r.outcome === 'refused' ? 'refused_by_records' : r.outcome);
       logRead({ staffId, courseId, klass: r.value.roster.class, purpose, rowCount: r.value.roster.rows.length, runId });
-      return send({ value: { roster: minimalRoster(r.value.roster) } }, 'roster', { rosterCount: r.value.roster.rows.length });
+      return send({ value: { roster: classmates ? classmatesRoster(r.value.roster) : minimalRoster(r.value.roster) } }, 'roster', { rosterCount: r.value.roster.rows.length });
     }
     return refuse();
   },

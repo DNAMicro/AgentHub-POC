@@ -12,8 +12,9 @@ import { startStack, openStream, post, waitFor, find, findAll, forRun } from './
 import { startFakeAnthropic, messageReply } from './support/fake-anthropic.js';
 import {
   ALREADY_SENT_TEXT, GRADES_TEXT, IDENTITY_TEXT, LATE_YES_TEXT, NO_QUIZ_TEXT, OFFER_ASK_TEXT, OFFER_CLASS_TEXT, OFFER_DECISION_TEXT, OFFER_NOT_SENT_TEXT,
-  OFFER_UNKNOWN_TEXT, PRIVACY_TEXT, SENT_TEXT, WHO_TEACHES_TEXT, asksAboutClassmates, cancelledDays, classFactsBlock, courseAnswer, dayAsked, isNo, yesOf,
+  OFFER_UNKNOWN_TEXT, SENT_TEXT, WHO_TEACHES_TEXT, asksAboutClassmates, cancelledDays, classFactsBlock, courseAnswer, dayAsked, isNo, yesOf,
 } from '../src/student-course.js';
+import { PRIVATE_DETAIL_TEXT } from '../src/classmates.js';
 import { FINAL_EXAM, GRADING, MEETING, OFFICE_HOURS, TERM, meetsOn } from '../src/course-schedule.js';
 
 process.env.ROUTER_MODE ??= 'mock'; // read when src/router.js is first imported (below, dynamically)
@@ -47,10 +48,12 @@ test('classmate questions in many phrasings get the privacy decline (names, emai
   for (const q of asks) {
     const r = at(q);
     assert.equal(r?.topic, 'classmates', q);
-    assert.equal(r.text, PRIVACY_TEXT, q);
+    assert.equal(r.text, null, `${q}: answered from the class list, not from fixed words`);
+    assert.equal(r.roster, true, q);
     assert.equal(r.offer, undefined, `${q}: nothing offered or sent`);
   }
-  assert.doesNotMatch(PRIVACY_TEXT, /\d/, 'no count');
+  for (const q of ["What's Sam's ID?", "What is Mariana's GPA?", 'Can I get the emails of the juniors in my marketing class?', 'Is there a class email list?', 'How can I contact Owen Bennett?']) assert.equal(at(q)?.topic, 'classmates', q);
+  for (const q of ['How do I email Dr. Dabirian?', 'What is the email for Dr. Dabirian?']) assert.notEqual(at(q)?.topic, 'classmates', q);
   for (const q of ['What is market segmentation?', 'When is the final?', 'Who teaches Marketing 351?', 'Is Thursday class cancelled?', 'Does Canvas have the quiz?', 'Is Marketing 351 cancelled on Tuesday?']) assert.ok(!asksAboutClassmates(q), q);
 });
 
@@ -179,6 +182,7 @@ test('a message for the whole class, a request for Dr. Dabirian, a decision only
 });
 
 test('concept questions and the course pack are left to the material (no code answer)', () => {
+  for (const q of ["What's Sam's ID?", "What is Mariana's GPA?"]) assert.equal(at(q)?.topic, 'classmates', q);
   for (const q of ['What is market segmentation?', 'Explain the 4 Ps', 'What is SWOT in marketing', 'Can I hand in my homework late?', 'Give me an example of positioning',
     'How does pricing work?', 'What is customer value?', 'Explain the BCG matrix', 'What does branding mean?', 'Thanks!']) assert.equal(at(q), null, q);
 });
@@ -201,7 +205,7 @@ test('the student prompt: course assistant, never Dr. Dabirian, never about othe
   const { SYSTEM, ON_BEHALF, voiceProblem } = await import('../src/professor-model.js');
   assert.match(SYSTEM, /^You are Dr\. Dabirian's course assistant/);
   assert.match(SYSTEM, /You are NOT Dr\. Dabirian: never claim to be them/);
-  assert.match(SYSTEM, /never answer anything about another student/);
+  assert.match(SYSTEM, /Never state or guess anything about another student yourself/);
   assert.match(SYSTEM, /never write that you passed, sent or forwarded anything/);
   assert.doesNotMatch(SYSTEM, /Speak as the faculty member, in the first person/);
   assert.doesNotMatch(ON_BEHALF, /passed it to the faculty member/);
@@ -282,16 +286,18 @@ function asker(s, stream) {
 }
 const handOvers = async (s) => (await state(s)).chat.filter((m) => m.action === 'answer_student' && m.needsProfessor);
 
-test('end to end: class facts are answered by the course assistant (labelled so), classmates are declined, nothing reaches Dr. Dabirian', async () => {
+test('end to end: class facts and classmates are answered by the course assistant (labelled so), nothing reaches Dr. Dabirian', async () => {
   const { s, stream } = await classroom();
   const ask = asker(s, stream);
   for (const [q, want] of [
-    ['Who else is in my Marketing 351 class?', PRIVACY_TEXT], ['Is Mariana Aguilar in my class?', PRIVACY_TEXT], ['Who teaches Marketing 351?', WHO_TEACHES_TEXT],
+    ['Who else is in my Marketing 351 class?', /^Marketing 351 has 25 students — you and 24 classmates:\n\n- Mariana Aguilar — Junior, Marketing · maguilar@csu\.fullerton\.example\n/],
+    ['Is Mariana Aguilar in my class?', 'Yes — Mariana Aguilar is in Marketing 351 (Junior, Marketing). Their campus email is maguilar@csu.fullerton.example.'],
+    ["What's Sam Student's student ID?", PRIVATE_DETAIL_TEXT], ['Who teaches Marketing 351?', WHO_TEACHES_TEXT],
     ['When does Marketing 351 meet?', 'Marketing 351 meets Tue & Thu, 10:00–11:15 AM in Mihaylo Hall 2405 (Fall 2026, Aug 25 – Dec 18).'], ["What's my grade?", GRADES_TEXT],
     ['When is the marketing quiz due?', NO_QUIZ_TEXT], ['Is my marketing class cancelled on Thursday?', 'I don’t see a cancellation for Thu, Nov 12. Marketing 351 meets Tue & Thu, 10:00–11:15 AM in Mihaylo Hall 2405.'],
   ]) {
     const r = await ask(q);
-    assert.equal(r.text, want, q);
+    if (want instanceof RegExp) assert.match(r.text, want, q); else assert.equal(r.text, want, q);
     assert.equal(r.servedBy, 'professor', q);
     assert.equal(r.professor.onBehalf, true, `${q}: labelled “Dr. Dabirian’s course assistant”, never “Dr. Dabirian”`);
     assert.equal(r.professor.outcome, 'answer');
@@ -371,7 +377,7 @@ test('end to end: a classmate question with no course words reaches the course (
   const r = await ask("What's Sam Student's email?", { capability: null });
   assert.equal(find(r.events, 'student', 'request_planned')?.data.by, 'rule', 'decided in code, no model');
   assert.equal(r.servedBy, 'professor');
-  assert.equal(r.text, PRIVACY_TEXT);
+  assert.equal(r.text, 'Sam Student’s campus email is sstudent@csu.fullerton.example. They’re a senior majoring in Marketing.');
   assert.equal(find(r.events, 'student', 'clarification_asked'), undefined);
 });
 

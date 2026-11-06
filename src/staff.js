@@ -55,8 +55,10 @@ export const staffRequestFields = (v) => ['staff-request', v?.operationId, v?.co
 //   membership (comparing Canvas with the roster), recipients (the Hub addressing a post), email (the email fallback),
 //   message (review E: the faculty member's message preview card — who a message would reach, read when the card opens
 //   and again at Send; the Hub still addresses the post itself with its own 'recipients' read).
-export const ROSTER_PURPOSES = ['view', 'fact', 'question', 'tag', 'class_info', 'membership', 'recipients', 'email', 'message'];
-export const STAFF_ROSTER_PURPOSES = ['view', 'fact', 'question', 'tag', 'class_info', 'membership', 'message']; // the faculty member's own reads
+export const ROSTER_PURPOSES = ['view', 'fact', 'question', 'tag', 'class_info', 'membership', 'recipients', 'email', 'message', 'classmates'];
+// 'classmates' (owner, 2026-11-06): the course assistant reads the class list to answer a STUDENT's question about
+// classmates (names, year, major, campus email); the Campus Agent then returns only those fields, emails included.
+export const STAFF_ROSTER_PURPOSES = ['view', 'fact', 'question', 'tag', 'class_info', 'membership', 'message', 'classmates']; // reads by the Faculty agent
 export const LOOKUP_ROSTER_PURPOSES = ['recipients', 'tag']; // the Hub's own lookups (signRosterLookup)
 export const staffActionFields = (v) => ['staff-action', v?.operationId, v?.formRef, v?.conversationId];
 

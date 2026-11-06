@@ -12,7 +12,7 @@ import {
 } from '../src/professor-roster.js';
 import { mockRosterQuery, ROSTER_QUERY_SYSTEM } from '../src/professor-model.js';
 import { maskId, maskPrivateFields } from '../src/student-records-mcp.js';
-import { minimalRoster } from '../src/chrs-agent.js';
+import { classmatesRoster, minimalRoster } from '../src/chrs-agent.js';
 import { createStudentRecordsStore } from '../src/student-records-store.js';
 import { signRosterLookup, signStaff, verifyRosterLookupSignature, verifyStaffSignature } from '../src/hub-link.js';
 import { LOOKUP_ROSTER_PURPOSES, ROSTER_PURPOSES, STAFF_ROSTER_PURPOSES, staffRequestFields } from '../src/staff.js';
@@ -223,7 +223,7 @@ test('#6 one describer for both paths: the level / major filter and a roster que
 const KEY = 'k'.repeat(43);
 test('#7 the purpose set is fixed; lookups and staff reads split it; the staff request signs it when present', () => {
   // Review E: 'message' = the faculty member's message preview card (who a message would reach), a staff read.
-  assert.deepEqual(ROSTER_PURPOSES, ['view', 'fact', 'question', 'tag', 'class_info', 'membership', 'recipients', 'email', 'message']);
+  assert.deepEqual(ROSTER_PURPOSES, ['view', 'fact', 'question', 'tag', 'class_info', 'membership', 'recipients', 'email', 'message', 'classmates']);
   assert.ok(STAFF_ROSTER_PURPOSES.includes('message') && !LOOKUP_ROSTER_PURPOSES.includes('message'));
   assert.ok([...STAFF_ROSTER_PURPOSES, ...LOOKUP_ROSTER_PURPOSES].every((p) => ROSTER_PURPOSES.includes(p)));
   assert.ok(!STAFF_ROSTER_PURPOSES.includes('recipients') && !LOOKUP_ROSTER_PURPOSES.includes('view'));
@@ -269,7 +269,8 @@ test('#7 each desk method asks with its own purpose (code chooses it); an unknow
   await desk.names({ operationId: 'o7', fresh: true, purpose: 'membership' });
   await desk.classRecord({ operationId: 'o8' });
   await desk.names({ operationId: 'o9', fresh: true, purpose: 'recipients' }); // not a staff purpose: read as view
-  assert.deepEqual(sent.map((x) => x.purpose), ['view', 'view', 'fact', 'question', 'question', 'tag', 'membership', 'class_info', 'view']);
+  await desk.classmates({ operationId: 'o10' });
+  assert.deepEqual(sent.map((x) => x.purpose), ['view', 'view', 'fact', 'question', 'question', 'tag', 'membership', 'class_info', 'view', 'classmates']);
   for (const x of sent) assert.equal(x.fields.at(-1), `purpose:${x.purpose}`, 'signed');
 });
 
@@ -279,4 +280,17 @@ test('#7 Topology / Agent activity label: purpose and a row count only', () => {
   assert.match(label({ purpose: 'recipients', rowCount: 25, courseId: 'mkt-351' }), /Roster read logged · recipients · 25 rows/);
   assert.match(label({ purpose: 'class_info', rowCount: 1, courseId: 'mkt-351' }), /Roster read logged · class info · 1 row/);
   assert.doesNotMatch(label({ purpose: 'view', rowCount: 25 }), /CHRS/);
+});
+
+test('classmates (owner, 2026-11-06): a student may see classmates\' names, year, major and campus email — never an ID, units or pronouns', () => {
+  const withEmail = maskPrivateFields(FULL, { includeEmail: true });
+  const out = classmatesRoster(withEmail);
+  assert.equal(out.rows.length, 25);
+  for (const r of out.rows) {
+    assert.deepEqual(Object.keys(r).sort(), ['email', 'level', 'name', 'plan', 'studentId']);
+    assert.match(r.email, /@csu\.fullerton\.example$/);
+  }
+  assert.doesNotMatch(JSON.stringify(out.rows), /888\d{6}|•|pronouns|they\/them/);
+  const odd = classmatesRoster({ class: {}, rows: [{ studentId: 's', name: 'A,B', email: 'not an email', id: '888997694', pronouns: 'she/her' }] });
+  assert.deepEqual(odd.rows[0], { studentId: 's', name: 'A,B', level: undefined, plan: undefined });
 });

@@ -36,6 +36,7 @@ import { topicFromWords, countFromWords, coveredText } from './course-schedule.j
 import { TIMEOUTS } from './timeouts.js';
 import { deliveredText } from './delivery-text.js';
 import { nowFn } from './test-clock.js';
+import { CLASSMATES_FAILED_TEXT, PRIVATE_DETAIL_TEXT, asksPrivateDetail, classmatesAnswer } from './classmates.js';
 import { ALREADY_SENT_TEXT, LATE_YES_TEXT, OFFER_ASK_TEXT, OFFER_NOT_SENT_TEXT, OFFER_DECISION_TEXT, OFFER_TTL_MS, OFFER_UNKNOWN_TEXT, SENT_TEXT, classFactsBlock, courseAnswer, isNo, yesOf } from './student-course.js';
 
 const HOST = '127.0.0.1';
@@ -160,6 +161,17 @@ async function handleChat(ctx, bus, runId) {
   if (last?.askFor && !isNo(question)) return offer(question, OFFER_ASK_TEXT, { decidedBy: 'code' }, moved);
   // Class facts, a classmate question, a message for the class, a decision for Dr. Dabirian: code answers (src/student-course.js).
   const known = courseAnswer(question, { now: clock(), notices: sentTo(student) });
+  if (known?.roster) {
+    // Owner, 2026-11-06: classmates are answered from the class list (Campus Agent, signed purpose 'classmates'), for a
+    // Hub-verified student on that list only. The names and emails go to this student's reply only — never into the
+    // outbox (the faculty chat entry says what was answered, not who), telemetry or logs.
+    const a = asksPrivateDetail(question) ? { kind: 'private', text: PRIVATE_DETAIL_TEXT, count: 0 } // no roster read needed
+      : student ? classmatesAnswer(question, await rosterDesk.classmates({ operationId: `classmates-${randomUUID().slice(0, 12)}` }), student)
+        : { kind: 'not_enrolled', text: CLASSMATES_FAILED_TEXT, count: 0 };
+    if (lesson) recordReply(incoming.messageId, { studentId: student, text: question, about, relayed: false }, { text: `Answered from the class list (${a.kind}).`, model: null, needsProfessor: false, onBehalf: true });
+    emitViz('course_fact_answered', runId, { topic: 'classmates', offered: false, kind: a.kind, rosterCount: a.count });
+    return reply(a.text, { outcome: 'answer', decidedBy: 'code', topic: 'classmates' }, moved);
+  }
   if (known) {
     if (lesson) recordReply(incoming.messageId, { studentId: student, text: question, about, relayed: false }, { text: known.text, model: null, needsProfessor: false, onBehalf: true });
     emitViz('course_fact_answered', runId, { topic: known.topic, offered: Boolean(known.offer) });
