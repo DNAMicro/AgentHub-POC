@@ -93,9 +93,9 @@ test('Part 15 Task 5: the Professor staff classifier fits inside the proxy budge
   // The classifier runs, then the Hub staff wait: both inside the Professor → Hub proxy wait, which is inside the UI's.
   assert.ok(T.professorStaffClassifierMs + T.professorStaffMs < T.hubAuthorProxyMs);
   assert.ok(T.hubAuthorProxyMs < T.uiProfessorCallMs);
-  assert.equal(T.hubAuthorProxyMs, 110000);
+  assert.equal(T.hubAuthorProxyMs, 150000); // review E: every message opens a preview card first
   assert.match(await readFile(new URL('../src/professor-model.js', import.meta.url), 'utf8'), /maxTokens: 300, timeoutMs: STAFF_CLASSIFIER_TIMEOUT_MS, schema: STAFF_SCHEMA/);
-  assert.equal(T.uiProfessorCallMs, 115000);
+  assert.equal(T.uiProfessorCallMs, 155000);
 });
 
 test('Part 16 Task 4: the Canvas budget nests inside the Faculty author route', () => {
@@ -141,4 +141,17 @@ test('Part 17 Task 2: the CHRS budget nests inside the Hub staff waits', async (
   assert.match(await src('chrs-model.js'), /CHRS_TOOL_CHOICE_TIMEOUT_MS \?\? TIMEOUTS\.chrsToolChoiceMs/);
   assert.match(await src('chrs-agent.js'), /STUDENT_RECORDS_TIMEOUT_MS \?\? TIMEOUTS\.chrsRecordsCallMs/);
   assert.match(await src('chrs-records.js'), /CALL_FLOOR_MS = TIMEOUTS\.studentRecordsPlannerMs \+ 2000/);
+});
+
+test('review E: the message preview card fits inside the author proxy (opening it and pressing Send)', () => {
+  assert.equal(T.professorMessageRosterMs, 25000);
+  assert.ok(T.professorMessageRosterMs > T.chrsToolChoiceMs + T.chrsRecordsCallMs, 'the fresh roster read outlasts CHRS');
+  assert.equal(T.professorDraftMs, 30000);
+  // An instruction: staff-or-class check, fresh roster read, roster query, the draft.
+  assert.ok(T.hubAuthorProxyMs > T.professorStaffClassifierMs + T.professorMessageRosterMs + T.professorRosterQueryMs + T.professorDraftMs);
+  // An @assistant post: the tag lookup (staff wait), the assistant's model, then the card's fresh roster read.
+  assert.ok(T.hubAuthorProxyMs > T.professorStaffMs + T.professorModelMs + T.professorMessageRosterMs);
+  // Send: a fresh roster read, naming the post, the publish.
+  assert.ok(T.hubAuthorProxyMs > T.professorMessageRosterMs + T.professorModelMs + T.professorPublishMs);
+  assert.ok(T.uiProfessorCallMs > T.hubAuthorProxyMs);
 });

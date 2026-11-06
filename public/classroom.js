@@ -20,6 +20,7 @@ import { MessageProcessor, basicCatalog } from './vendor/a2ui.js';
 import { createQuizUi, dueDay } from './quiz-ui.js';
 import { createRosterUi } from './roster-ui.js';
 import { createCancelUi } from './cancel-ui.js';
+import { createMessageUi } from './message-ui.js';
 import { meetingLine } from '/shared/course-schedule.js';
 import { renderRichText } from './rich-text.js';
 import { A2UI_VERSION, reasonPicker, validateFinal } from '/shared/forms.js';
@@ -35,7 +36,7 @@ const isMessage = (x) => x?.kind === 'message';
 const untitled = (x) => x?.title || (isMessage(x) ? 'Untitled message' : 'Untitled lesson');
 const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 // A delivery report from the course assistant (review A4): drawn after the message card it reports on.
-const DELIVERY_REPORT = /^(\d+ students? (notified|isn't online|aren't online|is still being|are still being|couldn't be notified)|Your cancellation is on its way)/;
+const DELIVERY_REPORT = /^(\d+ students? (notified|isn't online|aren't online|is still being|are still being|couldn't be notified)|Your cancellation is on its way|Your message is on its way)/;
 const when = (iso) => (iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
 const store = {
   get(key) { try { return JSON.parse(localStorage.getItem(key) ?? 'null'); } catch { return null; } },
@@ -288,7 +289,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     return el('li', { className: 'msg post-card', dataset: { dir: 'received', speaker: 'professor', kind: p.kind } },
       el('div', { className: 'msg-head' },
         el('span', { className: 'msg-dir' }, el('span', { className: 'kind-tag', textContent: isMsg ? 'Message' : 'Lesson' }), ` ${p.title || (isMsg ? 'Message' : 'Lesson')}`),
-        el('time', { textContent: `to ${p.audience === 'all' ? `the whole class (${p.deliveries.length || '…'})` : p.audience.split(',').map(nameOf).join(', ')}` })),
+        el('time', { textContent: `to ${p.audience === 'all' ? `the whole class (${p.deliveries.length || '…'})` : p.audience.split(',').length > 3 ? `${p.audience.split(',').length} students` : p.audience.split(',').map(nameOf).join(', ')}` })),
       renderRichText(el('div', { className: 'msg-text post-text' }), p.text, { split: p.verbatim === false }),
       el('p', { className: 'post-origin', dataset: { verbatim: String(p.verbatim !== false) }, textContent: origin }),
       p.meetingState ? el('ul', { className: 'per-student meeting-state' }, ...p.meetingState.map((x) => el('li', { dataset: { tone: x.bookedBy ? 'ok' : 'busy' } }, el('span', { className: 'who', textContent: x.label }), el('span', { className: 'what', textContent: x.bookedBy ? `Booked by ${nameOf(x.bookedBy)}` : 'Open' })))) : null,
@@ -296,7 +297,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
   }
   // The professor's own message, sent straight to students: who it went to and each student's state.
   function sentPost(m, p) {
-    const li = bubble({ dir: 'sent', speaker: 'student', label: `You → ${p.audience === 'all' ? `the whole class (${p.deliveries.length || '…'})` : nameOf(p.audience)}`, at: m.at, text: m.text });
+    const li = bubble({ dir: 'sent', speaker: 'student', label: `You → ${p.audience === 'all' ? `the whole class (${p.deliveries.length || '…'})` : p.audience.split(',').length > 3 ? `${p.audience.split(',').length} students` : nameOf(p.audience)}`, at: m.at, text: m.text });
     li.classList.add('sent-post');
     li.dataset.kind = p.kind;
     li.append(
@@ -384,6 +385,10 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
   // Review #3: the class cancellation preview card (state: professorState.professor.cancelCard — dates, text, count only).
   let cancelCard = null;
   const cancelUi = createCancelUi({ el, api, deliveryList, post: (key) => posts.get(key), redraw: () => { lastRendered = ''; renderProfessor(); } });
+  // Review E: the message preview card (state: professorState.professor.messageCard — a description of who and a count,
+  // never names or ids). Every message to students waits on it until he presses Send.
+  let messageCard = null;
+  const messageUi = createMessageUi({ el, api, deliveryList, post: (key) => posts.get(key), redraw: () => { lastRendered = ''; renderProfessor(); }, isShowing: () => !pv.view.hidden });
   // ---- HR (staff only): the open time-off card ------------------------------------------------------
   // One card at a time (HR re-issues it with a new formRef after a follow-up message). The rendered card
   // is kept across re-renders (same element, same renderer) so what the professor typed is never lost.
@@ -713,6 +718,10 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     // the same card). Without the card in memory (a restart) those lines are not drawn; the card's own outcome lines
     // (`cancelCardId`: the delivery report, “I won't send …”) show only when the card can't show them itself.
     const lastCancel = chat.map((m, i) => (m.cancelCard?.id && m.cancelCard.id === cancelCard?.id ? i : -1)).filter((i) => i >= 0).pop();
+    // Review E: the message preview card is drawn under the newest entry that carries it (his message, or the assistant's
+    // line for an @assistant post). Its own outcome lines (`messageCardId`) show only when the card can't show them itself.
+    const lastMessage = chat.map((m, i) => (m.messageCard?.id && m.messageCard.id === messageCard?.id ? i : -1)).filter((i) => i >= 0).pop();
+    const messageHere = (m, mi) => (mi === lastMessage && m.messageCard?.id === messageCard?.id ? [messageUi.entry(messageCard)] : []);
     for (const [mi, m] of chat.entries()) {
       const r = m.role === 'student' && handedOver.get(m.id.replace(/:s$/, ':r'));
       if (r) items.push(handover(m, r));
@@ -725,6 +734,11 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
         if (mi === lastCancel) items.push(cancelUi.entry(cancelCard));
       }
       else if (m.role === 'assistant' && m.cancelCardId && m.cancelCardId === cancelCard?.id) continue;
+      else if (m.role === 'assistant' && m.messageCardId && m.messageCardId === messageCard?.id) continue;
+      else if (m.role === 'assistant' && m.messageCard?.id) {
+        if (m.messageCard.id !== messageCard?.id) continue; // its card is gone (a restart): the line said “check it”, so it goes too
+        items.push(bubble({ dir: 'info', speaker: 'professor', label: 'Course assistant', at: m.at, text: m.text }), ...messageHere(m, mi));
+      }
       else if (m.role === 'assistant' && m.action === 'roster' && m.roster?.rosterId) items.push(rosterUi.entry(m)); // Part 17: the CHRS class roster card
       else if (m.role === 'assistant' && m.quiz?.draftId && Array.isArray(qz = quiz.entry(m, quizCard, chat))) items.push(...qz); // Part 16: the quiz card, the Canvas cards
       else if (m.role === 'hr') {
@@ -747,6 +761,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
         else {
           items.push(bubble({ dir: 'sent', speaker: 'student', label: m.toAssistant ? 'You → course assistant' : m.replyTo ? `You → ${nameOf(m.replyTo)}` : 'You', at: m.at, text: m.text }));
           if (m.problem) items.push(bubble({ dir: 'error', speaker: 'professor', label: 'Not sent', at: m.at, text: m.problem }));
+          items.push(...messageHere(m, mi));
         }
       } else {
         // Review A4: a one-student confirmation is stored as "1 student notified." (or "1 student isn't online …"); the page shows their name when it knows it.
@@ -774,12 +789,13 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     quiz.sync();
     rosterUi.sync(chat);
     cancelUi.sync(cancelCard);
-    const signature = JSON.stringify([pv.view.hidden, quizCard, cancelCard, quizAsking, chat.length, pending?.text, [...handedOver.values()].map((m) => m.answeredAt ?? null), [...posts.values()].map((p) => [p.key, p.hubStatus, p.deliveries]), hrCard?.formRef ?? null, hrCard?.a2ui.length ?? 0, chat.at(-1)?.text, rosterCount, names.size]);
+    messageUi.sync(messageCard);
+    const signature = JSON.stringify([pv.view.hidden, quizCard, cancelCard, messageCard, quizAsking, chat.length, pending?.text, [...handedOver.values()].map((m) => m.answeredAt ?? null), [...posts.values()].map((p) => [p.key, p.hubStatus, p.deliveries]), hrCard?.formRef ?? null, hrCard?.a2ui.length ?? 0, chat.at(-1)?.text, rosterCount, names.size]);
     if (signature === lastRendered) return;
     lastRendered = signature;
     // The open HR card and the quiz cards stay where they are in the page (never detached), so a field being
     // edited keeps focus and a half-typed question survives.
-    const keepSet = new Set([hr?.li, ...quiz.kept(), ...rosterUi.kept(), ...cancelUi.kept()].filter((x) => x && items.includes(x) && x.parentNode === pv.log));
+    const keepSet = new Set([hr?.li, ...quiz.kept(), ...rosterUi.kept(), ...cancelUi.kept(), ...messageUi.kept()].filter((x) => x && items.includes(x) && x.parentNode === pv.log));
     if (!keepSet.size) return pv.log.replaceChildren(...items);
     for (const c of [...pv.log.children]) if (!keepSet.has(c)) c.remove();
     let head = null; // last item placed before the first kept one
@@ -811,6 +827,7 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     hrCard = s.hrCard ?? null;
     quizCard = s.quizCard ?? null;
     cancelCard = s.cancelCard ?? null;
+    messageCard = s.messageCard ?? null;
     quizAsking = Boolean(s.quizAsking);
     const first = !lastRendered;
     renderProfessor();
@@ -913,7 +930,8 @@ export function createClassroom({ sendChat, showConversation, focusComposer, fol
     // An open HR card: its current values travel with the message, so a chat follow-up fills the card on
     // top of what the professor already changed on it (HR merges these first, then the words).
     const card = hrValues();
-    const r = await professorRun(text, { operationId: attempt.operationId, ...(pending.replyTo ? { replyTo: pending.replyTo } : {}), ...(pending.answers ? { answers: pending.answers } : {}), ...(card ? { formRef: card.formRef, formValues: card.values } : {}) });
+    const draft = messageUi.draft(); // review E: a typed “yes” sends what the open message card shows right now
+    const r = await professorRun(text, { operationId: attempt.operationId, ...(pending.replyTo ? { replyTo: pending.replyTo } : {}), ...(pending.answers ? { answers: pending.answers } : {}), ...(card ? { formRef: card.formRef, formValues: card.values } : {}), ...(draft ? { messageCard: draft } : {}) });
     pending = null;
     pv.send.disabled = false;
     if (r?.ok) {

@@ -11,10 +11,16 @@ scenes.push({
     await moment('professor posts a lesson, it arrives at the student', async () => {
       await tab('professor');
       const box = left.locator('#prof-message');
-      lessonCard = await left.locator('#prof-log li.post-card').count();
+      lessonCard = await left.locator('#prof-log li.post-card').count(); // the sent preview card (or, later, its post card) after the earlier post cards
       const lessonsBefore = await left.locator('#lesson-list > li').count();
       await typeInto(box, '@assistant write a short lesson for the whole class on the 4 Ps of marketing, with one coffee-shop example');
       await press('Enter');
+      // Review E: the lesson waits on its preview card until the faculty member presses Send.
+      const sendLesson = left.locator('#prof-log li.message-card .mc-send').last();
+      if (!(await seen(sendLesson, 120000))) { problems.push('Step 9 · the lesson preview card did not open within 2 minutes'); return; }
+      await moveTo(sendLesson);
+      await click(sendLesson);
+      await seen(left.locator('#prof-log li.message-card[data-status="sent"]').last(), 120000);
       await tab('conversation');
       const toast = left.locator('#toasts .toast').last();
       arrived = await seen(toast, 120000);
@@ -55,7 +61,8 @@ scenes.push({
 
     // (d) Back on the professor's side: Alex's state on the lesson, then a direct message to Alex.
     let sentToAlex = false;
-    const lessonState = left.locator('#prof-log li.post-card').nth(lessonCard).locator('.per-student li[data-tone="ok"]', { hasText: 'Alex' });
+    // The sent lesson is shown on its (sent) preview card until the next message opens a card; then as a post card.
+    const lessonState = left.locator('#prof-log li.message-card[data-status="sent"], #prof-log li.post-card').nth(lessonCard).locator('.per-student li[data-tone="ok"]', { hasText: 'Alex' });
     await moment('the faculty member sees Alex has opened the lesson', async () => {
       await tab('professor');
       const opened = lessonState.filter({ hasText: 'Opened' });
@@ -69,7 +76,11 @@ scenes.push({
       await typeInto(box, 'Can you send me your draft by Friday?');
       await pause(500);
       await press('Enter');
-      const line = left.locator('#prof-log li', { hasText: 'draft by Friday' }).filter({ hasText: 'Delivered' }).last();
+      const sendIt = left.locator('#prof-log li.message-card .mc-send').last(); // review E: confirm on the preview card
+      if (!(await seen(sendIt, 60000))) return;
+      await moveTo(sendIt);
+      await click(sendIt);
+      const line = left.locator('#prof-log li.message-card', { hasText: 'draft by Friday' }).filter({ hasText: /Notified|Opened/ }).last();
       sentToAlex = await seen(line, 120000);
       if (sentToAlex) await moveTo(line);
     });
@@ -106,7 +117,11 @@ scenes.push({
       await typeInto(box, '@assistant offer @alex meeting times Wednesday 2:00 pm or Thursday 10:00 am');
       await pause(500);
       await press('Enter');
-      const offerCard = left.locator('#prof-log li.post-card', { hasText: 'Pick the time that works' }).last();
+      const sendOffer = left.locator('#prof-log li.message-card .mc-send').last(); // review E: confirm on the preview card
+      if (!(await seen(sendOffer, 120000))) return;
+      await moveTo(sendOffer);
+      await click(sendOffer);
+      const offerCard = left.locator('#prof-log li.message-card', { hasText: 'Pick the time that works' }).last();
       const delivered = offerCard.locator('.per-student li[data-tone="ok"]', { hasText: 'Alex' });
       offered = await seen(delivered, 120000);
       if (offered) await moveTo(offerCard);

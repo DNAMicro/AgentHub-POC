@@ -7,7 +7,7 @@
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { startStack, post, openStream, waitFor } from './support/harness.js';
+import { startStack, post, sendCard, openStream, waitFor } from './support/harness.js';
 import { startFakeAnthropic, messageReply } from './support/fake-anthropic.js';
 
 const UNSURE = 'Should I file this as time off with HR, tell the class, or both?';
@@ -29,9 +29,10 @@ beforeEach(async () => {
 });
 
 // `on` = another stack (the TTL and live tests start their own); the shared one by default.
+// Review E: a post waits on the message preview card; sendCard presses Send (test/message-card.test.js covers the card).
 const say = async (text, operationId = `op-${randomUUID()}`, on = s) => {
   const res = await post(`${on.ui.url}/api/professor/chat`, { operationId, text });
-  return { http: res.status, ...(await res.json()) };
+  return sendCard(on.ui.url, { http: res.status, ...(await res.json()) });
 };
 const state = async (on = s) => (await fetch(`${on.ui.url}/api/professor/state`)).json();
 const requests = async (on = s) => (await (await fetch(`${on.hr.url}/test/hr/requests`)).json()).requests;
@@ -395,7 +396,7 @@ test('final fix 4: short leave words from a staff message (sick) are private too
 // Professor (/author/chat) → Hub → HR, with the card's current values alongside the words.
 const sayWithCard = async (text, card, values, operationId = `op-${randomUUID()}`) => {
   const res = await post(`${s.ui.url}/api/professor/chat`, { operationId, text, formRef: card.formRef, formValues: { absenceType: [], absenceReason: [], beginDate: '', endDate: '', hours: '', note: '', ...values } });
-  return { http: res.status, ...(await res.json()) };
+  return sendCard(s.ui.url, { http: res.status, ...(await res.json()) });
 };
 
 test('final fix 2: dates edited on the card survive a chat answer (“vacation”)', async () => {

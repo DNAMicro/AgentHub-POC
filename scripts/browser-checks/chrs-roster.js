@@ -50,6 +50,15 @@ async (page) => {
     await page.waitForFunction((n) => document.querySelectorAll('#prof-log > li').length > n && !document.querySelector('#prof-log .chat-pending'), before, { timeout: 30000 });
   }
 
+  // Review E: every message waits on the preview card; press its Send and wait until the card says it was sent.
+  async function sendPreview() {
+    const c = page.locator('#prof-log li.message-card').last();
+    await c.locator('.mc-send').waitFor({ timeout: 30000 });
+    await c.locator('.mc-send').click();
+    await page.waitForSelector('#prof-log li.message-card[data-status="sent"]', { timeout: 60000 });
+    return c;
+  }
+
   check('before any roster request the header adds no student count', !/\d+ students/.test(await page.locator('#prof-roster').textContent()), await page.locator('#prof-roster').textContent());
 
   check('before the count is known the header shows no student chips', await page.locator('#prof-roster .presence').count() === 0 && (await page.locator('#prof-roster').textContent()).trim() === '', await page.locator('#prof-roster').textContent());
@@ -86,21 +95,25 @@ async (page) => {
 
   // 2. Notify everyone: the card is kept through the redraw.
   await say('notify everyone that the midterm review session moves to Thursday');
+  const preview = page.locator('#prof-log li.message-card').last();
+  check('review E: the preview card says "To: all 25 students in Marketing 351" and shows the exact text before anything is sent', /To: all 25 students in Marketing 351/.test(await preview.textContent()) && (await preview.locator('.mc-text').inputValue()) === 'The midterm review session moves to Thursday.', await preview.textContent());
+  await preview.screenshot({ path: `${SHOTS}/e-notify-preview.png` });
+  await sendPreview();
   await page.waitForFunction(() => /25 students notified\./.test(document.querySelector('#prof-log').textContent), null, { timeout: 30000 });
   check('review A4: "25 students notified."', true);
   check('the roster card element survived the redraw', await page.evaluate(() => document.querySelector('#prof-log .roster-card')?.__keep === 'same-element') && await rows.count() === 25);
-  const post = page.locator('#prof-log .sent-post').last();
+  const post = page.locator('#prof-log li.message-card').last();
   await post.locator('.dsum').waitFor();
   const sum = await post.locator('.dsum .pill').allTextContents();
   check('summary: "25 notified" (owner, 2026-11-05: "just say 25 notified")', sum.join(' | ') === '25 notified', sum);
-  check('the head says "to the whole class (25)"', /the whole class \(25\)/.test(await post.locator('.msg-head .msg-dir').textContent()));
+  check('the card says "To: all 25 students in Marketing 351"', /To: all 25 students in Marketing 351/.test(await post.locator('.mc-to').textContent()));
   const fold = post.locator('details.dlist');
   check('the fold is closed and says "Show all 25 students"', await fold.evaluate((d) => !d.open) && (await fold.locator('summary').textContent()) === 'Show all 25 students');
   await fold.locator('summary').click();
   const frows = await fold.locator('.per-student li').evaluateAll((l) => l.map((x) => x.textContent));
   check('fold lists 25 students by name', frows.length === 25 && frows.some((r) => /^Mariana AguilarNotified$/.test(r)), frows.slice(0, 2));
   check('Alex Student shows Notified or Opened', frows.some((r) => /^Alex Student(Notified|Opened)/.test(r)), frows.filter((r) => /Alex/.test(r)));
-  check('the fold stays open after a redraw', await page.evaluate(() => document.querySelector('#prof-log .sent-post details.dlist')?.open));
+  check('the fold stays open after a redraw', await page.evaluate(() => document.querySelector('#prof-log li.message-card details.dlist')?.open));
   check('header still reads "25 students · 1 online"', (await page.locator('#prof-roster').textContent()).trim() === '25 students · 1 online');
   await post.scrollIntoViewIfNeeded();
   await page.waitForTimeout(300);
@@ -237,8 +250,8 @@ async (page) => {
   const beforeN = await page.locator('#prof-log > li').count();
   await box.press('Enter');
   await page.waitForFunction((n) => document.querySelectorAll('#prof-log > li').length > n && !document.querySelector('#prof-log .chat-pending'), beforeN, { timeout: 30000 });
+  const lastPost = await sendPreview();
   await page.waitForTimeout(1500);
-  const lastPost = page.locator('#prof-log .sent-post').last();
   const lastText = ((await lastPost.textContent()) ?? '').replace(/\s+/g, ' ');
   check('R2: "@mariana please resubmit your assignment" went to Mariana Aguilar (not "There\'s no @mariana")', /please resubmit your assignment/.test(lastText) && /Mariana/.test(lastText) && !(await page.locator('#prof-log').textContent()).includes("There's no @mariana"), lastText.slice(0, 200));
   await lastPost.scrollIntoViewIfNeeded();

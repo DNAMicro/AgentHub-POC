@@ -222,7 +222,9 @@ test('#6 one describer for both paths: the level / major filter and a roster que
 // ---- #7: the signed purpose -------------------------------------------------------------------------------------------
 const KEY = 'k'.repeat(43);
 test('#7 the purpose set is fixed; lookups and staff reads split it; the staff request signs it when present', () => {
-  assert.deepEqual(ROSTER_PURPOSES, ['view', 'fact', 'question', 'tag', 'class_info', 'membership', 'recipients', 'email']);
+  // Review E: 'message' = the faculty member's message preview card (who a message would reach), a staff read.
+  assert.deepEqual(ROSTER_PURPOSES, ['view', 'fact', 'question', 'tag', 'class_info', 'membership', 'recipients', 'email', 'message']);
+  assert.ok(STAFF_ROSTER_PURPOSES.includes('message') && !LOOKUP_ROSTER_PURPOSES.includes('message'));
   assert.ok([...STAFF_ROSTER_PURPOSES, ...LOOKUP_ROSTER_PURPOSES].every((p) => ROSTER_PURPOSES.includes(p)));
   assert.ok(!STAFF_ROSTER_PURPOSES.includes('recipients') && !LOOKUP_ROSTER_PURPOSES.includes('view'));
   const v = { operationId: 'op', conversationId: 'c' };

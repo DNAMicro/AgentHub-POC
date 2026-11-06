@@ -281,7 +281,9 @@ async (page) => {
 
   // 9b. Final review C-1: only the newest topic list has live chips; a tap with the Reply chip active makes no post.
   // He messages Alex and Alex answers (that gives him a ↩ Reply button), then he asks for a quiz again.
-  await page.request.post(`${origin}/api/professor/chat`, { data: { operationId: `op-${Date.now()}-note`, text: '@student-alex Please read chapter 2 before Friday.' } });
+  const note = await (await page.request.post(`${origin}/api/professor/chat`, { data: { operationId: `op-${Date.now()}-note`, text: '@student-alex Please read chapter 2 before Friday.' } })).json();
+  // Review E: the message waits on its preview card until Send.
+  await page.request.post(`${origin}/api/professor/message/actions`, { data: { cardId: note.messageCard.id, operationId: `op-${Date.now()}-send`, action: 'send' } });
   await student.locator('#student-log button', { hasText: 'Reply' }).first().waitFor({ timeout: 20000 });
   await student.locator('#student-log button', { hasText: 'Reply' }).first().click();
   await student.locator('#message').fill('Thanks, I will read it.');

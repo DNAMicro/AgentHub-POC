@@ -1,5 +1,6 @@
 // Process and event-stream helpers for the integration tests.
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
 import { once } from 'node:events';
 import { mkdtempSync } from 'node:fs';
@@ -350,4 +351,16 @@ export async function standInHub() {
   app.use(`/${AGENT_CARD_PATH}`, agentCardHandler({ agentCardProvider: handler, cache: { maxAge: 0 } }));
   app.use('/a2a/jsonrpc', jsonRpcHandler({ requestHandler: handler, userBuilder: UserBuilder.noAuthentication }));
   return { url, keyOf: (agentId) => keys.get(agentId) ?? null, close: () => { server.closeAllConnections?.(); return new Promise((r) => server.close(r)); } };
+}
+
+// Review E (owner, 2026-11-06: “yes so its confirmed before its sent”): every message the Faculty view chat would post now
+// opens the message PREVIEW CARD first. Tests that are about what happens after a post press Send with this helper: given a
+// chat result, it presses Send on the card (through the UI server, like the page) and returns the chat result merged with
+// the Send's answer — { action: 'post', post: { key }, text: '<counts>' , card } — or the chat result unchanged when it
+// opened no card. `text` overrides the box (an edit); `uiUrl` is the UI server.
+export async function sendCard(uiUrl, r, { text, operationId = `op-${randomUUID()}` } = {}) {
+  if (r?.action !== 'preview' || !r.messageCard) return r;
+  const res = await post(`${uiUrl}/api/professor/message/actions`, { cardId: r.messageCard.id, operationId, action: 'send', ...(text === undefined ? {} : { text }) });
+  const sent = await res.json();
+  return { ...r, ...sent, http: res.status, card: r.messageCard, chatReply: r.reply, action: sent.ok ? 'post' : sent.code === 'private' ? 'clarify' : 'error', reply: sent.ok ? null : sent.text, sendText: sent.text };
 }

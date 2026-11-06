@@ -335,6 +335,20 @@ export async function checkClassPost({ text, held = text, entryId, emit = () => 
   if (c.kind === 'class_message') return null;
   return ask('class_post_check', { model: c.model ?? null });
 }
+// Review E: the message preview card's Send. The words he chose for the class already passed checkClassPost when the card
+// opened (or he answered “class” for them); his edits on the card did not. Send refuses a message that NOW names an illness,
+// leave, a relative, or says he is out / off / away — unless those exact words were already in what passed. Code only: no
+// classifier and nothing held (the card shows the refusal and he edits the text).
+const PRIVATE_HITS = new RegExp(`${CLASS_POST_PRIVATE.source}|${RELATIVES.source}`, 'gi');
+const AWAY = /(^|[^\w’'])(?:i|i['’](?:m|ll|ve|d)|im|me|my|myself)(?![\w’'])[\s\S]{0,40}\b(?:out|off|away|not\s+(?:be\s+)?(?:in|here|there|on\s+campus))\b/i;
+export function newPrivateWords(text, baseline = '') {
+  const t = forClassWords(String(text ?? ''));
+  const base = forClassWords(String(baseline ?? ''));
+  const had = new Set([...base.matchAll(PRIVATE_HITS)].map((m) => m[0].toLowerCase()));
+  if ([...t.matchAll(PRIVATE_HITS)].some((m) => !had.has(m[0].toLowerCase()))) return true;
+  if (mentionsIllness(t) && !mentionsIllness(base)) return true;
+  return AWAY.test(t) && !AWAY.test(base);
+}
 // F2: while “What should I tell your class about …?” waits and an HR card is open, the reply goes to HR only when it is
 // clearly a card edit: an edit cue (“make it”, “change”, “instead”, “move it”, “switch”, “use 4 hours”), hours of leave, an
 // absence name, or a leave / illness / relative word. A day or a time alone is not enough (“We leave from the main entrance

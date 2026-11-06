@@ -1111,3 +1111,16 @@ details.dlist .per-student { margin-top: 8px; }
   .prof-chat .panel-head .course-meeting { grid-row: 3; }
   .prof-chat .class-roster { grid-row: 4; }
 }
+/* Review E: the message preview card (public/message-ui.js) — the cancellation card's look, plus who / names / prompt. */
+.message-card .mc-to-row { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.message-card .mc-to-row .cc-to { margin: 6px 0 6px; }
+.message-card .mc-show-names { font-size: .84rem; }
+.message-card .mc-names { margin: 0 0 8px; font-size: .86rem; color: var(--muted); line-height: 1.45; }
+.message-card .mc-prompt { margin: 2px 0 6px; font-weight: 600; font-size: .92rem; }
+.message-card[data-status="open"] .mc-prompt:only-of-type { color: var(--text); }
+.message-card .mc-box { margin-top: 2px; }
+.message-card .mc-text { min-height: 4.5em; }
+.message-card .mc-origin { margin: 6px 0 0; font-size: .8rem; color: var(--muted); font-style: italic; }
+.message-card .mc-sent { margin-top: 2px; }
+.message-card[data-status="not_sent"] .mc-sent { color: var(--muted); text-decoration: line-through; }
+.message-card [hidden] { display: none !important; }

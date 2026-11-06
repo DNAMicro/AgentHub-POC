@@ -82,6 +82,19 @@ const FILTER_FRAME = /^\s*(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?(?:who|
 export function rosterFilter(text) {
   const raw = String(text ?? '').trim();
   if (!raw || /(^|\s)@\w/.test(raw) || raw.split(/\s+/).length > 14 || !FILTER_FRAME.test(raw)) return null;
+  const f = levelMajorOf(raw);
+  return f && { kind: 'filter', ...f, count: /^\s*(?:(?:can|could|would)\s+you\s+(?:tell\s+me\s+)?)?(?:please\s+)?how\s+many\b/i.test(raw) };
+}
+// Review E (message preview card): a roster group named as the audience of a message (“all seniors”, “my seniors”, “the
+// marketing majors”, “juniors who are marketing majors”) — the same level / major reading, with no question frame.
+// → null, or { kind: 'filter', level, major, count: false }.
+export function groupFilter(phrase) {
+  const raw = String(phrase ?? '').trim();
+  if (!raw || /(^|\s)@\w/.test(raw) || raw.split(/\s+/).length > 10) return null;
+  const f = levelMajorOf(raw);
+  return f && { kind: 'filter', ...f, count: false };
+}
+function levelMajorOf(raw) {
   let t = ` ${raw.toLowerCase().replace(/\bfirst\s+years?\b/g, 'first-year').replace(/[’']s\b/g, '').replace(/\b(?:marketing|mktg)\s*351\b/g, ' ').replace(/[^a-z&\s-]/g, ' ').replace(/\s+/g, ' ')} `;
   let major = null;
   for (const [words, find, label] of MAJORS) {
@@ -97,12 +110,12 @@ export function rosterFilter(text) {
     if (!FILTER_FILLER.has(w)) left.push(w);
   }
   if (left.length || (!level && !major)) return null; // anything else said (“which seniors haven't submitted?”) is not a roster filter
-  return { kind: 'filter', level, major, count: /^\s*(?:(?:can|could|would)\s+you\s+(?:tell\s+me\s+)?)?(?:please\s+)?how\s+many\b/i.test(raw) };
+  return { level, major };
 }
-const filterMatches = (f, rows) => rows.filter((r) => (!f.level || String(r.level ?? '').toLowerCase() === f.level)
+export const filterMatches = (f, rows) => rows.filter((r) => (!f.level || String(r.level ?? '').toLowerCase() === f.level)
   && (!f.major || `${r.program ?? ''} ${r.plan ?? ''}`.toLowerCase().includes(f.major.find)));
 // A level / major filter as checked query filters, for the one describer below (label: how to say the major).
-const filterQuery = (f) => ({
+export const filterQuery = (f) => ({
   kind: f.count ? 'count' : 'list', match: 'all',
   filters: [...(f.level ? [{ field: 'level', op: 'is', value: f.level }] : []), ...(f.major ? [{ field: 'plan', op: 'contains', value: f.major.find, label: f.major.label }] : [])],
 });
@@ -206,6 +219,21 @@ export function criterionListText(q, n, total) {
 export function criterionYesNoText(q, n, total) {
   if (n === 0) return `No — ${criterionCountText(q, 0, total).replace(/^None/, 'none')}`;
   return `Yes — ${criterionCountText(q, n, total).replace(/\.$/, '')}; they're ${BELOW}.`;
+}
+
+// ---- review E: the audience of a message, said by the same describer ----------------------------------------------
+// “your 10 seniors”, “your 15 Marketing majors”, “your 4 juniors majoring in Marketing”, “the 2 students who aren't Business
+// majors”, or the criterion itself (“the 3 students who match: Program is “…””). q = a checked query (+ allowed values).
+export function audienceText(q, n) {
+  const noun = groupNoun(q, n === 1);
+  if (noun) return `your ${n} ${noun}`;
+  const pred = predicate(q, n === 1);
+  return pred ? `the ${n} ${studentsWord(n)} who ${pred}` : `the ${n} ${studentsWord(n)} who match: ${criterionText(q)}`;
+}
+// A group that matches nobody: “None of your students are seniors, so there's no one to send this to.”
+export function noOneText(q) {
+  const pred = predicate(q, false);
+  return pred && allPositive(q) ? `None of your students ${pred}, so there's no one to send this to.` : `None of your students match: ${criterionText(q)}, so there's no one to send this to.`;
 }
 
 // ---- roster questions in general (owner, 2026-11-05: “anyone not a business major?” was POSTED to all 25 students; “the
@@ -594,6 +622,13 @@ export function createRosterDesk({ hubLink, conversationId, emit = () => {}, now
     return got.fail ? null : people;
   }
 
+  // Review E: the roster rows a message's audience is resolved against, read FRESH when the preview card opens and again
+  // at Send (purpose 'message'). → the rows, or null when the class list can't be had (nothing is guessed).
+  async function rows({ operationId, hub = null }) {
+    const got = await lookup({ operationId: operationId ?? `message-${randomUUID()}`, hub, timeoutMs: TIMEOUTS.professorMessageRosterMs, purpose: 'message' });
+    return got.fail ? null : got.rows;
+  }
+
   // Review C12: the class record (meeting days/time, room …) read FRESH from CHRS, for a cancellation's offer and notice.
   // → the class object, or null when the roster can't be had right now (the caller never guesses details).
   async function classRecord({ operationId, hub = null }) {
@@ -621,5 +656,5 @@ export function createRosterDesk({ hubLink, conversationId, emit = () => {}, now
   const clearTell = () => { tell = null; };
   const rearmTell = (about = null) => { tell = { at: now(), about }; };
   const reset = () => { card = null; known = null; tell = null; people = null; gen += 1; };
-  return { request, fact, filter, question, exportAsk, names, classRecord, known: () => (people ? [...people] : null), view, state, counts, noteCourse, reset, waitingTell, askTell, clearTell, rearmTell };
+  return { request, fact, filter, question, exportAsk, names, classRecord, rows, known: () => (people ? [...people] : null), view, state, counts, noteCourse, reset, waitingTell, askTell, clearTell, rearmTell };
 }

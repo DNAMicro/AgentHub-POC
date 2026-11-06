@@ -27,25 +27,35 @@ scenes.push({
       else await moveTo(card.last().locator('.cr-grid-title'));
     });
 
-    // (c) Notify everyone: the class list comes from the Campus Agent, one delivery per student.
-    let sent = false;
-    await moment('He says “notify everyone …”; the Hub asks the Campus Agent who is in the class (watch the right window)', async () => {
+    // (c) Notify everyone: the message waits on its preview card (review E: nothing reaches students before Send); then the
+    // class list comes from the Campus Agent, one delivery per student.
+    let previewed = false;
+    const msgCard = log.locator('li.message-card').last();
+    await moment('He says “notify everyone …”; the preview card shows the exact text and who gets it', async () => {
       await typeInto(left.locator('#prof-message'), 'notify everyone that the midterm review session moves to Thursday');
       await press('Enter');
-      sent = await seen(log.locator('.sent-post .dsum'), 90000);
-      if (sent) await moveTo(log.locator('.sent-post .dsum').last());
-      else problems.push('Step 17 · the notice did not go out within 90 seconds (the Campus Agent may be down; the chat says why)');
+      previewed = await seen(msgCard.locator('.mc-send'), 90000);
+      if (previewed) await moveTo(msgCard);
+      else problems.push('Step 17 · the preview card did not open within 90 seconds (the Campus Agent may be down; the chat says why)');
+    });
+    if (!previewed) return;
+    let sent = false;
+    await moment('He presses Send; the Hub asks the Campus Agent who is in the class (watch the right window)', async () => {
+      await click(msgCard.locator('.mc-send'));
+      sent = await seen(msgCard.locator('.dsum'), 90000);
+      if (sent) await moveTo(msgCard.locator('.dsum'));
+      else problems.push('Step 17 · the notice did not go out within 90 seconds (the card says why)');
     });
     if (!sent) return;
 
     await moment('One delivery per student: Alex has it in the app, the others were emailed', async () => {
-      const pills = await log.locator('.sent-post .dsum .pill').last().textContent().catch(() => '');
-      const text = (await log.locator('.sent-post').last().textContent()) ?? '';
-      if (!/25 students notified\./.test(await log.textContent())) problems.push('Step 17 · the chat did not say “25 students notified.”');
+      const pills = await msgCard.locator('.dsum .pill').last().textContent().catch(() => '');
+      const text = (await msgCard.textContent()) ?? '';
+      if (!/25 students notified\./.test(text)) problems.push('Step 17 · the card did not say “25 students notified.”');
       if (!/\d+ notified/.test(text)) problems.push(`Step 17 · the delivery summary is not there (${String(pills).slice(0, 60)})`);
-      await click(log.locator('.sent-post').last().locator('details.dlist summary'));
-      await moveTo(log.locator('.sent-post').last().locator('details.dlist'));
-      await click(log.locator('.sent-post').last().locator('details.dlist summary'));
+      await click(msgCard.locator('details.dlist summary'));
+      await moveTo(msgCard.locator('details.dlist'));
+      await click(msgCard.locator('details.dlist summary'));
     });
 
     // (d) Alex's screen: the same words, from Dr. Dabirian.

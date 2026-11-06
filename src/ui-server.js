@@ -701,6 +701,8 @@ export async function startUiServer({ port = 4444 } = {}) {
     if (card.error) return res.status(400).json({ error: card.error });
     // Part 16: a tapped topic chip is a structured pick (checked again by the Faculty agent), never just text.
     if (rest.quizTopic !== undefined && (!Number.isInteger(rest.quizTopic) || rest.quizTopic < 1 || rest.quizTopic > 20)) return res.status(400).json({ error: 'Malformed topic pick.' });
+    const mc = rest.messageCard; // review E: the open message card's id and the text in its box (checked again by the Faculty agent)
+    if (mc !== undefined && (!mc || typeof mc !== 'object' || Array.isArray(mc) || typeof mc.id !== 'string' || !/^mc-[\w-]{6,80}$/.test(mc.id) || typeof mc.text !== 'string' || mc.text.length > 4000)) return res.status(400).json({ error: 'Malformed message card.' });
     req.body = { ...rest, ...card.fields };
     return proxyAuthor(req, res, '/chat', 'POST');
   });
@@ -771,6 +773,34 @@ export async function startUiServer({ port = 4444 } = {}) {
       res.status(502).json({ error: `${hub.name} is not reachable, so nothing was sent. Press the button again — it won’t send twice.` });
     }
     professorAgUi.refresh(); // the Faculty view's state (chat + cancellation card) changed
+  });
+  // Review E: Send / Don't send on the message preview card. Strict keys here too; the Faculty agent checks the text
+  // (length, privacy) and the audience (a fresh roster read) and is authoritative.
+  apiPost.post('/professor/message/actions', async (req, res) => {
+    const body = req.body ?? {};
+    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((k) => !['cardId', 'operationId', 'action', 'text'].includes(k))) return res.status(400).json({ errors: { _form: 'Unexpected request fields.' } });
+    const { operationId, cardId, action, text } = body;
+    if (typeof operationId !== 'string' || !/^[\w-]{8,100}$/.test(operationId)) return res.status(400).json({ errors: { _form: 'Missing or malformed operation ID.' } });
+    if (typeof cardId !== 'string' || !/^mc-[\w-]{6,80}$/.test(cardId)) return res.status(400).json({ errors: { _form: 'Missing or malformed card ID.' } });
+    if (!['send', 'decline'].includes(action)) return res.status(400).json({ errors: { _form: 'Unknown card action.' } });
+    if (text !== undefined && (action !== 'send' || typeof text !== 'string' || text.length > 4000)) return res.status(400).json({ errors: { _form: 'Only Send carries the text (4000 characters at most).' } });
+    try {
+      const r = await professorCall('/message-action', body);
+      res.status(r.status).json(r.json);
+    } catch {
+      res.status(502).json({ error: `${hub.name} is not reachable, so nothing was sent. Press the button again — it won’t send twice.` });
+    }
+    professorAgUi.refresh(); // the Faculty view's state (chat + message card) changed
+  });
+  // Review E: the names of the students a message card reaches (“Show names”) — Faculty view only, never in the state.
+  app.get('/api/professor/message/:cardId/names', async (req, res) => {
+    if (!/^mc-[\w-]{6,80}$/.test(req.params.cardId)) return res.status(404).json({ error: 'Unknown card.' });
+    try {
+      const r = await professorCall(`/message/${req.params.cardId}/names`);
+      res.status(r.status).json(r.json);
+    } catch {
+      res.status(502).json({ error: `${hub.name} is not reachable, so the names can’t be loaded.` });
+    }
   });
   // Part 17: the class roster rows for the Faculty view (never in the state, the streams or the telemetry).
   app.get('/api/professor/roster', async (req, res) => {

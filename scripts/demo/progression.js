@@ -509,13 +509,24 @@ async (page) => {
         await box.pressSequentially('Reminder: you can hand in this week’s homework late, no penalty.', { delay: TYPE_MS });
         await page.waitForTimeout(500);
         await box.press('Enter');
-        const sent = page.locator('#prof-log > li').filter({ hasText: 'no penalty' }).last();
-        await sent.getByText(/Delivered/).first().waitFor({ timeout: 60000 }).catch(() => {});
+        // Review E: every message waits on its preview card until the faculty member presses Send.
+        const preview = page.locator('#prof-log li.message-card').last();
+        await preview.locator('.mc-send').waitFor({ timeout: 60000 }).catch(() => {});
+        await show(preview, 'Confirmed before it is sent', 8, [k, 'The message preview card', 'The exact text and who gets it. Nothing reaches a student until Send.']);
+        await preview.locator('.mc-send').click().catch(() => {});
+        const sent = page.locator('#prof-log li.message-card').filter({ hasText: 'no penalty' }).last();
+        await sent.getByText(/Notified|Opened/).first().waitFor({ timeout: 60000 }).catch(() => {});
         await show(sent, 'Alex is notified', 10, [k, 'Notified means it arrived', '“Notified” appears only after Alex’s Student agent has saved it — or, for a student who isn’t online, after the campus email went out.']);
         await cap(k, 'Now the course assistant', '@assistant writes a lesson for the whole class. We’ll switch to the student’s screen and wait for it to arrive.');
         await typeInto(box, '@assistant write a short lesson for the whole class on the 4 Ps of marketing, with one coffee-shop example');
         await page.waitForTimeout(600);
         await box.press('Enter');
+        await status('Live: the course assistant is writing the lesson…');
+        const lessonCard = page.locator('#prof-log li.message-card').last();
+        await lessonCard.locator('.mc-send').waitFor({ timeout: 120000 }).catch(() => {});
+        await status(null);
+        await show(lessonCard, 'The assistant’s draft, on the preview card', 8, [k, 'Written by the assistant from his instruction', 'He can edit it. It goes to the whole class only when he presses Send.']);
+        await lessonCard.locator('.mc-send').click().catch(() => {});
         await page.waitForTimeout(800);
         await tab('conversation');
         await status('Live: the course assistant is writing the lesson…');
@@ -542,7 +553,7 @@ async (page) => {
         const r2 = await ask('Can I hand in my marketing homework late this week?');
         await show(r2, 'Answered from the faculty member’s own post', 11);
         await tab('professor');
-        await show(page.locator('#prof-log > li').filter({ hasText: '4 Ps' }).last(), 'Delivery state per student', 11, [k, 'Back on the faculty member’s side', 'Alex: delivered, then opened. Sam has no student agent connected, so the lesson waits at the Hub — and says so.']);
+        await show(page.locator('#prof-log li.message-card, #prof-log li.post-card').last(), 'Delivery state per student', 11, [k, 'Back on the faculty member’s side', 'Alex: delivered, then opened. Sam has no student agent connected, so the lesson waits at the Hub — and says so.']);
         await tab('conversation');
       },
     },
@@ -680,12 +691,18 @@ async (page) => {
         await tab('professor');
         await typeInto(page.locator('#prof-message'), 'notify everyone that the midterm review session moves to Thursday');
         await page.locator('#prof-message').press('Enter');
+        // Review E: the notice waits on its preview card (the exact text, “To: all 25 students in Marketing 351”) until Send.
+        const msgCard = logP.locator('li.message-card').last();
+        const previewed = await msgCard.locator('.mc-send').waitFor({ state: 'visible', timeout: 90000 }).then(() => true, () => false);
+        if (!previewed) { await cap(k, 'No preview this time', 'The chat says why (for example the Campus Agent did not answer); nothing was sent.'); await pause(6); return; }
+        await show(msgCard, 'Confirmed before it is sent', 9, [k, 'The message preview card', 'The exact words and who gets them, read fresh from the roster. Nothing goes out until Send.']);
+        await msgCard.locator('.mc-send').click();
         await status('Live: the Hub asks the Campus Agent who is in the class…');
-        const sentSummary = logP.locator('.sent-post .dsum');
-        const sent = await sentSummary.last().waitFor({ state: 'visible', timeout: 90000 }).then(() => true, () => false);
+        const sentSummary = msgCard.locator('.dsum');
+        const sent = await sentSummary.waitFor({ state: 'visible', timeout: 90000 }).then(() => true, () => false);
         await status(null);
-        if (!sent) { await cap(k, 'The notice did not go out', 'The chat says why (for example the Campus Agent did not answer); nothing is sent to a stale list.'); await pause(6); return; }
-        await show(logP.locator('.sent-post').last(), 'One delivery per student', 12, [k, 'Sent to the whole class', 'The count comes from the Campus Agent, read fresh for this send. Alex has it in the app; the others aren’t online, so the Campus Agent emailed them — they still get it in the app when they are.']);
+        if (!sent) { await cap(k, 'The notice did not go out', 'The card says why (for example the Campus Agent did not answer); nothing is sent to a stale list.'); await pause(6); return; }
+        await show(msgCard, 'One delivery per student', 12, [k, 'Sent to the whole class', 'The count comes from the Campus Agent, read fresh for this send. Alex has it in the app; the others aren’t online, so the Campus Agent emailed them — they still get it in the app when they are.']);
         await tab('conversation');
         const notice = page.locator('#student-log').getByText('midterm review session', { exact: false }).last();
         if (await notice.waitFor({ state: 'visible', timeout: 60000 }).then(() => true, () => false)) {

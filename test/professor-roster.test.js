@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startStack, startProfessor, post, openStream, waitFor, stopProcess } from './support/harness.js';
+import { startStack, startProfessor, post, sendCard, openStream, waitFor, stopProcess } from './support/harness.js';
 import { NOTIFY_EMPTY, PRIVATE_FIELD_TEXT, ROSTER_GONE, ROSTER_QUERY_FAILED_TEXT, ROSTER_UNCLEAR_TEXT, asksRosterQuestion, asksRoster, asksRosterExport, asksAboutRoster, createRosterDesk, notifyEveryone, notifyIsNew, resolveTags, rosterFact, rosterFilter, tellText } from '../src/professor-roster.js';
 import { readFileSync } from 'node:fs';
 import { ROSTER_FAILED_TEXT, ROSTER_POST_FAILED_TEXT } from '../src/staff.js';
@@ -101,10 +101,13 @@ async function classroom({ chrs = true, hr = false } = {}) {
   s.reset = async () => { await post(`${s.hub.url}/dev/classroom/reset`, {}); };
   return s;
 }
-const say = async (s, text, operationId = `op-${randomUUID()}`) => {
+// Review E: every post waits on the message preview card; `say` presses Send on it (sendCard) so these tests keep checking
+// what reaches students. `chatOnly` stops at the card (test/message-card.test.js covers the card itself).
+const chatOnly = async (s, text, operationId = `op-${randomUUID()}`) => {
   const res = await post(`${s.ui.url}/api/professor/chat`, { operationId, text });
   return { http: res.status, ...(await res.json()) };
 };
+const say = async (s, text, operationId) => sendCard(s.ui.url, await chatOnly(s, text, operationId));
 const state = async (s) => (await fetch(`${s.ui.url}/api/professor/state`)).json();
 // CHRS (and its records stand-in) start after the stack did, on the ports the Hub already names, and the Hub marks it ready.
 async function bringBackChrs(s) {
@@ -258,12 +261,15 @@ test('Review Focus 2: "notify everyone that I\'m sick, no class" asks the fixed 
 });
 
 test('notify everyone with nothing to tell asks "What should I tell your class?" and posts nothing', async () => {
-  const r = await say(main, 'notify everyone');
-  assert.equal(r.reply, NOTIFY_EMPTY);
-  assert.equal(r.reply, 'What should I tell your class?');
+  // Review E: the question is on the preview card, over its empty box (NOTIFY_EMPTY in the chat before the card).
+  const r = await chatOnly(main, 'notify everyone');
+  assert.equal(r.action, 'preview');
+  assert.equal(r.messageCard.text, '');
+  assert.equal(r.messageCard.prompt, 'What should your 25 students get?');
   const st = await state(main);
   assert.equal(st.lessons.length, 0);
-  assert.equal(lastOf(st.chat, 'assistant').text, NOTIFY_EMPTY);
+  assert.equal(st.messageCard.prompt, 'What should your 25 students get?');
+  assert.equal(NOTIFY_EMPTY, 'What should I tell your class?', 'the old chat question is no longer asked');
 });
 
 test('an unrelated plain class message still posts as before; round 2 (R1): "@assistant show my class roster" gets the same code answer', async () => {
@@ -405,8 +411,8 @@ test('CHRS down: a held "class" answer is held again, and works once the list is
 
 // ---- "… about X": ask what to say -------------------------------------------------------------------------------------
 test('"inform the class about the midterm review" asks what to say; his next plain reply goes to all 25, not to the staff desk', async () => {
-  const r = await say(main, 'Inform the whole class about the midterm review');
-  assert.equal(r.reply, 'What should I tell your class about the midterm review?');
+  const r = await chatOnly(main, 'Inform the whole class about the midterm review');
+  assert.equal(r.messageCard.prompt, 'What should your 25 students hear about the midterm review?'); // review E: on the card
   assert.equal((await state(main)).lessons.length, 0, 'no fragment is posted');
   // A reply that would look like an HR matter to the desk ("Friday") still goes to the class.
   const a = await say(main, 'It is on Friday at 2pm in room 101');
@@ -475,7 +481,7 @@ test('final review 1: "notify everyone that …" gets the plain path’s privacy
   }
   // The reply to “What should I tell your class about …?” gets the same check.
   await main.reset();
-  assert.equal((await say(main, 'Inform the whole class about Friday')).reply, 'What should I tell your class about Friday?');
+  assert.equal((await chatOnly(main, 'Inform the whole class about Friday')).messageCard.prompt, 'What should your 25 students hear about Friday?');
   assert.equal((await say(main, 'Dr. Dabirian is sick, no class')).reply, UNSURE);
   assert.equal((await state(main)).lessons.length, 0);
   // Clean announcements still go out.
@@ -526,7 +532,7 @@ test('final review 5: "Tell everyone to read chapter 5 before Thursday" reaches 
 test('final review 8: while "what should I tell your class about …?" waits and an HR card is open, a card edit goes to HR', async () => {
   const hr = await say(main, "I need Friday off, it's a vacation day");
   assert.equal(hr.action, 'staff', JSON.stringify(hr));
-  assert.equal((await say(main, 'inform the class about the exam')).reply, 'What should I tell your class about the exam?');
+  assert.equal((await chatOnly(main, 'inform the class about the exam')).messageCard.prompt, 'What should your 25 students hear about the exam?');
   const edit = await say(main, 'make it Dec 7 instead');
   assert.equal(edit.action, 'staff', JSON.stringify(edit));
   assert.equal((await state(main)).lessons.length, 0, 'nothing went to the class');
@@ -694,7 +700,7 @@ test('F4: while the HR / class / both question waits, a roster request, a roster
 });
 
 test('F5: a bare "notify everyone" waits like "… about X": the next plain reply goes to all 25 with the count', async () => {
-  assert.equal((await say(main, 'notify everyone')).reply, NOTIFY_EMPTY);
+  assert.equal((await chatOnly(main, 'notify everyone')).messageCard.prompt, 'What should your 25 students get?'); // review E: on the card
   const r = await say(main, 'The quiz moved to Monday');
   assert.equal(r.action, 'post', JSON.stringify(r));
   const st = await state(main);
@@ -710,7 +716,7 @@ test('F5: a bare "notify everyone" waits like "… about X": the next plain repl
 });
 
 test('F6: the reply to "about X" reaches students as "About X: …"', async () => {
-  assert.equal((await say(main, 'notify everyone about the guest speaker')).reply, 'What should I tell your class about the guest speaker?');
+  assert.equal((await chatOnly(main, 'notify everyone about the guest speaker')).messageCard.prompt, 'What should your 25 students hear about the guest speaker?');
   await say(main, 'She is a brand manager from a local company and visits on Wednesday');
   const st = await state(main);
   assert.equal(st.lessons[0].text, 'About the guest speaker: She is a brand manager from a local company and visits on Wednesday.');
@@ -720,7 +726,7 @@ test('F2: with an HR card open, a day or time in the reply to "what should I tel
   const hr = await say(main, "I need Friday off, it's a vacation day");
   assert.equal(hr.action, 'staff', JSON.stringify(hr));
   const before = (await state(main)).hrCard;
-  assert.equal((await say(main, 'inform the class about the field trip')).reply, 'What should I tell your class about the field trip?');
+  assert.equal((await chatOnly(main, 'inform the class about the field trip')).messageCard.prompt, 'What should your 25 students hear about the field trip?');
   const r = await say(main, 'We leave from the main entrance at 9 AM on Friday.');
   assert.equal(r.action, 'post', JSON.stringify(r));
   const st = await state(main);

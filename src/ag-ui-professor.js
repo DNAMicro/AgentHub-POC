@@ -104,7 +104,10 @@ export function createProfessorAgUi({ bootId, getState, postChat, unreachable })
     const card = cardValues(props);
     if (card.error) return { status: 400, json: { error: card.error } };
     if (props.quizTopic !== undefined && (!Number.isInteger(props.quizTopic) || props.quizTopic < 1 || props.quizTopic > 20)) return { status: 400, json: { error: 'Malformed topic pick.' } };
-    const body = { operationId: props.operationId, text, ...(props.replyTo ? { replyTo: props.replyTo } : {}), ...(props.answers ? { answers: props.answers } : {}), ...(props.quizTopic !== undefined ? { quizTopic: props.quizTopic } : {}), ...card.fields };
+    // Review E: the open message preview card's id and the text in its box (a typed “yes” sends what he sees).
+    const mc = props.messageCard;
+    if (mc !== undefined && (!mc || typeof mc !== 'object' || Array.isArray(mc) || Object.keys(mc).some((k) => !['id', 'text'].includes(k)) || typeof mc.id !== 'string' || !/^mc-[\w-]{6,80}$/.test(mc.id) || typeof mc.text !== 'string' || mc.text.length > 4000)) return { status: 400, json: { error: 'Malformed message card.' } };
+    const body = { operationId: props.operationId, text, ...(props.replyTo ? { replyTo: props.replyTo } : {}), ...(props.answers ? { answers: props.answers } : {}), ...(props.quizTopic !== undefined ? { quizTopic: props.quizTopic } : {}), ...(mc ? { messageCard: mc } : {}), ...card.fields };
     const runId = runStart();
     (async () => {
       let result;

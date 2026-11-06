@@ -9,7 +9,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
-import { startStack, startHub, startUi, startProfessor, signedStudent, openStream, chatVia, post, waitFor, find, findAll, forRun, stateOf } from './support/harness.js';
+import { startStack, startHub, startUi, startProfessor, signedStudent, openStream, chatVia, post, sendCard, waitFor, find, findAll, forRun, stateOf } from './support/harness.js';
 import { askTutor } from '../src/student-agent.js';
 import { startFakeAnthropic, messageReply } from './support/fake-anthropic.js';
 import { sendData } from '../src/a2a-data.js';
@@ -336,7 +336,10 @@ test('New conversation clears every student’s lessons and messages — inbox, 
 });
 
 // ---- the professor's chat (Faculty view) ------------------------------------------------------------------
-const say = async (s, text, operationId = `op-${randomUUID()}`) => (await post(`${s.ui.url}/api/professor/chat`, { operationId, text })).json();
+// Review E: every post waits on the message preview card; these tests are about what happens once he presses Send, so `say`
+// presses it (sendCard) — test/message-card.test.js covers the card itself.
+const chatOnly = async (s, text, operationId = `op-${randomUUID()}`, extra = {}) => (await post(`${s.ui.url}/api/professor/chat`, { operationId, text, ...extra })).json();
+const say = async (s, text, operationId = `op-${randomUUID()}`, extra = {}) => sendCard(s.ui.url, await chatOnly(s, text, operationId, extra));
 
 test('professor chat: plain messages go straight to students (tags pick who, no tag = the class); @assistant gets help; repeats send once', async () => {
   const { s } = await classroom();
@@ -435,7 +438,7 @@ test('@assistant (live mode, scripted model): code overrides an untagged recipie
     const r4 = await say(s, '@assistant @alex Great work on the quiz!');
     const p4 = (await professorState(s)).lessons.find((l) => l.key === r4.post.key);
     assert.equal(p4.audience, 'student-alex');
-    assert.match(r4.reply, /whom you tagged/);
+    assert.match(r4.chatReply, /whom you tagged/); // review E: said on the preview card's line, before Send
   } finally {
     await stub.close();
   }
@@ -595,7 +598,7 @@ test('replies in the chat: the professor’s message reaches the student’s cha
   assert.equal(c.filter((m) => m.action === 'answer_student').length, 0, 'nobody answered for the professor');
 
   // 3. The professor replies to Alex only (the reply icon): a message to that student, in their chat.
-  const back = await (await post(`${s.ui.url}/api/professor/chat`, { operationId: `op-${randomUUID()}`, text: 'Thanks — today is fine.', replyTo: 'student-alex' })).json();
+  const back = await say(s, 'Thanks — today is fine.', undefined, { replyTo: 'student-alex' });
   assert.equal(back.action, 'post');
   const backPost = (await professorState(s)).lessons.find((l) => l.key === back.post.key);
   assert.equal(backPost.audience, 'student-alex');
@@ -878,7 +881,7 @@ test('professor view model calls reach the UI stream as professor-model hops: a 
   try {
     const turn = async (text, purpose) => {
       const operationId = `op-${randomUUID()}`;
-      const r = await (await post(`${s.ui.url}/api/professor/chat`, { operationId, text })).json();
+      const r = await sendCard(s.ui.url, await chatOnly(s, text, operationId), { operationId }); // Send under the same run id
       assert.equal(r.action, 'post', JSON.stringify(r));
       const run = `prof-${operationId}`;
       const hop = (type) => stream.events.find((e) => e.source === 'professor' && e.runId === run && e.type === type && e.topo?.edge === 'professor-model' && e.data?.purpose === purpose);

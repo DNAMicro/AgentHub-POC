@@ -52,9 +52,11 @@ export const staffRequestFields = (v) => ['staff-request', v?.operationId, v?.co
 // and written into the Campus Agent's audit log with every read. Never a free text, never from the model or the browser.
 //   view (show the roster card), fact (a count / membership / one student), question (a roster question or filter),
 //   tag (resolving @-tags, the composer's suggestions), class_info (a cancellation's class time and room),
-//   membership (comparing Canvas with the roster), recipients (the Hub addressing a post), email (the email fallback).
-export const ROSTER_PURPOSES = ['view', 'fact', 'question', 'tag', 'class_info', 'membership', 'recipients', 'email'];
-export const STAFF_ROSTER_PURPOSES = ['view', 'fact', 'question', 'tag', 'class_info', 'membership']; // the faculty member's own reads
+//   membership (comparing Canvas with the roster), recipients (the Hub addressing a post), email (the email fallback),
+//   message (review E: the faculty member's message preview card — who a message would reach, read when the card opens
+//   and again at Send; the Hub still addresses the post itself with its own 'recipients' read).
+export const ROSTER_PURPOSES = ['view', 'fact', 'question', 'tag', 'class_info', 'membership', 'recipients', 'email', 'message'];
+export const STAFF_ROSTER_PURPOSES = ['view', 'fact', 'question', 'tag', 'class_info', 'membership', 'message']; // the faculty member's own reads
 export const LOOKUP_ROSTER_PURPOSES = ['recipients', 'tag']; // the Hub's own lookups (signRosterLookup)
 export const staffActionFields = (v) => ['staff-action', v?.operationId, v?.formRef, v?.conversationId];
 

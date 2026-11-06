@@ -4,7 +4,7 @@
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { startStack, startCanvas, stopProcess, post, openStream, waitFor } from './support/harness.js';
+import { startStack, startCanvas, stopProcess, post, sendCard, openStream, waitFor } from './support/harness.js';
 import { startFakeAnthropic, messageReply } from './support/fake-anthropic.js';
 import { TOPICS, dayLabel, taughtTopics } from '../src/course-schedule.js';
 
@@ -29,9 +29,10 @@ beforeEach(async () => {
   assert.deepEqual(await quizzes(), []);
 });
 
+// Review E: a post waits on the message preview card; sendCard presses Send (test/message-card.test.js covers the card).
 const say = async (text, on = s, operationId = `op-${randomUUID()}`) => {
   const res = await post(`${on.ui.url}/api/professor/chat`, { operationId, text });
-  return { http: res.status, ...(await res.json()) };
+  return sendCard(on.ui.url, { http: res.status, ...(await res.json()) });
 };
 const state = async (on = s) => (await fetch(`${on.ui.url}/api/professor/state`)).json();
 const quizzes = async (on = s) => (await (await fetch(`${on.canvas.url}/test/quizzes`)).json()).quizzes;
@@ -343,7 +344,7 @@ test('live decision "quiz" with a blank topic falls back to the request words: t
 });
 
 test('a reply to a student is a normal reply even if it reads like a quiz request; with @assistant it reaches the desk', async () => {
-  const send = async (text) => { const res = await post(`${s.ui.url}/api/professor/chat`, { operationId: `op-${randomUUID()}`, text, replyTo: 'student-alex' }); return { http: res.status, ...(await res.json()) }; };
+  const send = async (text) => { const res = await post(`${s.ui.url}/api/professor/chat`, { operationId: `op-${randomUUID()}`, text, replyTo: 'student-alex' }); return sendCard(s.ui.url, { http: res.status, ...(await res.json()) }); };
   const plain = await send('make a quiz on Topic 8');
   assert.equal(plain.http, 200, JSON.stringify(plain));
   assert.equal(plain.action, 'post');

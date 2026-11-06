@@ -17,7 +17,7 @@ import { topologyLabel } from '../src/topology.js';
 import { createStudentRecordsStore } from '../src/student-records-store.js';
 import { LESSON_PUBLISH_MEDIA_TYPE, LESSON_STATUS_MEDIA_TYPE, contentHash } from '../src/lessons.js';
 import { TIMEOUTS as T } from '../src/timeouts.js';
-import { startStack, professorStandIn, openStream, waitFor, post, stopProcess } from './support/harness.js';
+import { startStack, professorStandIn, openStream, waitFor, post, sendCard, stopProcess } from './support/harness.js';
 
 const cleanups = [];
 after(async () => { for (const c of cleanups.reverse()) await c().catch(() => {}); });
@@ -356,7 +356,7 @@ async function facultyStack(chrsEnv = {}) {
   const st = await startStack({ library: false, professor: true, chrsEnv, hubEnv: { ROUTER_MODE: 'mock', HUB_STUDENTS: 'student-alex,student-sam' }, tutorEnv: { TUTOR_MODE: 'mock', TUTOR_SCOPE_ENFORCEMENT: 'off' } });
   cleanups.push(async () => st.kill());
   await waitFor(async () => (await (await fetch(`${st.ui.url}/api/status`)).json()).student.session === 'registered', { what: 'student session', timeout: 8000 });
-  const say = async (text) => (await post(`${st.ui.url}/api/professor/chat`, { operationId: `op-${randomUUID()}`, text })).json();
+  const say = async (text) => sendCard(st.ui.url, await (await post(`${st.ui.url}/api/professor/chat`, { operationId: `op-${randomUUID()}`, text })).json()); // review E: Send on the preview card
   const confirmations = async () => (await (await fetch(`${st.ui.url}/api/professor/state`)).json()).chat.filter((m) => m.role === 'assistant' && m.action === 'sent');
   return { st, say, confirmations };
 }
@@ -388,7 +388,7 @@ test('A4 + C16: every send path states the real counts — email failed for some
 test('C12: CHRS away — the offer names the course only; “yes” is refused like an unavailable class list and the offer waits', async () => {
   const st = await startStack({ library: false, professor: true, hr: true, hrEnv: { HR_TEST_HOOKS: '1' }, hubEnv: { ROUTER_MODE: 'mock', HUB_STUDENTS: 'student-alex,student-sam' }, tutorEnv: { TUTOR_MODE: 'mock', TUTOR_SCOPE_ENFORCEMENT: 'off' } });
   cleanups.push(async () => st.kill());
-  const say = async (text) => (await post(`${st.ui.url}/api/professor/chat`, { operationId: `op-${randomUUID()}`, text })).json();
+  const say = async (text) => sendCard(st.ui.url, await (await post(`${st.ui.url}/api/professor/chat`, { operationId: `op-${randomUUID()}`, text })).json()); // review E: Send on the preview card
   const state = async () => (await fetch(`${st.ui.url}/api/professor/state`)).json();
   assert.equal((await say("I'm sick, cancel Friday's class")).reply, 'Should I file this as time off with HR, tell the class, or both?');
   await say('both');

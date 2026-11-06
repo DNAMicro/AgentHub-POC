@@ -850,6 +850,9 @@ export function startHubServer({ port } = {}) {
       dev.post('/dev/agents/:agentId/author/quiz-action', author('/quiz-action', 'POST'));
       // Review #3: Send / Don't send on the class cancellation preview card (no authority of its own either).
       dev.post('/dev/agents/:agentId/author/cancel-action', author('/cancel-action', 'POST'));
+      // Review E: Send / Don't send on the message preview card, and its recipients' names (Faculty view only).
+      dev.post('/dev/agents/:agentId/author/message-action', author('/message-action', 'POST'));
+      dev.get('/dev/agents/:agentId/author/message/:cardId/names', (req, res) => (/^mc-[\w-]{6,80}$/.test(req.params.cardId) ? author(`/message/${req.params.cardId}/names`, 'GET')(req, res) : res.status(404).json({ error: 'Unknown card.' })));
       // Part 17: the class roster card's rows (kept in the Faculty agent's memory), for the Faculty view only.
       dev.get('/dev/agents/:agentId/author/roster', author('/roster', 'GET'));
       dev.get('/dev/agents/:agentId/author/roster/names', author('/roster/names', 'GET')); // delivery names for the Faculty view only
