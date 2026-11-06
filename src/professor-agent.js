@@ -161,6 +161,14 @@ async function handleChat(ctx, bus, runId) {
   if (last?.askFor && !isNo(question)) return offer(question, OFFER_ASK_TEXT, { decidedBy: 'code' }, moved);
   // Class facts, a classmate question, a message for the class, a decision for Dr. Dabirian: code answers (src/student-course.js).
   const known = courseAnswer(question, { now: clock(), notices: sentTo(student) });
+  if (known?.send) {
+    // Owner, 2026-11-06: the student wrote TO Dr. Dabirian (or asked to tell / ask them): sent now, no offer.
+    if (!student) return reply(NOT_PASSED_TEXT, { outcome: 'out_of_scope' }, moved);
+    recordReply(incoming.messageId, { studentId: student, text: question, about, relayed: true }, { text: SENT_TEXT, model: null, needsProfessor: true, onBehalf: false });
+    emitViz('student_reply', runId, { lessonId: lesson?.lessonId ?? null, relayed: false, needsProfessor: true });
+    emitViz('course_fact_answered', runId, { topic: known.topic, offered: false });
+    return reply(SENT_TEXT, { outcome: 'needs_professor', decidedBy: 'code', topic: known.topic }, { ...moved, handoverRequest: true, sent: true, handedOver: true });
+  }
   if (known?.roster) {
     // Owner, 2026-11-06: classmates are answered from the class list (Campus Agent, signed purpose 'classmates'), for a
     // Hub-verified student on that list only. The names and emails go to this student's reply only — never into the

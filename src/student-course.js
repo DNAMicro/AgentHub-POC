@@ -5,7 +5,8 @@
 //
 // courseAnswer(question, { now, notices }) → { topic, text, offer? } | null
 //   topic: a short label for telemetry (no words of the question)
-//   offer: 'ask' (the student asked for the faculty member), 'decision' (only the faculty member can decide it),
+//   send: true — addressed to Dr. Dabirian or an explicit “ask / tell Dr. Dabirian …”: sent at once (owner, 2026-11-06).
+//   offer: 'ask' (the student will miss class), 'decision' (only the faculty member can decide it),
 //          'class_message' (a message for the whole class) — the agent holds the question and waits for yes / no.
 // notices: the posts this (Hub-verified) student was sent: [{ title, text, kind, createdAt, quiz?, meeting? }].
 // Classmates (owner, 2026-11-06): { topic: 'classmates', roster: true } — the agent reads the class list and answers with
@@ -64,6 +65,22 @@ const CLASS_MESSAGE = /\b(?:tell|message|notify|inform|email|e-mail|text|remind|
 // Asking for the faculty member WITH something to send: “can you ask Dr. Dabirian about the homework?”,
 // “I'll miss class Tuesday, can you let Dr. Dabirian know?”, “tell my professor I'm sick”.
 const ASKS_PROFESSOR = new RegExp(`\\b(?:ask|tell|let|message|email|e-mail|contact|reach|notify|inform|ping|forward\\s+(?:this|it|that)\\s+to|send\\s+(?:this|it|that|a\\s+(?:message|note))\\s+to|pass\\s+(?:this|it|that)\\s+(?:on\\s+|along\\s+)?to)\\s+${PROF_REF}\\b`, 'i');
+// Owner, 2026-11-06 (“the student asked a question for [Dr. Dabirian] why is it asking if it should be sent to him”): a
+// message ADDRESSED to Dr. Dabirian — “Hi Dr. Dabirian, can I …”, “Dr. Dabirian, …”, “Dear Professor, …”, “…, Dr. Dabirian?”
+// — or an explicit “ask / tell Dr. Dabirian …” is for them: it is sent at once, never offered. Something must follow the
+// greeting (a bare “Hi Dr. Dabirian” is not a message).
+const GREETING = String.raw`(?:(?:hi|hello|hey|dear|good\s+(?:morning|afternoon|evening))\b[\s,]*)`;
+const PTITLE = String.raw`(?:dr\.?|professor|prof\.?|instructor)`;
+// The opening address: an optional greeting, then the name (with or without a title) or a greeting + a bare title.
+// Never a possessive (“Dr. Dabirian's office hours?” is a question ABOUT them).
+const OPENING = new RegExp(String.raw`^\s*(?:${GREETING}?(?:${PTITLE}\s+)?${PROF_LAST}|${GREETING}${PTITLE})(?!['’]s\b)\b[\s,:;!.-]*`, 'i');
+const CLOSING = new RegExp(String.raw`[,;]\s*(?:${PTITLE}\s+)?${PROF_LAST}\s*[?.!]*\s*$`, 'i');
+function addressed(t) {
+  const m = OPENING.exec(t);
+  if (m) return t.slice(m[0].length).split(/\s+/).filter(Boolean).length >= 3; // something to send after the greeting
+  return CLOSING.test(t) && t.replace(CLOSING, '').split(/\s+/).filter(Boolean).length >= 3;
+}
+export const addressesProfessor = (text) => addressed(s(text));
 const MISSES_CLASS = /\b(?:i(?:'ll| will| am going to|'m going to| won't be able to| can't| cannot)?\s+(?:miss|be\s+missing|be\s+absent|be\s+out|not\s+(?:be\s+)?(?:in|at)\s+class))\b/i;
 // Only the faculty member can decide: extensions, make-ups, excused absences, grade disputes, accommodations, dropping.
 const DECISION = /\b(?:extensions?|extend\s+(?:the\s+|my\s+)?(?:deadline|due\s+date)|more\s+time\s+(?:on|for|to)|make[- ]?up\s+(?:exam|quiz|test|work|assignment|class|the)|make\s+up\s+(?:the|my|an?)\s+(?:exam|quiz|test|midterm|final|class|work)|retake|re-take|excused?\s+(?:absence|from)|excused|excuse\s+(?:my|me|the)|regrade|re-grade|dispute\s+(?:my|the|a)\s+(?:grade|score)|(?:my\s+)?grade\s+(?:is|was|looks)\s+wrong|wrong\s+grade|an?\s+incomplete|accommodations?|(?:drop|withdraw\s+from)\s+(?:the|this|my)\s+(?:class|course))\b/i;
@@ -257,7 +274,8 @@ export function courseAnswer(question, { now = new Date(), notices = [] } = {}) 
   const t = s(question);
   if (!t || t.length > 600) return null;
   if (CLASS_MESSAGE.test(t)) return { topic: 'class_message', text: OFFER_CLASS_TEXT, offer: 'class_message' };
-  if (ASKS_PROFESSOR.test(t) || (MISSES_CLASS.test(t) && /\bclass|lecture|exam|quiz|midterm|final\b/i.test(t))) return { topic: 'ask_professor', text: OFFER_ASK_TEXT, offer: 'ask' };
+  if (addressed(t) || ASKS_PROFESSOR.test(t)) return { topic: 'to_professor', text: SENT_TEXT, send: true };
+  if (MISSES_CLASS.test(t) && /\bclass|lecture|exam|quiz|midterm|final\b/i.test(t)) return { topic: 'ask_professor', text: OFFER_ASK_TEXT, offer: 'ask' };
   if (IDENTITY.test(t)) return { topic: 'identity', text: IDENTITY_TEXT };
   if (asksAboutClassmates(t)) return { topic: 'classmates', text: null, roster: true }; // answered from the class list (src/classmates.js)
   if (DECISION.test(t)) return { topic: 'decision', text: OFFER_DECISION_TEXT, offer: 'decision' };

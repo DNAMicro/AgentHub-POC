@@ -169,7 +169,15 @@ test('a message for the whole class, a request for Dr. Dabirian, a decision only
     assert.equal(r.text, OFFER_CLASS_TEXT);
   }
   assert.equal(OFFER_CLASS_TEXT, 'Only Dr. Dabirian can message the whole class. Want me to send your message to Dr. Dabirian?');
-  for (const q of ['Can you ask Dr. Dabirian if I can bring a laptop?', "I'll miss class Tuesday, can you let Dr. Dabirian know?", 'Tell my professor I am sick today', 'Please email the instructor about my seat', 'Could you pass this on to Dr. Dabirian: the slides are broken']) {
+  // Owner, 2026-11-06: written TO Dr. Dabirian, or an explicit “ask / tell Dr. Dabirian …” — sent at once, no offer.
+  for (const q of ['Can you ask Dr. Dabirian if I can bring a laptop?', "I'll miss class Tuesday, can you let Dr. Dabirian know?", 'Tell my professor I am sick today', 'Please email the instructor about my seat', 'Could you pass this on to Dr. Dabirian: the slides are broken',
+    'Hi Dr. Dabirian can I turn in my homework late', 'Dr. Dabirian, is the midterm open book?', 'Hello professor, I have a question about the case study', 'Can I turn in my homework late, Dr. Dabirian?', 'Dear Dr Dabirian I will be late tomorrow', 'Hey Dabirian quick question about the project']) {
+    assert.equal(at(q)?.send, true, q);
+    assert.equal(at(q).text, SENT_TEXT, q);
+    assert.equal(at(q).offer, undefined, q);
+  }
+  for (const q of ['Hi Dr. Dabirian', 'Hi professor!', "What are Dr. Dabirian's office hours?", "Dr. Dabirian's office hours?", 'Who teaches Marketing 351?', 'Hi, when is the final?']) assert.notEqual(at(q)?.send, true, q);
+  for (const q of ["I'll miss class on Tuesday", 'I will be absent from class Thursday']) {
     assert.equal(at(q)?.offer, 'ask', q);
     assert.equal(at(q).text, OFFER_ASK_TEXT);
   }
@@ -326,14 +334,14 @@ test('end to end: an offer waits for yes — no sends nothing, yes (with extra w
   assert.equal(r.text, OFFER_NOT_SENT_TEXT);
   assert.equal((await state(s)).chat.length, 0, '“no”: nothing sent');
 
-  r = await ask('Can you ask Dr. Dabirian if I can sit in the front row?');
+  r = await ask("I'll miss class on Tuesday");
   assert.equal(r.text, OFFER_ASK_TEXT);
-  r = await ask('yes, I need it by Friday');
+  r = await ask('yes, I have a doctor appointment');
   assert.equal(r.text, SENT_TEXT);
   assert.equal(r.professor.outcome, 'needs_professor');
   let chat = (await state(s)).chat;
   const sent = chat.find((m) => m.role === 'student');
-  assert.equal(sent.text, 'Can you ask Dr. Dabirian if I can sit in the front row?\n\nI need it by Friday', 'the extra words travel with the question');
+  assert.equal(sent.text, "I'll miss class on Tuesday\n\nI have a doctor appointment", 'the extra words travel with the question');
   assert.equal(sent.studentId, 'student-alex');
   assert.equal((await handOvers(s)).length, 1, 'one hand-over card for Dr. Dabirian');
   r = await ask('yes');
@@ -356,6 +364,21 @@ test('end to end: an offer waits for yes — no sends nothing, yes (with extra w
   assert.equal((await handOvers(s)).length, 1);
   chat = (await state(s)).chat;
   assert.ok(!chat.some((m) => /make-up exam|study group/.test(m.text ?? '')), 'nothing unconfirmed reached Dr. Dabirian');
+});
+
+test('end to end: a message written to Dr. Dabirian is sent at once (owner, 2026-11-06) — no “Want me to send…?”', async () => {
+  const { s, stream } = await classroom();
+  const ask = asker(s, stream);
+  let r = await ask('Hi Dr. Dabirian can I turn in my homework late');
+  assert.equal(r.text, SENT_TEXT);
+  assert.equal(r.professor.outcome, 'needs_professor');
+  assert.equal(r.professor.decidedBy, 'code');
+  const chat = (await state(s)).chat;
+  assert.equal(chat.find((m) => m.role === 'student')?.text, 'Hi Dr. Dabirian can I turn in my homework late', 'sent word for word');
+  assert.equal((await handOvers(s)).length, 1, 'one hand-over card for Dr. Dabirian');
+  r = await ask('yes');
+  assert.equal(r.text, ALREADY_SENT_TEXT, 'nothing waits for a yes; a yes sends nothing again');
+  assert.equal((await handOvers(s)).length, 1);
 });
 
 test('end to end: ↩ Reply to Dr. Dabirian’s own message is still a direct relay (the student pressed Reply)', async () => {
