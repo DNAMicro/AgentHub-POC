@@ -319,7 +319,7 @@ const canvasLink = createCanvasLink({ url: CANVAS_URL, token: process.env.CANVAS
 const rosterDesk = createRosterDesk({ hubLink: { sendSigned: (...a) => hubLink.sendSigned(...a) }, conversationId: () => staffConversation(), emit: (type, data) => emitViz(type, null, data), readQuery: readRosterQuery });
 // roster: review C15 — after Approve the desk compares Canvas's course list with a FRESH class roster (the roster desk's
 // signed CHRS request through the Hub; names stay in memory and reach only the Faculty view).
-const quizDesk = createQuizDesk({ canvas: canvasLink, createPost: (a) => createPost({ ...a, source: 'chat', author: 'professor' }), now: nowFn(), emit: (type, runId, data) => emitViz(type, runId, data), classCount: () => rosterDesk.counts()?.count ?? null, roster: () => rosterDesk.names({ operationId: `quiz-roster-${randomUUID().slice(0, 12)}`, fresh: true }) });
+const quizDesk = createQuizDesk({ canvas: canvasLink, createPost: (a) => createPost({ ...a, source: 'chat', author: 'professor' }), now: nowFn(), emit: (type, runId, data) => emitViz(type, runId, data), classCount: () => rosterDesk.counts()?.count ?? null, roster: () => rosterDesk.names({ operationId: `quiz-roster-${randomUUID().slice(0, 12)}`, fresh: true, purpose: 'membership' }) });
 
 // ---- the professor's chat ---------------------------------------------------------------------------------
 // Every decision the model makes is checked here before anything is sent:

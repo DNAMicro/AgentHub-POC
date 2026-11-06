@@ -52,7 +52,7 @@ const SHARED_QUIZ_MODULE = fileURLToPath(new URL('./quiz-rules.js', import.meta.
 const ACTION_KEYS = ['name', 'surfaceId', 'sourceComponentId', 'timestamp', 'context'];
 const CONTEXT_ID_PATTERN = /^[\w-]{8,100}$/;
 const SESSION_EVENTS = new Set(['peoplesoft_session', 'canvas_session', 'studentdb_session']); // an MCP system's session state
-const CONFIG_EVENTS = new Set(['skills_saved', 'card_notification', 'hub_registration', 'lesson_posted', 'lesson_publish_result', 'lessons_reset', 'staff_decision', 'peoplesoft_session', 'canvas_session', 'studentdb_session']); // + Part 9: the Professor's own lesson events; + HR: the Professor's staff-desk decision (no words) // specialist events not tied to a run
+const CONFIG_EVENTS = new Set(['skills_saved', 'card_notification', 'hub_registration', 'lesson_posted', 'lesson_publish_result', 'lessons_reset', 'staff_decision', 'peoplesoft_session', 'canvas_session', 'studentdb_session', 'roster_read_logged']); // + review #7: the Campus Agent's audit entry for a Hub roster lookup (no run of its own) // + Part 9: the Professor's own lesson events; + HR: the Professor's staff-desk decision (no words) // specialist events not tied to a run
 // The Faculty view's own runs, started by the professor through this UI, so shown like this UI's runs on the
 // monitor (never in the student's AG-UI stream). The suffix is the professor's operation ID (src/lessons.js ID).
 //   staff-<operationId>: an HR staff request/action — emitted by the Professor, the Hub and HR only.

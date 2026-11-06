@@ -8,7 +8,7 @@
 // Nothing technical may show: CHRS, MCP, tools and the Hub are never named to the faculty member.
 import { randomUUID } from 'node:crypto';
 import { COURSE } from './course-pack.js';
-import { STAFF_REQUEST_MEDIA_TYPE, ROSTER_FAILED_TEXT, staffRequestFields } from './staff.js';
+import { STAFF_REQUEST_MEDIA_TYPE, STAFF_ROSTER_PURPOSES, ROSTER_FAILED_TEXT, staffRequestFields } from './staff.js';
 import { TIMEOUTS } from './timeouts.js';
 
 export const ROSTER_GONE = 'Ask again to see your roster.';
@@ -69,7 +69,6 @@ const LEVEL_WORDS = [
   [/^juniors?$/, 'junior'],
   [/^seniors?$/, 'senior'],
 ];
-const LEVEL_LABEL = { freshman: ['freshman', 'freshmen'], sophomore: ['sophomore', 'sophomores'], junior: ['junior', 'juniors'], senior: ['senior', 'seniors'] };
 // Major words → [what to look for in "Program Plan" (lowercase), how to say it]. Longest phrases first.
 const MAJORS = [
   ['public relations', 'public relations', 'Public Relations'], ['information systems', 'info systems', 'Info Systems'], ['info systems', 'info systems', 'Info Systems'],
@@ -102,23 +101,117 @@ export function rosterFilter(text) {
 }
 const filterMatches = (f, rows) => rows.filter((r) => (!f.level || String(r.level ?? '').toLowerCase() === f.level)
   && (!f.major || `${r.program ?? ''} ${r.plan ?? ''}`.toLowerCase().includes(f.major.find)));
-// “seniors”, “Marketing majors”, “seniors majoring in Marketing” (n = 1 → singular).
-function groupLabel(f, n) {
-  const one = n === 1;
-  const lv = f.level ? LEVEL_LABEL[f.level][one ? 0 : 1] : null;
-  if (lv && f.major) return `${lv} majoring in ${f.major.label}`;
-  if (lv) return lv;
-  return `${f.major.label} ${one ? 'major' : 'majors'}`;
-}
+// A level / major filter as checked query filters, for the one describer below (label: how to say the major).
+const filterQuery = (f) => ({
+  kind: f.count ? 'count' : 'list', match: 'all',
+  filters: [...(f.level ? [{ field: 'level', op: 'is', value: f.level }] : []), ...(f.major ? [{ field: 'plan', op: 'contains', value: f.major.find, label: f.major.label }] : [])],
+});
+
+// ---- review #6: honest count answers — ONE describer for every count / list answer ------------------------------------
+// The reply restates what was counted, built by CODE from the checked filters (never from the model's words):
+//   “16 of your 25 students are seniors.”, “2 of your 25 students aren't Business majors.”, “4 of your 25 students are seniors
+//   and Marketing majors.”, “5 of your 25 students have fewer than 12 units.”, list “16 seniors are highlighted on your roster
+//   below.”, zero “None of your 25 students are seniors.”. Filters it can't say in a clean phrase fall back to the criterion
+//   itself: “3 of your 25 students match: Program is “Undergraduate Program”.” Singular / plural agree (“1 of your 25 students
+//   is a senior.”). Values come from the roster's own allowed values (as the roster spells them) or the faculty member's words.
+const FIELD_LABEL = { level: 'Academic Level', plan: 'Plan', program: 'Program', units: 'Units', name: 'Name' };
+const OP_LABEL = { is: 'is', is_not: 'is not', contains: 'contains', not_contains: "doesn't contain", lt: 'is less than', gt: 'is more than', eq: 'is' };
+const LEVEL_NOUN = { freshman: ['freshman', 'freshmen'], sophomore: ['sophomore', 'sophomores'], junior: ['junior', 'juniors'], senior: ['senior', 'seniors'] };
+const num = (v) => String(Number(v));
 const article = (w) => (/^[aeiou]/i.test(w) ? 'an' : 'a');
-export const noneText = (f) => `None of your students are ${groupLabel(f, 2)}.`;
-export const filterCountText = (f, n, total) => (n === 0 ? noneText(f) : n === 1 ? `1 of your ${total} students is ${article(groupLabel(f, 1))} ${groupLabel(f, 1)}.` : `${n} of your ${total} students are ${groupLabel(f, n)}.`);
-export const filterHighlightText = (f, n) => (n === 0 ? noneText(f) : `${n} ${groupLabel(f, n)} ${n === 1 ? 'is' : 'are'} highlighted on your roster below.`);
+// The words of an allowed value as the roster spells them (“marketing” → “Marketing”), or the value as given.
+function spelled(value, list = []) {
+  const v = String(value);
+  for (const x of list) { const i = String(x).toLowerCase().indexOf(v.toLowerCase()); if (i >= 0) return String(x).slice(i, i + v.length); }
+  return v;
+}
+// One filter → { neg, verb, obj: [singular, plural] } (“is / are” + a noun) or { neg, pred: [singular, plural] }, or null.
+function phraseOf(f, allowed) {
+  const neg = ['is_not', 'not_contains'].includes(f.op);
+  if (f.field === 'level' && ['is', 'is_not'].includes(f.op)) {
+    const n = LEVEL_NOUN[String(f.value).toLowerCase()];
+    return n ? { neg, kind: 'noun', obj: [`${article(n[0])} ${n[0]}`, n[1]], bare: n } : null;
+  }
+  if (f.field === 'plan' && ['contains', 'not_contains'].includes(f.op)) {
+    const label = f.label ?? spelled(f.value, allowed?.plan);
+    if (!/^[A-Za-z][\w &’'-]{1,40}$/.test(label)) return null;
+    return { neg, kind: 'noun', obj: [`${article(label)} ${label} major`, `${label} majors`], bare: [`${label} major`, `${label} majors`], major: label };
+  }
+  if (f.field === 'plan' && ['is', 'is_not'].includes(f.op)) return { neg, kind: 'in', place: f.value };
+  if (f.field === 'units' && ['lt', 'gt', 'eq', 'is', 'is_not'].includes(f.op)) {
+    const n = num(f.value);
+    const amount = f.op === 'lt' ? `fewer than ${n}` : f.op === 'gt' ? `more than ${n}` : `exactly ${n}`;
+    const unit = n === '1' && f.op !== 'gt' && f.op !== 'lt' ? 'unit' : 'units';
+    return f.op === 'is_not' ? { neg: true, kind: 'have', obj: `exactly ${n} ${unit}` } : { neg: false, kind: 'have', obj: `${amount} ${unit}` };
+  }
+  return null; // program, names, other ops: said as the criterion itself
+}
+const VERBS = { noun: [['is', 'are'], ["isn't", "aren't"]], in: [['is in', 'are in'], ["isn't in", "aren't in"]], have: [['has', 'have'], ["doesn't have", "don't have"]] };
+const verbOf = (p, one) => VERBS[p.kind][p.neg ? 1 : 0][one ? 0 : 1];
+const objOf = (p, one) => (p.kind === 'noun' ? p.obj[one ? 0 : 1] : p.kind === 'in' ? p.place : p.obj);
+// The predicate after “N of your T students”: “are seniors and Marketing majors”, “aren't Business majors”, … or null.
+function predicate(q, one) {
+  const fs = q?.filters ?? [];
+  if (!fs.length || fs.length > 3) return null;
+  const ps = fs.map((f) => phraseOf(f, q.allowed));
+  if (ps.some((p) => !p)) return null;
+  const join = q.match === 'any' ? ' or ' : ' and ';
+  const sameVerb = ps.every((p) => verbOf(p, one) === verbOf(ps[0], one));
+  // “aren't juniors or seniors” is not-A AND not-B; not-A OR not-B has no clean phrase (the criterion is said instead).
+  if (sameVerb && ps.length > 1 && ps[0].neg) return q.match === 'any' ? null : `${verbOf(ps[0], one)} ${ps.map((p) => objOf(p, one)).join(' or ')}`;
+  if (sameVerb) return `${verbOf(ps[0], one)} ${ps.map((p) => objOf(p, one)).join(join)}`;
+  return ps.map((p) => `${verbOf(p, one)} ${objOf(p, one)}`).join(join);
+}
+// The criterion as code wrote it, for the fallback: “Academic Level is “Senior” and Plan contains “Marketing””.
+export function criterionText(q) {
+  const join = q?.match === 'any' ? ' or ' : ' and ';
+  const shown = (f) => (f.field === 'units' ? num(f.value) : `“${f.field === 'plan' && f.label ? f.label : f.field === 'name' ? titleCase(String(f.value)) : spelled(f.value, q.allowed?.[f.field])}”`);
+  return (q?.filters ?? []).map((f) => `${FIELD_LABEL[f.field] ?? f.field} ${OP_LABEL[f.op] ?? f.op} ${shown(f)}`).join(join);
+}
+const allPositive = (q) => (q?.filters ?? []).every((f) => !['is_not', 'not_contains'].includes(f.op));
+const studentsWord = (n) => (n === 1 ? 'student' : 'students');
+// Count form. “N of your T students <predicate>.” / “None of your T students <predicate>.” / the criterion fallback.
+export function criterionCountText(q, n, total) {
+  const pred = predicate(q, n === 1);
+  if (n === 0) {
+    const plural = predicate(q, false);
+    return plural && allPositive(q) ? `None of your ${total} students ${plural}.` : `None of your ${total} students match: ${criterionText(q)}.`;
+  }
+  return pred ? `${n} of your ${total} ${studentsWord(total)} ${pred}.` : `${n} of your ${total} students ${n === 1 ? 'matches' : 'match'}: ${criterionText(q)}.`;
+}
+// The noun for the list form (“seniors”, “Marketing majors”, “seniors majoring in Marketing”) when the filters are a level
+// and/or a major said positively and all together; otherwise null (the sentence form is used).
+function groupNoun(q, one) {
+  const fs = q?.filters ?? [];
+  if (!fs.length || fs.length > 2 || q.match === 'any' || !allPositive(q)) return null;
+  const ps = fs.map((f) => phraseOf(f, q.allowed));
+  if (ps.some((p) => !p || p.kind !== 'noun')) return null;
+  const level = ps.find((p) => !p.major);
+  const major = ps.find((p) => p.major);
+  if (fs.length === 2 && !(level && major)) return null;
+  if (level && major) return `${level.bare[one ? 0 : 1]} majoring in ${major.major}`;
+  return (level ?? major).bare[one ? 0 : 1];
+}
+const BELOW = 'highlighted on your roster below';
+// List form: “16 seniors are highlighted on your roster below.” or “3 of your 25 students have fewer than 12 units — they're
+// highlighted on your roster below.” (0 → the count form's “None of …”).
+export function criterionListText(q, n, total) {
+  if (n === 0) return criterionCountText(q, 0, total);
+  const noun = groupNoun(q, n === 1);
+  if (noun) return `${n} ${noun} ${n === 1 ? 'is' : 'are'} ${BELOW}.`;
+  return `${criterionCountText(q, n, total).replace(/\.$/, '')} — they're ${BELOW}.`;
+}
+// Yes / no openings: “Yes — 3 of your 25 students are Marketing majors; they're highlighted on your roster below.” /
+// “No — none of your 25 students are Marketing majors.”
+export function criterionYesNoText(q, n, total) {
+  if (n === 0) return `No — ${criterionCountText(q, 0, total).replace(/^None/, 'none')}`;
+  return `Yes — ${criterionCountText(q, n, total).replace(/\.$/, '')}; they're ${BELOW}.`;
+}
 
 // ---- roster questions in general (owner, 2026-11-05: “anyone not a business major?” was POSTED to all 25 students; “the
 // faculty should be able to ask questions about the roster”). Code recognises a question about the roster (no model); the
 // Faculty agent's model (live) or a labelled heuristic (mock) turns it into a QUERY only — never an answer — from the
-// question and the roster's allowed values (field names, level words, plan / program phrases, pronoun and units values),
+// question and the roster's allowed values (field names, level words, plan / program phrases and units values; review #5: no pronouns),
 // never a row, name, email or ID. Code checks every filter, runs the query on the fresh roster and writes the reply
 // (counts only). 'none' or anything invalid → ROSTER_UNCLEAR_TEXT; a failed model call → ROSTER_QUERY_FAILED_TEXT. Never posted.
 export const ROSTER_UNCLEAR_TEXT = "I couldn't tell what to look up on your roster. Try “who are my seniors?” or “how many marketing majors do I have?”";
@@ -141,8 +234,9 @@ export function asksRosterQuestion(text) {
   return RQ_WEAK.test(t) && !/\bmy\s+e-?mails?\b/i.test(t) && RQ_STRONG_START.test(t) && RQ_PEOPLE.test(t);
 }
 // What the query may use: field names, and the values the roster really has (+ the four standard levels, so “any
-// freshmen?” is a valid query that matches nobody). '' in pronouns means none listed. Never a name, email or ID.
-export const ROSTER_QUERY_FIELDS = ['level', 'plan', 'program', 'pronouns', 'units', 'name'];
+// freshmen?” is a valid query that matches nobody). Never a name, email, ID or pronouns (review #5).
+// Review #5: no pronouns (they are never read from the records), no email, no ID.
+export const ROSTER_QUERY_FIELDS = ['level', 'plan', 'program', 'units', 'name'];
 export const ROSTER_QUERY_OPS = ['is', 'is_not', 'contains', 'not_contains', 'lt', 'gt', 'eq'];
 const STANDARD_LEVELS = ['Freshman', 'Sophomore', 'Junior', 'Senior'];
 export function rosterAllowedValues(rows) {
@@ -151,7 +245,6 @@ export function rosterAllowedValues(rows) {
     level: uniq([...STANDARD_LEVELS, ...rows.map((r) => r.level)]).filter(Boolean),
     plan: uniq(rows.map((r) => r.plan)).filter(Boolean),
     program: uniq(rows.map((r) => r.program)).filter(Boolean),
-    pronouns: uniq(rows.map((r) => r.pronouns)),
     units: uniq(rows.map((r) => r.units)).filter(Boolean),
   };
 }
@@ -205,9 +298,10 @@ function rowMatches(r, f) {
 export const queryMatches = (q, rows) => rows.filter((r) => (q.match === 'any' ? q.filters.some((f) => rowMatches(r, f)) : q.filters.every((f) => rowMatches(r, f))));
 // “anyone …?”, “are there any …?”, “is anybody …?”: answered yes / no with the rows highlighted (he can see who).
 const YES_NO = /^\s*(?:any|anyone|anybody|is|are|does|do|has|have)\b/i;
-export const queryListText = (n) => (n === 0 ? `No students on your ${COURSE.title} roster match that.` : n === 1 ? '1 student matches — highlighted on your roster below.' : `${n} students match — they're highlighted on your roster below.`);
-export const queryCountText = (n, total) => (n === 0 ? `None of your ${total} students match that.` : n === 1 ? `1 of your ${total} students matches.` : `${n} of your ${total} students match.`);
-export const queryYesNoText = (n, total) => (n === 0 ? `No — none of your ${total} students match that.` : `Yes — ${n} ${n === 1 ? 'student matches' : 'students match'}; they're highlighted on your roster below.`);
+// Review #6: the roster-question replies, from the same describer as the level / major filter (q = the checked query + allowed).
+export const queryListText = (n, total, q) => criterionListText(q, n, total);
+export const queryCountText = (n, total, q) => criterionCountText(q, n, total);
+export const queryYesNoText = (n, total, q) => criterionYesNoText(q, n, total);
 
 // R2 (round 2): @-tags resolve against the class roster: @first, @last, @first-last (case-insensitive), or the student id.
 // → { tagged: [{ studentId, name }], ambiguous: [{ tag, names }], unknown: [tag] }. A tag starts the message or follows a
@@ -274,12 +368,28 @@ const COUNT = [
   /^\s*(?:what(?:['’]s|\s+is)\s+)?my\s+class\s+size\s*[?.!]*\s*$/i,
 ];
 const MEMBER = new RegExp(String.raw`^\s*(?:is|are)\s+(.+?)\s+(?:(?:enrolled|registered|signed\s+up)(?:\s+(?:in|for)\s+${MY_CLASS})?|(?:in|on|taking)\s+${MY_CLASS})\s*[?.!]*\s*$`, 'i');
-const FIELD = String.raw`(?:e-?mail(?:\s+address)?|student\s+(?:id|number)|cwid|id(?:\s+number)?|major|plan|program|(?:academic\s+)?level|year|class\s+standing|pronouns)`;
+const FIELD = String.raw`(e-?mail(?:\s+address)?|student\s+(?:id|number)|cwid|id(?:\s+number)?|major|plan|program|(?:academic\s+)?level|year|class\s+standing|pronouns)`;
+// Each pattern → [name, field] from its match.
 const DETAIL = [
-  new RegExp(String.raw`^\s*(?:what(?:['’]s|\s+is|\s+are)\s+|(?:show|give|get|find)\s+(?:me\s+)?)?(.+?)['’]s?\s+${FIELD}\s*[?.!]*\s*$`, 'i'),
-  new RegExp(String.raw`^\s*(?:what(?:['’]s|\s+is|\s+are)\s+|(?:show|give|get|find)\s+(?:me\s+)?)the\s+(?:e-?mail(?:\s+address)?|student\s+(?:id|number)|cwid|major|academic\s+level|pronouns)\s+(?:of|for)\s+(.+?)\s*[?.!]*\s*$`, 'i'),
-  /^\s*what\s+(?:year|level|major)\s+is\s+(.+?)(?:\s+in)?\s*[?.!]*\s*$/i,
+  [new RegExp(String.raw`^\s*(?:what(?:['’]s|\s+is|\s+are)\s+|(?:show|give|get|find)\s+(?:me\s+)?)?(.+?)['’]s?\s+${FIELD}\s*[?.!]*\s*$`, 'i'), (m) => [m[1], m[2]]],
+  [new RegExp(String.raw`^\s*(?:what(?:['’]s|\s+is|\s+are)\s+|(?:show|give|get|find)\s+(?:me\s+)?)the\s+(e-?mail(?:\s+address)?|student\s+(?:id|number)|cwid|major|academic\s+level|pronouns)\s+(?:of|for)\s+(.+?)\s*[?.!]*\s*$`, 'i'), (m) => [m[2], m[1]]],
+  [/^\s*what\s+(year|level|major)\s+is\s+(.+?)(?:\s+in)?\s*[?.!]*\s*$/i, (m) => [m[2], m[1]]],
 ];
+// Review #5: what the Faculty view never shows. A question that needs one gets an honest fixed sentence (no roster read).
+export const PRIVATE_FIELD_TEXT = {
+  email: "Student emails aren't shown here, to keep student records private. Notices you send reach every student, by email if they aren't online.",
+  id: "Full student IDs aren't shown here, to keep student records private. Your roster shows the last 4 digits of each ID.",
+  pronouns: "Pronouns aren't shown here, to keep student records private.",
+};
+const fieldOf = (w) => { const t = String(w ?? '').toLowerCase(); return /mail/.test(t) ? 'email' : /pronoun/.test(t) ? 'pronouns' : /\b(?:id|cwid|number)\b/.test(t) ? 'id' : /major|plan|program/.test(t) ? 'major' : 'level'; };
+// A roster question that needs a field that isn't shown → 'email' | 'id' | 'pronouns', else null.
+export function privateFieldAsked(text) {
+  const t = String(text ?? '');
+  if (/\bpronouns?\b|\b(?:they|she|he)\s*\/\s*(?:them|her|him)\b/i.test(t)) return 'pronouns';
+  if (/\be-?mails?\b|\be-?mail\s+address(?:es)?\b/i.test(t)) return 'email';
+  if (/\bcwids?\b|\bstudent\s+(?:ids?|numbers?)\b|\bid\s+numbers?\b|\b(?:their|the|his|her|full)\s+ids?\b|\bids?\s+(?:of|for)\b/i.test(t)) return 'id';
+  return null;
+}
 const NOT_A_NAME = /^(?:my|the|our|your|his|her|their|this|that|it|he|she|they|them|everyone|everybody|anyone|anybody|someone|somebody|who|what|class|course|roster|section|marketing|mktg|i|me|you|we|there|here)$/i;
 function nameIn(raw) {
   const words = String(raw ?? '').trim().replace(/[?.!,]+$/, '').split(/\s+/).filter(Boolean);
@@ -297,10 +407,11 @@ export function rosterFact(text) {
   if (COUNT.some((re) => re.test(t))) return { kind: 'count' };
   const member = MEMBER.exec(t);
   if (member) { const name = nameIn(member[1]); return name ? { kind: 'member', name } : null; }
-  for (const re of DETAIL) {
+  for (const [re, parts] of DETAIL) {
     const m = re.exec(t);
-    const name = m && nameIn(m[1]);
-    if (name) return { kind: 'detail', name };
+    const [who, field] = m ? parts(m) : [];
+    const name = m && nameIn(who);
+    if (name) return { kind: 'detail', name, field: fieldOf(field) };
   }
   return null;
 }
@@ -357,9 +468,11 @@ export function createRosterDesk({ hubLink, conversationId, emit = () => {}, now
   const failed = () => ({ action: 'roster_failed', reply: ROSTER_FAILED_TEXT, classSafe: true, entries: [{ role: 'assistant', text: ROSTER_FAILED_TEXT, action: 'error', failed: true }] });
   const gone = () => ({ action: 'roster_failed', reply: ROSTER_GONE, classSafe: true, entries: [{ role: 'assistant', text: ROSTER_GONE, action: 'error', failed: true }] });
   // One fresh lookup (signed staff request, service 'chrs'). → { rows, roster, course } or a failure result.
-  async function lookup({ operationId, hub, timeoutMs = TIMEOUTS.professorStaffMs }) {
+  // purpose (review #7): why this read happens — one of STAFF_ROSTER_PURPOSES, chosen by the calling method below (never
+  // by words or a model); it is signed with the request and logged by the Campus Agent with every read.
+  async function lookup({ operationId, hub, timeoutMs = TIMEOUTS.professorStaffMs, purpose = 'view' }) {
     const asked = gen;
-    const value = { type: 'staff_request', operationId, conversationId: conversationId(), text: 'Show my class roster.', service: 'chrs' };
+    const value = { type: 'staff_request', operationId, conversationId: conversationId(), text: 'Show my class roster.', service: 'chrs', purpose: STAFF_ROSTER_PURPOSES.includes(purpose) ? purpose : 'view' };
     const r = await hubLink.sendSigned(STAFF_REQUEST_MEDIA_TYPE, value, staffRequestFields(value), { timeoutMs });
     const rows = r.status === 'ok' ? r.reply?.roster?.rows : null;
     emit('roster_relayed', { status: r.status, rosterCount: Array.isArray(rows) ? rows.length : 0 });
@@ -392,7 +505,9 @@ export function createRosterDesk({ hubLink, conversationId, emit = () => {}, now
   // Faculty chat: a roster fact (rosterFact above). The reply names a count or students only; a details question shows the
   // roster card with that student's row highlighted (the email / ID / major are on the card, never in the chat text).
   async function fact({ operationId, hub, fact: f }) {
-    const got = await lookup({ operationId, hub });
+    // Review #5: an email, the full ID or pronouns aren't shown anywhere — one honest sentence, and no roster read at all.
+    if (f.kind === 'detail' && PRIVATE_FIELD_TEXT[f.field]) return { action: 'roster_fact', check: 'private_field', reply: PRIVATE_FIELD_TEXT[f.field], classSafe: true, entries: [{ role: 'assistant', text: PRIVATE_FIELD_TEXT[f.field], action: 'roster_fact' }] };
+    const got = await lookup({ operationId, hub, purpose: 'fact' });
     if (got.fail) return got.fail;
     const say = (text, check) => ({ action: 'roster_fact', check, reply: text, classSafe: true, entries: [{ role: 'assistant', text, action: 'roster_fact' }] });
     if (f.kind === 'count') return say(countText(got.rows.length), 'count');
@@ -410,14 +525,17 @@ export function createRosterDesk({ hubLink, conversationId, emit = () => {}, now
   // R4: students by level and/or major. A count question answers with the count; otherwise the roster card with those rows
   // highlighted (0 → one sentence, no card). Counts only in the chat.
   async function filter({ operationId, hub, filter: f }) {
-    const got = await lookup({ operationId, hub });
+    const got = await lookup({ operationId, hub, purpose: 'question' });
     if (got.fail) return got.fail;
     const hits = filterMatches(f, got.rows);
+    const total = got.rows.length;
     const say = (text, check) => ({ action: 'roster_fact', check, reply: text, classSafe: true, entries: [{ role: 'assistant', text, action: 'roster_fact' }] });
-    if (f.count) return say(filterCountText(f, hits.length, got.rows.length), 'filter_count');
-    if (!hits.length) return say(noneText(f), 'filter_none');
+    // Review #6: the reply restates what was counted, from the same describer as a roster question (code, never model words).
+    const q = filterQuery(f);
+    if (f.count) return say(criterionCountText(q, hits.length, total), 'filter_count');
+    if (!hits.length) return say(criterionCountText(q, 0, total), 'filter_none');
     const ref = newCard(got.roster, null, hits.map((r) => r.studentId));
-    const text = filterHighlightText(f, hits.length);
+    const text = criterionListText(q, hits.length, total);
     return { action: 'roster', check: 'filter', reply: text, classSafe: true, roster: { rosterId: ref.rosterId, count: ref.count }, entries: [{ role: 'assistant', text, action: 'roster_fact' }, { role: 'assistant', text: rosterCardText(ref.count), action: 'roster', roster: ref }] };
   }
 
@@ -425,7 +543,13 @@ export function createRosterDesk({ hubLink, conversationId, emit = () => {}, now
   // mock) from the question and the allowed values only, checked by code, run by code. Counts only in the chat; which rows
   // matched stays in this desk (card.highlight). `emitRun` carries the run's events: counts and filter FIELD names only.
   async function question({ operationId, hub, question: asked, emitRun = () => {} }) {
-    const got = await lookup({ operationId, hub });
+    // Review #5: a question about a field that isn't shown (pronouns, emails, campus IDs) is answered honestly, unread.
+    const privateField = privateFieldAsked(asked);
+    if (privateField) {
+      emitRun('roster_query', { status: 'private_field' });
+      return { action: 'roster_fact', check: 'private_field', reply: PRIVATE_FIELD_TEXT[privateField], classSafe: true, entries: [{ role: 'assistant', text: PRIVATE_FIELD_TEXT[privateField], action: 'roster_fact' }] };
+    }
+    const got = await lookup({ operationId, hub, purpose: 'question' });
     if (got.fail) return got.fail;
     const say = (text, check) => ({ action: 'roster_fact', check, reply: text, classSafe: true, entries: [{ role: 'assistant', text, action: 'roster_fact' }] });
     const allowed = rosterAllowedValues(got.rows);
@@ -443,10 +567,12 @@ export function createRosterDesk({ hubLink, conversationId, emit = () => {}, now
     const total = got.rows.length;
     const yesNo = YES_NO.test(asked);
     emitRun('roster_query', { status: 'answered', by: raw?.by ?? null, kind: yesNo ? 'yes_no' : q.kind, rosterCount: total, matchCount: hits.length, filterFields: [...new Set(q.filters.map((f) => f.field))] });
-    if (!yesNo && q.kind === 'count') return say(queryCountText(hits.length, total), 'query_count');
-    if (!hits.length) return say(yesNo ? queryYesNoText(0, total) : queryListText(0), 'query_none');
+    // Review #6: every answer restates the criterion, built by code from the CHECKED filters (describeQuery).
+    const shown = { ...q, allowed };
+    if (!yesNo && q.kind === 'count') return say(queryCountText(hits.length, total, shown), 'query_count');
+    if (!hits.length) return say(yesNo ? queryYesNoText(0, total, shown) : queryListText(0, total, shown), 'query_none');
     const ref = newCard(got.roster, null, hits.map((r) => r.studentId));
-    const text = yesNo ? queryYesNoText(hits.length, total) : queryListText(hits.length);
+    const text = yesNo ? queryYesNoText(hits.length, total, shown) : queryListText(hits.length, total, shown);
     return { action: 'roster', check: 'query', reply: text, classSafe: true, roster: { rosterId: ref.rosterId, count: ref.count }, entries: [{ role: 'assistant', text, action: 'roster_fact' }, { role: 'assistant', text: rosterCardText(ref.count), action: 'roster', roster: ref }] };
   }
 
@@ -460,9 +586,10 @@ export function createRosterDesk({ hubLink, conversationId, emit = () => {}, now
 
   // R2: the class's names for @-tags (code) and the Faculty view's suggestions: the last lookup's names, or one fresh lookup
   // (fresh: true always asks again). → [{ studentId, name }] or null when the roster can't be had. Names only.
-  async function names({ operationId, hub = null, fresh = false } = {}) {
+  // purpose (review #7): 'tag' (default: @-tags and the composer's suggestions) or 'membership' (Canvas vs the roster).
+  async function names({ operationId, hub = null, fresh = false, purpose = 'tag' } = {}) {
     if (people && !fresh) return people;
-    peopleLookup ??= lookup({ operationId: operationId ?? `names-${randomUUID()}`, hub }).finally(() => { peopleLookup = null; });
+    peopleLookup ??= lookup({ operationId: operationId ?? `names-${randomUUID()}`, hub, purpose }).finally(() => { peopleLookup = null; });
     const got = await peopleLookup;
     return got.fail ? null : people;
   }
@@ -470,7 +597,7 @@ export function createRosterDesk({ hubLink, conversationId, emit = () => {}, now
   // Review C12: the class record (meeting days/time, room …) read FRESH from CHRS, for a cancellation's offer and notice.
   // → the class object, or null when the roster can't be had right now (the caller never guesses details).
   async function classRecord({ operationId, hub = null }) {
-    const got = await lookup({ operationId: operationId ?? `class-${randomUUID()}`, hub, timeoutMs: TIMEOUTS.professorClassInfoMs });
+    const got = await lookup({ operationId: operationId ?? `class-${randomUUID()}`, hub, timeoutMs: TIMEOUTS.professorClassInfoMs, purpose: 'class_info' });
     return got.fail ? null : got.roster.class;
   }
 

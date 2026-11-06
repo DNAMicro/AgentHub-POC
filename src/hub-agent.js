@@ -24,7 +24,7 @@ import { CONTROL_MEDIA_TYPES, DEREGISTER_MEDIA_TYPE, HEARTBEAT_MEDIA_TYPE, REGIS
 import { createRosterClient } from './hub-roster.js';
 import { createLessonService, verifyAgentSignature } from './hub-lessons.js';
 import { sendData } from './a2a-data.js';
-import { CARD_CLOSED, HUB_STAFF_MEDIA_TYPES, ROSTER_FAILED_TEXT, ROSTER_REQUEST_MEDIA_TYPE, STAFF_ACTION_MEDIA_TYPE, STAFF_REQUEST_MEDIA_TYPE, staffActionFields, staffReply, staffRequestFields } from './staff.js';
+import { CARD_CLOSED, HUB_STAFF_MEDIA_TYPES, ROSTER_FAILED_TEXT, ROSTER_REQUEST_MEDIA_TYPE, STAFF_ACTION_MEDIA_TYPE, STAFF_REQUEST_MEDIA_TYPE, STAFF_ROSTER_PURPOSES, staffActionFields, staffReply, staffRequestFields } from './staff.js';
 import { ID } from './lessons.js';
 import { HUB_LESSON_MEDIA_TYPES, LESSON_PUBLISH_MEDIA_TYPE, LESSON_RECEIPT_MEDIA_TYPE, LESSON_STATUS_MEDIA_TYPE, STUDENT_SESSION_MEDIA_TYPE } from './lessons.js';
 import { CARD_CHANGED_MEDIA_TYPE } from './skills.js';
@@ -90,6 +90,7 @@ const SAFE_FIELDS = new Set([
   'matchCount', // Part 17 roster questions: how many roster rows a query matched (a count, never who)
   'emailedCount', 'emailFailedCount', // review C16: how many students CHRS emailed / couldn't email (counts, never who or an address)
   'rosterCount', 'service', // Part 17: a count of roster students and the staff service (hr | chrs) — never a name, ID or email
+  'rowCount', // review #7: how many roster rows one audited read returned (with purpose and courseId — never who)
   'unknownOutcome', // a boolean: the issuer doesn't know whether its backend acted (Topology draws it as unknown, not rejected)
 ]);
 // Lists of field NAMES (never values) that may pass, e.g. which fields a form prefilled.
@@ -261,7 +262,7 @@ export function startHubServer({ port } = {}) {
     emit('staff_request_received', runId, { operationId, agentId: sender, kind: isAction ? 'action' : 'request', ...(isAction ? { formRef: typeof value.formRef === 'string' ? value.formRef.slice(0, 80) : null } : { chars: typeof value.text === 'string' ? value.text.length : 0, cardValues: value.formValues !== undefined }) });
 
     // Dedupe by the sender's operation ID: the same values get the same (definite) result; other values are refused.
-    const payloadHash = hash(isAction ? { kind: 'action', sender, formRef: value.formRef, conversationId: value.conversationId, name: value.action?.name, context: value.action?.context } : { kind: 'request', sender, service: value.service ?? 'hr', conversationId: value.conversationId, text: value.text, formValues: value.formValues ?? null });
+    const payloadHash = hash(isAction ? { kind: 'action', sender, formRef: value.formRef, conversationId: value.conversationId, name: value.action?.name, context: value.action?.context } : { kind: 'request', sender, service: value.service ?? 'hr', purpose: value.purpose ?? null, conversationId: value.conversationId, text: value.text, formValues: value.formValues ?? null });
     let record = staffOperations.get(operationId);
     if (record && record.hash !== payloadHash) return refuse('operation_reused', 'This operation ID was already used with different values.');
     if (record?.promise) {
@@ -296,6 +297,13 @@ export function startHubServer({ port } = {}) {
       emit('staff_refused', runId, { operationId, code: 'unknown_service', kind: 'request' });
       return staffReply('refused', { reason: 'That staff service isn’t available.', code: 'unknown_service' });
     }
+    // Review #7: a roster request says why it reads the roster (signed with it); none means 'view' (an older Faculty agent).
+    // Any other value, or a purpose on an HR request, is refused — never guessed.
+    const purpose = service === 'chrs' ? value.purpose ?? 'view' : value.purpose;
+    if ((service === 'chrs' && !STAFF_ROSTER_PURPOSES.includes(purpose)) || (service !== 'chrs' && purpose !== undefined)) {
+      emit('staff_refused', runId, { operationId, code: 'unknown_purpose', kind: 'request' });
+      return staffReply('refused', { reason: 'That staff service isn’t available.', code: 'unknown_purpose' });
+    }
     const failureWords = service === 'chrs' ? ROSTER_FAILED_TEXT : null; // HR keeps its own wording below
     const ready = staffDestinations().filter((d) => d.destination === service && registry.isReady(d.agentId));
     if (!ready.length) {
@@ -318,7 +326,7 @@ export function startHubServer({ port } = {}) {
     activeFor.set(agentId, (activeFor.get(agentId) ?? 0) + 1);
     counters.active += 1;
     try {
-      if (service === 'chrs') return await rosterRequest(value, staff, { runId, operationId, agentId, contextId, hubOperationId, peer });
+      if (service === 'chrs') return await rosterRequest(value, staff, { runId, operationId, agentId, contextId, hubOperationId, peer, purpose });
       const reply = await askTutor(peer.baseUrl, text, {
         runId, contextId, messageId: record.downstreamMessageId, card: registry.entry(agentId).card, timeoutMs: cfg.timeouts.dispatchMs,
         metadata: { hubOperationId, via: cfg.agentId, staffId: staff.staffId, callerKind: 'staff', ...(card.values ? { formValues: card.values } : {}), hubSignature: registry.signStaffFor(agentId, { staffId: staff.staffId, contextId, operationId: hubOperationId }) },
@@ -349,12 +357,12 @@ export function startHubServer({ port } = {}) {
   // same one HR checks); CHRS asks the student-records stand-in. The course is the sender's own configured course, never
   // a value from the request. The roster goes back to the Faculty agent to draw; the Hub keeps it only as long as the
   // dedupe record of this operation, and its events carry the count alone.
-  async function rosterRequest(value, staff, { runId, operationId, agentId, contextId, hubOperationId, peer }) {
+  async function rosterRequest(value, staff, { runId, operationId, agentId, contextId, hubOperationId, peer, purpose }) {
     const courseId = Object.entries(cfg.courses ?? {}).find(([, c]) => c.professor === value.professorId)?.[0];
     if (!courseId) return { ...staffReply('refused', { reason: 'You have no class to show a roster for.' }), retryable: true };
     const r = await sendData(peer.baseUrl, {
-      mediaType: ROSTER_REQUEST_MEDIA_TYPE, value: { type: 'roster_request', kind: 'roster', courseId }, contextId, timeoutMs: cfg.timeouts.dispatchMs,
-      metadata: { ...(runId ? { runId } : {}), hubOperationId, via: cfg.agentId, staffId: staff.staffId, callerKind: 'staff', hubSignature: registry.signStaffFor(agentId, { staffId: staff.staffId, contextId, operationId: hubOperationId }) },
+      mediaType: ROSTER_REQUEST_MEDIA_TYPE, value: { type: 'roster_request', kind: 'roster', courseId, purpose }, contextId, timeoutMs: cfg.timeouts.dispatchMs,
+      metadata: { ...(runId ? { runId } : {}), hubOperationId, via: cfg.agentId, staffId: staff.staffId, callerKind: 'staff', hubSignature: registry.signStaffFor(agentId, { staffId: staff.staffId, contextId, operationId: hubOperationId, purpose }) },
     });
     if (!r.ok) {
       registry.markReachable(agentId, r.outcome === 'uncertain' ? null : false, r.error);

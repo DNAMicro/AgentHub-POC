@@ -28,17 +28,19 @@ test('the model sees the question and the allowed values only — no name, email
   const d = desk();
   const r = await ask(d, 'anyone not a business major?');
   const notBusiness = ROWS.filter((x) => !/Business/.test(x.plan)).map((x) => x.studentId).sort();
-  assert.equal(r.reply, `Yes — ${notBusiness.length} students match; they're highlighted on your roster below.`);
+  assert.equal(r.reply, `Yes — ${notBusiness.length} of your 25 students aren't Business majors; they're highlighted on your roster below.`);
   assert.deepEqual(d.view(null, null).highlight.slice().sort(), notBusiness);
   assert.equal(stub.requests.length, 1, 'one model call');
   const body = JSON.stringify(stub.requests[0].body);
   assert.ok(body.includes('anyone not a business major?'), 'the question');
-  for (const v of ['Business Admin - Marketing', 'Communications - Advertising', 'Junior', 'they/them', '3.00']) assert.ok(body.includes(v), `allowed value ${v}`);
+  for (const v of ['Business Admin - Marketing', 'Communications - Advertising', 'Junior', '3.00']) assert.ok(body.includes(v), `allowed value ${v}`);
+  // Review #5: no pronouns at all — neither a value nor a field.
+  for (const v of ['they/them', 'she/her', 'he/him', '"pronouns"']) assert.ok(!body.includes(v), `never ${v}`);
   for (const row of ROWS) {
     const [last, first] = row.name.split(',');
     for (const secret of [row.email, row.id, row.studentId, row.name, `${first} ${last}`]) assert.ok(!body.includes(secret), `never ${secret}`);
   }
-  assert.equal(stub.requests[0].body.output_config.format.schema.properties.filters.items.properties.field.enum.join(','), 'level,plan,program,pronouns,units,name');
+  assert.equal(stub.requests[0].body.output_config.format.schema.properties.filters.items.properties.field.enum.join(','), 'level,plan,program,units,name');
 });
 
 test('an invalid field or value from the model drops the query: the couldn\'t-tell sentence, no card', async () => {

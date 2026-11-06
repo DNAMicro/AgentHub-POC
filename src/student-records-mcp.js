@@ -18,15 +18,29 @@ const HOST = '127.0.0.1';
 const DEMO = 'Demo stand-in for PeopleSoft Campus Solutions (student records):';
 const log = (...a) => console.log('[PeopleSoft Campus Solutions]', ...a);
 
+// Review #5: the required mask_private_fields step, run by code on every roster this server returns. Data minimisation at
+// the source: pronouns never leave; the campus ID leaves only as its last 4 digits ("•••••1234"); the campus email leaves
+// only when the caller asks for it (includeEmail: the Campus Agent's email fallback, which emails students itself).
+export const maskId = (id) => { const d = String(id ?? '').replace(/\D/g, ''); return d.length >= 4 ? `•••••${d.slice(-4)}` : ''; };
+export function maskPrivateFields(roster, { includeEmail = false } = {}) {
+  return {
+    class: roster.class,
+    rows: roster.rows.map((r) => ({
+      studentId: r.studentId, maskedId: maskId(r.id), name: r.name, units: r.units, program: r.program, plan: r.plan, degree: r.degree, level: r.level,
+      ...(includeEmail ? { email: r.email } : {}),
+    })),
+  };
+}
+
 const asResult = (value, isError = false) => ({ content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value, ...(isError ? { isError: true } : {}) });
 const refusal = (code, reason) => asResult(REFUSAL_CODES.includes(code) ? { code, reason } : { code: 'tool_error', reason: 'PeopleSoft Campus Solutions could not complete that request.' }, true);
 
 function buildServer(store) {
   const server = new McpServer({ name: 'student-records-demo-standin', version: '1.0.0' });
   server.registerTool('get_class_roster', {
-    description: `${DEMO} the class roster (class header plus one row per enrolled student) for one course, for the course's own instructor only. Refuses anyone else.`,
-    inputSchema: { courseId: z.string().min(1).max(64), instructorStaffId: z.string().min(1).max(64) },
-  }, async ({ courseId, instructorStaffId }) => {
+    description: `${DEMO} the class roster (class header plus one row per enrolled student) for one course, for the course's own instructor only. Refuses anyone else. IDs come masked to the last 4 digits; pronouns are never returned; the campus email only with includeEmail.`,
+    inputSchema: { courseId: z.string().min(1).max(64), instructorStaffId: z.string().min(1).max(64), includeEmail: z.boolean().optional() },
+  }, async ({ courseId, instructorStaffId, includeEmail = false }) => {
     try {
       // Check first (cheap, synchronous); only an allowed request reaches the planner.
       const found = store.roster({ courseId, instructorStaffId });
@@ -36,7 +50,7 @@ function buildServer(store) {
       }
       const { steps } = await planSteps({ request: { courseId } });
       log(`roster courseId=${courseId} rows=${found.roster.rows.length} steps=${steps.length}`);
-      return asResult({ roster: found.roster, steps, stepCount: steps.length });
+      return asResult({ roster: maskPrivateFields(found.roster, { includeEmail }), steps, stepCount: steps.length });
     } catch {
       log('error');
       return refusal('tool_error');

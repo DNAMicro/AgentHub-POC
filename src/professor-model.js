@@ -312,9 +312,9 @@ export async function classifyStaff({ text, emit = () => {} }) {
 
 // ---- Part 17: a roster question → a query (owner, 2026-11-05) ----------------------------------------------------------
 // The model turns the faculty member's question into a QUERY over the roster's fields; it never answers it and never sees
-// a row: only the question and the allowed values (field names, level words, plan / program phrases, pronoun and units
-// values) — no name, email or ID. Code (src/professor-roster.js checkRosterQuery) checks every filter and runs the query.
-//   mock — LABELLED heuristic: level words, plan words from the allowed values, pronoun values, “fewer / more than N
+// a row: only the question and the allowed values (field names, level words, plan / program phrases and units values) —
+// no name, email, ID or pronouns (review #5). Code (src/professor-roster.js checkRosterQuery) checks every filter and runs the query.
+//   mock — LABELLED heuristic: level words, plan words from the allowed values, “fewer / more than N
 //          units”, one negation word flips them; “how many” → count. Plumbing, not judgment.
 //   live — one structured call (enums for fields and ops). A failure throws the mapped error (no retry, no fallback).
 const ROSTER_QUERY_TIMEOUT_MS = Number(process.env.PROFESSOR_ROSTER_QUERY_TIMEOUT_MS ?? TIMEOUTS.professorRosterQueryMs);
@@ -328,7 +328,7 @@ const ROSTER_QUERY_SCHEMA = {
       items: {
         type: 'object',
         properties: {
-          field: { type: 'string', enum: ['level', 'plan', 'program', 'pronouns', 'units', 'name'] },
+          field: { type: 'string', enum: ['level', 'plan', 'program', 'units', 'name'] }, // review #5: no pronouns, email or ID
           op: { type: 'string', enum: ['is', 'is_not', 'contains', 'not_contains', 'lt', 'gt', 'eq'] },
           value: { type: 'string' },
         },
@@ -343,7 +343,7 @@ const ROSTER_QUERY_SCHEMA = {
 };
 export const ROSTER_QUERY_SYSTEM = `You turn one question the Marketing 351 faculty member asked about their own class roster into a lookup. You never answer the question and you never see any student: code runs your lookup on the roster.
 - kind: "count" for how many; "list" for who / which / whether anyone (any, anyone, is there, are there); "none" when the question can't be written with the fields and values below.
-- filters: { field, op, value }. Fields: level (academic level), plan (academic plan: the major, e.g. "Business Admin - Marketing"), program, pronouns ("" = none listed), units (a number), name (only a name the question itself spells out).
+- filters: { field, op, value }. Fields: level (academic level), plan (academic plan: the major, e.g. "Business Admin - Marketing"), program, units (a number), name (only a name the question itself spells out). There is no pronouns, email or ID field: a question about those is "none".
 - ops: is / is_not = exactly one of the allowed values; contains / not_contains = a part of an allowed value (use this for majors: a "business major" is plan contains "Business", "not a marketing major" is plan not_contains "Marketing"); lt / gt / eq = units only.
 - Map the faculty member's words to the allowed values ("seniors" → level is "Senior", "comm majors" → plan contains "Communications"). Use only the allowed values or parts of them.
 - match: "all" when every filter must hold, "any" when one is enough.
@@ -360,7 +360,6 @@ export function mockRosterQuery(question, allowed) {
   const planWords = [...new Set((allowed.plan ?? []).flatMap((p) => p.split(/[^A-Za-z]+/)).filter((w) => w.length >= 4 && !/^(?:admin|mgmt)$/i.test(w)))];
   const named = planWords.find((w) => new RegExp(String.raw`\b${w.toLowerCase()}\b`).test(q));
   if (named) filters.push({ field: 'plan', op: neg ? 'not_contains' : 'contains', value: named });
-  for (const p of (allowed.pronouns ?? []).filter(Boolean)) if (q.includes(p.toLowerCase())) filters.push({ field: 'pronouns', op: neg ? 'is_not' : 'is', value: p });
   const units = /\b(fewer|less|more|over|under|exactly)\s+(?:than\s+)?(\d{1,2}(?:\.\d{1,2})?)\s+units?\b/.exec(q);
   if (units) filters.push({ field: 'units', op: /fewer|less|under/.test(units[1]) ? 'lt' : units[1] === 'exactly' ? 'eq' : 'gt', value: units[2] });
   if (!filters.length) return { kind: 'none', filters: [], match: 'all' };

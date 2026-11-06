@@ -250,13 +250,13 @@ test('roster student data never reaches Hub telemetry or logs (counts and ids of
 
 test('roster-lookup signing refuses non-id fields on both sides; the budgets nest', () => {
   const key = 'k'.repeat(43);
-  const good = { courseId: 'mkt-351', instructorStaffId: 'staff-dabirian', operationId: randomUUID() };
+  const good = { courseId: 'mkt-351', instructorStaffId: 'staff-dabirian', operationId: randomUUID(), purpose: 'recipients' };
   const sig = signRosterLookup(key, good);
   assert.ok(sig);
-  assert.deepEqual(verifyRosterLookupSignature(key, { courseId: good.courseId, instructorStaffId: good.instructorStaffId }, { hubOperationId: good.operationId, hubSignature: sig }), { courseId: 'mkt-351', instructorStaffId: 'staff-dabirian' });
-  for (const bad of [{ ...good, courseId: 'mkt-351|staff-x' }, { ...good, instructorStaffId: '' }, { ...good, operationId: 'a b' }, { ...good, courseId: 'x'.repeat(65) }]) {
+  assert.deepEqual(verifyRosterLookupSignature(key, { courseId: good.courseId, instructorStaffId: good.instructorStaffId, purpose: 'recipients' }, { hubOperationId: good.operationId, hubSignature: sig }), { courseId: 'mkt-351', instructorStaffId: 'staff-dabirian', purpose: 'recipients' });
+  for (const bad of [{ ...good, courseId: 'mkt-351|staff-x' }, { ...good, instructorStaffId: '' }, { ...good, operationId: 'a b' }, { ...good, courseId: 'x'.repeat(65) }, { ...good, purpose: undefined }, { ...good, purpose: 'browsing' }]) {
     assert.equal(signRosterLookup(key, bad), null, JSON.stringify(bad));
-    assert.equal(verifyRosterLookupSignature(key, { courseId: bad.courseId, instructorStaffId: bad.instructorStaffId }, { hubOperationId: bad.operationId, hubSignature: sig }), null);
+    assert.equal(verifyRosterLookupSignature(key, { courseId: bad.courseId, instructorStaffId: bad.instructorStaffId, purpose: bad.purpose }, { hubOperationId: bad.operationId, hubSignature: sig }), null);
   }
   assert.ok(T.hubRosterLookupMs > T.chrsToolChoiceMs + T.chrsRecordsCallMs, 'the Hub waits longer than CHRS’s whole lookup');
   assert.ok(T.professorPublishMs > T.hubRosterLookupMs, 'the Professor waits longer than the Hub’s lookup');
@@ -264,4 +264,44 @@ test('roster-lookup signing refuses non-id fields on both sides; the budgets nes
   // Worst case of a post: one cold lookup (never two fresh) + the Student delivery (5 s) fits inside the Professor's wait.
   assert.ok(T.professorPublishMs > T.hubRosterLookupMs + 5000);
   // A post against a warm cache with a stranger tag: one re-check lookup, same bound.
+});
+
+// ---- review #7 (second video review): every roster read carries a signed purpose and is logged by the Campus Agent ----
+test('review #7: the faculty member\'s roster reads carry a signed purpose; the Hub refuses an unknown one and logs counts only', async () => {
+  const { st, prof } = await stack({ hr: true });
+  const events = follow(st.hub.url);
+  const audit = async () => (await (await fetch(`${st.chrs.url}/test/audit`)).json()).audit;
+  for (const purpose of ['fact', 'question', 'class_info']) {
+    const r = await ask(prof, { service: 'chrs', purpose });
+    assert.equal(r.status, 'ok', `${purpose}: ${JSON.stringify(r).slice(0, 200)}`);
+    assert.equal(r.reply.roster.rows.length, 25);
+  }
+  const old = await ask(prof, { service: 'chrs' }); // an older Faculty agent without a purpose: read as 'view'
+  assert.equal(old.status, 'ok');
+  assert.deepEqual((await audit()).map((e) => e.purpose), ['fact', 'question', 'class_info', 'view']);
+  // Refused: a Hub-only purpose, an unknown one, a purpose on an HR request, and a purpose the signature doesn't cover.
+  for (const [over, fields] of [
+    [{ service: 'chrs', purpose: 'recipients' }, null],
+    [{ service: 'chrs', purpose: 'export' }, null],
+    [{ service: 'chrs', purpose: 7 }, null],
+    [{ service: 'hr', purpose: 'view', text: 'I need this Friday off for vacation' }, null],
+    [{ service: 'chrs', purpose: 'fact' }, (v) => ['staff-request', v.operationId, v.conversationId, 'chrs']],
+    [{ service: 'chrs', purpose: 'fact' }, (v) => ['staff-request', v.operationId, v.conversationId, 'chrs', 'purpose:view']],
+  ]) {
+    const r = await ask(prof, over, fields);
+    assert.equal(r.status, 'refused', JSON.stringify(over));
+  }
+  assert.equal((await audit()).length, 4, 'a refused request read nothing');
+  // A post: the Hub reads the roster for its recipients.
+  assert.equal((await publish(prof)).status === 'rejected', false);
+  await waitFor(async () => (await audit()).some((e) => e.purpose === 'recipients'), { what: 'recipients read logged' });
+  await waitFor(() => events.some((e) => e.type === 'roster_read_logged' && e.data?.purpose === 'recipients'), { what: 'audit event relayed by the Hub' });
+  const logged = events.filter((e) => e.type === 'roster_read_logged');
+  for (const e of logged) {
+    assert.equal(e.source, 'chrs');
+    assert.deepEqual([e.data.rowCount, e.data.courseId], [25, 'mkt-351']);
+    assert.ok(['fact', 'question', 'class_info', 'view', 'recipients', 'email'].includes(e.data.purpose), e.data.purpose);
+  }
+  assert.ok(!/Aguilar|csu\.fullerton|888\d{6}/.test(JSON.stringify(logged)), 'counts only');
+  assert.match(st.chrs.output(), /roster read logged: staff-dabirian mkt-351 purpose=recipients rows=25/);
 });

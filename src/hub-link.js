@@ -12,12 +12,15 @@
 // signature, so another local process can't claim to be a student. Not persisted, never logged; a
 // restart makes a new key.
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { LOOKUP_ROSTER_PURPOSES, STAFF_ROSTER_PURPOSES } from './staff.js';
 
 // HMAC over the forwarded student, the downstream A2A context and the Hub's operation ID.
 export const signStudent = (key, { studentId, contextId, operationId }) => createHmac('sha256', key).update(`${studentId}|${contextId}|${operationId}`).digest('base64url');
 // HR (staff only): the Hub signs a STAFF caller with a distinct prefix, so a student signature over the same
 // ids never verifies as staff (and the reverse). callerKind must say 'staff' as well.
-export const signStaff = (key, { staffId, contextId, operationId }) => createHmac('sha256', key).update(`staff|${staffId}|${contextId}|${operationId}`).digest('base64url');
+// Review #7: a CLASS ROSTER request toward the Campus Agent also signs why it reads the roster (`purpose`, one of
+// STAFF_ROSTER_PURPOSES in src/staff.js) — appended only when given, so HR's staff signature is unchanged.
+export const signStaff = (key, { staffId, contextId, operationId, purpose }) => createHmac('sha256', key).update(`staff|${staffId}|${contextId}|${operationId}${purpose === undefined ? '' : `|purpose=${purpose}`}`).digest('base64url');
 // Part 17 (CHRS): the Hub's OWN signature on a roster lookup, made with the callKey CHRS gave the Hub at registration
 // (the key the Hub also uses to sign student/staff contexts toward CHRS). A distinct prefix, so a student or staff
 // signature never verifies as a lookup. It covers the course, the course's instructor and the Hub's operation id
@@ -26,9 +29,11 @@ export const signStaff = (key, { staffId, contextId, operationId }) => createHma
 // Every field must be a plain id (no '|' that could shift the boundaries between fields): signing refuses anything else.
 const LOOKUP_ID = /^[\w-]{1,64}$/;
 const lookupFieldsOk = (...fields) => fields.every((v) => typeof v === 'string' && LOOKUP_ID.test(v));
-export const signRosterLookup = (key, { courseId, instructorStaffId, operationId }) => {
-  if (!lookupFieldsOk(courseId, instructorStaffId, operationId)) return null;
-  return createHmac('sha256', key).update(`roster-lookup|${courseId}|${instructorStaffId}|${operationId}`).digest('base64url');
+// Review #7: the lookup also signs WHY the Hub reads the roster (`purpose`: one of LOOKUP_ROSTER_PURPOSES — recipients
+// for a post, tag for a tagged student). Required: a lookup without a known purpose is never signed (null).
+export const signRosterLookup = (key, { courseId, instructorStaffId, operationId, purpose }) => {
+  if (!lookupFieldsOk(courseId, instructorStaffId, operationId) || !LOOKUP_ROSTER_PURPOSES.includes(purpose)) return null;
+  return createHmac('sha256', key).update(`roster-lookup|${courseId}|${instructorStaffId}|${operationId}|${purpose}`).digest('base64url');
 };
 // Review C16: the Hub's own signature on an email notice toward CHRS (same key and rules as a roster lookup, its own prefix).
 // It covers the course, the instructor, the operation, the exact student ids (in order) and a hash of the title and text,
@@ -45,17 +50,21 @@ const sameSignature = (given, expected) => {
   return a.length === b.length && timingSafeEqual(a, b);
 };
 // The staff member the Hub vouches for on this request (pure: the key is passed in), or null.
-export function verifyStaffSignature(key, metadata, contextId) {
+// purpose (review #7, the Campus Agent only): the request's own purpose, which must be what the Hub signed.
+export function verifyStaffSignature(key, metadata, contextId, purpose) {
   const { staffId, hubOperationId, hubSignature, callerKind } = metadata ?? {};
   if (callerKind !== 'staff' || typeof staffId !== 'string' || typeof hubOperationId !== 'string' || typeof hubSignature !== 'string') return null;
-  return sameSignature(hubSignature, signStaff(key, { staffId, contextId, operationId: hubOperationId })) ? staffId : null;
+  if (purpose !== undefined && !STAFF_ROSTER_PURPOSES.includes(purpose)) return null;
+  return sameSignature(hubSignature, signStaff(key, { staffId, contextId, operationId: hubOperationId, purpose })) ? staffId : null;
 }
 // The lookup the Hub vouches for (pure: the key is passed in): { courseId, instructorStaffId } or null.
+// Review #7: { courseId, instructorStaffId, purpose } — an unknown or missing purpose never verifies.
 export function verifyRosterLookupSignature(key, value, metadata) {
-  const { courseId, instructorStaffId } = value ?? {};
+  const { courseId, instructorStaffId, purpose } = value ?? {};
   const { hubOperationId, hubSignature } = metadata ?? {};
   if (!lookupFieldsOk(courseId, instructorStaffId, hubOperationId) || typeof hubSignature !== 'string' || !hubSignature) return null;
-  return sameSignature(hubSignature, signRosterLookup(key, { courseId, instructorStaffId, operationId: hubOperationId })) ? { courseId, instructorStaffId } : null;
+  const expected = signRosterLookup(key, { courseId, instructorStaffId, operationId: hubOperationId, purpose });
+  return expected && sameSignature(hubSignature, expected) ? { courseId, instructorStaffId, purpose } : null;
 }
 // The email notice the Hub vouches for (pure): { courseId, instructorStaffId, studentIds, title, text, operationId } or null.
 export function verifyEmailNoticeSignature(key, value, metadata) {
@@ -160,8 +169,9 @@ export function createHubLink({ agentId, hubUrl, endpoint, cardUrl, enabled, hea
       return given.length === expected.length && timingSafeEqual(given, expected) ? studentId : null;
     },
     // HR: the staff member the Hub vouches for on this request, or null (a student signature never counts).
-    verifiedStaff(metadata, contextId) {
-      return verifyStaffSignature(callKey, metadata, contextId);
+    // purpose (review #7): the Campus Agent passes the roster request's purpose; HR passes none.
+    verifiedStaff(metadata, contextId, purpose) {
+      return verifyStaffSignature(callKey, metadata, contextId, purpose);
     },
     // CHRS: the roster lookup the Hub vouches for with its own signature, or null.
     verifiedRosterLookup(value, metadata) {

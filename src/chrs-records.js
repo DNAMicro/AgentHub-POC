@@ -200,7 +200,11 @@ export function createRecordsLink({ url, token, emit = () => {}, timeoutMs = TIM
     sessionStatus: () => (reported ? { status: reported, ...(reportedExtra ?? {}), at: reportedAt } : null),
     // courseId + the instructor's staff id (from the Hub's signature, never from words) -> value { roster: { class, rows } }
     // moment 'email' (review C16): the same tool, read fresh for the campus emails of students a notice must be emailed to.
-    roster: (courseId, instructorStaffId, { runId, moment = 'roster' } = {}) => call(moment === 'email' ? 'email' : 'roster', { courseId, instructorStaffId }, { runId }),
+    // Review #5: only the email moment asks for the campus emails (includeEmail); every other read comes back without them
+    // (and always without pronouns, with IDs masked to the last 4 digits: the records server's mask_private_fields step).
+    roster: (courseId, instructorStaffId, { runId, moment = 'roster' } = {}) => (moment === 'email'
+      ? call('email', { courseId, instructorStaffId, includeEmail: true }, { runId })
+      : call('roster', { courseId, instructorStaffId }, { runId })),
     // Test hook passthrough: the records server's own state (only when it runs with its test hooks).
     async state() {
       const r = await fetch(`${base}/test/state`, { signal: AbortSignal.timeout(timeoutMs) });

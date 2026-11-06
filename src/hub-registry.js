@@ -104,14 +104,14 @@ export function createHubRegistry({ peers, expiryMs, cardFetchMs = 3000, onEvent
       return key ? signStudent(key, fields) : null;
     },
     // HR (staff only): sign the STAFF caller forwarded on the Hub's staff path (a distinct signature).
-    signStaffFor(agentId, { staffId, contextId, operationId }) {
+    signStaffFor(agentId, { staffId, contextId, operationId, purpose }) { // purpose: review #7, roster requests only
       const key = entries.get(agentId)?.callKey;
-      return key ? signStaff(key, { staffId, contextId, operationId }) : null;
+      return key ? signStaff(key, { staffId, contextId, operationId, purpose }) : null;
     },
     // Part 17: the Hub's own signature on a roster lookup toward CHRS (null if it gave no key).
-    signRosterLookupFor(agentId, { courseId, instructorStaffId, operationId }) {
+    signRosterLookupFor(agentId, { courseId, instructorStaffId, operationId, purpose }) { // purpose: review #7
       const key = entries.get(agentId)?.callKey;
-      return key ? signRosterLookup(key, { courseId, instructorStaffId, operationId }) : null;
+      return key ? signRosterLookup(key, { courseId, instructorStaffId, operationId, purpose }) : null;
     },
     // Review C16: the Hub's own signature on an email notice toward CHRS (null if it gave no key or a field isn't an id).
     signEmailNoticeFor(agentId, fields) {

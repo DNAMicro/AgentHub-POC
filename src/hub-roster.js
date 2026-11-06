@@ -1,7 +1,9 @@
 // Part 17: the Hub's roster client. A post to "all" (or to a tagged student) is addressed from the course roster that
 // CHRS gets from the student-records stand-in — never from a list the Hub, the Faculty agent or the browser keeps.
 //
-//   Hub -> CHRS  roster_lookup { courseId, instructorStaffId } signed by the HUB ITSELF (registry.signRosterLookupFor).
+//   Hub -> CHRS  roster_lookup { courseId, instructorStaffId, purpose } signed by the HUB ITSELF (registry.signRosterLookupFor).
+//                purpose (review #7): why the Hub reads the roster — 'recipients' (addressing a post; the default) or 'tag'.
+//                The Campus Agent logs every read with it.
 //   CHRS -> Hub  { studentIds, names: { id: "First Last" }, count }  or  { error, text }.
 //
 // Review C13: every send reads the roster FRESH from CHRS (add/drop changes it) — get(courseId, { fresh: true }). The
@@ -14,7 +16,7 @@
 // (registry.signEmailNoticeFor). CHRS reads the addresses itself; the Hub gets back per-student 'emailed' | 'failed'.
 import { randomUUID } from 'node:crypto';
 import { sendData } from './a2a-data.js';
-import { EMAIL_NOTICE_MEDIA_TYPE, ROSTER_LOOKUP_MEDIA_TYPE } from './staff.js';
+import { EMAIL_NOTICE_MEDIA_TYPE, LOOKUP_ROSTER_PURPOSES, ROSTER_LOOKUP_MEDIA_TYPE } from './staff.js';
 import { TIMEOUTS } from './timeouts.js';
 
 const ID = /^[\w-]{1,64}$/;
@@ -26,7 +28,7 @@ export function createRosterClient({ cfg, registry, emit = () => {}, now = () =>
   const generation = { n: 0 };
   const chrsAgent = () => Object.values(cfg.destinations ?? {}).find((d) => d.audience === 'staff' && d.worker === 'chrs')?.worker ?? null;
 
-  async function fetchRoster(courseId) {
+  async function fetchRoster(courseId, purpose) {
     const course = cfg.courses?.[courseId];
     const agentId = chrsAgent();
     const instructorStaffId = course ? cfg.staff?.[course.professor]?.staffId : null;
@@ -35,13 +37,13 @@ export function createRosterClient({ cfg, registry, emit = () => {}, now = () =>
     if (!course || !agentId || !instructorStaffId || !ID.test(courseId) || !ID.test(instructorStaffId)) return fail('not_configured');
     if (!registry.isReady(agentId)) return fail('chrs_not_ready');
     const operationId = randomUUID();
-    const hubSignature = registry.signRosterLookupFor(agentId, { courseId, instructorStaffId, operationId });
+    const hubSignature = registry.signRosterLookupFor(agentId, { courseId, instructorStaffId, operationId, purpose });
     if (!hubSignature) return fail('not_signed');
     const peer = registry.peer(agentId);
     emit('roster_lookup_started', { courseId, service: 'chrs', operationId });
     const r = await sendData(peer.baseUrl, {
       mediaType: ROSTER_LOOKUP_MEDIA_TYPE,
-      value: { type: 'roster_lookup', courseId, instructorStaffId },
+      value: { type: 'roster_lookup', courseId, instructorStaffId, purpose },
       metadata: { hubOperationId: operationId, hubSignature },
       timeoutMs,
     });
@@ -60,19 +62,23 @@ export function createRosterClient({ cfg, registry, emit = () => {}, now = () =>
   // `fromCache: true` marks a roster served from the cache (the caller may re-check it once with fresh: true).
   // fresh: skip the cache (a tagged student who isn't on the cached roster is checked against a new lookup).
   // Only a post or a roster request calls this; the status view reads cached() and never starts a lookup.
-  async function get(courseId, { fresh = false } = {}) {
+  // purpose (review #7): 'recipients' (default) or 'tag'; an unknown one is refused (never signed). A lookup already in
+  // flight is shared only by callers with the same purpose, so every read is logged with the reason it was made for.
+  async function get(courseId, { fresh = false, purpose = 'recipients' } = {}) {
+    if (!LOOKUP_ROSTER_PURPOSES.includes(purpose)) return { ok: false, reason: 'not_signed' };
     const hit = cache.get(courseId);
     if (hit && !fresh && now() - hit.at < ttlMs) return { ok: true, roster: hit.roster, fromCache: true };
-    let p = inFlight.get(courseId);
+    const flightKey = `${courseId}|${purpose}`;
+    let p = inFlight.get(flightKey);
     if (!p) {
       const gen = generation.n;
-      p = fetchRoster(courseId).then((res) => {
+      p = fetchRoster(courseId, purpose).then((res) => {
         if (gen === generation.n) { // a reset while it was in flight: don't keep what it fetched
           if (res.ok) cache.set(courseId, { at: now(), roster: res.roster });
         }
         return res;
-      }).finally(() => { if (inFlight.get(courseId) === p) inFlight.delete(courseId); });
-      inFlight.set(courseId, p);
+      }).finally(() => { if (inFlight.get(flightKey) === p) inFlight.delete(flightKey); });
+      inFlight.set(flightKey, p);
     }
     return p;
   }

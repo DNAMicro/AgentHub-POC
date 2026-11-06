@@ -66,12 +66,16 @@ async (page) => {
   check('the grid is titled Enrolled Students', /Enrolled Students/.test(await card.locator('.cr-grid-title').textContent()));
   const rows = card.locator('table.roster tbody tr');
   check('25 rows', await rows.count() === 25, await rows.count());
-  check('column headings', (await card.locator('table.roster th').allTextContents()).join('|') === '|ID|Name|Email|Pronouns|Units|Program and Plan|Academic Level', await card.locator('table.roster th').allTextContents());
-  check('first row is 1 · Aguilar,Mariana', /^1\s*\d{9}\s*Aguilar,Mariana/.test((await rows.first().textContent()) ?? ''), await rows.first().textContent());
-  const names = await card.locator('table.roster tbody td:nth-child(3)').allTextContents();
+  // Review #5 (second video review): only the fields the task needs — no Email, no Pronouns, the ID masked to the last 4.
+  check('column headings (review #5)', (await card.locator('table.roster th').allTextContents()).join('|') === '|Name|ID|Academic Level|Program and Plan|Units', await card.locator('table.roster th').allTextContents());
+  check('first row is 1 · Aguilar,Mariana · •••••7694 · Junior', /^1\s*Aguilar,Mariana\s*•••••7694\s*Junior/.test((await rows.first().textContent()) ?? ''), await rows.first().textContent());
+  const cardText = (await card.textContent()) ?? '';
+  check('review #5: no email, no full 888 ID, no pronouns anywhere on the card', !/@csu\.fullerton\.example|\b888\d{6}\b|they\/them|she\/her|he\/him|Pronouns|Email/.test(cardText));
+  check('review #5: every ID is masked to its last 4 digits', (await card.locator('table.roster tbody td:nth-child(3)').allTextContents()).every((t) => /^•{5}\d{4}$/.test(t)));
+  const names = await card.locator('table.roster tbody td:nth-child(2)').allTextContents();
   check('Alex Student and Sam Student are on the roster', names.includes('Student,Alex') && names.includes('Student,Sam'), names.filter((n) => /Student/.test(n)));
   check('sorted by last name', names.join('|') === [...names].sort((a, b) => a.localeCompare(b)).join('|'));
-  check('footer: fictional records, private (FERPA)', /Fictional demo records\. For your class only — student records are private \(FERPA\)\./.test(await card.locator('.roster-foot').textContent()));
+  check('footer (review #5): only what you need, IDs masked, every lookup logged, FERPA', (await card.locator('.roster-foot').textContent()) === 'Fictional demo records. Only what you need is shown; IDs are masked. Every roster lookup is logged. Student records are private (FERPA).', await card.locator('.roster-foot').textContent());
   check('the grid scrolls inside the card (max-height box)', await card.locator('.roster-scroll').evaluate((e) => e.scrollHeight > e.clientHeight && getComputedStyle(e).overflowY === 'auto'));
   check('header reads "25 students · 1 online"', (await page.locator('#prof-roster').textContent()).trim() === '25 students · 1 online', await page.locator('#prof-roster').textContent());
   await page.evaluate(() => { document.querySelector('#prof-log .roster-card').__keep = 'same-element'; });
@@ -128,7 +132,7 @@ async (page) => {
   const lms = page.locator('#prof-log .lms-card');
   const qsum = await lms.locator('.dsum .pill').allTextContents();
   check('quiz published card: "25 notified"', qsum.join(' | ') === '25 notified', qsum);
-  check('quiz fold lists 25 students, Alex Notified', await lms.locator('details.dlist li').count() === 25 && (await lms.locator('details.dlist li').allTextContents()).some((r) => /^Alex StudentNotified/.test(r)));
+  check('quiz fold lists 25 students, Alex Notified or Opened', await lms.locator('details.dlist li').count() === 25 && (await lms.locator('details.dlist li').allTextContents()).some((r) => /^Alex Student(Notified|Opened)/.test(r))); // Alex's own page is open: they may open it at once
   await lms.scrollIntoViewIfNeeded();
   await page.waitForTimeout(300);
   await page.screenshot({ path: `${SHOTS}/t5-4-quiz-published.png` });
@@ -153,7 +157,10 @@ async (page) => {
 
   // 7. F3: a student's details are shown on the roster card with that row highlighted; the chat has the sentence only.
   await page.emulateMedia({ colorScheme: 'light' });
+  // Review #5: an email question gets the honest sentence (no card); the year question shows the highlighted row.
   await say("what's Hana Yamamoto's email?");
+  check('review #5: an email question gets the honest sentence, never the email', await page.locator('#prof-log').evaluate((l) => [...l.querySelectorAll(':scope > li')].some((li) => (li.querySelector('.msg-text')?.textContent ?? '') === "Student emails aren't shown here, to keep student records private. Notices you send reach every student, by email if they aren't online.")));
+  await say('what year is Hana Yamamoto?');
   await page.waitForSelector('#prof-log .roster-card[data-highlight="student-hana-yamamoto"][data-state="ready"]', { timeout: 30000 });
   const hiCard = page.locator('#prof-log .roster-card[data-highlight="student-hana-yamamoto"]');
   const hiRows = hiCard.locator('tr.cr-hi');
@@ -175,8 +182,8 @@ async (page) => {
   const sCard = page.locator('#prof-log .roster-card').last();
   const sRows = sCard.locator('tr.cr-hi');
   const sCount = await sRows.count();
-  const sLevels = await sRows.locator('td:last-child').allTextContents();
-  check('R4: every highlighted row is a Senior, and every Senior row is highlighted', sLevels.every((l) => l.trim() === 'Senior') && (await sCard.locator('tbody tr td:last-child').allTextContents()).filter((l) => l.trim() === 'Senior').length === sCount, sLevels);
+  const sLevels = await sRows.locator('td:nth-child(4)').allTextContents(); // the Academic Level column (review #5 order)
+  check('R4: every highlighted row is a Senior, and every Senior row is highlighted', sLevels.every((l) => l.trim() === 'Senior') && (await sCard.locator('tbody tr td:nth-child(4)').allTextContents()).filter((l) => l.trim() === 'Senior').length === sCount, sLevels);
   check(`R4: the reply says the count only ("${sCount} seniors are highlighted on your roster below.")`, await page.locator('#prof-log').evaluate((l, n) => [...l.querySelectorAll(':scope > li')].some((li) => (li.querySelector('.msg-text')?.textContent ?? '') === `${n} seniors are highlighted on your roster below.`), sCount));
   check('R4: no level or major in the chat bubbles outside the roster cards', await page.locator('#prof-log').evaluate((l) => ![...l.querySelectorAll(':scope > li:not(.roster-card)')].some((li) => /\bSenior\b|Business Admin/.test(li.textContent))));
   await page.waitForTimeout(400);
@@ -190,10 +197,14 @@ async (page) => {
   await say('anyone not a business major?');
   await page.waitForFunction(() => { const c = [...document.querySelectorAll('#prof-log .roster-card')].at(-1); return c?.dataset.state === 'ready' && c.querySelectorAll('tr.cr-hi').length > 0 && c.querySelectorAll('tr.cr-hi').length < 10; }, null, { timeout: 30000 });
   const qCard = page.locator('#prof-log .roster-card').last();
-  const qPlans = await qCard.locator('tr.cr-hi td:nth-last-child(2)').allTextContents();
-  const allPlans = await qCard.locator('tbody tr td:nth-last-child(2)').allTextContents();
+  const qPlans = await qCard.locator('tr.cr-hi td:nth-child(5)').allTextContents(); // Program and Plan (review #5 order)
+  const allPlans = await qCard.locator('tbody tr td:nth-child(5)').allTextContents();
   check('S3: "anyone not a business major?" highlights exactly the rows outside Business Admin', qPlans.length === allPlans.filter((t) => !/Business Admin/.test(t)).length && qPlans.every((t) => !/Business Admin/.test(t)), qPlans);
-  check(`S3: the reply is "Yes — ${qPlans.length} students match; they're highlighted on your roster below."`, await page.locator('#prof-log').evaluate((l, n) => [...l.querySelectorAll(':scope > li')].some((li) => (li.querySelector('.msg-text')?.textContent ?? '') === `Yes — ${n} students match; they're highlighted on your roster below.`), qPlans.length));
+  // Review #6: the answer restates what was counted (built by code from the checked filters).
+  check(`S3: the reply is "Yes — ${qPlans.length} of your 25 students aren't Business majors; they're highlighted on your roster below."`, await page.locator('#prof-log').evaluate((l, n) => [...l.querySelectorAll(':scope > li')].some((li) => (li.querySelector('.msg-text')?.textContent ?? '') === `Yes — ${n} of your 25 students aren't Business majors; they're highlighted on your roster below.`), qPlans.length));
+  await say('how many seniors are in my class?');
+  check(`review #6: "how many seniors" says "${sCount} of your 25 students are seniors."`, await page.locator('#prof-log').evaluate((l, n) => [...l.querySelectorAll(':scope > li')].some((li) => (li.querySelector('.msg-text')?.textContent ?? '') === `${n} of your 25 students are seniors.`), sCount));
+  await page.screenshot({ path: `${SHOTS}/s3-count-seniors.png` });
   const postsAfter = (await (await page.request.get(`${origin}/api/professor/state`)).json()).lessons.length;
   check('S3: nothing was posted to the class', postsAfter === postsBefore, { postsBefore, postsAfter });
   check('S3: no major in the chat bubbles outside the roster cards', await page.locator('#prof-log').evaluate((l) => ![...l.querySelectorAll(':scope > li:not(.roster-card)')].some((li) => /Communications -|Graphic Design|Business Admin/.test(li.textContent))));

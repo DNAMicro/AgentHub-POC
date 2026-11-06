@@ -8,7 +8,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startStack, startProfessor, post, openStream, waitFor, stopProcess } from './support/harness.js';
-import { NOTIFY_EMPTY, ROSTER_GONE, ROSTER_QUERY_FAILED_TEXT, ROSTER_UNCLEAR_TEXT, asksRosterQuestion, asksRoster, asksRosterExport, asksAboutRoster, createRosterDesk, notifyEveryone, notifyIsNew, resolveTags, rosterFact, rosterFilter, tellText } from '../src/professor-roster.js';
+import { NOTIFY_EMPTY, PRIVATE_FIELD_TEXT, ROSTER_GONE, ROSTER_QUERY_FAILED_TEXT, ROSTER_UNCLEAR_TEXT, asksRosterQuestion, asksRoster, asksRosterExport, asksAboutRoster, createRosterDesk, notifyEveryone, notifyIsNew, resolveTags, rosterFact, rosterFilter, tellText } from '../src/professor-roster.js';
 import { readFileSync } from 'node:fs';
 import { ROSTER_FAILED_TEXT, ROSTER_POST_FAILED_TEXT } from '../src/staff.js';
 
@@ -158,7 +158,10 @@ test('GET /api/professor/roster serves the full roster to the Faculty view, and 
   assert.equal(v.rosterId, r.roster.rosterId);
   assert.equal(v.roster.rows.length, 25);
   assert.match(JSON.stringify(v.roster.rows[0]), /Aguilar/);
-  assert.ok(ROW_SECRET.test(JSON.stringify(v)), 'the Faculty view gets the emails and IDs');
+  // Review #5: only what the faculty member needs — no email, no full ID, no pronouns; the ID masked to its last 4 digits.
+  assert.ok(!ROW_SECRET.test(JSON.stringify(v)), 'the Faculty view never gets emails or full IDs');
+  assert.deepEqual(Object.keys(v.roster.rows[0]).sort(), ['degree', 'level', 'maskedId', 'name', 'plan', 'program', 'studentId', 'units']);
+  assert.equal(v.roster.rows.find((x) => x.studentId === 'student-mariana-aguilar').maskedId, '•••••7694');
   assert.deepEqual(v.online, ['student-alex']);
   // A classroom reset forgets the card.
   await main.reset();
@@ -331,7 +334,7 @@ test('CHRS down: a roster request, a notify and a plain class post each get one 
   assert.equal(roster.reply, FAILED_ROSTER);
   assert.equal(FAILED_ROSTER, ROSTER_FAILED_TEXT);
   // F3: roster facts fail with the same sentence (never the HR / class / both question).
-  for (const text of ['how many students are enrolled?', 'Is Sam Student in my class?', "what's Mariana Aguilar's email?"]) assert.equal((await say(s, text)).reply, FAILED_ROSTER, text);
+  for (const text of ['how many students are enrolled?', 'Is Sam Student in my class?', 'what year is Mariana Aguilar?']) assert.equal((await say(s, text)).reply, FAILED_ROSTER, text);
   assert.equal((await state(s)).rosterCard, null);
   assert.equal((await fetch(`${s.ui.url}/api/professor/roster`)).status, 404);
   for (const text of ['Notify everyone that the quiz is on Friday', 'Please read chapter 5 before Monday']) {
@@ -605,7 +608,7 @@ test('F3: rosterFact reads counts, membership and a student\'s details by code; 
   assert.deepEqual(rosterFact('Is Sam Student in my class?'), { kind: 'member', name: 'Sam Student' });
   assert.deepEqual(rosterFact('is Mariana Aguilar enrolled?'), { kind: 'member', name: 'Mariana Aguilar' });
   assert.deepEqual(rosterFact('is Kevin on my roster?'), { kind: 'member', name: 'Kevin' });
-  for (const [t, name] of [["what's Mariana Aguilar's email?", 'Mariana Aguilar'], ['what is Omar\'s major', 'Omar'], ['what year is Lily Chen', 'Lily Chen'], ["Diego Castillo's student ID", 'Diego Castillo']]) assert.deepEqual(rosterFact(t), { kind: 'detail', name }, t);
+  for (const [t, name, field] of [["what's Mariana Aguilar's email?", 'Mariana Aguilar', 'email'], ['what is Omar\'s major', 'Omar', 'major'], ['what year is Lily Chen', 'Lily Chen', 'level'], ["Diego Castillo's student ID", 'Diego Castillo', 'id']]) assert.deepEqual(rosterFact(t), { kind: 'detail', name, field }, t);
   for (const t of ['@sam is Kevin on my roster?', 'show my class roster', 'Is the quiz on Friday?', 'what is the plan for Friday', 'I need Friday off', 'is everyone in my class?', 'how many students opened it?']) assert.equal(rosterFact(t), null, t);
 });
 
@@ -626,7 +629,7 @@ test('F3: roster facts are answered from the roster by code: count, member, seve
     ['Is Kim in my class?', 'Yes — Daniel Kim is enrolled in Marketing 351.'],
     ['Is Student in my class?', '2 students match “Student”: Alex Student and Sam Student.'],
     ['Is Jane Doe in my class?', "I don't see Jane Doe on your Marketing 351 roster."],
-    ["what is Zed Quill's email?", "I don't see Zed Quill on your Marketing 351 roster."],
+    ["what is Zed Quill's major?", "I don't see Zed Quill on your Marketing 351 roster."],
   ];
   for (const [text, reply] of cases) {
     const r = await say(main, text);
@@ -642,7 +645,7 @@ test('F3: roster facts are answered from the roster by code: count, member, seve
 });
 
 test('F3: a details question shows the roster card with that row highlighted; the email / ID / major never reach the chat or the outbox', async () => {
-  for (const [text, id, name] of [["what's Mariana Aguilar's email?", 'student-mariana-aguilar', 'Mariana Aguilar'], ['what is Omar\'s major', 'student-omar-hassan', 'Omar Hassan'], ['what year is Lily Chen', 'student-lily-chen', 'Lily Chen'], ["Diego Castillo's student ID", 'student-diego-castillo', 'Diego Castillo']]) {
+  for (const [text, id, name] of [["what's Mariana Aguilar's major?", 'student-mariana-aguilar', 'Mariana Aguilar'], ['what is Omar\'s major', 'student-omar-hassan', 'Omar Hassan'], ['what year is Lily Chen', 'student-lily-chen', 'Lily Chen'], ["Diego Castillo's academic level", 'student-diego-castillo', 'Diego Castillo']]) {
     const r = await say(main, text);
     assert.equal(r.reply, `${name} is highlighted on your roster below.`, text);
     assert.equal(r.action, 'roster');
@@ -812,7 +815,7 @@ test('R4: students by level or major: the card highlights exactly those rows; co
   assert.deepEqual(await highlighted(main), JUNIORS);
   assert.equal((await say(main, 'how many seniors are in my class?')).reply, `${SENIORS.length} of your 25 students are seniors.`);
   assert.equal((await say(main, 'how many accounting majors do I have?')).reply, '1 of your 25 students is an Accounting major.');
-  assert.equal((await say(main, 'who are my freshmen?')).reply, 'None of your students are freshmen.');
+  assert.equal((await say(main, 'who are my freshmen?')).reply, 'None of your 25 students are freshmen.');
   const st = await state(main);
   assert.equal(st.lessons.length, 0);
   assert.ok(!st.chat.some((m) => m.text === UNSURE || /nothing was filed/.test(m.text)));
@@ -898,7 +901,7 @@ test('roster questions: code recognises a question about the roster; praise, cla
 test('roster questions: "anyone not a business major?" is answered from the roster (highlighted), never posted', async () => {
   assert.equal(NOT_BUSINESS.length, 4, 'the fictional roster has 4 students outside Business Admin');
   const r = await say(main, 'anyone not a business major?');
-  assert.equal(r.reply, `Yes — ${NOT_BUSINESS.length} students match; they're highlighted on your roster below.`, JSON.stringify(r));
+  assert.equal(r.reply, `Yes — ${NOT_BUSINESS.length} of your 25 students aren't Business majors; they're highlighted on your roster below.`, JSON.stringify(r));
   assert.equal(r.action, 'roster');
   assert.deepEqual(await highlighted(main), NOT_BUSINESS);
   const st = await state(main);
@@ -908,13 +911,14 @@ test('roster questions: "anyone not a business major?" is answered from the rost
   assert.ok(!NOT_BUSINESS.some((id) => wire.includes(id)) && !/Communications|Graphic Design|Business Admin|"highlight"/.test(wire), 'which students matched stays out of the state and the outbox');
   // The same through @assistant, and the other forms.
   assert.equal((await say(main, '@assistant anyone not a business major?')).reply, r.reply);
-  assert.equal((await say(main, 'how many students are not marketing majors?')).reply, `${NOT_MARKETING.length} of your 25 students match.`);
-  assert.equal((await say(main, 'does anyone take fewer than 3 units?')).reply, 'No — none of your 25 students match that.');
-  assert.equal((await say(main, 'is anybody in my class an accounting major?')).reply, "Yes — 1 student matches; they're highlighted on your roster below.");
+  assert.equal((await say(main, 'how many students are not marketing majors?')).reply, `${NOT_MARKETING.length} of your 25 students aren't Marketing majors.`);
+  assert.equal((await say(main, 'does anyone take fewer than 3 units?')).reply, 'No — none of your 25 students have fewer than 3 units.');
+  assert.equal((await say(main, 'is anybody in my class an accounting major?')).reply, "Yes — 1 of your 25 students is an Accounting major; they're highlighted on your roster below.");
   assert.deepEqual(await highlighted(main), idsWhere((r2) => /Accounting/.test(r2.plan)));
-  assert.equal((await say(main, 'which students use they/them pronouns?')).reply, '1 student matches — highlighted on your roster below.');
+  // Review #5: pronouns are never read from the records, so a pronoun question gets the honest sentence (no lookup).
+  assert.equal((await say(main, 'which students use they/them pronouns?')).reply, PRIVATE_FIELD_TEXT.pronouns);
   const younger = idsWhere((x) => !['Junior', 'Senior'].includes(x.level));
-  assert.equal((await say(main, 'which students are not juniors or seniors?')).reply, `${younger.length} students match — they're highlighted on your roster below.`);
+  assert.equal((await say(main, 'which students are not juniors or seniors?')).reply, `${younger.length} of your 25 students aren't juniors or seniors — they're highlighted on your roster below.`);
   assert.deepEqual(await highlighted(main), younger);
   // A question the query can't express: one plain sentence, nothing posted.
   assert.equal((await say(main, 'what are my students majoring in?')).reply, ROSTER_UNCLEAR_TEXT);
@@ -923,12 +927,12 @@ test('roster questions: "anyone not a business major?" is answered from the rost
 
 test('roster questions: while the HR / class / both question waits, one is answered and the question keeps waiting; an open card is untouched', async () => {
   assert.equal((await say(main, "I'm sick, cancel Friday's class")).reply, UNSURE);
-  assert.equal((await say(main, 'anyone not a business major?')).reply, `Yes — ${NOT_BUSINESS.length} students match; they're highlighted on your roster below.`);
+  assert.equal((await say(main, 'anyone not a business major?')).reply, `Yes — ${NOT_BUSINESS.length} of your 25 students aren't Business majors; they're highlighted on your roster below.`);
   const hr = await say(main, 'hr');
   assert.equal(hr.action, 'staff', JSON.stringify(hr));
   const formRef = (await state(main)).hrCard.formRef;
   assert.ok(formRef);
-  assert.equal((await say(main, 'are there any communications majors?')).reply, "Yes — 3 students match; they're highlighted on your roster below.");
+  assert.equal((await say(main, 'are there any communications majors?')).reply, "Yes — 3 of your 25 students are Communications majors; they're highlighted on your roster below.");
   assert.equal((await state(main)).hrCard.formRef, formRef, 'not a card edit');
   assert.equal((await lessonsOf(main)).length, 0);
 });
@@ -967,7 +971,7 @@ test('roster questions: an invalid query is dropped (the couldn\'t-tell sentence
   assert.equal((await failing.question({ operationId: 'op-f', hub: null, question: 'anyone not a business major?' })).reply, ROSTER_QUERY_FAILED_TEXT);
   // A name he typed is allowed; a valid query is run by code.
   const named = createRosterDesk({ hubLink: storeLink, conversationId: () => 'c', readQuery: async () => ({ kind: 'list', filters: [{ field: 'name', op: 'contains', value: 'Chen' }], match: 'all' }) });
-  assert.equal((await named.question({ operationId: 'op-n', hub: null, question: 'is anyone named Chen a senior?' })).reply, "Yes — 1 student matches; they're highlighted on your roster below.");
+  assert.equal((await named.question({ operationId: 'op-n', hub: null, question: 'is anyone named Chen a senior?' })).reply, "Yes — 1 of your 25 students matches: Name contains “Chen”; they're highlighted on your roster below.");
   const down = createRosterDesk({ hubLink: { sendSigned: async () => ({ status: 'error' }) }, conversationId: () => 'c', readQuery: async () => { throw new Error('must not be asked'); } });
   assert.equal((await down.question({ operationId: 'op-d', hub: null, question: 'anyone not a business major?' })).reply, FAILED_ROSTER);
 });

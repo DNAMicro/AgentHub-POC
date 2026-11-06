@@ -212,3 +212,94 @@ test('a Hub-signed roster_request with another courseId still returns the 25 row
   assert.equal(r.value.roster.rows.length, 25);
   assert.equal(r.value.roster.class.code, 'MKTG 351 - 01');
 });
+
+// ---- review #5 / #7 (second video review): data minimisation and the roster-read audit log ------------------------------
+import { signEmailNotice } from '../src/hub-link.js';
+import { EMAIL_NOTICE_MEDIA_TYPE } from '../src/staff.js';
+import { createStudentRecordsStore } from '../src/student-records-store.js';
+
+const STORE_ROWS = createStudentRecordsStore().roster({ courseId: 'mkt-351', instructorStaffId: 'staff-dabirian' }).roster.rows;
+const SECRETS = () => STORE_ROWS.flatMap((r) => [r.email, r.id]);
+const audit = async (s) => (await (await fetch(`${s.chrs.url}/test/audit`)).json()).audit;
+const hooked = (t, extra = {}) => setup(t, { chrsEnv: { CHRS_TEST_HOOKS: '1', ...extra } });
+
+test('review #5: the roster that leaves the Campus Agent has no email, no pronouns and only a masked ID (last 4)', async (t) => {
+  const s = await setup(t);
+  const r = await s.request();
+  const rows = r.value.roster.rows;
+  assert.equal(rows.length, 25);
+  for (const row of rows) {
+    assert.deepEqual(Object.keys(row).sort(), ['degree', 'level', 'maskedId', 'name', 'plan', 'program', 'studentId', 'units']);
+    assert.match(row.maskedId, /^•{5}\d{4}$/);
+  }
+  const mariana = STORE_ROWS.find((x) => x.studentId === 'student-mariana-aguilar');
+  assert.equal(rows.find((x) => x.studentId === mariana.studentId).maskedId, `•••••${mariana.id.slice(-4)}`);
+  const wire = JSON.stringify(r.value);
+  for (const secret of SECRETS()) assert.ok(!wire.includes(secret), `never ${secret}`);
+  assert.ok(!/pronouns|they\/them|she\/her|he\/him|csu\.fullerton/.test(wire), 'no pronouns, no email domain');
+});
+
+test('review #7: every roster read is logged with who, which course and section, why and how many rows — counts only', async (t) => {
+  const s = await hooked(t);
+  assert.deepEqual(await audit(s), []);
+  for (const purpose of ['view', 'fact', 'question', 'tag', 'class_info', 'membership']) {
+    const r = await s.request({ type: 'roster_request', kind: 'roster', purpose });
+    assert.equal(r.value.roster.rows.length, 25, purpose);
+  }
+  assert.equal((await s.lookup()).value.count, 25);
+  assert.equal((await s.lookup({ type: 'roster_lookup', courseId: 'mkt-351', instructorStaffId: 'staff-dabirian', purpose: 'tag' })).value.count, 25);
+  const log = await audit(s);
+  assert.deepEqual(log.map((e) => e.purpose), ['view', 'fact', 'question', 'tag', 'class_info', 'membership', 'recipients', 'tag']);
+  for (const e of log) {
+    assert.deepEqual(Object.keys(e).sort(), ['at', 'courseId', 'purpose', 'rowCount', 'section', 'staffId']);
+    assert.deepEqual([e.staffId, e.courseId, e.section, e.rowCount], ['staff-dabirian', 'mkt-351', 'MKTG 351 - 01', 25]);
+    assert.ok(!Number.isNaN(Date.parse(e.at)));
+  }
+  assert.match(s.chrs.output(), /roster read logged: staff-dabirian mkt-351 purpose=view rows=25/);
+  assert.match(s.chrs.output(), /roster read logged: staff-dabirian mkt-351 purpose=recipients rows=25/);
+  await waitFor(() => s.feed.events.filter((e) => e.type === 'roster_read_logged').length === 8, { what: 'eight audit events' });
+  const events = s.feed.events.filter((e) => e.type === 'roster_read_logged');
+  for (const e of events) assert.deepEqual(Object.keys(e.data).sort(), ['courseId', 'purpose', 'rowCount']);
+  const wire = JSON.stringify(events) + s.chrs.output();
+  for (const secret of [...SECRETS(), 'Aguilar', 'Yamamoto']) assert.ok(!wire.includes(secret), `never ${secret}`);
+});
+
+test('review #7: the email fallback read is logged as purpose=email; a failed read logs nothing; the classroom reset clears the log', async (t) => {
+  const s = await hooked(t);
+  const operationId = randomUUID();
+  const notice = { courseId: 'mkt-351', instructorStaffId: 'staff-dabirian', studentIds: ['student-sam'], title: 'Quiz', text: 'The quiz is Friday.' };
+  const e = await sendData(s.chrs.url, { mediaType: EMAIL_NOTICE_MEDIA_TYPE, value: { type: 'email_notice', ...notice }, metadata: { hubOperationId: operationId, hubSignature: signEmailNotice(s.key, { ...notice, operationId }) }, timeoutMs: 20000 });
+  assert.equal(e.value.emailed, 1, JSON.stringify(e));
+  // A request from someone who isn't the instructor reads nothing: nothing logged.
+  await s.request(undefined, (_id, ctx, op, purpose) => s.staffMeta('staff-other', ctx, op, purpose));
+  assert.deepEqual((await audit(s)).map((x) => [x.purpose, x.rowCount]), [['email', 25]]);
+  const reset = await fetch(`${s.chrs.url}/dev/chrs/reset`, { method: 'POST' });
+  assert.equal(reset.status, 200);
+  assert.deepEqual(await audit(s), []);
+});
+
+test('review #7: a missing, unknown or tampered purpose is refused before any read', async (t) => {
+  const s = await hooked(t);
+  // No purpose (an old-style signature without one).
+  const none = await s.request({ type: 'roster_request', kind: 'roster' }, (id, ctx, op) => s.staffMeta(id, ctx, op, undefined));
+  assert.equal(none.value.text, REFUSED);
+  // An unknown purpose, even correctly signed.
+  const odd = await s.request({ type: 'roster_request', kind: 'roster', purpose: 'browsing' });
+  assert.equal(odd.value.text, REFUSED);
+  // The Hub signed 'view'; the part says 'fact'.
+  const swapped = await s.request({ type: 'roster_request', kind: 'roster', purpose: 'fact' }, (id, ctx, op) => s.staffMeta(id, ctx, op, 'view'));
+  assert.equal(swapped.value.text, REFUSED);
+  // A lookup purpose that is only for the faculty member's own reads, and a lookup signed for another purpose.
+  const lookupView = await s.lookup({ type: 'roster_lookup', courseId: 'mkt-351', instructorStaffId: 'staff-dabirian', purpose: 'view' });
+  assert.equal(lookupView.value.text, REFUSED);
+  const op = randomUUID();
+  const changed = await sendData(s.chrs.url, { mediaType: ROSTER_LOOKUP_MEDIA_TYPE, value: { type: 'roster_lookup', courseId: 'mkt-351', instructorStaffId: 'staff-dabirian', purpose: 'tag' }, metadata: { hubOperationId: op, hubSignature: signRosterLookup(s.key, { courseId: 'mkt-351', instructorStaffId: 'staff-dabirian', operationId: op, purpose: 'recipients' }) } });
+  assert.equal(changed.value.text, REFUSED);
+  assert.deepEqual(await audit(s), []);
+  assert.equal(s.feed.events.filter((e) => e.type === 'mcp_call_started').length, 0, 'nothing reached the records server');
+});
+
+test('review #7: /test/audit exists only with the test hooks', async (t) => {
+  const s = await setup(t);
+  assert.equal((await fetch(`${s.chrs.url}/test/audit`)).status, 404);
+});
