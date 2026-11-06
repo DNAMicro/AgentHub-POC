@@ -61,7 +61,7 @@ async (page) => {
   const head = ((await card.locator('.cr-head').textContent()) ?? '').replace(/\s+/g, ' ');
   check('card label is Class roster', /Class roster/.test(await card.locator('.msg-dir').textContent()));
   check('title, term line, class line', /Class Roster/.test(head) && /Fall 2026 · Regular Academic Session · California State University, Fullerton · Undergraduate/.test(head) && /MKTG 351 - 01 \(12351\) Principles of Marketing \(Lecture\)/.test(head), head);
-  check('Days and Times come from the data: MoTuWeThFr 10:00AM - 10:50AM, room, instructor, dates', /MoTuWeThFr 10:00AM - 10:50AM/.test(head) && /Mihaylo Hall 2405/.test(head) && /Dr\. Dabirian/.test(head) && /08\/24\/2026 - 12\/18\/2026/.test(head), head);
+  check('Days and Times come from the data (review #10: TuTh 10:00AM - 11:15AM), room, instructor, dates', /TuTh 10:00AM - 11:15AM/.test(head) && /Mihaylo Hall 2405/.test(head) && /Dr\. Dabirian/.test(head) && /08\/25\/2026 - 12\/18\/2026/.test(head), head);
   check('counts: Enrollment Status Enrolled, Capacity 35, Enrolled 25', /Enrollment StatusEnrolled/.test(head) && /Enrollment Capacity35/.test(head) && /Enrolled25/.test(head), head);
   check('the grid is titled Enrolled Students', /Enrolled Students/.test(await card.locator('.cr-grid-title').textContent()));
   const rows = card.locator('table.roster tbody tr');

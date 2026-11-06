@@ -41,6 +41,9 @@ test('the default budgets nest: each outer timeout is longer than the sum of wha
   assert.equal(T.professorClassInfoMs, 25000);
   assert.ok(T.professorClassInfoMs > T.chrsToolChoiceMs + T.chrsRecordsCallMs);
   assert.ok(T.hubAuthorProxyMs > T.professorClassInfoMs + T.professorPublishMs);
+  // Review #3: Submit on the HR card waits for HR, then reads the class record for the cancellation preview card; Send on
+  // that card reads it again and publishes (both inside the author proxy).
+  assert.ok(T.hubAuthorProxyMs > T.professorStaffMs + T.professorClassInfoMs);
   assert.ok(T.hubAuthorProxyMs > T.professorPublishMs);
   // Part 17 final review (finding 4): a chat post runs the Professor's staff-or-class check, its own model (naming the post
   // or reading an @assistant message) and then the publish — all inside the Hub's author proxy, which is inside the UI's wait.

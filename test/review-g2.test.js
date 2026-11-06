@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { deliveredText, deliveryCounts } from '../src/delivery-text.js';
-import { cancelNoteOf, cancellationOffer, cancellationText, classDetailsOf, CANCEL_NOTE_HINT } from '../src/professor-staff.js';
+import { cancelNoteOf, cancellationLead, cancellationText, classDetailsOf } from '../src/professor-staff.js';
 import { emailContentHash, signEmailNotice, signRosterLookup, verifyEmailNoticeSignature, signStaff } from '../src/hub-link.js';
 import { createRosterClient } from '../src/hub-roster.js';
 import { topologyLabel } from '../src/topology.js';
@@ -63,20 +63,20 @@ test('A4: never a bare "Sent" and never a system name', () => {
 });
 
 // ---- C12: time and room (unit) ---------------------------------------------------------------------------------------
-test('C12: the class record reads as "10:00–10:50 AM, Mihaylo Hall 2405"; placeholders and odd times are no detail', () => {
+test('C12: the class record reads as "10:00–11:15 AM, Mihaylo Hall 2405" (review #10: Tue & Thu); placeholders and odd times are no detail', () => {
   const klass = createStudentRecordsStore().roster({ courseId: 'mkt-351', instructorStaffId: 'staff-dabirian' }).roster.class;
   assert.equal(klass.room, 'Mihaylo Hall 2405');
-  assert.deepEqual(classDetailsOf(klass), { time: '10:00–10:50 AM', room: 'Mihaylo Hall 2405' });
+  assert.equal(klass.daysAndTimes, 'TuTh 10:00AM - 11:15AM');
+  assert.deepEqual(classDetailsOf(klass), { time: '10:00–11:15 AM', room: 'Mihaylo Hall 2405' });
   assert.deepEqual(classDetailsOf({ daysAndTimes: 'TuTh 11:30AM - 12:45PM', room: 'Steven G. Mihaylo Hall 1101' }), { time: '11:30 AM–12:45 PM', room: 'Steven G. Mihaylo Hall 1101' });
   for (const bad of [{ daysAndTimes: 'MoTuWeThFr 10:00AM - 10:50AM', room: 'Mihaylo Hall 1xxx' }, { daysAndTimes: 'TBA', room: 'Mihaylo Hall 2405' }, { daysAndTimes: 'MoWe 9:00AM - 9:50AM', room: '' }, null, {}]) assert.equal(classDetailsOf(bad), null, JSON.stringify(bad));
 });
 test('C12 + A5: the offer and the notice carry time and room; a note is its own paragraph; dates only, never a reason', () => {
-  const info = { time: '10:00–10:50 AM', room: 'Mihaylo Hall 2405' };
-  assert.equal(cancellationOffer(['2026-11-12', '2026-11-13'], info), `You have Marketing 351 (10:00–10:50 AM, Mihaylo Hall 2405) on Thu, Nov 12 and Fri, Nov 13. Would you like me to send a cancellation to your students? ${CANCEL_NOTE_HINT}`);
-  assert.equal(CANCEL_NOTE_HINT, 'To add a note for your students, such as a makeup plan, reply yes followed by the note.');
-  assert.equal(cancellationText(['2026-11-12', '2026-11-13'], info), 'Marketing 351 (10:00–10:50 AM, Mihaylo Hall 2405) is cancelled on Thu, Nov 12 and Fri, Nov 13.');
-  assert.equal(cancellationText(['2026-11-12'], info, "We'll make it up on Friday in the review session."), "Marketing 351 (10:00–10:50 AM, Mihaylo Hall 2405) is cancelled on Thu, Nov 12.\n\nFrom Dr. Dabirian: We'll make it up on Friday in the review session.");
-  assert.equal(cancellationOffer(['2026-11-12'], null), `You have Marketing 351 on Thu, Nov 12. Would you like me to send a cancellation to your students? ${CANCEL_NOTE_HINT}`, 'no class info: the course only, never a guess');
+  const info = { time: '10:00–11:15 AM', room: 'Mihaylo Hall 2405' };
+  assert.equal(cancellationLead(['2026-11-10', '2026-11-12'], info), "You have Marketing 351 (10:00–11:15 AM, Mihaylo Hall 2405) on Tue, Nov 10 and Thu, Nov 12. Here's the cancellation your students would get — check it before you send it.");
+  assert.equal(cancellationText(['2026-11-10', '2026-11-12'], info), 'Marketing 351 (10:00–11:15 AM, Mihaylo Hall 2405) is cancelled on Tue, Nov 10 and Thu, Nov 12.');
+  assert.equal(cancellationText(['2026-11-12'], info, "We'll make it up on Friday in the review session."), "Marketing 351 (10:00–11:15 AM, Mihaylo Hall 2405) is cancelled on Thu, Nov 12.\n\nFrom Dr. Dabirian: We'll make it up on Friday in the review session.");
+  assert.equal(cancellationLead(['2026-11-12'], null), "You have Marketing 351 on Thu, Nov 12. Here's the cancellation your students would get — check it before you send it.", 'no class info: the course only, never a guess');
   assert.equal(cancellationText([], info), null);
 });
 
@@ -395,11 +395,14 @@ test('C12: CHRS away — the offer names the course only; “yes” is refused l
   const card = (await state()).hrCard;
   await stopProcess(st.chrs);
   const surfaceId = card.a2ui.find((m) => m.createSurface).createSurface.surfaceId;
-  const action = { name: 'submitTimeOff', surfaceId, sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context: { note: '', absenceType: ['SCK'], absenceReason: ['SCK'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8' } };
+  const action = { name: 'submitTimeOff', surfaceId, sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context: { note: '', absenceType: ['SCK'], absenceReason: ['SCK'], beginDate: '2026-11-05', endDate: '2026-11-05', hours: '8' } };
   const done = await (await post(`${st.professor.url}/author/hr-action`, { operationId: `op-${randomUUID()}`, formRef: card.formRef, action })).json();
   assert.equal(done.status, 'accepted', JSON.stringify(done));
   const offer = (await state()).chat.filter((m) => m.role === 'assistant').at(-1).text;
-  assert.equal(offer, 'You have Marketing 351 on Fri, Nov 6. Would you like me to send a cancellation to your students? To add a note for your students, such as a makeup plan, reply yes followed by the note.', 'no guessed time or room');
+  assert.equal(offer, "You have Marketing 351 on Thu, Nov 5. Here's the cancellation your students would get — check it before you send it.", 'no guessed time or room');
+  const cc = (await state()).cancelCard;
+  assert.equal(cc.text, 'Marketing 351 is cancelled on Thu, Nov 5.', 'the preview names the course only');
+  assert.equal(cc.count, null, 'no class size read: the card says “your class roster”');
   const yes = await say('yes');
   assert.equal(yes.reply, "I couldn't get your class list just now, so nothing was sent. Try again in a moment.");
   assert.equal((await state()).lessons.length, 0, 'nothing sent without the class details');

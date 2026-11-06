@@ -369,19 +369,24 @@ test('CHRS down: the class cancellation uses the same sentence, and the offer ca
   assert.equal((await say(s, 'hr')).action, 'staff');
   const card = (await state(s)).hrCard;
   const surface = card.a2ui.find((m) => m.createSurface).createSurface.surfaceId;
-  const submit = await post(`${s.professor.url}/author/hr-action`, { operationId: `op-${randomUUID()}`, formRef: card.formRef, action: { name: 'submitTimeOff', surfaceId: surface, sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context: { note: '', absenceType: ['SCK'], absenceReason: ['SCK'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8' } } });
+  const submit = await post(`${s.professor.url}/author/hr-action`, { operationId: `op-${randomUUID()}`, formRef: card.formRef, action: { name: 'submitTimeOff', surfaceId: surface, sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context: { note: '', absenceType: ['SCK'], absenceReason: ['SCK'], beginDate: '2026-11-05', endDate: '2026-11-05', hours: '8' } } });
   assert.equal((await submit.json()).status, 'accepted');
   const yes = await say(s, 'yes');
   assert.equal(yes.reply, FAILED_POST, JSON.stringify(yes));
   assert.equal((await state(s)).lessons.reduce((n, l) => n + l.deliveries.length, 0), 0);
-  // The list comes back: the offer is waiting again, so a second yes sends the cancellation, once.
+  // The list comes back: the offer is waiting again. Review #3: the preview was made without the class time and room, so the
+  // next yes shows them first (nothing sent); the yes after that sends exactly the new preview, once.
   await bringBackChrs(s);
+  const shown = await say(s, 'yes');
+  assert.equal(shown.reply, 'I can read the class time and room now, so they are in the preview. Check it, then send it again.', JSON.stringify(shown));
+  assert.equal((await state(s)).cancelCard.text, 'Marketing 351 (10:00–11:15 AM, Mihaylo Hall 2405) is cancelled on Thu, Nov 5.');
+  assert.equal((await state(s)).lessons.filter((l) => l.title === 'Class cancelled' && l.deliveries.length === 25).length, 0);
   const again = await say(s, 'yes');
   assert.equal(again.action, 'post', JSON.stringify(again));
   let st = await state(s);
   const sent = st.lessons.filter((l) => l.title === 'Class cancelled' && l.deliveries.length === 25);
   assert.equal(sent.length, 1);
-  assert.equal(sent[0].text, 'Marketing 351 (10:00–10:50 AM, Mihaylo Hall 2405) is cancelled on Fri, Nov 6.');
+  assert.equal(sent[0].text, 'Marketing 351 (10:00–11:15 AM, Mihaylo Hall 2405) is cancelled on Thu, Nov 5.');
   const third = await say(s, 'yes'); // the offer is used up: no second cancellation
   assert.ok(third.http === 200 || third.http === 409);
   st = await state(s);
@@ -449,9 +454,9 @@ async function fileSickFriday(s) {
   assert.equal((await say(s, 'hr')).action, 'staff');
   const card = (await state(s)).hrCard;
   const surface = card.a2ui.find((m) => m.createSurface).createSurface.surfaceId;
-  const submit = await post(`${s.professor.url}/author/hr-action`, { operationId: `op-${randomUUID()}`, formRef: card.formRef, action: { name: 'submitTimeOff', surfaceId: surface, sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context: { note: '', absenceType: ['SCK'], absenceReason: ['SCK'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8' } } });
+  const submit = await post(`${s.professor.url}/author/hr-action`, { operationId: `op-${randomUUID()}`, formRef: card.formRef, action: { name: 'submitTimeOff', surfaceId: surface, sourceComponentId: 'submit_button', timestamp: new Date().toISOString(), context: { note: '', absenceType: ['SCK'], absenceReason: ['SCK'], beginDate: '2026-11-05', endDate: '2026-11-05', hours: '8' } } });
   assert.equal((await submit.json()).status, 'accepted');
-  assert.match(lastOf((await state(s)).chat, 'assistant').text, /Would you like me to send a cancellation/);
+  assert.match(lastOf((await state(s)).chat, 'assistant').text, /cancellation your students would get/);
 }
 
 test('final review 1: "notify everyone that …" gets the plain path’s privacy check — illness, family and funeral words are asked about', async () => {
@@ -493,7 +498,7 @@ test('final review 2: with a cancellation offer waiting, "notify everyone that �
   assert.equal(yes.action, 'post', JSON.stringify(yes));
   st = await state(main);
   assert.equal(st.lessons.filter((l) => l.title === 'Class cancelled').length, 1);
-  assert.equal(st.lessons.find((l) => l.title === 'Class cancelled').text, 'Marketing 351 (10:00–10:50 AM, Mihaylo Hall 2405) is cancelled on Fri, Nov 6.');
+  assert.equal(st.lessons.find((l) => l.title === 'Class cancelled').text, 'Marketing 351 (10:00–11:15 AM, Mihaylo Hall 2405) is cancelled on Thu, Nov 5.');
 });
 
 test('final review 2b: a held class post after a cancellation offer is answered first; the offer keeps waiting', async () => {

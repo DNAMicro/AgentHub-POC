@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const PERSON_FILES = ['public/classroom.js', 'public/quiz-ui.js', 'public/roster-ui.js', 'src/professor-quiz.js', 'src/professor-roster.js', 'src/professor-staff.js', 'src/professor-canvas.js', 'src/quiz-model.js'];
+const PERSON_FILES = ['public/classroom.js', 'public/quiz-ui.js', 'public/roster-ui.js', 'public/cancel-ui.js', 'src/cancel-text.js', 'src/professor-quiz.js', 'src/professor-roster.js', 'src/professor-staff.js', 'src/professor-canvas.js', 'src/quiz-model.js'];
 const EXPOSED = /\bAI\b|claude-|\bHaiku\b/;
 
 // String literals only (comments are code notes, not screen text).

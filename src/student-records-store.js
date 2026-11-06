@@ -1,16 +1,20 @@
 // PeopleSoft student records stand-in: the roster store behind the student-records MCP server. SYNTHETIC records
-// only (one fictional course, 25 fictional students) — not a real student information system. Dependency-free.
+// only (one fictional course, 25 fictional students) — not a real student information system. Dependency-free apart from
+// the course's own schedule module (also dependency-free).
 //
 // In memory only — nothing is written to disk. The roster is a fixed constant, so every start and every reset
 // gives the same 25 rows (IDs are fixed fictional 888 numbers, never random).
+import { MEETING, RECORD_DATES, TERM } from './course-schedule.js';
+
 export const COURSE_ID = 'mkt-351';
 export const INSTRUCTOR_STAFF_ID = 'staff-dabirian';
 export const REFUSAL_CODES = ['not_instructor', 'unknown_course'];
 
 const CLASS = Object.freeze({
-  courseId: COURSE_ID, term: 'Fall 2026', session: 'Regular Academic Session', institution: 'California State University, Fullerton', career: 'Undergraduate',
+  courseId: COURSE_ID, term: TERM.label, session: 'Regular Academic Session', institution: 'California State University, Fullerton', career: 'Undergraduate',
   code: 'MKTG 351 - 01', classNumber: '12351', title: 'Principles of Marketing (Lecture)',
-  daysAndTimes: 'MoTuWeThFr 10:00AM - 10:50AM', room: 'Mihaylo Hall 2405', instructor: 'Dr. Dabirian', dates: '08/24/2026 - 12/18/2026',
+  // Review #10: from the course's one meeting pattern (src/course-schedule.js): “TuTh 10:00AM - 11:15AM”, “08/25/2026 - 12/18/2026”.
+  daysAndTimes: `${MEETING.recordDays} ${MEETING.recordTime}`, room: MEETING.room, instructor: 'Dr. Dabirian', dates: RECORD_DATES,
   enrollmentStatus: 'Enrolled', capacity: 35, enrolled: 25,
 });
 

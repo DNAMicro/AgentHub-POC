@@ -4,6 +4,33 @@
 
 export const TERM = { label: 'Fall 2026', start: '2026-08-25', end: '2026-12-18' };
 
+// Review #10: the class meets Tuesdays and Thursdays, 10:00–11:15 AM, in Mihaylo Hall 2405, for the whole term. ONE source
+// of truth: the student records stand-in seeds the class record from it (“TuTh 10:00AM - 11:15AM”), the class-day rule for
+// cancellation offers counts only these days, and the Faculty view's header shows it (no lookup per poll).
+export const MEETING = Object.freeze({
+  weekdays: Object.freeze([2, 4]), // Tue, Thu (Date#getUTCDay)
+  daysLabel: 'Tue & Thu',
+  recordDays: 'TuTh',
+  start: '10:00', end: '11:15',
+  timeLabel: '10:00–11:15 AM',
+  recordTime: '10:00AM - 11:15AM',
+  room: 'Mihaylo Hall 2405',
+});
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const ymdParts = (ymd) => ymd.split('-').map(Number);
+const monthDay = (ymd) => { const [, m, d] = ymdParts(ymd); return `${MONTH_SHORT[m - 1]} ${d}`; };
+// “08/25/2026” — the records system's own date format.
+const recordDate = (ymd) => { const [y, m, d] = ymdParts(ymd); return `${String(m).padStart(2, '0')}/${String(d).padStart(2, '0')}/${y}`; };
+export const RECORD_DATES = `${recordDate(TERM.start)} - ${recordDate(TERM.end)}`;
+// A day the class meets (inside the term, on a meeting weekday). Campus holidays are the caller's to remove.
+export function meetsOn(ymd) {
+  if (typeof ymd !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(ymd) || ymd < TERM.start || ymd > TERM.end) return false;
+  const [y, m, d] = ymdParts(ymd);
+  return MEETING.weekdays.includes(new Date(Date.UTC(y, m - 1, d)).getUTCDay());
+}
+// The Faculty view's header line: “Fall 2026 · Aug 25 – Dec 18 · Tue & Thu, 10:00–11:15 AM · Mihaylo Hall 2405”.
+export const meetingLine = () => `${TERM.label} · ${monthDay(TERM.start)} – ${monthDay(TERM.end)} · ${MEETING.daysLabel}, ${MEETING.timeLabel} · ${MEETING.room}`;
+
 export const UNITS = [
   { unit: 1, from: 1, to: 7, exam: '2026-09-24' },
   { unit: 2, from: 8, to: 14, exam: '2026-10-22' },

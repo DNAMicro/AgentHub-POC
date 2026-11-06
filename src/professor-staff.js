@@ -4,9 +4,10 @@
 //   * unsure        → ask the fixed question; the next message answers it (HR / class / both).
 //   * class_message → null: the chat continues exactly as today (direct post).
 // Nothing is filed or posted on a guess. After HR files a request, the assistant checks the filed dates for
-// class days (the professor teaches every weekday: Mon–Fri minus campus holidays, part days included) and
-// offers a cancellation; only on “yes” do students get a code-built message (“Marketing 351 is cancelled on …”,
-// dates from HR's receipt, never a reason — privacy).
+// class days (review #10: the class meets Tue & Thu — src/course-schedule.js MEETING — minus campus holidays, part days
+// included) and shows a cancellation PREVIEW card (review #3: the exact text, the recipients, an optional note, Send /
+// Don't send); students get the code-built message (“Marketing 351 is cancelled on …”, dates from HR's receipt, never a
+// reason — privacy) only on Send or a typed “yes”.
 //
 // State here is memory only (owner rule): the open card (formRef, its A2UI messages, the hrCard summary),
 // the held message awaiting an answer, and the note awaiting “yes”. The chat itself (in the outbox) keeps
@@ -17,6 +18,8 @@ import { randomUUID } from 'node:crypto';
 import { CARD_CLOSED, STAFF_ACTION_MEDIA_TYPE, STAFF_REQUEST_MEDIA_TYPE, staffActionFields, staffRequestFields } from './staff.js';
 import { ABSENCE_TYPES, shortDate, titleOf, workdays } from './absence-types.js';
 import { COURSE } from './course-pack.js';
+import { meetsOn } from './course-schedule.js';
+import { NOTE_MAX, cancelNoteText, withCancelNote } from './cancel-text.js';
 import { classifyStaff } from './professor-model.js';
 import { asksBalance, asksRequests, mentionsDay, mentionsHours, mentionsIllness } from './hr-intent.js';
 const MENTION_DAYS = /\b(?:mon|tues?|wed(?:nes)?|thu(?:rs?)?|fri|sat(?:ur)?|sun)(?:day)?s?\b|\b(?:jan|feb|mar|apr|may|june?|july?|aug|sept?|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?\b|\b\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/gi;
@@ -51,7 +54,11 @@ const NOTHING_DONE = 'Okay, nothing was filed or posted.';
 let conversationId = randomUUID(); // one HR conversation per classroom (a reset starts a new one)
 let openCard = null; // { formRef, a2ui, hrCard, conversationId, at }
 let pendingChoice = null; // { text, entryId, at, reasked } — the held message awaiting HR / class / both
-let pendingNote = null; // { text, at, reasked, kind?, entryId? } — the class cancellation (kind 'cancel') or an offered class post (kind 'post') awaiting “yes”
+let pendingNote = null; // { text, at, reasked, kind?, entryId?, cardId? } — the class cancellation (kind 'cancel') or an offered class post (kind 'post') awaiting “yes”
+// Review #3: the cancellation preview card (memory only, closed by a reset). status: open | sending | sent | not_sent.
+// { id, status, days, info, count, at, result?, postKey?, problem? } — info = the class's time and room as previewed.
+let cancelCard = null;
+let staffGen = 0; // bumped by a reset, so a filing in flight doesn't open a card in the new classroom
 
 // The answer to the unsure question (words, read by code): “both” wins; then HR words; then class words.
 const BOTH = /\bboth\b/i;
@@ -145,17 +152,20 @@ function choicesIn(text) {
   if (refused && !picked.has('hr')) return null;
   return picked;
 }
-const fresh = (held) => held && Date.now() - held.at < HELD_FOR_MS;
+// A cancellation offer with a preview card waits as long as its card is open (the card is on his screen); everything else
+// is forgotten after 15 minutes.
+const fresh = (held) => Boolean(held) && (held.cardId ? cancelCard?.id === held.cardId && cancelCard.status === 'open' : Date.now() - held.at < HELD_FOR_MS);
 const cardOpen = () => {
   if (openCard && Date.now() - openCard.at > CARD_TTL_MS) openCard = null; // expired at the Hub too
   return openCard;
 };
 
-// The filed days the professor has class (he teaches every weekday): Mon–Fri minus campus holidays, part days included.
-export const classDays = ({ beginDate, endDate }) => workdays(beginDate, endDate);
+// The filed days the class meets (review #10: Tue & Thu inside the term, src/course-schedule.js MEETING) minus campus
+// holidays, part days included. A filing with no class day offers nothing.
+export const classDays = ({ beginDate, endDate }) => workdays(beginDate, endDate).filter(meetsOn);
 const listOf = (items) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`);
 // Review C12: the class's meeting time and room from the class record CHRS reads from Campus Solutions (daysAndTimes
-// "MoTuWeThFr 10:00AM - 10:50AM", room "Mihaylo Hall 2405") → { time: '10:00–10:50 AM', room } or null (never a guess:
+// "TuTh 10:00AM - 11:15AM", room "Mihaylo Hall 2405") → { time: '10:00–11:15 AM', room } or null (never a guess:
 // an unreadable time or a placeholder room is no detail at all).
 export function classDetailsOf(klass) {
   const m = /(\d{1,2}):(\d{2})\s*(AM|PM)\s*-\s*(\d{1,2}):(\d{2})\s*(AM|PM)/i.exec(String(klass?.daysAndTimes ?? ''));
@@ -170,15 +180,14 @@ const classLabel = (info) => (info ? `${COURSE.title} (${info.time}, ${info.room
 export function cancellationText(days, info = null, note = null) {
   if (!days.length) return null;
   const base = `${classLabel(info)} is cancelled on ${listOf(days.map(shortDate))}.`;
-  return note ? `${base}\n\nFrom ${COURSE.professorName}: ${note}` : base;
+  return withCancelNote(base, COURSE.professorName, note);
 }
-export const CANCEL_NOTE_HINT = 'To add a note for your students, such as a makeup plan, reply yes followed by the note.';
-export const cancellationOffer = (days, info = null) => `You have ${classLabel(info)} on ${listOf(days.map(shortDate))}. Would you like me to send a cancellation to your students? ${CANCEL_NOTE_HINT}`;
+// Review #3: the chat line above the preview card (no yes/no question: the card has the buttons).
+export const cancellationLead = (days, info = null) => `You have ${classLabel(info)} on ${listOf(days.map(shortDate))}. Here's the cancellation your students would get — check it before you send it.`;
 // Review A5: the note he adds after “yes”. His words, but they go to the students, so a note naming an illness, his leave
 // or a relative is never sent without asking (the Part 14 checks); 500 characters at most.
 export const NOTE_PRIVATE = 'Your note talks about you, and all your students would read it. Send the cancellation without the note? Reply yes, or write a new note about the class.';
 export const NOTE_TOO_LONG = 'Your note is too long — keep it under 500 characters. Reply yes followed by a shorter note, or just yes.';
-const NOTE_MAX = 500;
 const YES_START = /^\s*(?:yes|yeah|yep|sure|ok|okay)\b[\s,.!:;—–-]*/i;
 // Filler between the yes and the note: “notify them”, “send it”, “please”, “go ahead”, “and add / say / tell them”, “note:”.
 const NOTE_FILLER = /^(?:(?:please|pls)(?=[\s,]+(?:go\s+ahead|send|cancel|notify|inform|tell|let|and|also|add|say|note)\b)|go\s+ahead|send\s+(?:it|that|this|the\s+cancellation|them\s+the\s+cancellation)|cancel\s+(?:it|the\s+class|class)|(?:notify|inform|tell|let)\s+(?:them|students|the\s+students|my\s+students|all\s+(?:my\s+)?students|everyone|everybody|the\s+class|my\s+class)(?:\s+know)?|and|also|plus|add(?:\s+(?:this|that|a\s+note|the\s+note|this\s+note))?|say|(?:a\s+|the\s+)?note|with\s+(?:this|a|the)\s+note|that|saying)(?![\w’'])[\s,.!:;—–-]*/i;
@@ -227,6 +236,64 @@ export function rearmStaff(rearm) {
   if (rearm?.note && !pendingNote && !pendingChoice) pendingNote = { ...rearm.note, at: Date.now() };
   if (rearm?.choice && !pendingNote && !pendingChoice) pendingChoice = { ...rearm.choice, at: Date.now() };
 }
+// ---- Review #3: the cancellation preview card -----------------------------------------------------------------------
+// One card at a time. The card is what the professor reads before anything goes out: the exact code-built text, who gets
+// it (the class size from the fresh class record), an optional note, Send / Don't send. A typed “yes” (with or without a
+// note) or “no” in the chat does the same as the buttons. Nothing about a student is on the card.
+export const CARD_NOTE_PRIVATE = 'Your note talks about you, and all your students would read it. Change the note or remove it, then press Send again.';
+export const CARD_NOTE_TOO_LONG = `Your note is too long — keep it under ${NOTE_MAX} characters.`;
+export const CARD_CHANGED = 'The class time or room changed since this preview. Check the new preview, then send it again.';
+// The preview was made without the class time and room (they couldn't be read then); now they can be: shown first.
+export const CARD_DETAILS_ADDED = 'I can read the class time and room now, so they are in the preview. Check it, then send it again.';
+export const cancelCardOf = (id) => (cancelCard && cancelCard.id === id ? cancelCard : null);
+// What /author/state carries (pushed to every page): dates, the text without a note, the count — never a student, never a
+// note he hasn't sent (a refused note never leaves the request that carried it).
+export function cancelCardView() {
+  if (!cancelCard) return null;
+  const c = cancelCard;
+  return {
+    id: c.id, status: c.status, days: [...c.days], text: cancellationText(c.days, c.info), count: c.count, professorName: COURSE.professorName, noteMax: NOTE_MAX,
+    ...(c.result ? { result: c.result } : {}), ...(c.postKey ? { postKey: c.postKey } : {}), ...(c.problem ? { problem: c.problem } : {}),
+  };
+}
+// His note from the card, checked here (authoritative; the page only previews it): → { note } (null = no note) or
+// { code, text } refused — the Part 14 / review A5 rules: a note about himself, an illness, his leave or a relative is
+// never sent; 500 characters at most.
+export function checkCardNote(raw) {
+  const note = cancelNoteText(raw);
+  if (!note) return { note: null };
+  if (note.length > NOTE_MAX) return { code: 'note_too_long', text: CARD_NOTE_TOO_LONG };
+  if (noteNeedsAsking(note)) return { code: 'note_private', text: CARD_NOTE_PRIVATE };
+  return { note };
+}
+// Take an open card for sending (Send or a typed yes): the offer leaves the chat desk while it is sent.
+export function beginCancelSend(id) {
+  const c = cancelCardOf(id);
+  if (!c || c.status !== 'open') return null;
+  c.status = 'sending';
+  c.problem = null;
+  if (pendingNote?.cardId === id) pendingNote = null;
+  return { days: [...c.days], info: c.info };
+}
+// The send came back: sent (the delivery line, the post), or the card is open again with the problem (a later Send or
+// “yes” works). info: the class details read at Send when they differ from the preview (the card shows the new text).
+export function endCancelSend(id, { sent = false, result = null, postKey = null, problem = null, info } = {}) {
+  const c = cancelCardOf(id);
+  if (!c) return; // reset meanwhile
+  if (sent) { Object.assign(c, { status: 'sent', result, postKey, problem: null }); return; }
+  Object.assign(c, { status: 'open', problem, ...(info !== undefined ? { info } : {}) });
+  if (!pendingNote && !pendingChoice) pendingNote = { text: cancellationText(c.days), at: Date.now(), kind: 'cancel', days: [...c.days], cardId: c.id };
+}
+// Don't send (or a typed no): the card closes, “Not sent.”
+export function declineCancelCard(id) {
+  const c = cancelCardOf(id);
+  if (!c || c.status !== 'open') return false;
+  c.status = 'not_sent';
+  c.problem = null;
+  if (pendingNote?.cardId === id) pendingNote = null;
+  return true;
+}
+
 // A question (HR / class / both) or a note offer is waiting for its answer; a plain reply must reach staffTurn so it
 // is read as that answer. A cancellation offer alone does not block the roster desk.
 export const staffHolding = () => ({ question: fresh(pendingChoice), offer: fresh(pendingNote) ? pendingNote.kind ?? 'post' : null, noteAsked: Boolean(fresh(pendingNote) && pendingNote.noteAsked) });
@@ -288,6 +355,8 @@ export const isThanks = (text) => ACK.test(String(text ?? ''));
 export const answersCancelOffer = (text) => fresh(pendingNote) && pendingNote.kind === 'cancel' && (ANSWER_START.test(String(text ?? '')) || CANCEL_WORD.test(String(text ?? '')));
 
 export function resetStaff() {
+  staffGen += 1;
+  cancelCard = null;
   conversationId = randomUUID();
   openCard = null;
   pendingChoice = null;
@@ -375,6 +444,8 @@ export async function staffTurn({ operationId, text, entryId, hubLink, bypass = 
     const sayN = (reply, extra) => say(fresh ? `${reply} ${NOT_SENT}` : reply, extra);
     const cancel = note.kind === 'cancel';
     const declined = cancel ? CANCEL_DECLINED : NOTE_DECLINED;
+    // A no (or a second unclear reply) closes the preview card too: “Not sent.”
+    const decline = () => { if (cancel && note.cardId) declineCancelCard(note.cardId); return sayN(declined, { check: 'note_declined' }); };
     // Review A5: “yes” followed by a note for the students (3+ words once filler is removed) sends the cancellation with
     // it, as its own paragraph. A plain yes (“yes”, “yes notify students”, “yes please send it”) is a plain yes, at once.
     // After “Your note says something about you …” any new note (with or without a yes) is read the same way.
@@ -393,29 +464,29 @@ export async function staffTurn({ operationId, text, entryId, hubLink, bypass = 
           pendingNote = { ...note, at: Date.now(), noteAsked: true };
           return say(NOTE_PRIVATE, { check: 'note_private' });
         }
-        return { note: note.text, days: note.days ?? null, studentNote, rearm: { note } };
+        return { note: note.text, days: note.days ?? null, studentNote, rearm: { note }, cardId: note.cardId ?? null };
       }
-      if (note.noteAsked && plainYes) return { note: note.text, days: note.days ?? null, rearm: { note: { ...note, noteAsked: false } } };
+      if (note.noteAsked && plainYes) return { note: note.text, days: note.days ?? null, rearm: { note: { ...note, noteAsked: false } }, cardId: note.cardId ?? null };
     }
     // “cancel” is the offer's own word (“yes, cancel it”): not a refusal here.
     const refusal = cancel ? String(text).replace(CANCEL_WORDS, ' ') : text;
-    if (NEGATION.test(refusal)) return sayN(declined, { check: 'note_declined' });
+    if (NEGATION.test(refusal)) return decline();
     // A reply that names HR is never a yes to posting (“yes, to HR”, “Please send it to HR”).
-    if (HR_NAMED.test(text)) return sayN(declined, { check: 'note_declined' });
+    if (HR_NAMED.test(text)) return decline();
     // A yes counts only when it is nothing but yes words (“yes”, “ok, post it”, “yes please, go ahead”). With new
     // content, the first sentence decides (“Yes please. Also I need Monday off” is a yes); a yes with other words in
     // the same sentence (“yes but change Tuesday to Wednesday”, “Yes, and I also need Tuesday off”) is asked again.
     const decides = fresh ? text.split(/[.!?]/)[0] : text;
     const pureYes = YES.test(decides) && decides.toLowerCase().replace(/[^\w’'\s]/g, ' ').split(/\s+/).filter(Boolean).every((w) => YES_FILLER.test(w) || (cancel && CANCEL_FILLER.test(w)));
     const reaskNote = () => {
-      if (note.reasked) return sayN(declined, { check: 'note_declined' });
+      if (note.reasked) return decline();
       pendingNote = { ...note, reasked: true };
       return sayN(cancel ? CANCEL_REASK : NOTE_REASK, { check: 'note_reask' });
     };
     if (YES.test(text) && !pureYes) return reaskNote();
     // A long class message offered while a message was held (“Should I post this to the class: …?”) goes out as
     // the professor's own message (today's path); the neutral HR note goes out as the note.
-    if (pureYes) return told(note.kind === 'post' ? { continueWith: note.text, entryId: note.entryId, rearm: { note } } : { note: note.text, days: note.days ?? null, rearm: { note } });
+    if (pureYes) return told(note.kind === 'post' ? { continueWith: note.text, entryId: note.entryId, rearm: { note } } : { note: note.text, days: note.days ?? null, rearm: { note }, cardId: note.cardId ?? null });
     // Not a clear yes or no: ask once more; a second unclear reply declines. Never posted either way. A reply with
     // new content is an answer attempt too (never dropped silently).
     if (SHORT(text) || fresh) return reaskNote();
@@ -534,8 +605,9 @@ async function sendToHr({ operationId, text, hubLink, emit, decidedBy, model = n
 // The professor pressed a button on the open card. Returns { http, body, entries, definite }.
 // definite = HR's answer is known (store it for a repeat); an unknown outcome is retried with the SAME
 // operationId (the Hub and HR both dedupe), so it is not stored.
-// classInfo (review C12): reads the class's time and room fresh from CHRS for the cancellation offer → { time, room } or
-// null (the offer then names the course only; the cancellation itself is re-read when he says yes and is refused without it).
+// classInfo (review C12): reads the class record fresh from CHRS for the cancellation preview → the record (time, room and,
+// review #3, the class size for “To: your 25 students”) or null (the preview then names the course only and “your class
+// roster”; the cancellation itself is re-read at Send and is refused without the details).
 export async function staffAction({ operationId, formRef, action, hubLink, emit = () => {}, classInfo = async () => null }) {
   if (!cardOpen() || openCard.formRef !== formRef) return { http: 409, body: { error: 'That card isn’t open any more.' } };
   const card = openCard;
@@ -554,15 +626,23 @@ export async function staffAction({ operationId, formRef, action, hubLink, emit 
       // the answer the professor picked once the card is gone.
       const { requestId, absenceType, absenceReason, beginDate, endDate, hours } = reply.receipt;
       entries.push({ role: 'hr', text: receiptText(reply.receipt), formRef, closed: true, record: { requestId, absenceType, absenceReason, beginDate, endDate, hours } });
-      // Class on any filed day (every weekday, part days too): offer a cancellation; students get it only on “yes”.
-      // A cancellation offer still waiting (an earlier filing) is joined, so no class day is dropped.
-      const waiting = current && pendingNote?.kind === 'cancel' && fresh(pendingNote) ? pendingNote.days ?? [] : [];
+      // Class on any filed day (Tue / Thu, part days too): a cancellation preview card; students get it only on Send or
+      // “yes”. A preview card still open (an earlier filing) gets the new days, so no class day is dropped.
+      const open = current && cancelCard?.status === 'open' ? cancelCard : null;
+      const waiting = open ? open.days : current && pendingNote?.kind === 'cancel' && fresh(pendingNote) ? pendingNote.days ?? [] : [];
       const days = [...new Set([...waiting, ...classDays(reply.receipt)])].sort();
       if (days.length && current) {
-        pendingNote = { text: cancellationText(days), at: Date.now(), kind: 'cancel', days };
-        let info = null;
-        try { info = await classInfo(); } catch { info = null; }
-        entries.push({ role: 'assistant', text: cancellationOffer(days, info), action: 'clarify' });
+        const gen = staffGen;
+        let record = null;
+        try { record = await classInfo(); } catch { record = null; }
+        if (gen === staffGen) {
+          const info = classDetailsOf(record);
+          const count = Number.isInteger(record?.enrolled) && record.enrolled > 0 ? record.enrolled : null;
+          const card = open && cancelCard === open && open.status === 'open' ? open : { id: `cc-${randomUUID()}` };
+          cancelCard = Object.assign(card, { status: 'open', days, info, count, at: Date.now(), problem: null });
+          pendingNote = { text: cancellationText(days), at: Date.now(), kind: 'cancel', days, cardId: card.id };
+          entries.push({ role: 'assistant', text: cancellationLead(days, info), action: 'clarify', cancelCard: { id: card.id } });
+        }
       }
     } else {
       entries.push({ role: 'hr', text: reply.text, formRef, closed: true, cancelled: true }); // the closed card says it; the screen skips this entry

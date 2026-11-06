@@ -49,6 +49,7 @@ const SHARED_FORM_MODULE = fileURLToPath(new URL('./forms.js', import.meta.url))
 const SHARED_ABSENCE_MODULE = fileURLToPath(new URL('./absence-types.js', import.meta.url));
 const SHARED_SCHEDULE_MODULE = fileURLToPath(new URL('./course-schedule.js', import.meta.url));
 const SHARED_QUIZ_MODULE = fileURLToPath(new URL('./quiz-rules.js', import.meta.url));
+const SHARED_CANCEL_MODULE = fileURLToPath(new URL('./cancel-text.js', import.meta.url));
 const ACTION_KEYS = ['name', 'surfaceId', 'sourceComponentId', 'timestamp', 'context'];
 const CONTEXT_ID_PATTERN = /^[\w-]{8,100}$/;
 const SESSION_EVENTS = new Set(['peoplesoft_session', 'canvas_session', 'studentdb_session']); // an MCP system's session state
@@ -262,6 +263,7 @@ export async function startUiServer({ port = 4444 } = {}) {
   app.get('/shared/absence-types.js', (req, res) => res.type('text/javascript').sendFile(SHARED_ABSENCE_MODULE));
   app.get('/shared/course-schedule.js', (req, res) => res.type('text/javascript').sendFile(SHARED_SCHEDULE_MODULE));
   app.get('/shared/quiz-rules.js', (req, res) => res.type('text/javascript').sendFile(SHARED_QUIZ_MODULE));
+  app.get('/shared/cancel-text.js', (req, res) => res.type('text/javascript').sendFile(SHARED_CANCEL_MODULE));
   // Each tab has its own address; the page picks the tab from the path. Only these three exist.
   app.get(['/conversation', '/activity', '/topology', '/faculty', '/professor'], (req, res) => res.sendFile('index.html', { root: PUBLIC_DIR }));
   app.use(express.static(PUBLIC_DIR));
@@ -751,6 +753,24 @@ export async function startUiServer({ port = 4444 } = {}) {
       res.status(502).json({ error: `${hub.name} is not reachable, so nothing was sent. Press the button again — it won’t post twice.` });
     }
     professorAgUi.refresh(); // the Faculty view's state (chat + quiz card) changed
+  });
+  // Review #3: Send / Don't send on the class cancellation preview card. Strict keys here too; the Faculty agent checks the
+  // note (privacy, length) and is authoritative.
+  apiPost.post('/professor/cancel/actions', async (req, res) => {
+    const body = req.body ?? {};
+    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((k) => !['cardId', 'operationId', 'action', 'note'].includes(k))) return res.status(400).json({ errors: { _form: 'Unexpected request fields.' } });
+    const { operationId, cardId, action, note } = body;
+    if (typeof operationId !== 'string' || !/^[\w-]{8,100}$/.test(operationId)) return res.status(400).json({ errors: { _form: 'Missing or malformed operation ID.' } });
+    if (typeof cardId !== 'string' || !/^cc-[\w-]{6,80}$/.test(cardId)) return res.status(400).json({ errors: { _form: 'Missing or malformed card ID.' } });
+    if (!['send', 'decline'].includes(action)) return res.status(400).json({ errors: { _form: 'Unknown card action.' } });
+    if (note !== undefined && (action !== 'send' || typeof note !== 'string' || note.length > 2000)) return res.status(400).json({ errors: { _form: 'Only Send carries a note (2000 characters at most).' } });
+    try {
+      const r = await professorCall('/cancel-action', body);
+      res.status(r.status).json(r.json);
+    } catch {
+      res.status(502).json({ error: `${hub.name} is not reachable, so nothing was sent. Press the button again — it won’t send twice.` });
+    }
+    professorAgUi.refresh(); // the Faculty view's state (chat + cancellation card) changed
   });
   // Part 17: the class roster rows for the Faculty view (never in the state, the streams or the telemetry).
   app.get('/api/professor/roster', async (req, res) => {

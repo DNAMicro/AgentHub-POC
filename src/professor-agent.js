@@ -25,7 +25,7 @@ import { datesIn } from './a2ui-catalog.js';
 import { slotsIn } from './meeting-times.js';
 import { createJsonStore } from './json-store.js';
 import { AUDIENCE, ID, LESSON_PUBLISH_MEDIA_TYPE, LESSON_STATUS_MEDIA_TYPE, contentHash, validQuizNotice, validateLesson } from './lessons.js';
-import { answersCancelOffer, cancellationText, checkClassPost, classDetailsOf, isThanks, privateLeaveWords, rearmStaff, tellGoesToCard, resetStaff, staffAction, staffConversation, staffHolding, staffTurn, staffView } from './professor-staff.js';
+import { answersCancelOffer, beginCancelSend, CANCEL_DECLINED, cancelCardOf, cancelCardView, cancellationText, CARD_CHANGED, CARD_DETAILS_ADDED, checkCardNote, checkClassPost, classDetailsOf, declineCancelCard, endCancelSend, isThanks, privateLeaveWords, rearmStaff, tellGoesToCard, resetStaff, staffAction, staffConversation, staffHolding, staffTurn, staffView } from './professor-staff.js';
 import { cardValues, ROSTER_POST_FAILED_TEXT, ROSTER_UNAVAILABLE_CODE } from './staff.js';
 import { ROSTER_GONE, ROSTER_QUESTION_TEXT, TELL_DROPPED, asksAboutRoster, asksRoster, asksRosterExport, asksRosterQuestion, createRosterDesk, dropsTell, notInClassText, notifyEveryone, notifyIsNew, resolveTags, rosterFact, rosterFilter, tagFor, tellText, whichStudentText } from './professor-roster.js';
 import { createCanvasLink } from './professor-canvas.js';
@@ -463,7 +463,7 @@ async function professorChat({ operationId, text, replyTo: replyToIn = null, ans
     const target = staff?.continueWith ? staff.entryId : ownId;
     let result;
     let viaAssistant = toAssistant;
-    if (staff?.note) result = await postNote({ operationId, text: staff.note, days: staff.days, studentNote: staff.studentNote ?? null });
+    if (staff?.note) result = await postNote({ operationId, text: staff.note, days: staff.days, studentNote: staff.studentNote ?? null, cardId: staff.cardId ?? null });
     else if (staff && !staff.continueWith) result = staff;
     else {
       // The assistant asked "when can Alex come?": the professor's next untagged message with times answers it.
@@ -575,22 +575,89 @@ async function quizAction(body) {
 // the whole class as a message. Review C12: the class's time and room are read FRESH from CHRS right now and put in the
 // sentence; without them nothing is sent (the same refusal as an unavailable class list: no guessed details, and the
 // offer waits again). Review A5: his note, if he added one, as its own paragraph.
-async function postNote({ operationId, text, days = null, studentNote = null }) {
+// Review #3: with a preview card (cardId), the card's own days are sent, and only as previewed — if the class's time or
+// room read now differs from the preview, nothing is sent and the card shows the new text (press Send again). The card
+// follows the outcome: sent (its delivery line), or open again with the problem. Its chat lines carry `cancelCardId`
+// (the page shows them on the card while the card is in memory, as chat lines after a restart).
+async function postNote({ operationId, text, days = null, studentNote = null, cardId = null }) {
   let body = text;
-  if (Array.isArray(days) && days.length) {
+  const taken = cardId ? beginCancelSend(cardId) : null;
+  const send = taken?.days ?? days;
+  const fail = (problem, extra = {}) => {
+    if (taken) endCancelSend(cardId, { problem, ...extra });
+    return { action: 'error', reply: problem, post: null, entries: [{ role: 'assistant', text: problem, action: 'error' }] };
+  };
+  if (Array.isArray(send) && send.length) {
     const info = classDetailsOf(await rosterDesk.classRecord({ operationId: `${operationId}-class` }).catch(() => null));
-    if (!info) return { action: 'error', reply: ROSTER_POST_FAILED_TEXT, post: null, entries: [{ role: 'assistant', text: ROSTER_POST_FAILED_TEXT, action: 'error' }] };
-    body = cancellationText(days, info, studentNote);
+    if (!info) return fail(ROSTER_POST_FAILED_TEXT);
+    if (taken && (taken.info?.time !== info.time || taken.info?.room !== info.room)) return { ...fail(taken.info ? CARD_CHANGED : CARD_DETAILS_ADDED, { info }), code: 'changed' };
+    body = cancellationText(send, info, studentNote);
   }
   const r = await createPost({ operationId, kind: 'message', title: 'Class cancelled', text: body, audience: 'all', source: 'chat', verbatim: false });
-  if (!r.body.lesson || r.body.ack?.status === 'rejected') {
-    const problem = notSentText(r);
-    return { action: 'error', reply: problem, post: null, entries: [{ role: 'assistant', text: problem, action: 'error' }] };
-  }
+  if (!r.body.lesson || r.body.ack?.status === 'rejected') return fail(notSentText(r));
   const post = { key: lessonKey(r.body.lesson.lessonId, r.body.lesson.revision) };
   // Review A4: the real counts (the post card under it shows the cancellation itself).
   const said = deliveredText(r.body.ack?.deliveries ?? [], { audience: 'all' }) ?? NOT_CONFIRMED_TEXT;
-  return { action: 'post', kind: 'message', reply: said, post, entries: [{ role: 'assistant', text: said, action: 'post', postKey: post.key }] };
+  if (taken) endCancelSend(cardId, { sent: true, result: said, postKey: post.key });
+  return { action: 'post', kind: 'message', reply: said, post, entries: [{ role: 'assistant', text: said, action: 'post', postKey: post.key, ...(taken ? { cancelCardId: cardId } : {}) }] };
+}
+
+// Review #3: Send / Don't send on the cancellation preview card (Faculty view → UI server → Hub proxy → here). Strict keys;
+// one at a time with the chat; a double click (the same card while it is being sent, or the same operation again) sends once.
+// Definite outcomes are kept by operationId in memory (like the quiz desk); a refused note is not (he edits it and retries).
+const CANCEL_CARD_ID = /^cc-[\w-]{6,80}$/;
+const cancelOps = new Map();
+let cancelInFlight = null; // { cardId, promise }
+const CARD_GONE = 'This preview is closed, so nothing was sent from it.';
+async function cancelAction(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((k) => !['cardId', 'operationId', 'action', 'note'].includes(k))) return { http: 400, body: { error: 'Unexpected request fields.' } };
+  const { cardId, operationId, action, note } = body;
+  if (typeof operationId !== 'string' || !ID.test(operationId)) return { http: 400, body: { error: 'Missing or malformed operation id.' } };
+  if (typeof cardId !== 'string' || !CANCEL_CARD_ID.test(cardId)) return { http: 400, body: { error: 'Missing or malformed card id.' } };
+  if (!['send', 'decline'].includes(action)) return { http: 400, body: { error: 'Unknown card action.' } };
+  if (note !== undefined && (action !== 'send' || typeof note !== 'string' || note.length > 2000)) return { http: 400, body: { error: 'Only Send carries a note (2000 characters at most).' } };
+  const done = cancelOps.get(operationId);
+  if (done) return { http: done.http, body: { ...done.body, duplicate: true } };
+  if (cancelInFlight?.cardId === cardId) { const r = await cancelInFlight.promise; return { http: r.http, body: { ...r.body, duplicate: true } }; }
+  const card = cancelCardOf(cardId);
+  if (!card) return { http: 409, body: { ok: false, closed: true, text: CARD_GONE } };
+  if (card.status === 'sent') return { http: 409, body: { ok: false, closed: true, status: 'sent', text: card.result } };
+  if (card.status === 'not_sent') return { http: 409, body: { ok: false, closed: true, status: 'not_sent', text: 'Not sent.' } };
+  if (chatBusy) return { http: 409, body: { ok: false, busy: true, text: 'Still working on your previous message. Press the button again in a moment.' } };
+  const promise = runCancelAction({ cardId, operationId, action, note });
+  cancelInFlight = { cardId, promise };
+  try { return await promise; } finally { cancelInFlight = null; }
+}
+async function runCancelAction({ cardId, operationId, action, note }) {
+  chatBusy = true;
+  try {
+    const generation = resetGeneration;
+    const keep = (r, entries = []) => {
+      if (entries.length && generation === resetGeneration) {
+        outbox.update((s) => {
+          const at = new Date().toISOString();
+          entries.forEach((e, i) => { const id = `${operationId}:c${i}`; s.chat = s.chat.filter((m) => m.id !== id); s.chat.push({ id, at, staff: false, cancelCardId: cardId, ...e }); });
+          s.chat = s.chat.slice(-200);
+        });
+      }
+      if (r.definite) cancelOps.set(operationId, { http: r.http, body: r.body });
+      emitViz('professor_chat', null, { action: `cancel_${action}`, status: r.body.status ?? r.body.code ?? null, viaAssistant: false });
+      return { http: r.http, body: r.body };
+    };
+    if (action === 'decline') {
+      if (!declineCancelCard(cardId)) return keep({ http: 409, body: { ok: false, closed: true, text: CARD_GONE } });
+      return keep({ http: 200, definite: true, body: { ok: true, status: 'not_sent', text: 'Not sent.' } }, [{ role: 'assistant', text: CANCEL_DECLINED, action: 'clarify' }]);
+    }
+    const checked = checkCardNote(note);
+    if (checked.code) return keep({ http: 422, body: { ok: false, code: checked.code, text: checked.text } });
+    const r = await postNote({ operationId, text: '', studentNote: checked.note, cardId });
+    if (r.action === 'post') return keep({ http: 200, definite: true, body: { ok: true, status: 'sent', text: r.reply } }, r.entries);
+    if (r.code === 'changed') return keep({ http: 409, body: { ok: false, code: 'changed', text: r.reply } });
+    // The class list or the class details weren't available (or the Hub refused): nothing went out; the card is open again.
+    return keep({ http: 503, body: { ok: false, retryable: true, text: r.reply } });
+  } finally {
+    chatBusy = false;
+  }
 }
 // The Hub hasn't confirmed the deliveries yet (it didn't answer in time): no count to claim.
 const NOT_CONFIRMED_TEXT = "Your cancellation is on its way, but delivery isn't confirmed yet. I'll keep trying.";
@@ -607,7 +674,7 @@ async function hrAction({ operationId, formRef, action }) {
   chatBusy = true;
   try {
     const generation = resetGeneration;
-    const r = await staffAction({ operationId, formRef, action, hubLink, emit: (type, data) => emitViz(type, `staff-${operationId}`, data), classInfo: async () => classDetailsOf(await rosterDesk.classRecord({ operationId: `${operationId}-class` })) }); // the Hub's run for this action
+    const r = await staffAction({ operationId, formRef, action, hubLink, emit: (type, data) => emitViz(type, `staff-${operationId}`, data), classInfo: () => rosterDesk.classRecord({ operationId: `${operationId}-class` }) }); // the Hub's run for this action
     if (r.entries && generation === resetGeneration) {
       outbox.update((s) => {
         const now = new Date().toISOString();
@@ -840,7 +907,7 @@ function authorRouter() {
     const course = hub?.courses?.find((c) => c.courseId === COURSE.courseId) ?? null;
     rosterDesk.noteCourse(course);
     const counts = rosterDesk.counts();
-    res.json({ course: COURSE, roster: course || counts ? { ...(course ?? {}), count: counts?.count ?? null, online: counts?.online ?? null } : null, rosterCard: rosterDesk.state(), hubReachable: Boolean(hub), seeds: SEED_LESSONS, lessons: postsView(hub), chat: outbox.get().chat, hrCard: staffView(), quizCard: quizDesk.card(), quizAsking: quizDesk.pending() });
+    res.json({ course: COURSE, roster: course || counts ? { ...(course ?? {}), count: counts?.count ?? null, online: counts?.online ?? null } : null, rosterCard: rosterDesk.state(), hubReachable: Boolean(hub), seeds: SEED_LESSONS, lessons: postsView(hub), chat: outbox.get().chat, hrCard: staffView(), cancelCard: cancelCardView(), quizCard: quizDesk.card(), quizAsking: quizDesk.pending() });
   });
   // The full class roster (names, IDs, emails, program) for the Faculty view only — like the quiz draft, never in the state,
   // the streams or the telemetry. Gone after a restart: the chat line stays, the rows don't.
@@ -878,7 +945,8 @@ function authorRouter() {
     resetGeneration += 1;
     recent.clear();
     rosterDesk.reset(); // the class roster card is forgotten with the classroom
-    resetStaff(); // HR: the open card, a held question or note offer; a new HR conversation
+    resetStaff(); // HR: the open card, a held question or note offer, the cancellation preview card; a new HR conversation
+    cancelOps.clear();
     emitViz('lessons_reset', null, {});
     // Canvas forgets its quizzes too (best effort, bounded): a failure here never blocks the classroom reset.
     let canvas = 'not_configured';
@@ -905,6 +973,11 @@ function authorRouter() {
   // non-GET /author route).
   router.post('/author/hr-action', async (req, res) => {
     const r = await hrAction(req.body ?? {});
+    res.status(r.http).json(r.body);
+  });
+  // Review #3: Send / Don't send on the class cancellation preview card.
+  router.post('/author/cancel-action', async (req, res) => {
+    const r = await cancelAction(req.body ?? {});
     res.status(r.http).json(r.body);
   });
   // Canvas quiz card (Part 16): Approve / Publish / Keep / Discard / Draft one more.

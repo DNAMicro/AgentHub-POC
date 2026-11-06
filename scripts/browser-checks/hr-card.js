@@ -133,9 +133,14 @@ async (page) => {
   const recordText = ((await record.textContent()) ?? '').replace(/\s+/g, ' ');
   check('submit: the card becomes a record of what was filed', /You submitted\s*Sick Leave\s*Family Care/.test(recordText) && new RegExp(`${DAY} to ${DAY} · 16 hours`).test(recordText), recordText);
   check('submit: no stale dropdown wording left in the chat', !/pick from the dropdown below/.test(await page.locator('#prof-log').textContent()));
-  // He teaches every weekday: the assistant offers to cancel those classes (sent only on yes — see the end).
-  const offer = ((await page.locator('#prof-log .msg[data-speaker="professor"]').last().textContent()) ?? '').replace(/\s+/g, ' ');
-  check('submit: the assistant offers a class cancellation for the filed days', new RegExp(`You have Marketing 351 \\(10:00–10:50 AM, Mihaylo Hall 2405\\) on ${DAY} and ${DAY}\\. Would you like me to send a cancellation to your students\\? To add a note for your students, such as a makeup plan, reply yes followed by the note\\.`).test(offer), offer);
+  // Review #10: the class meets Tue & Thu, so of the two filed days only the Thursday has class. Review #3: the assistant
+  // shows a cancellation PREVIEW card (sent only with Send — see the end), not a yes/no question.
+  const offer = ((await page.locator('#prof-log .msg[data-speaker="professor"]:not(.cancel-card)').last().textContent()) ?? '').replace(/\s+/g, ' ');
+  check('submit: the assistant introduces a cancellation preview for the class day', new RegExp(`You have Marketing 351 \\(10:00–11:15 AM, Mihaylo Hall 2405\\) on Thu, [A-Z][a-z]{2} \\d{1,2}\\. Here's the cancellation your students would get — check it before you send it\\.`).test(offer), offer);
+  const preview = page.locator('#prof-log .cancel-card[data-status="open"]');
+  check('submit: the preview card shows the exact text and the 25 recipients', await preview.count() === 1
+    && /^Marketing 351 \(10:00–11:15 AM, Mihaylo Hall 2405\) is cancelled on Thu, [A-Z][a-z]{2} \d{1,2}\.$/.test((await preview.locator('.cc-preview').textContent()) ?? '')
+    && (await preview.locator('.cc-to').textContent()) === 'To: your 25 students (class roster)', await preview.textContent().catch(() => null));
   await receipt.scrollIntoViewIfNeeded();
   await page.locator('#prof-log').screenshot({ path: `${SHOTS}/hr-6-submit-receipt.png` });
 
@@ -220,20 +225,20 @@ async (page) => {
   check('bereavement picked: lead says sorry', (await text('.hr-lead')) === "I'm sorry for your loss. Check it and submit.", await text('.hr-lead'));
   check('bereavement picked: reason asked (amber)', await reasonPicker.evaluate((p) => p.classList.contains('dd-missing')) && (await allChips(reasonPicker)).length === 10, await allChips(reasonPicker));
   const dates = card.locator('input[type="date"]');
-  await dates.nth(0).fill('2026-11-12');
-  await dates.nth(1).fill('2026-11-13');
+  await dates.nth(0).fill('2026-12-03'); // far from “this Thursday” (filed above) on any day this check runs in the term: no overlap
+  await dates.nth(1).fill('2026-12-04');
   await card.locator('input[type="number"]').fill('16');
   await page.waitForTimeout(300);
-  check('card edits: slip follows the dates', (await text('.hr-slip .hr-when')) === 'Thu, Nov 12 to Fri, Nov 13, 2 days', await text('.hr-slip .hr-when'));
+  check('card edits: slip follows the dates', (await text('.hr-slip .hr-when')) === 'Thu, Dec 3 to Fri, Dec 4, 2 days', await text('.hr-slip .hr-when'));
   await shot('hr-10-picked-on-card.png');
   await say('It was my uncle');
   check('follow-up: name picked on the card kept', (await text('.hr-slip .hr-what')) === 'Bereavement', await text('.hr-slip .hr-what'));
   check('follow-up: reason read from the chat', (await text('.hr-slip .hr-why')) === 'Aunt/Uncle', await text('.hr-slip .hr-why'));
-  check('follow-up: dates edited on the card kept', /^Thu, Nov 12 to Fri, Nov 13/.test(await text('.hr-slip .hr-when')), await text('.hr-slip .hr-when'));
+  check('follow-up: dates edited on the card kept', /^Thu, Dec 3 to Fri, Dec 4/.test(await text('.hr-slip .hr-when')), await text('.hr-slip .hr-when'));
   await shot('hr-11-followup-kept-edits.png');
   await press('Submit request');
   const receipt2 = (await page.locator('#prof-log .msg.hr-receipt').last().locator('.msg-text').textContent())?.trim();
-  check('follow-up: submit files the edited dates', /Bereavement \(Aunt\/Uncle\), Thu, Nov 12 to Fri, Nov 13, 16 hours\.$/.test(receipt2), receipt2);
+  check('follow-up: submit files the edited dates', /Bereavement \(Aunt\/Uncle\), Thu, Dec 3 to Fri, Dec 4, 16 hours\.$/.test(receipt2), receipt2);
   // Topology: the staff run in the event list and as a trace (Professor → Hub → HR and back).
   check('topology: hub→hr pulse seen live', topoShots.length > 0, topoShots);
   const forwarded = await topo.locator('#topo-events li', { hasText: 'Forwarded to HR Agent' }).count();
@@ -245,18 +250,23 @@ async (page) => {
   await topo.screenshot({ path: `${SHOTS}/hr-13-topology-staff-trace.png` });
   await topo.close();
 
-  // The cancellation offer was never answered, so each filing added its class days (Nov 5–6, then Nov 12–13):
-  // “yes” sends them all, with dates only, to the students.
-  await say('yes');
-  const sent = ((await page.locator('#prof-log').textContent()) ?? '').replace(/\s+/g, ' ');
-  check('cancellation: “yes” sends it to the students and the chat states the real counts (review A4)', /25 students notified\./.test(sent) && /Marketing 351 \(10:00–10:50 AM, Mihaylo Hall 2405\) is cancelled on Thu, Nov 5, Fri, Nov 6, Thu, Nov 12 and Fri, Nov 13\./.test(sent), sent.slice(-300));
+  // The preview card was never answered, so each filing added its class days (this Thursday, then Thu, Dec 3 — the
+  // Fridays have no class): Send sends them all, with dates only, to the students, and the card shows the counts.
+  const SENT_TEXT = /Marketing 351 \(10:00–11:15 AM, Mihaylo Hall 2405\) is cancelled on Thu, [A-Z][a-z]{2} \d{1,2} and Thu, Dec 3\./;
+  const openCard = page.locator('#prof-log .cancel-card[data-status="open"]');
+  check('cancellation: one preview card holds both filings’ class days', await openCard.count() === 1 && SENT_TEXT.test((await openCard.locator('.cc-preview').textContent()) ?? ''), await openCard.locator('.cc-preview').textContent().catch(() => null));
+  await openCard.getByRole('button', { name: 'Send to students' }).click();
+  await page.waitForSelector('#prof-log .cancel-card[data-status="sent"]');
+  await page.waitForTimeout(1200);
+  const sent = ((await page.locator('#prof-log .cancel-card').textContent()) ?? '').replace(/\s+/g, ' ');
+  check('cancellation: Send sends it to the students and the card states the real counts (review A4)', /25 students notified\./.test(sent) && SENT_TEXT.test(sent), sent.slice(-300));
   // Part 17: the cancellation goes to all 25 students, so its card is a summary with the rows folded away.
-  const cancelPost = page.locator('#prof-log .sent-post, #prof-log .post-card').last();
+  const cancelPost = page.locator('#prof-log .cancel-card').last();
   const cancelSum = await cancelPost.locator('.dsum .pill').allTextContents();
   check('cancellation: delivery summary "25 notified", fold of 25', cancelSum.join(' | ') === '25 notified' && await cancelPost.locator('details.dlist li').count() === 25, cancelSum);
   await page.locator('#prof-log').screenshot({ path: `${SHOTS}/hr-14-cancellation-sent.png` });
   await page.goto(`${origin}/conversation`);
-  const studentSaw = await page.waitForFunction(() => /Marketing 351 \(10:00–10:50 AM, Mihaylo Hall 2405\) is cancelled on Thu, Nov 5, Fri, Nov 6, Thu, Nov 12 and Fri, Nov 13\./.test(document.body.textContent), null, { timeout: 15000 }).then(() => true).catch(() => false);
+  const studentSaw = await page.waitForFunction(() => /Marketing 351 \(10:00–11:15 AM, Mihaylo Hall 2405\) is cancelled on Thu, [A-Z][a-z]{2} \d{1,2} and Thu, Dec 3\./.test(document.body.textContent), null, { timeout: 15000 }).then(() => true).catch(() => false);
   const studentText = (await page.locator('#view-conversation').textContent()) ?? ''; // the student's own view (the page also holds the hidden Faculty view)
   check('cancellation: the student sees it, with no reason', studentSaw && !/uncle|bereave|funeral|sick|grandmother/i.test(studentText));
   await page.screenshot({ path: `${SHOTS}/hr-15-student-sees-cancellation.png` });

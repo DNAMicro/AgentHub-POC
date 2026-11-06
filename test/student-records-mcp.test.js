@@ -31,7 +31,7 @@ test('returns the class and 25 rows, with Alex and Sam, and a step count', async
   assert.notEqual(r.isError, true, JSON.stringify(r));
   const { roster, stepCount } = r.structuredContent;
   assert.equal(roster.class.code, 'MKTG 351 - 01');
-  assert.equal(roster.class.daysAndTimes, 'MoTuWeThFr 10:00AM - 10:50AM');
+  assert.equal(roster.class.daysAndTimes, 'TuTh 10:00AM - 11:15AM');
   assert.equal(roster.rows.length, 25);
   assert.equal(roster.rows.find((x) => x.studentId === 'student-alex').name, 'Student,Alex');
   assert.equal(roster.rows.find((x) => x.studentId === 'student-sam').name, 'Student,Sam');

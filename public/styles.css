@@ -1102,7 +1102,7 @@ details.dlist .per-student { margin-top: 8px; }
 .cancel-card .cc-actions { display: flex; align-items: center; gap: 14px; margin-top: 14px; flex-wrap: wrap; }
 .cancel-card .cc-actions button:disabled { opacity: .6; cursor: default; }
 .cancel-card .cc-result { margin: 12px 0 0; font-weight: 700; }
-.cancel-card .cc-deliveries:empty { display: none; }
+.cancel-card .cc-deliveries:empty, .cancel-card [hidden] { display: none; }
 .cancel-card .cc-deliveries { margin-top: 6px; }
 /* The Faculty header's second line: when the class meets (from the shared schedule) */
 .prof-chat .panel-head .course-meeting { grid-column: 1 / -1; grid-row: 2; color: var(--text); font-size: .8rem; }

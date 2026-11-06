@@ -848,6 +848,8 @@ export function startHubServer({ port } = {}) {
       // Canvas quiz card (Part 16): Approve / Publish / Keep / Discard / Draft one more, and the full draft (with the
       // answer key) for the Faculty view only. The proxy carries no authority of its own.
       dev.post('/dev/agents/:agentId/author/quiz-action', author('/quiz-action', 'POST'));
+      // Review #3: Send / Don't send on the class cancellation preview card (no authority of its own either).
+      dev.post('/dev/agents/:agentId/author/cancel-action', author('/cancel-action', 'POST'));
       // Part 17: the class roster card's rows (kept in the Faculty agent's memory), for the Faculty view only.
       dev.get('/dev/agents/:agentId/author/roster', author('/roster', 'GET'));
       dev.get('/dev/agents/:agentId/author/roster/names', author('/roster/names', 'GET')); // delivery names for the Faculty view only

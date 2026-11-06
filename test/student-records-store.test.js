@@ -10,7 +10,7 @@ test('header values are exact', () => {
   assert.deepEqual(r.roster.class, {
     courseId: 'mkt-351', term: 'Fall 2026', session: 'Regular Academic Session', institution: 'California State University, Fullerton', career: 'Undergraduate',
     code: 'MKTG 351 - 01', classNumber: '12351', title: 'Principles of Marketing (Lecture)',
-    daysAndTimes: 'MoTuWeThFr 10:00AM - 10:50AM', room: 'Mihaylo Hall 2405', instructor: 'Dr. Dabirian', dates: '08/24/2026 - 12/18/2026',
+    daysAndTimes: 'TuTh 10:00AM - 11:15AM', room: 'Mihaylo Hall 2405', instructor: 'Dr. Dabirian', dates: '08/25/2026 - 12/18/2026',
     enrollmentStatus: 'Enrolled', capacity: 35, enrolled: 25,
   });
 });
@@ -47,7 +47,21 @@ test('IDs are fixed constants: two stores agree, and the source has no randomnes
   const a = createStudentRecordsStore().roster({ courseId: 'mkt-351', instructorStaffId: 'staff-dabirian' });
   const b = createStudentRecordsStore().roster({ courseId: 'mkt-351', instructorStaffId: 'staff-dabirian' });
   assert.deepEqual(a, b);
-  assert.doesNotMatch(readFileSync(new URL('../src/student-records-store.js', import.meta.url), 'utf8'), /Math\.random|randomUUID|randomBytes|^import /m);
+  const src = readFileSync(new URL('../src/student-records-store.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(src, /Math\.random|randomUUID|randomBytes/);
+  // Review #10: its only import is the course's own schedule (dependency-free too) — the one source of the meeting pattern.
+  assert.deepEqual(src.match(/^import .*$/gm), ["import { MEETING, RECORD_DATES, TERM } from './course-schedule.js';"]);
+});
+
+test('review #10: the class record is seeded from the shared meeting pattern (Tue & Thu, 10:00–11:15 AM, Aug 25 – Dec 18)', async () => {
+  const { MEETING, TERM, RECORD_DATES } = await import('../src/course-schedule.js');
+  const klass = createStudentRecordsStore().roster({ courseId: 'mkt-351', instructorStaffId: 'staff-dabirian' }).roster.class;
+  assert.equal(klass.daysAndTimes, `${MEETING.recordDays} ${MEETING.recordTime}`);
+  assert.equal(klass.daysAndTimes, 'TuTh 10:00AM - 11:15AM');
+  assert.equal(klass.dates, RECORD_DATES);
+  assert.equal(klass.dates, '08/25/2026 - 12/18/2026');
+  assert.equal(klass.room, MEETING.room);
+  assert.equal(klass.term, TERM.label);
 });
 
 test('refusals: unknown course, not the instructor', () => {

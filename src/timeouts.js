@@ -30,6 +30,6 @@ export const TIMEOUTS = Object.freeze({
   professorRosterQueryMs: 10000, // Faculty's model reading a roster question into a query (PROFESSOR_ROSTER_QUERY_TIMEOUT_MS); runs after the roster lookup (professorStaffMs): 65 + 10 s < the Hub's author proxy
   professorModelMs: 45000, // Professor's own model naming a post (classifyPost) or reading an @assistant message (interpretProfessor) (PROFESSOR_MODEL_TIMEOUT_MS)
   professorStaffMs: 65000, // Professor → Hub staff request or action, > both Hub waits above
-  hubAuthorProxyMs: 110000, // Hub dev proxy → Professor /author/*, > the classifier + the Professor's staff wait, and > a chat post: staff classifier + post model + publish (10 + 45 + 50 = 105 s), and > a cancellation: class info + publish (25 + 50 = 75 s)
+  hubAuthorProxyMs: 110000, // Hub dev proxy → Professor /author/*, > the classifier + the Professor's staff wait, and > a chat post: staff classifier + post model + publish (10 + 45 + 50 = 105 s), and > a cancellation's Send: class info + publish (25 + 50 = 75 s), and > an HR Submit that opens the cancellation preview card: staff wait + class info (65 + 25 = 90 s)
   uiProfessorCallMs: 115000, // UI server → Hub dev proxy, > the proxy's wait
 });
