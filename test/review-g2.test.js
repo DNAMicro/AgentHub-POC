@@ -144,6 +144,7 @@ test('C16: the email client refuses honestly — nobody to email, CHRS not ready
 test('labels: the email fallback on the Hub–CHRS edge (counts only), Canvas course size, the C15 comparison', () => {
   const hub = (type, data) => topologyLabel({ source: 'hub', type, data });
   assert.deepEqual([hub('email_fallback_started', { recipients: 24 }).edge, hub('email_fallback_started', { recipients: 24 }).label], ['hub-chrs', "Hub asked CHRS Agent to email 24 students who aren't online"]);
+  assert.equal(hub('email_fallback_started', { recipients: 1 }).label, "Hub asked CHRS Agent to email 1 student who isn't online");
   const sent = hub('email_fallback_sent', { emailedCount: 24, emailFailedCount: 0 });
   assert.deepEqual([sent.from, sent.to, sent.phase, sent.label], ['chrs', 'hub', 'completed', 'CHRS Agent emailed 24 students']);
   assert.equal(hub('email_fallback_sent', { emailedCount: 1, emailFailedCount: 2 }).label, "CHRS Agent emailed 1 student (2 couldn't be emailed)");

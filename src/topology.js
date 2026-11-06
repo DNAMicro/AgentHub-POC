@@ -96,7 +96,7 @@ const HUB = {
   roster_lookup_failed: (d) => (['not_configured', 'chrs_not_ready', 'not_signed'].includes(d.code) ? inside('hub', 'request', 'failed', `Roster lookup not sent (${d.code})`)
     : hop('chrs', 'hub', 'request', d.code === 'uncertain' ? 'unknown' : 'failed', `Roster lookup failed (${d.code})`)),
   // Review C16: the students a post couldn't reach in the app are emailed by CHRS (counts only, never who or an address).
-  email_fallback_started: (d) => hop('hub', 'chrs', 'request', 'attempted', `Hub asked CHRS Agent to email ${d.recipients} ${d.recipients === 1 ? 'student' : 'students'} who aren't online`),
+  email_fallback_started: (d) => hop('hub', 'chrs', 'request', 'attempted', `Hub asked CHRS Agent to email ${d.recipients} ${d.recipients === 1 ? "student who isn't" : "students who aren't"} online`),
   email_fallback_sent: (d) => hop('chrs', 'hub', 'request', d.emailFailedCount ? (d.emailedCount ? 'completed' : 'failed') : 'completed', `CHRS Agent emailed ${d.emailedCount} ${d.emailedCount === 1 ? 'student' : 'students'}${d.emailFailedCount ? ` (${d.emailFailedCount} couldn't be emailed)` : ''}`),
   email_fallback_failed: (d) => (['not_configured', 'chrs_not_ready', 'not_signed'].includes(d.code) ? inside('hub', 'request', 'failed', `Email fallback not sent (${d.code})`)
     : hop('chrs', 'hub', 'request', d.code === 'uncertain' ? 'unknown' : 'failed', `Email fallback failed (${d.code})`)),
