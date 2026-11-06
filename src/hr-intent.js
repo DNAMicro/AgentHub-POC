@@ -397,11 +397,19 @@ export function mentionedDays(text, now = new Date()) {
   const s = withoutReturnDay(text);
   const days = new Set();
   if (TODAY_WORDS.test(s)) days.add(todayIn(now));
+  let last = null; // the day the previous bare weekday named
   for (const m of s.matchAll(MENTION)) {
     // A weekday right before a date names that date (“Tuesday Nov 17”): one day, not two.
     if (m.groups.weekday && WEEKDAY_THEN_DATE.test(s.slice(m.index + m[0].length))) continue;
-    const d = readDates(m[0], now);
+    let d = readDates(m[0], now);
+    // A bare weekday later in the same message follows the day named before it, as in a list: said on a Friday,
+    // “leaving at noon on Thursday and I'll be out Friday” is next Thu + next Fri, never today + next Thu.
+    if (d && last && m.groups.weekday && !m.groups.prefix && d.beginDate < last) {
+      const x = weekdayDate(todayIn(now), dow(d.beginDate), null, addDays(last, 1));
+      d = { beginDate: x, endDate: x };
+    }
     if (d) for (let x = d.beginDate; x <= d.endDate; x = addDays(x, 1)) days.add(x);
+    last = d && m.groups.weekday ? d.endDate : null;
   }
   return days;
 }
@@ -448,12 +456,15 @@ function startDayOnly(text, now, dates) {
   if (timed.length !== 1) return null;
   const cueClause = timed[0];
   if (new RegExp(`\\b(?:half[- ]?day|${HALF_DAY})\\b`, 'i').test(cueClause.text)) return null; // "half day Thursday and Friday off": which days? ambiguous
-  const cueDays = [...mentionedDays(cueClause.text, now)];
+  // Each clause's days are read in the context of the words before it, so a later weekday follows an earlier one
+  // (said on a Friday: "leaving at noon on Thursday, out Friday" = next Thu + next Fri).
+  const daysOf = (c) => { const before = mentionedDays(s.slice(0, c.start), now); return new Set([...mentionedDays(s.slice(0, c.end), now)].filter((d) => !before.has(d))); };
+  const cueDays = [...daysOf(cueClause)];
   if (cueDays.length !== 1) return null;
   const named = new Set(cueDays);
   for (const c of clauses) {
     if (c === cueClause) continue;
-    const days = mentionedDays(c.text, now);
+    const days = daysOf(c);
     if (!days.size) continue;
     if (!awayClause(c.text)) return null;
     for (const d of days) named.add(d);

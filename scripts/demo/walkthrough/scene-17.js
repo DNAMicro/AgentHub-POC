@@ -1,22 +1,22 @@
-// Step 17 · CHRS roster — Dr. Dabirian asks to see his class roster (one look-only card of 25), then tells everyone about a
-// change. The Hub asks CHRS for the class list and makes one delivery per student; Alex gets it in the Conversation.
-// Topology (right window) shows Hub -> CHRS and CHRS -> its student records.
+// Step 17 · Campus Agent roster — Dr. Dabirian asks to see his class roster (one look-only card of 25), then tells everyone about a
+// change. The Hub asks the Campus Agent for the class list and makes one delivery per student; Alex gets it in the Conversation.
+// Topology (right window) shows Hub -> the Campus Agent and the Campus Agent -> its student records.
 scenes.push({
   n: 17,
-  title: 'CHRS class roster',
+  title: 'Campus Agent class roster',
   async run() {
     const log = left.locator('#prof-log');
     const card = log.locator('.roster-card');
 
-    // (a) The roster request: recognised in code, answered by CHRS from the student records.
+    // (a) The roster request: recognised in code, answered by the Campus Agent from the student records.
     let shown = false;
-    await moment('Dr. Dabirian asks to see his class roster; CHRS answers from the student records', async () => {
+    await moment('Dr. Dabirian asks to see his class roster; the Campus Agent answers from the student records', async () => {
       await tab('professor');
       await typeInto(left.locator('#prof-message'), 'show me my class roster');
       await press('Enter');
       shown = await seen(card.locator('table.roster tbody tr'), 90000);
       if (shown) await moveTo(card.last());
-      else problems.push('Step 17 · no roster card appeared (CHRS may be down, or the reply was in words)');
+      else problems.push('Step 17 · no roster card appeared (the Campus Agent may be down, or the reply was in words)');
     });
     if (!shown) return;
 
@@ -27,14 +27,14 @@ scenes.push({
       else await moveTo(card.last().locator('.cr-grid-title'));
     });
 
-    // (c) Notify everyone: the class list comes from CHRS, one delivery per student.
+    // (c) Notify everyone: the class list comes from the Campus Agent, one delivery per student.
     let sent = false;
-    await moment('He says “notify everyone …”; the Hub asks CHRS who is in the class (watch the right window)', async () => {
+    await moment('He says “notify everyone …”; the Hub asks the Campus Agent who is in the class (watch the right window)', async () => {
       await typeInto(left.locator('#prof-message'), 'notify everyone that the midterm review session moves to Thursday');
       await press('Enter');
       sent = await seen(log.locator('.sent-post .dsum'), 90000);
       if (sent) await moveTo(log.locator('.sent-post .dsum').last());
-      else problems.push('Step 17 · the notice did not go out within 90 seconds (CHRS may be down; the chat says why)');
+      else problems.push('Step 17 · the notice did not go out within 90 seconds (the Campus Agent may be down; the chat says why)');
     });
     if (!sent) return;
 
