@@ -109,9 +109,9 @@ export const PROFESSOR_DEFAULT_SKILLS = {
     // Questions about the course itself (late homework, an assignment, one of my messages) are the
     // professor's too. Advertised so the Hub's router has a real skill to name for them.
     id: 'course-questions', kind: 'answer', enabled: true, name: 'Questions about the course',
-    description: 'Marketing 351: questions about the course itself — homework, assignments, late work, and the lessons and messages I posted. Answered only from what I posted; I never invent deadlines, grades or policies.',
-    tags: ['homework', 'assignment', 'late work', 'course', 'class'], examples: ['Can I hand in my marketing homework late?'],
+    description: 'Marketing 351: questions about the course and the class itself — when and where it meets, cancellations, quizzes, exams, office hours, the syllabus, grades, classmates, homework, assignments, late work, and the lessons and messages Dr. Dabirian posted. Never invents deadlines, grades or policies.',
+    tags: ['homework', 'assignment', 'course', 'class', 'classmates', 'syllabus', 'office hours', 'midterm', 'exam', 'cancelled'], // ≤ 10 (SKILL_LIMITS) examples: ['Can I hand in my marketing homework late?', 'When does Marketing 351 meet?', 'Who else is in my class?'],
     scope: { allowed: ['Questions about Marketing 351 itself'], excluded: ['real course deadlines, grades or policies not stated in my posts'] },
-    knowledge: 'For questions about the course itself I answer from the lessons and messages I posted to you. Deadlines, grades, late-work rules and other course policies are not in my course material; unless one of my messages states them, I say plainly that I don\'t have that information instead of guessing.',
+    knowledge: 'Questions about the course itself are answered from the class facts and from the lessons and messages Dr. Dabirian posted to this student. Deadlines, grades, late-work rules and other course policies that neither states are not known: say so plainly instead of guessing.',
   }),
 };

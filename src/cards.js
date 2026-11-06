@@ -49,7 +49,7 @@ export function validateCard(card, peer) {
   const skills = [];
   for (const s of card.skills) {
     if (!SKILL_ID.test(s?.id ?? '') || !str(s.name, 80) || !str(s.description, 500)) return { ok: false, error: `Malformed skill in card: ${JSON.stringify(s).slice(0, 80)}` };
-    const tags = (Array.isArray(s.tags) ? s.tags : []).filter((t) => str(t, 30)).slice(0, 10);
+    const tags = (Array.isArray(s.tags) ? s.tags : []).filter((t) => str(t, 30)).slice(0, 24); // review F: the course card names its class words too
     const examples = (Array.isArray(s.examples) ? s.examples : []).filter((t) => str(t, 200)).slice(0, 6);
     const lim = (v) => (Array.isArray(v) ? v.filter((t) => str(t, 160)).slice(0, 12) : []);
     skills.push({ id: s.id, name: s.name, description: s.description, tags, examples, allowed: lim(scope[s.id]?.allowed), excluded: lim(scope[s.id]?.excluded) });

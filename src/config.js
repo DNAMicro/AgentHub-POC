@@ -148,9 +148,9 @@ export function loadHubConfig() {
       },
       // Part 9: the Marketing 351 course (a fictional class) — questions go to its professor.
       marketing: {
-        worker: 'professor', name: 'Marketing 351', description: 'Marketing 351 (a fictional introductory course): marketing concepts, course lessons, worked examples, checking your understanding, and questions about the course itself (homework, assignments, the faculty member’s messages). Taught by Dr. Dabirian: questions for or about Dr. Dabirian go here.',
-        tags: ['marketing', 'marketing 351', 'mktg 351', 'segmentation', 'targeting', 'positioning', 'branding', 'pricing', 'promotion', 'customer value', 'lesson', 'dr. dabirian', 'dabirian'],
-        examples: ['What is the difference between segmentation and targeting?', 'Can you explain the lesson about customer value?', 'Can you ask Dr. Dabirian about the homework?'],
+        worker: 'professor', name: 'Marketing 351', description: 'Marketing 351 (a fictional introductory course): marketing concepts, course lessons, worked examples, checking your understanding, and questions about the course itself (homework, assignments, the faculty member’s messages) and about the class (when and where it meets, cancellations, quizzes, exams, office hours, the syllabus, grades, and classmates or other students in the class). Taught by Dr. Dabirian: questions for or about Dr. Dabirian go here.',
+        tags: ['marketing', 'marketing 351', 'mktg 351', 'segmentation', 'targeting', 'positioning', 'branding', 'pricing', 'promotion', 'customer value', 'lesson', 'dr. dabirian', 'dabirian', 'marketing class', 'my class', 'classmate', 'classmates', 'syllabus', 'office hours', 'midterm', 'final exam'],
+        examples: ['What is the difference between segmentation and targeting?', 'Can you explain the lesson about customer value?', 'Can you ask Dr. Dabirian about the homework?', 'When does my marketing class meet?', 'Who else is in my class?'],
       },
       // HR (staff only): audience 'staff' keeps it off the Hub card, out of the student router and out of
       // requestedCapability. Only the signed staff path (src/staff.js) reaches it.

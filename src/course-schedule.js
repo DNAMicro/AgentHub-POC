@@ -271,3 +271,16 @@ export function coveredText(now, { nextOnly = false } = {}) {
   return `${head}\n\n${list}${next ? `\n\nNext up: Topic ${next.n}, ${next.name}, on ${dayLabel(next.taught)}.` : ''}`;
 }
 
+
+// ---- Review F (owner, 2026-11-06: “all the student scenarios should have been answered instead of asking the professor”):
+// the class facts a student asks about, so the course assistant ANSWERS them. Fictional demo data, like the rest of this file.
+export const OFFICE_HOURS = Object.freeze({ daysLabel: 'Tue & Thu', timeLabel: '11:30 AM–12:30 PM', room: 'Mihaylo Hall 5310', byAppointment: true });
+export const FINAL_EXAM = Object.freeze({ date: '2026-12-17', timeLabel: '10:00 AM–12:00 PM', room: 'Mihaylo Hall 2405' });
+// Adds to 100 (checked by test/student-course.test.js).
+export const GRADING = Object.freeze([
+  Object.freeze({ part: 'Unit exams (2 × 20%)', percent: 40 }),
+  Object.freeze({ part: 'Final exam', percent: 25 }),
+  Object.freeze({ part: 'Quizzes', percent: 20 }),
+  Object.freeze({ part: 'Participation', percent: 15 }),
+]);
+export const COURSE_DESCRIPTION = 'Marketing 351 is an introduction to how organizations create, communicate and deliver value to customers. It covers strategy and the marketing environment, how consumers and businesses buy, segmentation and targeting, research, products and services, distribution and retailing, promotion and personal selling, social media, pricing and how marketing results are measured.';

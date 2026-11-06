@@ -38,6 +38,7 @@ export const ROUTER_SYSTEM = `You route a student's latest message to at most on
 - unsupported: the topic lies outside every listed subject (for example physics, home repair) — briefly say no connected service covers it.
 Judge by intent: finding a book about a subject is a library request; explaining a subject is tutoring, even if a book is mentioned.
 A question about a course a service teaches — its homework, assignments, deadlines, lessons or announcements ("can I hand in my marketing homework late?") — goes to that course's service, even though it isn't a subject topic and even if words like return, late or due appear; those words mean library only for library items.
+A question about a course's CLASS — when or where it meets, whether it is cancelled, its quizzes, exams, office hours, syllabus or grades, or about classmates and other students in it ("who else is in my class?", "is Sam in my class?", "what's Sam Student's email?") — goes to that course's service, never to the library or tutoring, and needs no clarifying question when only one service teaches a course (that service answers what it may share).
 The student's OWN borrowed items — when one is due, renewing or keeping it, why it can't be renewed, what they borrowed — are library requests whatever the book's subject (a chemistry lab manual, a calculus textbook): the subject is just the book's title, not a request to be taught it.
 Use recent turns only to understand follow-ups like "another example"; a clearly new topic is judged on its own.
 When the latest turn's reply asked the student something or invited a reply ("Which day?", "If you tell me which book you meant, I can explain…"), the student's next message usually answers it. If it is a short answer, or names one of the items, options or topics that reply listed — a book title or loan from a loan list, a day, a room, even misspelled or shortened ("claculus" after a loan list that includes a Calculus book) — route it to the service that replied, with the skill it used. Judge it as a new topic only when it clearly asks for something else.
@@ -111,6 +112,8 @@ const LIBRARY_ACTIONS = /\b(renew\w*|borrow\w*|return\w*|check ?out|opening hour
 const TUTOR_ACTIONS = /\b(explain\w*|differentiat\w*|integrat\w*|solve|compute|calculate|teach)\b/i;
 const LEADS_LIBRARY = /^\s*(where (can|do) i (find|get|borrow)|find\b|locate\b|when is|is the library|how (do|can) i (renew|borrow|return))/i;
 const LEADS_TUTOR = /^\s*(explain|what is|what are|how do i (differentiate|integrate|compute|solve|find the (derivative|integral|limit))|differentiate|integrate|solve|compute)/i;
+const LIBRARY_TASK = /^\s*(?:where\s+(?:can|do)\s+i\s+(?:find|get|borrow)|find\b|locate\b)|\bbooks?\b|\blibrary\b/i;
+const CLASS_WORDS = /\b(?:my|our|the|this)\s+(?:\w+\s+)?class\b|\bclass-?mates?\b|\bsyllabus\b|\boffice\s+hours\b|\bmidterms?\b|\bfinal\s+exam\b/i;
 const FOLLOW_UP = /\b(another|again|more|same|that one|previous|last one)\b/i;
 
 // Labelled heuristic for the instructor rule: asking for or naming a service's instructor identifies it.
@@ -155,6 +158,11 @@ function mockDecide(asked, recentTurns, services) {
   const route = (s, reason) => ({ decision: 'route', agent_id: s.service.agentId, skill_id: s.best.skill.id, reason, clarification_question: '' });
 
   if (scored.length > 1) {
+    // Labelled heuristic (review F): a question about a course's class — it names the course or “my class”, classmates, the
+    // syllabus, office hours or an exam — goes to the one scored service that teaches a course, unless it leads like a library task.
+    const course = scored.filter((s) => s.service.instructor);
+    const namesCourse = course.length === 1 && (CLASS_WORDS.test(question) || (course[0].service.publicName && question.toLowerCase().includes(course[0].service.publicName.toLowerCase())));
+    if (namesCourse && !LIBRARY_ACTIONS.test(question) && !LIBRARY_TASK.test(question)) return route(course[0], `A question about the ${course[0].service.publicName || course[0].service.name} class.`);
     if (LIBRARY_ACTIONS.test(question) && TUTOR_ACTIONS.test(question)) {
       return { decision: 'clarify', agent_id: '', skill_id: '', reason: 'The message asks for two different services.', clarification_question: 'That’s two requests — a library task and a tutoring question. Which should I handle first?' };
     }

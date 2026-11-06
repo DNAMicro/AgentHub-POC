@@ -21,6 +21,7 @@
 // "I don't know" and the like (checked in code, before any model call).
 import { PEOPLE_RULE, briefReply, callModel, keyConfigured, loadDotenvOnce, modelName, toLlmError } from './llm.js';
 import { askedLine, asksStudent, near, tokenize, withoutAsked } from './router.js';
+import { asksAboutClassmates } from './student-course.js';
 
 export { asksStudent };
 
@@ -66,6 +67,7 @@ const PLAN_SCHEMA = (ids, allowClarify, withRelation = false) => ({
 export const SYSTEM = `You are the student's own assistant (the Student agent). Before a message goes to the university, you pick which ONE of the university's public capabilities it needs. You are only asked when keyword matching couldn't tell.
 - send + capability id: one capability fits the student's intent. Judge by intent: explaining or practising a subject is tutoring even if a book is mentioned; finding, borrowing, renewing or returning books, library hours and study rooms are library.
 - A message about a course the list names (its homework, assignments, deadlines, lessons or announcements — "my marketing homework", "for marketing class") belongs to that course's capability. Words such as return, late, due or book used about coursework ("return my homework late") are not library requests: library means library items, hours and rooms. Naming the course settles it — don't ask.
+- A question about the class of a course the list names — when or where it meets, a cancellation, a quiz, an exam, office hours, the syllabus, grades, the instructor, or classmates and other students in it ("who else is in my class?", "is Mariana in my class?", "what's Sam Student's email?") — belongs to that course's capability: send it there, never to the library or tutoring, and don't ask which service. Never decline it.
 - decline: you are CONFIDENT the request is outside every listed capability (for example home plumbing, car repair, cooking). The student gets your reason directly and nothing is sent. Only when certain.
 - send + "none": you are not sure — it might be something the university handles that you can't map to a capability. The university decides.
 - clarify (only if allowed): the message is too vague to tell which capability, or really asks for two capabilities at once (not merely uses a word another capability also uses). Ask ONE short, friendly question that lets the student choose.
@@ -147,6 +149,13 @@ async function planCore({ question, capabilities, recentTurns = [], followsQuest
   if (clarifiedAlready && UNSURE.test(clarificationAnswer)) return send(null, 'uncertain', 'Your answer didn’t settle it, so the university decides.');
   const matched = matchCapabilities(withoutAsked(question), capabilities);
   if (matched.length === 1 && !pending) return send(null, 'rule', `Looks clearly like ${matched[0].name} (matched “${matched[0].terms.join('”, “')}”), so the university routes it.`, { matched, likely: matched[0].id });
+  // Review F: a question about classmates or other students (“what's Sam Student's email?”) is a course question, decided
+  // in code (no model, no clarifying question): the one capability whose public tags name classmates. The course answers it
+  // (it declines to share anything about another student).
+  if (!pending && asksAboutClassmates(withoutAsked(question))) {
+    const course = capabilities.filter((c) => (c.tags ?? []).some((t) => /^classmates?$/i.test(t)));
+    if (course.length === 1) return send(course[0].id, 'rule', `A question about the class goes to ${course[0].name ?? course[0].id}.`, { matched });
+  }
   const names = capabilities.map((c) => c.name ?? c.id);
 
   if (STUDENT_MODE === 'mock') {

@@ -504,7 +504,7 @@ test('a course question without an attached message is answered from what the pr
       await waitFor(() => find(forRun(stream.events, runId), 'student', 'reply_received'), { timeout: 15000, what: 'reply' });
       assert.match(find(forRun(stream.events, runId), 'student', 'reply_received').data.text, /my message says/);
       const prompt = JSON.stringify(stub.requests.at(-1).body.messages);
-      assert.match(prompt, /your_recent_posts_to_this_student/);
+      assert.match(prompt, /dr_dabirian_s_recent_posts_to_this_student/, 'named for who wrote them (review F: the assistant never takes Dr. Dabirian’s voice)');
       assert.match(prompt, /The homework can come in late this week/);
       assert.doesNotMatch(prompt, /resend your positioning draft/, 'a post to another student is never shown');
     } finally {
@@ -515,7 +515,7 @@ test('a course question without an attached message is answered from what the pr
   }
 });
 
-test('a course question the assistant can’t answer goes to the professor’s chat, and the student is told so', async () => {
+test('a course question the assistant can’t answer is OFFERED to the professor; only the student’s yes puts it in the professor’s chat (review F)', async () => {
   // User report: "when do I need to turn in last week's homework?" got "I don't have a due date" and nothing
   // reached the professor. Scripted model output (plumbing, not judgment): the model hands it over.
   const stub = await startFakeAnthropic();
@@ -526,10 +526,18 @@ test('a course question the assistant can’t answer goes to the professor’s c
     try {
       const question = 'When do I need to turn in my homework for last week’s lesson?';
       const res = await post(`${s.ui.url}/api/runs`, { text: question, capability: 'marketing' });
-      const { runId } = await res.json();
+      const { runId, contextId } = await res.json();
       await waitFor(() => find(forRun(stream.events, runId), 'student', 'reply_received'), { timeout: 15000, what: 'reply' });
-      const reply = find(forRun(stream.events, runId), 'student', 'reply_received').data;
-      assert.match(reply.text, /passed this on to Dr. Dabirian/i);
+      const offered = find(forRun(stream.events, runId), 'student', 'reply_received').data;
+      assert.equal(offered.text, 'I don’t have that in the course notes or the class schedule. Want me to send your question to Dr. Dabirian?');
+      assert.equal(offered.professor.outcome, 'offered');
+      assert.equal(offered.professor.onBehalf, true, 'shown as the course assistant');
+      assert.equal((await professorState(s)).chat.length, 0, 'nothing reaches the professor before the yes');
+      const res2 = await post(`${s.ui.url}/api/runs`, { text: 'yes please', capability: 'marketing', contextId });
+      const run2 = (await res2.json()).runId;
+      await waitFor(() => find(forRun(stream.events, run2), 'student', 'reply_received'), { timeout: 15000, what: 'reply to yes' });
+      const reply = find(forRun(stream.events, run2), 'student', 'reply_received').data;
+      assert.equal(reply.text, 'Sent to Dr. Dabirian — they’ll get back to you here.');
       assert.equal(reply.professor.outcome, 'needs_professor');
       assert.equal(reply.professor.onBehalf, true, 'shown as the course assistant speaking for the professor');
       const chat = (await professorState(s)).chat;
@@ -540,8 +548,8 @@ test('a course question the assistant can’t answer goes to the professor’s c
       const asked = chat.find((m) => m.role === 'student' && m.text === question);
       const handedOver = () => professorState(s).then((st) => st.chat.find((m) => m.id === asked.id.replace(/:s$/, ':r')));
       assert.equal((await handedOver()).answeredAt, undefined, 'waiting until the professor replies');
-      const back = await post(`${s.ui.url}/api/professor/chat`, { operationId: `op-${randomUUID()}`, text: 'Please turn it in by Friday.', replyTo: 'student-alex', answers: asked.id });
-      assert.equal(back.status, 200);
+      const back = await say(s, 'Please turn it in by Friday.', undefined, { replyTo: 'student-alex', answers: asked.id });
+      assert.equal(back.action, 'post');
       assert.ok((await handedOver()).answeredAt, 'answered once the reply was sent');
 
       // An unsigned caller (straight to the Professor, not through the Hub) is nobody: nothing reaches the chat.
@@ -560,10 +568,10 @@ test('a course question the assistant can’t answer goes to the professor’s c
 test('replies in the chat: the professor’s message reaches the student’s chat, a reply goes to the professor in person, who answers that student only; the assistant answers replies to its own messages and hands decisions to the professor', async () => {
   const { s, stream } = await classroom();
   const received = (pred) => waitFor(() => findAll(stream.events, 'student', 'lesson_received').find((e) => pred(e.data)), { what: 'delivery to the student' });
-  const reply = async (text, deliveryId) => {
-    const { runId } = await (await post(`${s.ui.url}/api/runs`, { text, lessonDeliveryId: deliveryId })).json();
+  const reply = async (text, deliveryId, contextId) => {
+    const { runId, contextId: ctx } = await (await post(`${s.ui.url}/api/runs`, { text, ...(deliveryId ? { lessonDeliveryId: deliveryId } : {}), ...(contextId ? { contextId } : {}) })).json();
     await waitFor(() => find(forRun(stream.events, runId), 'student', 'reply_received'), { what: 'reply' });
-    return find(forRun(stream.events, runId), 'student', 'reply_received').data;
+    return { ...find(forRun(stream.events, runId), 'student', 'reply_received').data, ctx };
   };
   const chat = async () => (await professorState(s)).chat;
 
@@ -608,10 +616,14 @@ test('replies in the chat: the professor’s message reaches the student’s cha
   const answer = c.find((m) => m.action === 'answer_student' && m.to === 'student-alex');
   assert.equal(answer.text, answered.text, 'the professor sees exactly what the assistant told the student');
   assert.equal(answer.needsProfessor, false);
-  // Something only the professor decides: the assistant hands it over and the professor's chat flags it.
+  // Something only the professor decides: the assistant OFFERS to send it (review F) and sends it only after a yes.
   const handed = await reply('Can I get an extension until Friday?', fromAssistant.deliveryId);
-  assert.equal(handed.professor.outcome, 'needs_professor');
-  assert.match(handed.text, /passed your question on/);
+  assert.equal(handed.professor.outcome, 'offered');
+  assert.match(handed.text, /That’s Dr\. Dabirian’s call\. Want me to send your question to them\?/);
+  assert.equal((await chat()).filter((m) => m.action === 'answer_student' && m.needsProfessor).length, 0, 'nothing sent before the yes');
+  const yes = await reply('yes', null, handed.ctx); // the student's next message in the same conversation
+  assert.equal(yes.professor.outcome, 'needs_professor');
+  assert.match(yes.text, /Sent to Dr\. Dabirian/);
   assert.equal((await chat()).filter((m) => m.action === 'answer_student' && m.needsProfessor).length, 1);
 
   // The author is part of the signed content hash: a post can't be relabelled between the professor's own
@@ -692,11 +704,10 @@ test('conversation: a marketing question the course doesn’t cover goes to the 
     const q1 = 'what is SWOT in marketing';
     const r1 = await chatVia(s.ui, stream, q1);
     assert.equal(r1.decision.agentId, 'professor');
-    assert.match(r1.reply.text, /passed this on to Dr. Dabirian/i, 'the student is told in the fixed words');
-    assert.equal(r1.reply.professor.outcome, 'needs_professor');
+    assert.match(r1.reply.text, /Want me to send your question to Dr\. Dabirian\?/, 'offered in fixed words (review F)');
+    assert.equal(r1.reply.professor.outcome, 'offered');
     assert.match(stub.requests.at(-1).body.system?.[0]?.text ?? JSON.stringify(stub.requests.at(-1).body.system), /SWOT analysis/, 'the prompt names a marketing concept the pack lacks as needs_professor');
-    const chat1 = (await professorState(s)).chat;
-    assert.equal(chat1.filter((m) => m.role === 'student' && m.text === q1).length, 1, 'the question is in the professor’s chat once');
+    assert.equal((await professorState(s)).chat.length, 0, 'not sent before the student says yes');
 
     const asked = [];
     for (const text of ['ask the professor', 'Dabirian']) {
@@ -707,7 +718,8 @@ test('conversation: a marketing question the course doesn’t cover goes to the 
       asked.push(r.reply.text);
       assert.doesNotMatch(r.reply.text, /which course/i);
     }
-    assert.match(asked[1], /already passed/i, 'the second ask is not sent to the professor again');
+    assert.match(asked[0], /Sent to Dr\. Dabirian/, '“ask the professor” while the offer waits is the yes');
+    assert.match(asked[1], /already sent/i, 'the second ask is not sent to the professor again');
     assert.equal((await professorState(s)).chat.filter((m) => m.role === 'student' && m.text === q1).length, 1, 'already passed on: not put in the professor’s chat again');
   } finally {
     await stub.close();
@@ -723,24 +735,29 @@ test('"ask the professor" after an answered Marketing 351 question hands that ea
   assert.equal(r2.decision.decision, 'route');
   assert.equal(r2.decision.agentId, 'professor');
   assert.deepEqual(r2.destinations, ['professor']);
-  assert.match(r2.reply.text, /passed this on to Dr. Dabirian/i);
+  assert.equal(r2.reply.text, 'Want me to send “What is market segmentation?” to Dr. Dabirian?', 'offered with the real question’s words');
+  assert.equal((await professorState(s)).chat.length, 0);
+  const r2b = await chatVia(s.ui, stream, 'yes', r1.contextId);
+  assert.match(r2b.reply.text, /Sent to Dr\. Dabirian/);
   const chat = (await professorState(s)).chat;
   assert.ok(chat.some((m) => m.role === 'student' && m.studentId === 'student-alex' && m.text === q), 'the EARLIER question is in the professor’s chat');
   assert.ok(chat.some((m) => m.action === 'answer_student' && m.needsProfessor), 'flagged as waiting for the professor');
-  assert.ok(!chat.some((m) => m.text === 'ask the professor'), 'not the words "ask the professor"');
+  assert.ok(!chat.some((m) => m.text === 'ask the professor' || m.text === 'yes'), 'not the words "ask the professor" or "yes"');
   // Nothing earlier to hand over: asks what the question is (no entry in the chat).
   const fresh = await chatVia(s.ui, stream, 'Dabirian');
   assert.equal(fresh.decision.agentId, 'professor', 'naming the professor identifies Marketing 351');
   assert.match(fresh.reply.text, /What would you like to ask Dr. Dabirian/);
+  const named = await chatVia(s.ui, stream, 'Can I bring a laptop to the marketing exam?', fresh.contextId);
+  assert.equal(named.reply.text, 'Want me to send this to Dr. Dabirian?', 'the question after “what would you like to ask” is offered as it is');
 });
 
-test('a mock Professor hands a course question no topic covers to the professor', async () => {
+test('a mock Professor offers to send a course question no topic covers to the professor (review F: never sent without a yes)', async () => {
   const { s, stream } = await classroom();
   const res = await post(`${s.ui.url}/api/runs`, { text: 'explain the BCG matrix to my lecture group', capability: 'marketing' });
   const { runId } = await res.json();
   await waitFor(() => find(forRun(stream.events, runId), 'student', 'reply_received'), { timeout: 15000, what: 'reply' });
   const r = { reply: find(forRun(stream.events, runId), 'student', 'reply_received').data };
-  assert.equal(r.reply.professor.outcome, 'needs_professor');
+  assert.equal(r.reply.professor.outcome, 'offered');
 });
 
 test('the router never asks the same clarifying question twice in a row (it goes on to the service that last answered)', async () => {
@@ -777,12 +794,12 @@ test('"Dabirian" after a Marketing 351 reply is not held or clarified by the Stu
   });
   try {
     const r1 = await chatVia(s.ui, stream, 'what is SWOT in marketing');
-    assert.match(r1.reply.text, /passed this on to Dr. Dabirian/i);
-    for (const text of ['Dabirian', 'Dr. Dabirian', 'ask the professor']) {
+    assert.match(r1.reply.text, /Want me to send your question to Dr\. Dabirian\?/);
+    for (const [i, text] of ['Dabirian', 'Dr. Dabirian', 'ask the professor'].entries()) {
       const r = await chatVia(s.ui, stream, text, r1.contextId);
       assert.equal(find(r.events, 'student', 'clarification_asked'), undefined, `“${text}” is not held`);
       assert.equal(r.decision?.agentId, 'professor', `“${text}” reaches the Professor`);
-      assert.match(r.reply.text, /already passed/i);
+      assert.match(r.reply.text, i === 0 ? /Sent to Dr\. Dabirian/ : /already sent/i);
     }
     assert.equal(studentStub.requests.length, 0, 'the Student’s model was never asked: code recognises the follow-up');
   } finally {
@@ -823,10 +840,9 @@ test('“ask the professor” then “Dabirian”: both quote the real question,
     const r1 = await chatVia(s.ui, stream, q);
     const r2 = await chatVia(s.ui, stream, 'ask the professor', r1.contextId);
     const r3 = await chatVia(s.ui, stream, 'Dabirian', r1.contextId);
-    for (const r of [r2, r3]) {
-      assert.match(r.reply.text, /already passed “what is SWOT in marketing”/);
-      assert.doesNotMatch(r.reply.text, /“ask the professor”|“Dabirian”/);
-    }
+    assert.match(r2.reply.text, /Sent to Dr\. Dabirian/, '“ask the professor” while the offer waits = yes');
+    assert.match(r3.reply.text, /already sent “what is SWOT in marketing”/);
+    assert.doesNotMatch(r3.reply.text, /“ask the professor”|“Dabirian”/);
     const chat = (await professorState(s)).chat;
     assert.equal(chat.filter((m) => m.role === 'student').length, 1);
     assert.equal(chat.find((m) => m.role === 'student').text, q);
@@ -840,9 +856,11 @@ test('mock: after an answered question, “ask the professor” passes it on onc
   const q = 'What is market segmentation?';
   const r1 = await chatVia(s.ui, stream, q);
   const r2 = await chatVia(s.ui, stream, 'ask the professor', r1.contextId);
-  assert.match(r2.reply.text, /passed this on to Dr. Dabirian/);
+  assert.match(r2.reply.text, /Want me to send “What is market segmentation\?” to Dr\. Dabirian\?/);
+  const r2b = await chatVia(s.ui, stream, 'yes', r1.contextId);
+  assert.match(r2b.reply.text, /Sent to Dr\. Dabirian/);
   const r3 = await chatVia(s.ui, stream, 'Dabirian', r1.contextId);
-  assert.match(r3.reply.text, /already passed “What is market segmentation\?”/);
+  assert.match(r3.reply.text, /already sent “What is market segmentation\?”/);
   assert.equal((await professorState(s)).chat.filter((m) => m.role === 'student').length, 1);
 });
 

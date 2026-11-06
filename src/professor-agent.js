@@ -35,6 +35,7 @@ import { topicFromWords, countFromWords, coveredText } from './course-schedule.j
 import { TIMEOUTS } from './timeouts.js';
 import { deliveredText } from './delivery-text.js';
 import { nowFn } from './test-clock.js';
+import { ALREADY_SENT_TEXT, LATE_YES_TEXT, OFFER_ASK_TEXT, OFFER_NOT_SENT_TEXT, OFFER_DECISION_TEXT, OFFER_TTL_MS, OFFER_UNKNOWN_TEXT, SENT_TEXT, classFactsBlock, courseAnswer, isNo, yesOf } from './student-course.js';
 
 const HOST = '127.0.0.1';
 const JSONRPC_PATH = '/a2a/jsonrpc';
@@ -58,20 +59,31 @@ const lessonKey = (lessonId, revision) => `${lessonId}#${revision}`;
 const recent = new Map(); // contextId → last few { question, answer }
 
 // ---- answering students ------------------------------------------------------------------------------
+// Review F (owner, 2026-11-06): the course assistant ANSWERS a student's class questions (src/student-course.js, code, no
+// model) and speaks as Dr. Dabirian's course assistant, never as Dr. Dabirian (every reply it writes carries `onBehalf`, so
+// the student's chat labels it “Dr. Dabirian’s course assistant”). A question goes to Dr. Dabirian only after the student's
+// yes to an offer (“Want me to send …?”); a ↩ Reply to Dr. Dabirian's own message stays a direct relay (the student chose it).
 const policy = () => ({ skills: skillService.policy().skills.filter((s) => s.kind === 'answer') });
-// What this professor posted to this (Hub-verified) student, newest first, latest revision of each — so
-// a question like "can I hand in the homework late?" is answered from its own message even when the
-// student didn't open it with "Ask about this message".
-const postedTo = (student) => (student ? Object.values(outbox.get().lessons)
+const clock = nowFn();
+// Every post this professor sent this (Hub-verified) student, newest first, latest revision of each.
+const sentTo = (student) => (student ? Object.values(outbox.get().lessons)
   .filter((l) => l.recipients?.includes(student))
   .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)) || b.revision - a.revision)
-  .filter((l, i, all) => all.findIndex((x) => x.lessonId === l.lessonId) === i)
-  .slice(0, 5) : []);
-const NEEDS_PROFESSOR_TEXT = `I’ve passed this on to ${COURSE.professorName}, who will get back to you.`;
+  .filter((l, i, all) => all.findIndex((x) => x.lessonId === l.lessonId) === i) : []);
+// What this professor posted to this student (the newest 5) — so a question like "can I hand in the homework late?" is
+// answered from its own message even when the student didn't open it with "Ask about this message".
+const postedTo = (student) => sentTo(student).slice(0, 5);
 // Asking for the professor with nothing else: “ask the professor”, “please ask Dr. Dabirian”, “Dabirian”.
 const PROF = `(?:the\\s+|my\\s+)?(?:professor|prof\\.?|faculty(?:\\s+member)?|instructor|dr\\.?|doctor|${COURSE.professorName.split(/\s+/).at(-1)})(?:\\s+${COURSE.professorName.split(/\s+/).at(-1)})?`;
 const ASK_PROFESSOR = new RegExp(`^\\s*(?:(?:please|can you|could you|i(?:['’]d| would) like to|i want to|let['’]s)\\s+)*(?:(?:ask|tell|check with|talk to|speak to|(?:pass|send|forward) (?:it|this|that|the question) (?:on )?to)\\s+)?${PROF}\\s*[.!?]*\\s*$`, 'i');
 const NOT_PASSED_TEXT = `I couldn’t pass this on to ${COURSE.professorName} because the university couldn’t verify your request.`;
+const ASK_WHAT_TEXT = `What would you like to ask ${COURSE.professorName}? Tell me your question and I’ll offer to send it.`;
+// A question waiting for the student's yes: contextId → { question, about, lessonId, at }. Memory only, one per conversation;
+// it stops waiting after OFFER_TTL_MS or when the student sends something else (a later yes is answered honestly).
+const offers = new Map();
+// Test hook (PROFESSOR_TEST_HOOKS=1 only): a shorter wait, so a test can see an offer time out.
+const OFFER_WAIT_MS = process.env.PROFESSOR_TEST_HOOKS === '1' && Number(process.env.PROFESSOR_OFFER_TTL_MS) > 0 ? Number(process.env.PROFESSOR_OFFER_TTL_MS) : OFFER_TTL_MS;
+const assistantSaid = (extra = {}) => ({ name: COURSE.professorName, mode: PROFESSOR_MODE, model: null, usage: null, lessonId: null, topics: [], onBehalf: true, ...extra });
 async function handleChat(ctx, bus, runId) {
   const incoming = ctx.userMessage;
   const question = textOf(incoming).slice(0, 2000);
@@ -96,6 +108,7 @@ async function handleChat(ctx, bus, runId) {
     metadata.professor = { name: COURSE.professorName, outcome: 'meeting', onBehalf: true, mode: PROFESSOR_MODE, model: null, usage: null, lessonId: lesson.lessonId, topics: [], meeting: { meetingId: lesson.meeting.meetingId, status: r.status, slotId: r.slot?.slotId ?? null } };
     return publishReply(ctx, bus, runId, incoming, r.text, metadata);
   }
+  // ↩ Reply to the professor's own message: the student chose to write to Dr. Dabirian — a direct relay, no offer.
   if (lesson && lesson.kind === 'message' && author === 'professor') {
     recordReply(incoming.messageId, { studentId: student, text: question, about, relayed: true });
     emitViz('student_reply', runId, { lessonId: lesson.lessonId, relayed: true });
@@ -103,46 +116,77 @@ async function handleChat(ctx, bus, runId) {
     metadata.professor = { name: COURSE.professorName, outcome: 'relayed', mode: PROFESSOR_MODE, model: null, usage: null, lessonId: lesson.lessonId, topics: [] };
     return publishReply(ctx, bus, runId, incoming, text, metadata);
   }
-  // “ask the professor” / “ask Dr. Dabirian” / just “Dabirian”: the student means the question they asked
-  // before. Done in code (no model): that earlier question goes to the professor's chat.
+  const reply = (text, professor, extra = {}) => {
+    metadata.professor = assistantSaid({ lessonId: lesson?.lessonId ?? null, ...professor });
+    return publishReply(ctx, bus, runId, incoming, text, metadata, question, extra);
+  };
+  // Offer to send `held` to Dr. Dabirian: the question waits for the student's yes (never sent on a guess).
+  const offer = (held, text, professor, extra = {}) => {
+    if (!student) return reply(NOT_PASSED_TEXT, { outcome: 'out_of_scope', ...professor }, extra);
+    offers.set(ctx.contextId, { question: held, about, lessonId: lesson?.lessonId ?? null, at: Date.now() });
+    return reply(text, { ...professor, outcome: 'offered' }, { ...extra, offered: true });
+  };
+  const turns = recent.get(ctx.contextId) ?? [];
+  const last = turns.at(-1);
+  const waiting = offers.get(ctx.contextId);
+  offers.delete(ctx.contextId);
+  const live = waiting && Date.now() - waiting.at < OFFER_WAIT_MS ? waiting : null;
+  const yes = yesOf(question);
+  // The student's yes (or “ask the professor” / “Dabirian”) to the offer: now it goes to Dr. Dabirian's chat.
+  if (live && (yes || ASK_PROFESSOR.test(question))) {
+    const sent = yes?.extra ? `${live.question}\n\n${yes.extra}` : live.question;
+    recordReply(incoming.messageId, { studentId: student, text: sent, about: live.about, relayed: true }, { text: SENT_TEXT, model: null, needsProfessor: true, onBehalf: false });
+    emitViz('student_reply', runId, { lessonId: live.lessonId, relayed: false, needsProfessor: true });
+    for (const t of turns) if (t.question === live.question) t.handedOver = true; // a later “Dabirian” finds it already sent
+    return reply(SENT_TEXT, { outcome: 'needs_professor', lessonId: live.lessonId }, { handoverRequest: true, sent: true });
+  }
+  if (live && isNo(question)) return reply(OFFER_NOT_SENT_TEXT, { outcome: 'not_sent' }, { handoverRequest: true });
+  // A yes that came too late (the offer timed out, or the student moved on and the reply asked nothing): said honestly.
+  if (!live && yes && !yes.extra && last?.sent) return reply(ALREADY_SENT_TEXT, { outcome: 'needs_professor' }, { handoverRequest: true, sent: true });
+  if (!live && yes && !yes.extra && last && (last.offered || (last.droppedOffer && !/\?\s*$/.test(last.answer)))) return reply(LATE_YES_TEXT, { outcome: 'not_sent' }, { handoverRequest: true });
+  const moved = { droppedOffer: Boolean(live) };
+  // “ask the professor” / “ask Dr. Dabirian” / just “Dabirian”: the student means the question they asked before —
+  // offered with its words, so they see exactly what would be sent. Done in code (no model).
   if (ASK_PROFESSOR.test(question)) {
-    // Earlier hand-over requests (“ask the professor”, “Dabirian”) are never the question to pass on: skip them.
-    const earlier = (recent.get(ctx.contextId) ?? []).findLast((t) => !t.handoverRequest);
-    if (!earlier) return publishReply(ctx, bus, runId, incoming, `What would you like to ask ${COURSE.professorName}? Tell me your question and I’ll pass it on.`, { ...metadata, professor: { name: COURSE.professorName, outcome: 'clarify', mode: PROFESSOR_MODE, model: null, usage: null, lessonId: null, topics: [] } }, question, { handoverRequest: true });
-    const handOver = Boolean(student);
-    const already = handOver && earlier.handedOver;
-    const text = !handOver ? NOT_PASSED_TEXT : already ? `I’ve already passed “${earlier.question.slice(0, 120)}” on to ${COURSE.professorName}, who will get back to you.` : NEEDS_PROFESSOR_TEXT;
-    metadata.professor = { name: COURSE.professorName, outcome: handOver ? 'needs_professor' : 'out_of_scope', mode: PROFESSOR_MODE, model: null, usage: null, lessonId: lesson?.lessonId ?? null, topics: [], ...(handOver ? { onBehalf: true } : {}) };
-    if (handOver && !already) {
-      earlier.handedOver = true; // the real question, so a later “Dabirian” finds it already passed on
-      recordReply(incoming.messageId, { studentId: student, text: earlier.question, about, relayed: true }, { text, model: null, needsProfessor: true, onBehalf: false });
-      emitViz('student_reply', runId, { lessonId: lesson?.lessonId ?? null, relayed: false, needsProfessor: true });
-    }
-    return publishReply(ctx, bus, runId, incoming, text, metadata, question, { handoverRequest: true });
+    if (!student) return reply(NOT_PASSED_TEXT, { outcome: 'out_of_scope' }, { handoverRequest: true });
+    // Earlier hand-over requests (“ask the professor”, “Dabirian”, “yes”) are never the question to pass on: skip them.
+    const earlier = turns.findLast((t) => !t.handoverRequest);
+    if (!earlier) return reply(ASK_WHAT_TEXT, { outcome: 'clarify' }, { handoverRequest: true, askFor: true });
+    if (earlier.handedOver) return reply(`I’ve already sent “${earlier.question.slice(0, 120)}” to ${COURSE.professorName} — they’ll get back to you here.`, { outcome: 'needs_professor' }, { handoverRequest: true });
+    return offer(earlier.question, `Want me to send “${earlier.question.slice(0, 120)}” to ${COURSE.professorName}?`, { decidedBy: 'code' }, { handoverRequest: true });
+  }
+  // The question right after “What would you like to ask Dr. Dabirian?” is the one to send: offered as it is.
+  if (last?.askFor && !isNo(question)) return offer(question, OFFER_ASK_TEXT, { decidedBy: 'code' }, moved);
+  // Class facts, a classmate question, a message for the class, a decision for Dr. Dabirian: code answers (src/student-course.js).
+  const known = courseAnswer(question, { now: clock(), notices: sentTo(student) });
+  if (known) {
+    if (lesson) recordReply(incoming.messageId, { studentId: student, text: question, about, relayed: false }, { text: known.text, model: null, needsProfessor: false, onBehalf: true });
+    emitViz('course_fact_answered', runId, { topic: known.topic, offered: Boolean(known.offer) });
+    if (known.offer) return offer(question, known.text, { decidedBy: 'code', topic: known.topic }, moved);
+    return reply(known.text, { outcome: 'answer', decidedBy: 'code', topic: known.topic }, moved);
   }
   const onBehalf = Boolean(lesson && lesson.kind === 'message' && author === 'assistant');
-  let text;
   try {
-    const r = await professorReply({ question, policy: policy(), lesson, posts: lesson ? [] : postedTo(student), recent: recent.get(ctx.contextId) ?? [], onBehalf, emit: (type, data) => emitViz(type, runId, data) });
-    // Not answerable here → the professor's chat. The student is told so in fixed words (on the professor's
-    // behalf the assistant's own sentence already says it was passed on).
-    // Only a student the Hub signed can be put in the professor's chat (an unsigned caller isn't anyone).
-    const handOver = r.kind === 'needs_professor' && Boolean(student);
-    text = handOver && !onBehalf ? NEEDS_PROFESSOR_TEXT : r.kind === 'needs_professor' && !student ? NOT_PASSED_TEXT : r.text;
-    // A hand-over is the course assistant speaking for the professor (the chat labels it so).
-    metadata.professor = { name: COURSE.professorName, outcome: r.kind, mode: PROFESSOR_MODE, model: r.model, usage: r.usage, lessonId: lesson?.lessonId ?? null, topics: r.topicIds, ...(onBehalf || handOver ? { onBehalf: true } : {}) };
-    if (lesson || handOver) {
-      recordReply(incoming.messageId, { studentId: student, text: question, about, relayed: handOver && !onBehalf }, { text, model: r.model, needsProfessor: handOver, onBehalf });
-      emitViz('student_reply', runId, { lessonId: lesson?.lessonId ?? null, relayed: false, needsProfessor: handOver });
+    const r = await professorReply({ question, policy: policy(), lesson, posts: lesson ? [] : postedTo(student), recent: turns, onBehalf, facts: classFactsBlock(clock()), emit: (type, data) => emitViz(type, runId, data) });
+    const professor = { outcome: r.kind, model: r.model, usage: r.usage, topics: r.topicIds };
+    // Not answerable from the notes, the schedule or the posts: say so plainly and OFFER to send it (never sent on a guess).
+    if (r.kind === 'needs_professor') {
+      if (lesson && student) recordReply(incoming.messageId, { studentId: student, text: question, about, relayed: false }, { text: onBehalf ? OFFER_DECISION_TEXT : OFFER_UNKNOWN_TEXT, model: r.model, needsProfessor: false, onBehalf });
+      return offer(question, onBehalf ? OFFER_DECISION_TEXT : OFFER_UNKNOWN_TEXT, professor, moved);
     }
+    if (lesson) {
+      recordReply(incoming.messageId, { studentId: student, text: question, about, relayed: false }, { text: r.text, model: r.model, needsProfessor: false, onBehalf });
+      emitViz('student_reply', runId, { lessonId: lesson.lessonId, relayed: false, needsProfessor: false });
+    }
+    return reply(r.text, professor, moved);
   } catch (err) {
     const failure = err instanceof LlmError ? err : new LlmError('internal_error');
-    text = `The Marketing 351 Faculty could not answer: ${failure.message}`;
+    const text = `The Marketing 351 Faculty could not answer: ${failure.message}`;
     metadata.serviceError = { code: failure.code, message: failure.message, requestId: failure.requestId };
     // The professor still sees what the student wrote — and that nobody answered it.
     if (lesson) recordReply(incoming.messageId, { studentId: student, text: question, about, relayed: false }, { text: `Not answered: ${failure.message}`, model: null, needsProfessor: true, onBehalf, failed: true });
+    return reply(text, { outcome: 'error' }, moved);
   }
-  return publishReply(ctx, bus, runId, incoming, text, metadata, question, { handedOver: metadata.professor?.outcome === 'needs_professor' && metadata.professor?.onBehalf === true });
 }
 // A student's reply in the professor's chat (and the assistant's answer to it, when it gave one). Keyed by
 // the incoming message id, so a repeated delivery of the same request is recorded once.
