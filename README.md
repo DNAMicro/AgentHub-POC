@@ -78,7 +78,7 @@ Use `PORT=...` to change the Tutor's port and `TUTOR_URL=http://127.0.0.1:...` t
 ### Browser monitor: all agents (Parts 7–9)
 
 ```bash
-npm run demo:live     # all ten processes, Hub router + Tutor + Library + Faculty + HR + CHRS + the planners of PeopleSoft, Canvas and the student records on Claude Haiku 5.5 (paid; key from env or .env)
+npm run demo:live     # all ten processes, Hub router + Tutor + Library + Faculty + HR + Campus Agent + the planners of PeopleSoft, Canvas and the student records on Claude Haiku 5.5 (paid; key from env or .env)
 npm run demo          # the same with mock models and the mock router (no network, no cost)
 ```
 
@@ -102,7 +102,7 @@ npm run ui            # UI + Student Agent on 127.0.0.1:4444 — connects only t
 | HR Agent (staff only, Part 14) | 41245 | `npm run hr` (`hr:live` = Haiku) |
 | PeopleSoft stand-in (MCP server, Part 15) | 41246 | `npm run peoplesoft` (`peoplesoft:live` = Haiku). Needs `PEOPLESOFT_TOKEN`; `npm run demo` makes one for you |
 | Canvas LMS stand-in (MCP server, Part 16) | 41247 | `npm run canvas` (`canvas:live` = Haiku). Needs `CANVAS_TOKEN`; `npm run demo` makes one for you |
-| CHRS (staff only, Part 17) | 41248 | `npm run chrs` (`chrs:live` = Haiku) |
+| Campus Agent (staff only, Part 17; code id `chrs`) | 41248 | `npm run chrs` (`chrs:live` = Haiku) |
 | PeopleSoft student records stand-in (MCP server, Part 17) | 41249 | `npm run records` (`records:live` = Haiku). Needs `STUDENT_RECORDS_TOKEN`; `npm run demo` makes one for you |
 | UI + Student Agent | 4444 | `npm run ui` |
 
@@ -134,7 +134,7 @@ Then open **http://127.0.0.1:4444**. Start order doesn't matter: specialists kee
 | `CANVAS_TIMEOUT_MS`, `CANVAS_MODEL_TIMEOUT_MS` | Part 16: the time limits for Faculty's Canvas call (12 s) and Canvas's planner (8 s); see `src/timeouts.js` |
 | `CHRS_MODE`, `STUDENT_RECORDS_MODE` | Part 17: CHRS's tool choice and the student records stand-in's step planner, `mock` (default, labelled heuristic) or `live` |
 | `CHRS_URL`, `STUDENT_RECORDS_URL`, `STUDENT_RECORDS_TOKEN` | Part 17: where the Hub finds CHRS (default :41248) and where CHRS finds the student records stand-in (default `http://127.0.0.1:41249`; the test harness uses the closed port 9 instead), and the secret it sends (`npm run demo` makes one, given to those two processes only) |
-| `HUB_ROSTER_TTL_MS` | Part 17: how long the Hub keeps a class roster it fetched from CHRS (default 60 s) |
+| `HUB_ROSTER_TTL_MS` | Part 17: how long the Hub keeps a class roster it fetched from the Campus Agent (default 60 s) |
 | `PROFESSOR_MODEL_TIMEOUT_MS` | The Faculty agent's own model wait for naming a post or reading an @assistant message (45 s). A chat post (10 s check + 45 s + 40 s publish) fits inside the Hub's author proxy (100 s) and the UI's wait (105 s); see `src/timeouts.js` |
 | `PROFESSOR_NOW`, `CANVAS_NOW` | Tests and rehearsal only (with `PROFESSOR_TEST_HOOKS=1` / `CANVAS_TEST_HOOKS=1`): pin "today" so the same topics are taught on any day |
 | `HR_TEST_HOOKS=1` | Tests only: adds `GET /test/hr/requests` to the HR Agent (the sent requests it holds in memory) |
@@ -249,7 +249,7 @@ Everything is live, so the model may answer in words where the script hoped for 
 | `src/hr-agent.js`, `src/hr-intent.js`, `src/hr-model.js`, `src/absence-types.js` | Part 14: the staff-only **HR Agent** — chat and card logic (since Part 15 the staff, balances and requests live in PeopleSoft: `src/peoplesoft-store.js`, with the Forecast rules in `src/leave-rules.js`), the code that reads dates and partial days, and the shared absence list (also served to the browser at `/shared/absence-types.js`), and the absence-type choice (model proposes, code verifies; the reason comes from code). |
 | `src/canvas-mcp.js`, `src/canvas-store.js`, `src/canvas-model.js` | Part 16: the Canvas LMS stand-in MCP server (two tools, bearer token), its in-memory quizzes and its step planner. |
 | `src/course-schedule.js`, `src/quiz-rules.js` | Part 16: the fictional Fall 2026 Marketing 351 schedule (20 topics, dates, original notes) and the quiz rules, shared with the browser at `/shared/…`. |
-| `src/chrs-agent.js`, `src/chrs-model.js`, `src/chrs-records.js` | Part 17: the staff-only **CHRS** agent, its AI that picks the records tool and its MCP link to the student records. |
+| `src/chrs-agent.js`, `src/chrs-model.js`, `src/chrs-records.js` | Part 17: the staff-only **Campus Agent** (code id `chrs`), its AI that picks the records tool and its MCP link to the student records. |
 | `src/student-records-mcp.js`, `src/student-records-store.js`, `src/student-records-model.js` | Part 17: the PeopleSoft student records stand-in (one tool, bearer token), the 25 fictional students and its step planner. |
 | `src/hub-roster.js`, `src/professor-roster.js`, `public/roster-ui.js` | Part 17: the Hub's roster client (signed lookup, 60 s cache), the Faculty desk's roster and “notify everyone” rules, and the roster card. |
 | `src/quiz-model.js`, `src/professor-quiz.js`, `src/professor-canvas.js` | Part 16: the AI that drafts questions from the notes, the quiz desk (topic, draft, edit, approve, publish, notice) and Faculty's MCP link to Canvas. |
@@ -1051,15 +1051,17 @@ At CSUF, quizzes live in **Canvas**. The Faculty agent now reaches an eighth pro
 
 `test/quiz-rules.test.js`, `canvas-store.test.js`, `canvas-model.test.js`, `canvas-mcp.test.js`, `quiz-model.test.js`, `quiz-model-live.test.js`, `professor-canvas.test.js`, `professor-canvas-live.test.js`, `professor-quiz-desk.test.js`, `professor-quiz.test.js`, `quiz-notice.test.js`, `topology-canvas.test.js`, `timeouts.test.js`. `scripts/browser-checks/canvas-quiz.js` (71 checks) runs on a separate rehearsal stack (`node scripts/demo/rehearsal-stack.js --ui 5544 --base 52340 --mock --now 2026-11-04T20:00:00Z`), never on the running demo. See [Steps/16](Steps/16-canvas-quiz-mcp.md).
 
-## Part 17: CHRS — a class roster, and notices that go to the real class list
+## Part 17: Campus Agent — a class roster, and notices that go to the real class list
+
+> **Review round 2 (2026-11-06).** On screen the agent is the **Campus Agent** (CHRS is the CSU Common HR System, so HR's PeopleSoft tile is now **PeopleSoft CHRS (HR)**); code ids stay `chrs`. The roster card shows only Name, a masked ID (•••••1234), Academic Level, Program and Plan and Units; counts say what was counted (“16 of your 25 students are seniors.”); every roster read carries a signed purpose and is logged by the Campus Agent; repeated events show as one counted row. The class meets **Tue & Thu, 10:00–11:15 AM** (shown under the Faculty view title), and a class cancellation is a **preview card** (exact text, “To: your 25 students”, optional note, Send / Don’t send). Quiz questions each test a different idea from the topic notes. Below, “CHRS” means the Campus Agent.
 
 The faculty member can now ask for his class roster, and every notice to the class is addressed from that roster. Two new processes: a staff-only agent called **CHRS** (`src/chrs-agent.js`, port **41248**) and a fictional **PeopleSoft student records** stand-in (`src/student-records-mcp.js`, port **41249**) that CHRS reaches over MCP, the same way HR reaches PeopleSoft. The demo now runs ten processes. All records are fictional (IDs `888xxxxxx`, emails `@csu.fullerton.example`) and in memory only.
 
 ### The walkthrough
 
 1. In the Faculty view type “show me my class roster”. The Faculty agent recognises the request in code and sends it, signed with a `service` field, to the Hub. The Hub routes it to CHRS only (HR and CHRS are both staff-only destinations; the signed `service` says which).
-2. CHRS verifies the Hub's staff signature, its AI picks the one records tool (`get_class_roster`), code checks the pick, and the records stand-in checks that he is this course's own instructor, plans its steps and answers.
-3. One look-only card, “CHRS · Class roster”, laid out like the CSUF Faculty Center roster: term, class, meeting row, instructor, Enrollment Status / Capacity 35 / Enrolled 25, then the grid (ID, Name, Email, Pronouns, Units, Program and Plan, Academic Level). No checkboxes, no actions.
+2. The Campus Agent verifies the Hub's staff signature, its AI picks the one records tool (`get_class_roster`), code checks the pick, and the records stand-in checks that he is this course's own instructor, plans its steps and answers.
+3. One look-only card, “Class roster”, laid out like the CSUF Faculty Center roster: term, class, meeting row, instructor, Enrollment Status / Capacity 35 / Enrolled 25, then the grid (ID, Name, Email, Pronouns, Units, Program and Plan, Academic Level). No checkboxes, no actions.
 4. Type “notify everyone that the midterm review session moves to Thursday”. The Hub asks CHRS for the class list (a lookup signed by the Hub itself), then makes one delivery per student. His words go out as his own, with no preview: “Sent to all 25 students in Marketing 351.” Alex sees the notice; the other 24 are honestly “not online yet” and get it when they are.
 5. The delivery card for a big audience reads “25 notified” (Alex in the app, the other 24 by email), with the rows folded under “Show all 25 students”. Quiz notices and class cancellations use the same list.
 6. Topology gets a fifth staff agent, **CHRS** (indigo), with its own model box and its own **Student records** tile (a PeopleSoft-coloured database tile) under the model. The Hub's lookup and the MCP call light up their edges; labels say only “Roster: 25 students”.

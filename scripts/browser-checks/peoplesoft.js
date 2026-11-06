@@ -43,7 +43,7 @@ async (page) => {
   check('no PeopleSoft model box', await topo.locator('[data-node="llm-peoplesoft"], [data-owner="peoplesoft"], [data-edge="peoplesoft-model"]').count() === 0);
   check('tile 176×80 rx 16', await ps.locator('rect.tile').evaluate((r) => [r.getAttribute('width'), r.getAttribute('height'), r.getAttribute('rx')].join(',')).catch(() => null) === '176,80,16');
   check('database icon, sparkle and sweep present', await ps.locator('.db').count() >= 2 && await ps.locator('.spark').count() === 1 && await ps.locator('.sweep').count() === 1);
-  check('name and role', (await ps.locator('.node-name').textContent().catch(() => '')) === 'PeopleSoft CHRS (HR)' && /MCP server/i.test(await ps.locator('.node-sub').textContent().catch(() => '')));
+  check('name and role (two lines: PeopleSoft CHRS / HR)', (await ps.locator('.node-name').allTextContents().catch(() => [])).join(' ') === 'PeopleSoft CHRS HR' && /MCP server/i.test(await ps.locator('.node-sub').textContent().catch(() => '')));
   check('MCP edge HR ↔ PeopleSoft', await topo.locator('[data-edge="hr-peoplesoft"][data-kind="mcp"]').count() === 1 && (await topo.locator('[data-edge="hr-peoplesoft"] .edge-label').textContent().catch(() => '')) === 'MCP');
   check('viewBox 0 0 1100 1285', (await topo.locator('#topo').getAttribute('viewBox')) === '0 0 1100 1285');
   check('aria-label mentions PeopleSoft', /PeopleSoft/.test(await topo.locator('#topo').getAttribute('aria-label')));
@@ -178,7 +178,7 @@ async (page) => {
   await topo.waitForTimeout(500);
   await topo.locator('#topo').screenshot({ path: `${SHOTS}/ps-5-dark-busy-forced.png` });
   await ps.evaluate((g) => g.classList.remove('busy'));
-  const darkName = await ps.locator('.node-name').evaluate((t) => getComputedStyle(t).fill);
+  const darkName = await ps.locator('.node-name').first().evaluate((t) => getComputedStyle(t).fill);
   check('dark: name uses the dark PeopleSoft colour', /251, 138, 76/.test(darkName), darkName);
   await topo.close();
 
