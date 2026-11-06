@@ -55,6 +55,23 @@ test('readInstruction: the audience phrasings (all / class / my seniors / majors
   assert.equal(readInstruction('remind my seniors to submit their forms').body.text, 'Please submit your forms.');
 });
 
+// Live matrix 2026-11-06: “send everyone the link to the syllabus” went on the card word for word.
+test('readInstruction: send / share / give / forward an audience a thing → the card asks what to say about the thing', () => {
+  for (const [said, kind, about] of [
+    ['send everyone the link to the syllabus', 'all', 'the link to the syllabus'],
+    ['share the slides with my seniors', 'filter', 'the slides'],
+    ['send my students the study guide', 'all', 'the study guide'],
+    ['forward the class the reading list', 'all', 'the reading list'],
+    ['send the marketing majors the career fair flyer', 'filter', 'the career fair flyer'],
+    ['share the rubric with the whole class', 'all', 'the rubric'],
+  ]) {
+    const r = readInstruction(said);
+    assert.equal(r?.audience?.kind, kind, `${said}: ${JSON.stringify(r)}`);
+    assert.deepEqual(r.body, { kind: 'about', about }, said);
+  }
+  for (const t of ['Send the slides tonight.', 'post the grades tomorrow', 'Send me your notes', 'Share your ideas in class.']) assert.equal(readInstruction(t), null, t);
+});
+
 test('readInstruction: his own messages are not instructions; an audience code can\'t read is asked about', () => {
   for (const t of ['Reminder: the case study is due Friday at noon.', '@alex-student great question today', 'What a great class, my students rock!', 'Let me know if you have questions.', 'Tell the truth, the quiz was hard', 'Please read chapter 5 before Thursday', 'Great job on the midterm everyone!']) assert.equal(readInstruction(t), null, t);
   for (const t of ['send a message to my family', 'post an announcement to the lab partners', 'write a note to Friday']) assert.equal(readInstruction(t)?.audience, null, t);
@@ -70,7 +87,7 @@ test('mockDraft (labelled code rewrite) and checkDraft: never a number, day or t
   assert.equal(mockDraft('to ask them to see me after class'), 'Please see me after class.');
   const words = 'send a message to all seniors to inform them of a mandatory lab work';
   assert.deepEqual(checkDraft('Please note: there is mandatory lab work.', words), { text: 'Please note: there is mandatory lab work.' });
-  for (const bad of ['Mandatory lab work is on Friday.', 'Lab work starts at 3 pm in room 204.', 'The lab is due Nov 12.', 'Please come tomorrow for lab work.']) assert.deepEqual(checkDraft(bad, words), { problem: 'invented' }, bad);
+  for (const bad of ['Mandatory lab work is on Friday.', 'Lab work starts at 3 pm in room 204.', 'The lab is due Nov 12.', 'Please come tomorrow for lab work.']) { const r = checkDraft(bad, words); assert.equal(r.problem, 'invented', bad); assert.ok(r.added && bad.toLowerCase().includes(String(r.added).toLowerCase().slice(0, 3)) || /\d/.test(String(r.added)), `${bad}: ${JSON.stringify(r)}`); }
   assert.deepEqual(checkDraft('The lab is on Friday at 3.', 'tell everyone the lab is on Friday at 3'), { text: 'The lab is on Friday at 3.' });
   assert.deepEqual(checkDraft('I am at the funeral, lab is cancelled.', words, ['funeral']), { problem: 'private' });
   assert.deepEqual(checkDraft('', words), { problem: 'empty' });

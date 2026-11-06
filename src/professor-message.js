@@ -43,6 +43,10 @@ const SEND_WHO = new RegExp(String.raw`${LEAD}send\s+([\s\S]+?)\s+(?:a|an)\s+(?:
 // “tell everyone …”, “remind my seniors …”, “let the class know …”, “message the marketing majors …”, “email @sam …”
 const VERB = new RegExp(String.raw`${LEAD}(message|e-?mail|text|remind|tell|notify|inform|let|ask|warn|alert)\s+([\s\S]+)$`, 'i');
 // The words that end the audience and start what to say.
+// “send everyone the link to the syllabus”, “share the slides with my seniors” (live matrix, 2026-11-06: the first was put
+// on the card word for word): send/share/give/forward + an audience + a thing → the card asks what to say about the thing.
+const SEND_OBJ = new RegExp(String.raw`${LEAD}(?:send|share|give|forward|post)\s+([\s\S]+)$`, 'i');
+const SHARE_WITH = new RegExp(String.raw`${LEAD}(?:share|post)\s+([\s\S]+?)\s+with\s+([\s\S]+)$`, 'i');
 const CONNECTOR = /(\s*[:—–]\s*|\s+-\s+|,?\s+(?:that|to|about|of|regarding|saying|asking|telling)\b\s*)/i;
 const TELLING = /^(?:inform|tell|notify|advise|alert|warn|update|let|remind|ask)\b/i;
 
@@ -119,6 +123,14 @@ export function readInstruction(text) {
     const a = audienceOf(m[1]);
     return a ? { audience: a, body: bodyAfter(m[2]) } : { audience: null, body: { kind: 'none' } };
   }
+  if (!rest && (m = SHARE_WITH.exec(t))) {
+    const a = audienceOf(m[2]);
+    if (a) return { audience: a, body: { kind: 'about', about: clean(m[1]) } };
+  }
+  if (!rest && (m = SEND_OBJ.exec(t))) {
+    const lead = leadingAudience(m[1]);
+    if (lead && lead.body && CONNECTOR.exec(` ${lead.body}`)?.index !== 0) return { audience: lead.audience, body: { kind: 'about', about: clean(lead.body) } };
+  }
   let verb = null;
   if (!rest && (m = VERB.exec(t))) { verb = m[1].toLowerCase(); rest = m[2]; }
   if (!rest) return null;
@@ -173,11 +185,14 @@ export function checkDraft(draft, words, privateWords = []) {
   if (!text || text.length > MESSAGE_MAX) return { problem: 'empty' };
   const said = String(words ?? '');
   const nums = new Set(said.match(/\d+/g) ?? []);
-  if ((text.match(/\d+/g) ?? []).some((n) => !nums.has(n))) return { problem: 'invented' };
+  const extraNum = (text.match(/\d+/g) ?? []).find((n) => !nums.has(n));
+  if (extraNum) return { problem: 'invented', added: extraNum };
   const named = new Set((said.match(DAYS) ?? []).map((w) => w.toLowerCase().slice(0, 3)));
-  if ((text.match(DAYS) ?? []).some((w) => !named.has(w.toLowerCase().slice(0, 3)))) return { problem: 'invented' };
+  const extraDay = (text.match(DAYS) ?? []).find((w) => !named.has(w.toLowerCase().slice(0, 3)));
+  if (extraDay) return { problem: 'invented', added: extraDay };
   const dates = new Set(datesIn(said));
-  if (datesIn(text).some((d) => !dates.has(d))) return { problem: 'invented' };
+  const extraDate = datesIn(text).find((d) => !dates.has(d));
+  if (extraDate) return { problem: 'invented', added: extraDate };
   const allowed = new Set(norm(said).split(' '));
   if (norm(text).split(' ').some((w) => privateWords.includes(w) && !allowed.has(w))) return { problem: 'private' };
   return { text };

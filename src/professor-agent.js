@@ -870,7 +870,13 @@ async function instructionCard({ operationId, ins, words, roster, hub }) {
     let text = '';
     try {
       const d = await draftMessage({ instruction: words, audience: to.to, mock: () => mockDraft(b.clause), emit: (type, data) => emitViz(type, `prof-${operationId}`, data) });
-      const checked = checkDraft(d.text, words, privateStaffWords(words));
+      let checked = checkDraft(d.text, words, privateStaffWords(words));
+      // One repair when the draft added a number, day or date he didn't give (live matrix, 2026-11-06: the owner's own
+      // sentence got an empty box); a private word is never repaired — the box stays empty.
+      if (!checked.text && checked.problem === 'invented' && d.by === 'model') {
+        const again = await draftMessage({ instruction: words, audience: to.to, repair: checked.added, mock: () => mockDraft(b.clause), emit: (type, data) => emitViz(type, `prof-${operationId}`, data) }).catch(() => null);
+        if (again) checked = checkDraft(again.text, words, privateStaffWords(words));
+      }
       if (checked.text) text = checked.text; else prompt = DRAFT_REFUSED_TEXT;
     } catch { prompt = DRAFT_FAILED_TEXT; }
     return openCard({ operationId, hub, rows, aud: got.aud, text, own: words, label: 'draft', prompt });

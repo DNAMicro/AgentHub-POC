@@ -148,7 +148,8 @@ test('review E: the message preview card fits inside the author proxy (opening i
   assert.ok(T.professorMessageRosterMs > T.chrsToolChoiceMs + T.chrsRecordsCallMs, 'the fresh roster read outlasts CHRS');
   assert.equal(T.professorDraftMs, 30000);
   // An instruction: staff-or-class check, fresh roster read, roster query, the draft.
-  assert.ok(T.hubAuthorProxyMs > T.professorStaffClassifierMs + T.professorMessageRosterMs + T.professorRosterQueryMs + T.professorDraftMs);
+  assert.ok(T.hubAuthorProxyMs > T.professorStaffClassifierMs + T.professorMessageRosterMs + T.professorRosterQueryMs + T.professorDraftMs + T.professorDraftRepairMs);
+  assert.equal(T.professorDraftRepairMs, 20000);
   // An @assistant post: the tag lookup (staff wait), the assistant's model, then the card's fresh roster read.
   assert.ok(T.hubAuthorProxyMs > T.professorStaffMs + T.professorModelMs + T.professorMessageRosterMs);
   // Send: a fresh roster read, naming the post, the publish.
