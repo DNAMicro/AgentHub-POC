@@ -365,11 +365,17 @@ function merge(open, read, text, cardValues) {
   // Wednesday”) clears them; a return-day message that isn't the one clear shape clears them; dates read cleanly
   // replace them; a day that couldn't be read clears them; otherwise the card's dates stay.
   // Cleared dates make HR ask “Which day or days?”.
+  const nextDay = (x) => new Date(Date.parse(`${x}T12:00:00Z`) + 86400000).toISOString().slice(0, 10);
   const clearDates = () => { values.beginDate = ''; values.endDate = ''; };
   // A follow-up that names one of the card's CURRENT days together with other days (“Move Friday to Monday and
   // Tuesday”, “Not Friday, Monday and Tuesday”, “Switch it from Friday to Monday”) is a change we can't read safely.
   const said = mentionedDays(text);
-  const namesCardDay = card.beginDate && [...said].some((d) => d >= card.beginDate && d <= card.endDate);
+  // …also by weekday NAME: said on a Friday about a card for today, “Make it Thursday and Friday” reads as next Thu+Fri
+  // (a later weekday follows the earlier one), yet “Friday” is still the card's day — unclear, so ask.
+  const cardDows = new Set();
+  if (card.beginDate) for (let x = card.beginDate; x <= card.endDate && cardDows.size < 7; x = nextDay(x)) cardDows.add(new Date(`${x}T12:00:00Z`).getUTCDay());
+  const namedDows = [...String(text ?? '').toLowerCase().matchAll(/\b(sun|mon|tue|wed|thu|fri|sat)[a-z]*\b/g)].map((m) => ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].indexOf(m[1]));
+  const namesCardDay = card.beginDate && ([...said].some((d) => d >= card.beginDate && d <= card.endDate) || (said.size > 1 && namedDows.some((d) => cardDows.has(d))));
   const namesOtherDay = card.beginDate && [...said].some((d) => d < card.beginDate || d > card.endDate);
   if (ADDITION.test(text) && mentionsDay(text)) clearDates();
   else if (namesCardDay && namesOtherDay) clearDates();
