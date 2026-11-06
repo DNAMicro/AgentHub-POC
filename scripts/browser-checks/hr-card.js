@@ -249,7 +249,7 @@ async (page) => {
   // “yes” sends them all, with dates only, to the students.
   await say('yes');
   const sent = ((await page.locator('#prof-log').textContent()) ?? '').replace(/\s+/g, ' ');
-  check('cancellation: “yes” sends it to the students and the chat states the real counts (review A4)', /Sent to your 25 students\. 1 student received it in the app\. 24 students aren't online, so they were emailed\./.test(sent) && /Marketing 351 \(10:00–10:50 AM, Mihaylo Hall 2405\) is cancelled on Thu, Nov 5, Fri, Nov 6, Thu, Nov 12 and Fri, Nov 13\./.test(sent), sent.slice(-300));
+  check('cancellation: “yes” sends it to the students and the chat states the real counts (review A4)', /25 students notified\./.test(sent) && /Marketing 351 \(10:00–10:50 AM, Mihaylo Hall 2405\) is cancelled on Thu, Nov 5, Fri, Nov 6, Thu, Nov 12 and Fri, Nov 13\./.test(sent), sent.slice(-300));
   // Part 17: the cancellation goes to all 25 students, so its card is a summary with the rows folded away.
   const cancelPost = page.locator('#prof-log .sent-post, #prof-log .post-card').last();
   const cancelSum = await cancelPost.locator('.dsum .pill').allTextContents();

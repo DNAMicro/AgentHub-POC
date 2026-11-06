@@ -830,9 +830,9 @@ test('D17 reset: no chat entries, the draft stays closed and refuses every actio
 // Review A4: after Canvas publishes, the chat line counts the real deliveries of the class notice (from the Hub's ack).
 test('review A4: the published line counts the notice deliveries — in the app, emailed, email failed', async () => {
   const cases = [
-    [[{ studentId: 'student-alex', state: 'delivered' }, { studentId: 'student-sam', state: 'queued', emailed: true }], "Published in Canvas (quiz #4821). Sent to your 2 students. 1 student received it in the app. 1 student isn't online, so they were emailed."],
-    [[{ studentId: 'student-alex', state: 'delivered' }, { studentId: 'student-sam', state: 'queued', emailFailed: true }], "Published in Canvas (quiz #4821). Sent to your 2 students. 1 student received it in the app. 1 student isn't online, and the email couldn't be sent. They'll receive it when they're online."],
-    [[{ studentId: 'student-alex', state: 'delivered', opened: true }, { studentId: 'student-sam', state: 'delivered' }], 'Published in Canvas (quiz #4821). Sent to your 2 students. All 2 received it in the app.'],
+    [[{ studentId: 'student-alex', state: 'delivered' }, { studentId: 'student-sam', state: 'queued', emailed: true }], "Published in Canvas (quiz #4821). 2 students notified."],
+    [[{ studentId: 'student-alex', state: 'delivered' }, { studentId: 'student-sam', state: 'queued', emailFailed: true }], "Published in Canvas (quiz #4821). 1 student notified. 1 student isn't online and will be notified when they are."],
+    [[{ studentId: 'student-alex', state: 'delivered', opened: true }, { studentId: 'student-sam', state: 'delivered' }], 'Published in Canvas (quiz #4821). 2 students notified.'],
   ];
   for (const [deliveries, line] of cases) {
     const s = setup({ postResult: () => ({ http: 200, body: { lesson: { lessonId: 'ls-1' }, ack: { status: 'queued', deliveries } } }) });

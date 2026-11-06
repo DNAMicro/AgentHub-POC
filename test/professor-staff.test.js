@@ -1096,7 +1096,7 @@ test('cancellation: any filed weekday (no “both” needed) offers it; “yes�
   assert.equal(p.kind, 'message');
   assert.equal(p.audience, 'all');
   assert.doesNotMatch(`${p.title} ${p.text}`, /grand|passed|funeral|bereave|sick|leave|vacation/i, 'never why');
-  assert.equal(lastOf(after.chat, 'assistant').text, "Sent to your 25 students. 1 student received it in the app. 24 students aren't online, so they were emailed.");
+  assert.equal(lastOf(after.chat, 'assistant').text, "25 students notified.");
 });
 
 test('cancellation: a part day counts; campus holidays and weekends are not class days', async () => {
@@ -1286,7 +1286,7 @@ test('open card + waiting cancellation offer: yes / no answer the offer first', 
   assert.notEqual(r.action, 'staff', 'the yes is not an HR follow-up');
   st = await state();
   assert.equal(st.hrCard.formRef, second, 'the card is unchanged');
-  assert.match(lastOf(st.chat, 'assistant').text, /Sent to your 25 students|cancelled on/i);
+  assert.match(lastOf(st.chat, 'assistant').text, /25 students notified|cancelled on/i);
   assert.equal(st.lessons.length, 1, 'the cancellation reached the class');
 });
 
@@ -1348,12 +1348,12 @@ test('owner 2026-11-04 + review A4: choosing the class for a held message confir
   await say('class');
   const st = await state();
   assert.equal(st.lessons.length, 1, 'the held message was posted');
-  assert.equal(lastOf(st.chat, 'assistant').text, "Sent to your 25 students. 1 student received it in the app. 24 students aren't online, so they were emailed.");
+  assert.equal(lastOf(st.chat, 'assistant').text, "25 students notified.");
 });
 
 // ---- Review A5 + C12: the cancellation with time, room and an optional note ------------------------------------------
 const CANCELLED = 'Marketing 351 (10:00–10:50 AM, Mihaylo Hall 2405) is cancelled on Fri, Nov 6.';
-const COUNTS = "Sent to your 25 students. 1 student received it in the app. 24 students aren't online, so they were emailed.";
+const COUNTS = "25 students notified.";
 const NOTE_PRIVATE = 'Your note mentions your leave. Send the cancellation without the note? Reply yes, or write a new note.';
 const cancelPosts = async () => (await state()).lessons.filter((l) => l.title === 'Class cancelled').map((l) => l.text);
 

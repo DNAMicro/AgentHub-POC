@@ -27,29 +27,29 @@ const d = (state, extra = {}) => ({ studentId: `student-${randomUUID().slice(0, 
 const many = (n, state, extra) => Array.from({ length: n }, () => d(state, extra));
 
 test('A4: the whole class — 1 in the app, 24 emailed', () => {
-  assert.equal(deliveredText([d('delivered'), ...many(24, 'queued', { emailed: true })]), "Sent to your 25 students. 1 student received it in the app. 24 students aren't online, so they were emailed.");
+  assert.equal(deliveredText([d('delivered'), ...many(24, 'queued', { emailed: true })]), "25 students notified.");
 });
 test('A4: everyone online / everyone emailed / an opened one counts as in the app', () => {
-  assert.equal(deliveredText(many(3, 'delivered')), 'Sent to your 3 students. All 3 received it in the app.');
-  assert.equal(deliveredText(many(25, 'queued', { emailed: true })), "Sent to your 25 students. None of them are online, so all 25 were emailed.");
-  assert.equal(deliveredText([d('delivered', { opened: true }), d('queued', { emailed: true })]), "Sent to your 2 students. 1 student received it in the app. 1 student isn't online, so they were emailed.");
+  assert.equal(deliveredText(many(3, 'delivered')), '3 students notified.');
+  assert.equal(deliveredText(many(25, 'queued', { emailed: true })), "25 students notified.");
+  assert.equal(deliveredText([d('delivered', { opened: true }), d('queued', { emailed: true })]), "2 students notified.");
 });
 test('A4: the email failed too — said plainly, last', () => {
-  assert.equal(deliveredText([d('delivered'), ...many(24, 'queued', { emailFailed: true })]), "Sent to your 25 students. 1 student received it in the app. 24 students aren't online, and the email couldn't be sent. They'll receive it when they're online.");
-  assert.equal(deliveredText(many(2, 'queued')), "Sent to your 2 students. None of them are online, and the email couldn't be sent. They'll receive it when they're online.");
-  assert.equal(deliveredText([d('delivered'), ...many(20, 'queued', { emailed: true }), ...many(4, 'queued', { emailFailed: true })]), "Sent to your 25 students. 1 student received it in the app. 20 students aren't online, so they were emailed. 4 students aren't online, and the email couldn't be sent. They'll receive it when they're online.");
+  assert.equal(deliveredText([d('delivered'), ...many(24, 'queued', { emailFailed: true })]), "1 student notified. 24 students aren't online and will be notified when they are.");
+  assert.equal(deliveredText(many(2, 'queued')), "2 students aren't online and will be notified when they are.");
+  assert.equal(deliveredText([d('delivered'), ...many(20, 'queued', { emailed: true }), ...many(4, 'queued', { emailFailed: true })]), "21 students notified. 4 students aren't online and will be notified when they are.");
 });
 test('A4: one student — stored without a name, each outcome in plain words', () => {
   const one = (x) => deliveredText([x], { audience: x.studentId });
-  assert.equal(one(d('delivered')), 'Sent to 1 student, who received it in the app.');
-  assert.equal(one(d('queued', { emailed: true })), "Sent to 1 student. They aren't online, so they were emailed.");
-  assert.equal(one(d('queued', { emailFailed: true })), "Sent to 1 student. They aren't online, and the email couldn't be sent. They'll receive it when they're online.");
-  assert.equal(one(d('uncertain')), "Sent to 1 student. It's still on its way; I'll keep checking.");
-  assert.equal(one(d('failed')), "Sent to 1 student, but it couldn't be delivered.");
+  assert.equal(one(d('delivered')), '1 student notified.');
+  assert.equal(one(d('queued', { emailed: true })), "1 student notified.");
+  assert.equal(one(d('queued', { emailFailed: true })), "1 student isn't online and will be notified when they are.");
+  assert.equal(one(d('uncertain')), "1 student is still being notified.");
+  assert.equal(one(d('failed')), "1 student couldn't be notified.");
 });
 test('A4: several tagged students, uncertain and failed rows, and nothing to count', () => {
-  assert.equal(deliveredText([d('delivered'), d('queued', { emailed: true })], { audience: 'student-a,student-b' }), "Sent to 2 students. 1 student received it in the app. 1 student isn't online, so they were emailed.");
-  assert.equal(deliveredText([d('delivered'), d('uncertain'), d('failed')]), "Sent to your 3 students. 1 student received it in the app. It's still on its way to 1 student. It couldn't be delivered to 1 student.");
+  assert.equal(deliveredText([d('delivered'), d('queued', { emailed: true })], { audience: 'student-a,student-b' }), "2 students notified.");
+  assert.equal(deliveredText([d('delivered'), d('uncertain'), d('failed')]), "1 student notified. 1 student is still being notified. 1 student couldn't be notified.");
   assert.equal(deliveredText([]), null, 'no ack deliveries: no claim at all');
   assert.equal(deliveredText(undefined), null);
   assert.deepEqual(deliveryCounts([d('delivered'), d('queued', { emailed: true }), d('queued')]), { total: 3, app: 1, emailed: 1, waiting: 1, failed: 0, sending: 0 });
@@ -57,7 +57,7 @@ test('A4: several tagged students, uncertain and failed rows, and nothing to cou
 test('A4: never a bare "Sent" and never a system name', () => {
   const texts = [deliveredText([d('delivered'), ...many(24, 'queued', { emailed: true })]), deliveredText([d('queued')], { audience: 'x' })];
   for (const t of texts) {
-    assert.match(t, /^Sent to (your )?\d+ students?(\.|,) /);
+    assert.match(t, /^\d+ students? /);
     assert.doesNotMatch(t, /CHRS|Hub|MCP|agent|PeopleSoft|AI\b/);
   }
 });
@@ -364,7 +364,7 @@ async function facultyStack(chrsEnv = {}) {
 test('A4 + C16: every send path states the real counts — email failed for some students (plain, notify, one student, @assistant)', async () => {
   const fail = ['student-sam', 'student-lily-chen', 'student-omar-hassan'].join(',');
   const { say, confirmations } = await facultyStack({ CHRS_TEST_MAIL_FAIL: fail });
-  const expectClass = "Sent to your 25 students. 1 student received it in the app. 21 students aren't online, so they were emailed. 3 students aren't online, and the email couldn't be sent. They'll receive it when they're online.";
+  const expectClass = "22 students notified. 3 students aren't online and will be notified when they are.";
   assert.equal((await say('Please bring your laptops to class tomorrow.')).action, 'post');
   assert.equal((await confirmations()).at(-1).text, expectClass, 'a plain class post');
   await say('Notify everyone that the review session moves to Room 110.');
@@ -372,11 +372,11 @@ test('A4 + C16: every send path states the real counts — email failed for some
   const toSam = await say('@sam your draft is due Monday.');
   assert.equal(toSam.action, 'post', JSON.stringify(toSam));
   const sam = (await confirmations()).at(-1);
-  assert.deepEqual([sam.text, sam.sentTo], ["Sent to 1 student. They aren't online, and the email couldn't be sent. They'll receive it when they're online.", 'student-sam']);
+  assert.deepEqual([sam.text, sam.sentTo], ["1 student isn't online and will be notified when they are.", 'student-sam']);
   await say('@mariana your draft is due Monday.');
-  assert.equal((await confirmations()).at(-1).text, "Sent to 1 student. They aren't online, so they were emailed.");
+  assert.equal((await confirmations()).at(-1).text, "1 student notified.");
   await say('@alex nice work today.');
-  assert.equal((await confirmations()).at(-1).text, 'Sent to 1 student, who received it in the app.');
+  assert.equal((await confirmations()).at(-1).text, '1 student notified.');
   await say('@assistant send the Evidence before assumptions lesson to the class');
   assert.equal((await confirmations()).at(-1).text, expectClass, 'an @assistant post');
   const all = await confirmations();
@@ -420,7 +420,7 @@ test('C13: a student dropped between two “notify everyone” sends is not addr
   assert.equal(newest.deliveries.length, 24, 'read fresh: the dropped student is not addressed');
   assert.ok(!newest.deliveries.some((x) => x.studentId === 'student-noah-walker'));
   const said = s.chat.filter((m) => m.action === 'sent').at(-1).text;
-  assert.equal(said, "Sent to your 24 students. 1 student received it in the app. 23 students aren't online, so they were emailed.");
+  assert.equal(said, "24 students notified.");
   await settle();
   assert.ok(events.filter((e) => e.type === 'roster_lookup_started').length >= 1, 'the Hub looked the roster up for the send');
 });

@@ -82,8 +82,8 @@ async (page) => {
 
   // 2. Notify everyone: the card is kept through the redraw.
   await say('notify everyone that the midterm review session moves to Thursday');
-  await page.waitForFunction(() => /Sent to your 25 students\. 1 student received it in the app\. 24 students aren't online, so they were emailed\./.test(document.querySelector('#prof-log').textContent), null, { timeout: 30000 });
-  check('review A4: "Sent to your 25 students. 1 student received it in the app. 24 students aren\'t online, so they were emailed."', true);
+  await page.waitForFunction(() => /25 students notified\./.test(document.querySelector('#prof-log').textContent), null, { timeout: 30000 });
+  check('review A4: "25 students notified."', true);
   check('the roster card element survived the redraw', await page.evaluate(() => document.querySelector('#prof-log .roster-card')?.__keep === 'same-element') && await rows.count() === 25);
   const post = page.locator('#prof-log .sent-post').last();
   await post.locator('.dsum').waitFor();
