@@ -91,7 +91,7 @@ test('submit files in PeopleSoft and returns ABS record id', async () => {
   const from = s.feed.events.length;
   const done = await s.act(card.reply.formRef, submit(card.reply, VACATION));
   assert.equal(done.status, 'ok', JSON.stringify(done));
-  assert.match(done.reply.receipt.recordId, /^ABS-\d{6}$/);
+  assert.match(done.reply.receipt.recordId, /^\d{8}$/);
   assert.equal('steps' in done.reply.receipt, false, 'the wrapper’s steps never reach the receipt');
   const records = await s.requests();
   assert.equal(records.length, 1);
@@ -168,7 +168,7 @@ test('uncertain submit then retry files once', async (t) => {
   await waitFor(async () => (await own.requests()).length === 1, { what: 'PeopleSoft wrote it anyway' });
   const again = await own.act(card.reply.formRef, submit(card.reply, VACATION), operationId);
   assert.equal(again.status, 'ok', JSON.stringify(again));
-  assert.match(again.reply.receipt.recordId, /^ABS-\d{6}$/);
+  assert.match(again.reply.receipt.recordId, /^\d{8}$/);
   assert.equal('steps' in again.reply.receipt, false);
   assert.equal((await own.requests()).length, 1, 'filed once');
 });

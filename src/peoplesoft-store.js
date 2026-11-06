@@ -12,10 +12,15 @@ import { planAbsence } from './leave-rules.js';
 
 const seedStaff = () => [{ staffId: 'staff-dabirian', name: 'Dr. Dabirian', standardHours: 8, balances: { vacation: 96, sick: 120, personalHoliday: 8 }, role: 'Department chair', appointment: '12-month', synthetic: true }];
 export const REFUSAL_CODES = ['not_enough', 'holiday_boundary', 'no_workdays', 'too_long', 'overlap', 'bad_reason', 'operation_reused', 'unknown_staff', 'bad_hours', 'reset_during_call'];
-const recordNumber = (n) => `ABS-${String(n).padStart(6, '0')}`;
+// Realistic-looking numbers, like PeopleSoft's own (review D18): the request is a plain 7-digit number and the
+// record an 8-digit one with leading zeros. Both start at a fixed base on every start/reset and count up.
+export const REQUEST_BASE = 4310288;
+export const RECORD_BASE = 482131;
+const requestNumber = (n) => String(n);
+const recordNumber = (n) => String(n).padStart(8, '0');
 
 export function createPeopleSoftStore({ now = () => new Date() } = {}) {
-  const state = { staff: seedStaff(), requests: [], operations: new Map(), counter: 101, generation: 0 }; // Map: any operation id string is a plain key
+  const state = { staff: seedStaff(), requests: [], operations: new Map(), counter: 0, generation: 0 }; // Map: any operation id string is a plain key
   const find = (staffId) => state.staff.find((s) => s.staffId === staffId) ?? null;
   const viewOf = (s) => ({ staffId: s.staffId, name: s.name, standardHours: s.standardHours, role: s.role, appointment: s.appointment, balances: { ...s.balances } });
   const fail = (code, reason) => ({ ok: false, code, reason });
@@ -47,7 +52,7 @@ export function createPeopleSoftStore({ now = () => new Date() } = {}) {
       const clash = state.requests.find((r) => r.staffId === staffId && workdays(r.beginDate, r.endDate).some((d) => mine.has(d)));
       if (clash) return fail('overlap', `That overlaps time off already filed for ${clash.beginDate === clash.endDate ? shortDate(clash.beginDate) : `${shortDate(clash.beginDate)} to ${shortDate(clash.endDate)}`}.`);
       const receipt = {
-        requestId: `TO-${String(operationId).replace(/[^0-9a-f]/gi, '').slice(0, 8).toUpperCase()}`, recordId: recordNumber(state.counter++),
+        requestId: requestNumber(REQUEST_BASE + state.counter), recordId: recordNumber(RECORD_BASE + state.counter++),
         absenceType: values.absenceType, absenceReason: values.absenceReason, absenceName: nameOf(values.absenceType),
         reasonText: reasonsOf(values.absenceType).find((r) => r.code === values.absenceReason)?.reason ?? null,
         beginDate: values.beginDate, endDate: values.endDate, hours: p.hours, status: 'recorded', steps: [...(steps ?? [])],
@@ -70,7 +75,7 @@ export function createPeopleSoftStore({ now = () => new Date() } = {}) {
       state.staff = seedStaff();
       state.requests = [];
       state.operations = new Map();
-      state.counter = 101;
+      state.counter = 0;
       state.generation += 1;
     },
     _records: () => structuredClone(state.requests),

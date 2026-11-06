@@ -1,5 +1,5 @@
 // PeopleSoft student records stand-in: an MCP server (Streamable HTTP, stateful sessions) over the in-memory roster.
-// DEMO STAND-IN, not the real PeopleSoft. One tool (get_class_roster). Every call needs the bearer token.
+// DEMO STAND-IN, not the real PeopleSoft Campus Solutions. One tool (get_class_roster). Every call needs the bearer token.
 // Model proposes, code decides: its own AI (student-records-model.js) only plans optional steps; the store decides
 // who may see the roster. Nothing is saved to disk. Never log the token or any student's name, email or ID.
 import { randomUUID, timingSafeEqual } from 'node:crypto';
@@ -15,11 +15,11 @@ import { planSteps, studentRecordsStatus, STUDENT_RECORDS_MODE } from './student
 import { apiHost } from './llm.js';
 
 const HOST = '127.0.0.1';
-const DEMO = 'Demo stand-in for PeopleSoft student records:';
-const log = (...a) => console.log('[StudentRecords]', ...a);
+const DEMO = 'Demo stand-in for PeopleSoft Campus Solutions (student records):';
+const log = (...a) => console.log('[PeopleSoft Campus Solutions]', ...a);
 
 const asResult = (value, isError = false) => ({ content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value, ...(isError ? { isError: true } : {}) });
-const refusal = (code, reason) => asResult(REFUSAL_CODES.includes(code) ? { code, reason } : { code: 'tool_error', reason: 'Student records could not complete that request.' }, true);
+const refusal = (code, reason) => asResult(REFUSAL_CODES.includes(code) ? { code, reason } : { code: 'tool_error', reason: 'PeopleSoft Campus Solutions could not complete that request.' }, true);
 
 function buildServer(store) {
   const server = new McpServer({ name: 'student-records-demo-standin', version: '1.0.0' });
@@ -98,7 +98,7 @@ export function startStudentRecordsServer({ port = 41249, token = process.env.ST
       if (process.env.STUDENT_RECORDS_TEST_HOOKS === '1') app.get('/test/state', (req, res) => res.json({ rosterRows: store.rosterSize() }));
 
       const baseUrl = `http://${HOST}:${actualPort}`;
-      console.log(`PeopleSoft student records MCP server (demo stand-in) listening on ${baseUrl}`);
+      console.log(`PeopleSoft Campus Solutions MCP server (demo stand-in) listening on ${baseUrl}`);
       const st = studentRecordsStatus();
       log(`mode: ${STUDENT_RECORDS_MODE}, planner: ${st.model}`);
       if (STUDENT_RECORDS_MODE === 'live') log(`API host: ${apiHost()}`);

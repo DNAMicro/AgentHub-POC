@@ -20,14 +20,14 @@ test('chrs mcp_call_result labels: a count, refused, uncertain, unavailable', ()
   const ok = chrs('mcp_call_result', { ok: true, outcome: 'ok', rosterCount: 25 });
   assert.deepEqual(shape(ok), { ...back, phase: 'completed' });
   assert.equal(ok.label, 'Roster: 25 students');
-  assert.equal(chrs('mcp_call_result', { ok: true, outcome: 'ok', rosterCount: null }).label, 'Student records answered');
+  assert.equal(chrs('mcp_call_result', { ok: true, outcome: 'ok', rosterCount: null }).label, 'Campus Solutions answered');
   const refused = chrs('mcp_call_result', { ok: false, outcome: 'refused', code: 'not_instructor' });
   assert.equal(refused.phase, 'failed');
-  assert.equal(refused.label, 'Student records refused (not_instructor)');
+  assert.equal(refused.label, 'Campus Solutions refused (not_instructor)');
   const uncertain = chrs('mcp_call_result', { ok: false, outcome: 'uncertain' });
   assert.equal(uncertain.phase, 'unknown');
   assert.equal(chrs('mcp_call_result', { ok: false, outcome: 'unavailable' }).phase, 'failed');
-  assert.equal(chrs('mcp_call_result', { ok: false, outcome: 'unavailable' }).label, "Student records didn't answer");
+  assert.equal(chrs('mcp_call_result', { ok: false, outcome: 'unavailable' }).label, "Campus Solutions didn't answer");
 });
 
 test('chrs mcp_tool_refused stays inside CHRS; its model calls hop on chrs-model only when live', () => {
@@ -46,8 +46,8 @@ test('studentdb_session is like peoplesoft_session: open, unreachable, not confi
   assert.deepEqual(shape(open), { edge: 'chrs-studentdb', from: 'chrs', to: 'studentdb', category: 'registration', phase: 'completed' });
   assert.equal(open.label, 'MCP session open');
   assert.equal(chrs('studentdb_session', { status: 'unreachable' }).phase, 'failed');
-  assert.equal(chrs('studentdb_session', { status: 'unreachable' }).label, 'Student records unreachable');
-  assert.equal(chrs('studentdb_session', { status: 'not_configured' }).label, 'Student records not configured');
+  assert.equal(chrs('studentdb_session', { status: 'unreachable' }).label, 'Campus Solutions unreachable');
+  assert.equal(chrs('studentdb_session', { status: 'not_configured' }).label, 'Campus Solutions not configured');
 });
 
 test('Hub roster_lookup hops go Hub → CHRS and back, with a count only', () => {
@@ -77,7 +77,7 @@ test('no label carries a student name, ID or email', () => {
 test('the page: approved layout, indigo CHRS, model box, student records tile and edges, no studentdb model box, session event passes the filters', () => {
   const html = read('public/index.html');
   assert.match(html, /viewBox="0 0 1100 1285"/);
-  assert.match(html, /PeopleSoft student records \(a demo stand-in system\), reached only by the CHRS Agent over MCP/);
+  assert.match(html, /PeopleSoft Campus Solutions \(a demo stand-in system\), reached only by the CHRS Agent over MCP/);
   const js = read('public/topology.js');
   assert.match(js, /student: \{ x: 130, y: 605,/);
   assert.match(js, /hub: \{ x: 450, y: 605,/);
@@ -85,7 +85,7 @@ test('the page: approved layout, indigo CHRS, model box, student records tile an
   assert.match(js, /'llm-hub': \{ x: 450, y: 355,/);
   assert.match(js, /chrs: \{ x: 710, y: 1115, r: 56, name: 'CHRS Agent', role: 'Staff only' \}/);
   assert.match(js, /'llm-chrs': \{ x: 985, y: 1060,/);
-  assert.match(js, /studentdb: \{ x: 985, y: 1190, w: 176, h: 80, kind: 'system', name: 'PeopleSoft', fullName: 'PeopleSoft student records', role: 'Student records' \}/);
+  assert.match(js, /studentdb: \{ x: 985, y: 1190, w: 176, h: 80, kind: 'system', name: 'PeopleSoft Campus Solutions', lines: \['PeopleSoft', 'Campus Solutions'\], role: 'MCP server' \}/);
   assert.match(js, /'hub-chrs': \['hub', 'chrs'\]/);
   assert.match(js, /'chrs-model': \['chrs', 'llm-chrs'\]/);
   assert.match(js, /'chrs-studentdb': \['chrs', 'studentdb'\]/);

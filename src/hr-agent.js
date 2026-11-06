@@ -304,7 +304,7 @@ export function requestsText(list) {
   return list.map((r) => {
     const { subtitle } = titleOf(r.absenceType, r.absenceReason);
     const dates = r.beginDate === r.endDate ? shortDate(r.beginDate) : `${shortDate(r.beginDate)} to ${shortDate(r.endDate)}`;
-    return `${r.requestId}: ${r.absenceName}${subtitle ? ` (${subtitle})` : ''}, ${dates}, ${hoursText(r.hours)} — recorded.`;
+    return `Request ${r.requestId}: ${r.absenceName}${subtitle ? ` (${subtitle})` : ''}, ${dates}, ${hoursText(r.hours)} — recorded.`;
   }).join('\n');
 }
 

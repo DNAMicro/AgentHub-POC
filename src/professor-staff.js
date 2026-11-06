@@ -160,7 +160,7 @@ export function cancellationText(days) {
   return `${COURSE.title} is cancelled on ${listOf(days.map(shortDate))}.`;
 }
 export const cancellationOffer = (days) => `You have ${COURSE.title} on ${listOf(days.map(shortDate))}. Would you like me to send a cancellation to your students?`;
-// “Your time off is recorded. Request TO-1A2B: Bereavement (Grandparent/Great Grandparent), Thu, Nov 5 – Fri, Nov 6,
+// “Your time off is recorded. Request 4310288: Bereavement (Grandparent/Great Grandparent), Thu, Nov 5 – Fri, Nov 6,
 // 16 hours.” The reason is in parentheses only when it says more than the name (titleOf's subtitle).
 export function receiptText(r) {
   const { subtitle } = titleOf(r.absenceType, r.absenceReason);

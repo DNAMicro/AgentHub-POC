@@ -21,7 +21,7 @@ test('lists exactly three tools', async () => {
   const c = await connect();
   const { tools } = await c.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), ['create_absence_request', 'get_leave_balances', 'list_absence_requests']);
-  for (const t of tools) assert.match(t.description, /^Demo stand-in for PeopleSoft:/);
+  for (const t of tools) assert.match(t.description, /^Demo stand-in for PeopleSoft HR:/);
   await c.close();
 });
 
@@ -52,11 +52,11 @@ test('creates a request and lists it', async () => {
   const c = await connect();
   const made = await c.callTool({ name: 'create_absence_request', arguments: request() });
   assert.notEqual(made.isError, true, JSON.stringify(made));
-  assert.equal(made.structuredContent.receipt.recordId, 'ABS-000101');
+  assert.equal(made.structuredContent.receipt.recordId, '00482131');
   assert.equal(made.structuredContent.receipt.status, 'recorded');
   const listed = await c.callTool({ name: 'list_absence_requests', arguments: { staffId: 'staff-dabirian' } });
   assert.equal(listed.structuredContent.requests.length, 1);
-  assert.equal(listed.structuredContent.requests[0].recordId, 'ABS-000101');
+  assert.equal(listed.structuredContent.requests[0].recordId, '00482131');
   assert.equal('steps' in listed.structuredContent.requests[0], false);
   await c.close();
 });

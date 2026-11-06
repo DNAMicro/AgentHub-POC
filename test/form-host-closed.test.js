@@ -16,7 +16,7 @@ test('a card closed during its Submit handler stays closed, even if the handler 
     workflows: {
       [WORKFLOW]: {
         build: () => [],
-        actions: { async submitTimeOff() { await gate; return { status: 'accepted', message: 'Sent.', receipt: { requestId: 'TO-1' } }; } },
+        actions: { async submitTimeOff() { await gate; return { status: 'accepted', message: 'Sent.', receipt: { requestId: '4310288' } }; } },
       },
     },
   });

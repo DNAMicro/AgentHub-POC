@@ -525,6 +525,7 @@ h2 { margin: 0; font-size: 1.07rem; font-weight: 700; color: var(--agent, var(--
 @keyframes sweep { from { transform: translateX(-120px); } to { transform: translateX(120px); } }
 .topo .node-name { font: 700 15px var(--font); fill: var(--node); }
 .topo .node[data-node="hub"] .node-name { font-size: 16px; }
+.topo .node-name.two-line { font-size: 13px; } /* PeopleSoft Campus Solutions: two lines inside the tile, clear of the database icon */
 .topo .node-sub { font: 12px var(--font); fill: var(--muted); }
 .topo .node-extra { font: 11px var(--mono); fill: var(--muted); }
 .topo .node-caption { font: 600 12px var(--font); fill: var(--text); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; }

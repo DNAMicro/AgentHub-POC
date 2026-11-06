@@ -21,7 +21,7 @@ test('lists exactly one tool with the demo prefix', async () => {
   const c = await connect();
   const { tools } = await c.listTools();
   assert.deepEqual(tools.map((t) => t.name), ['get_class_roster']);
-  assert.match(tools[0].description, /^Demo stand-in for PeopleSoft student records:/);
+  assert.match(tools[0].description, /^Demo stand-in for PeopleSoft Campus Solutions \(student records\):/);
   await c.close();
 });
 

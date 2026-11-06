@@ -21,7 +21,7 @@ export const chrsStatus = () => ({ mode: CHRS_MODE, model: CHRS_MODE === 'live' 
 export const CHRS_MOMENT_TOOL = { roster: 'get_class_roster' };
 const MOMENT_WORDS = { roster: 'look up the class roster (the class and the students enrolled) for the course\'s own instructor.' };
 const PURPOSE = 'choose student records tool';
-const toolSystem = (moment) => `You are CHRS, a university staff service. You reach PeopleSoft student records (a demo stand-in) through MCP tools. Pick the ONE tool that does what CHRS needs right now, from the tools listed. Return only its name; code builds the arguments.
+const toolSystem = (moment) => `You are CHRS, a university staff service. You reach PeopleSoft Campus Solutions (a demo stand-in) through MCP tools. Pick the ONE tool that does what CHRS needs right now, from the tools listed. Return only its name; code builds the arguments.
 CHRS needs to: ${MOMENT_WORDS[moment]}`;
 
 export async function chooseRecordsTool({ moment, tools = [], emit = () => {} }) {

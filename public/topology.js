@@ -27,8 +27,8 @@ const NODES = {
   chrs: { x: 710, y: 1115, r: 56, name: 'CHRS Agent', role: 'Staff only' },
   // Systems, not agents (design F: tile + icon + sparkle + sweep). Part 15 PeopleSoft, Part 16 Canvas LMS.
   canvas: { x: 985, y: 680, w: 176, h: 80, kind: 'system', name: 'Canvas LMS', role: 'MCP server' },
-  peoplesoft: { x: 985, y: 935, w: 176, h: 80, kind: 'system', name: 'PeopleSoft', role: 'MCP server' },
-  studentdb: { x: 985, y: 1190, w: 176, h: 80, kind: 'system', name: 'PeopleSoft', fullName: 'PeopleSoft student records', role: 'Student records' },
+  peoplesoft: { x: 985, y: 935, w: 176, h: 80, kind: 'system', name: 'PeopleSoft HR', role: 'MCP server' },
+  studentdb: { x: 985, y: 1190, w: 176, h: 80, kind: 'system', name: 'PeopleSoft Campus Solutions', lines: ['PeopleSoft', 'Campus Solutions'], role: 'MCP server' },
   // One model box per agent (owner). Server labels say 'model'; the browser draws it at the caller's box.
   'llm-student': { x: 130, y: 355, w: 184, h: 74, owner: 'student', name: 'Student’s model' },
   'llm-hub': { x: 450, y: 355, w: 184, h: 74, owner: 'hub', name: 'Hub router’s model' },
@@ -54,10 +54,10 @@ const LANE_MCP = 7; // the short MCP lines (mockup)
 const PILL_CLEAR = 43;
 // The systems (demo stand-ins): their MCP tools, edge, colour variable, session states and the busy/saved timings.
 const SYSTEMS = {
-  peoplesoft: { edge: 'hr-peoplesoft', sessionEvent: 'peoplesoft_session', color: '--ps', cls: '', icon: 'db', title: 'PeopleSoft — demo stand-in', reachedBy: 'the HR Agent', tools: ['get_leave_balances', 'list_absence_requests', 'create_absence_request'], saved: /^Saved/ },
+  peoplesoft: { edge: 'hr-peoplesoft', sessionEvent: 'peoplesoft_session', color: '--ps', cls: '', icon: 'db', title: 'PeopleSoft HR — demo stand-in', reachedBy: 'the HR Agent', tools: ['get_leave_balances', 'list_absence_requests', 'create_absence_request'], saved: /^Saved/ },
   canvas: { edge: 'professor-canvas', sessionEvent: 'canvas_session', color: '--lms', cls: ' lms', icon: 'quiz', title: 'Canvas LMS — demo stand-in', reachedBy: 'the Faculty agent', tools: ['create_quiz', 'publish_quiz'], saved: /^(Saved|Published)/ },
   // Part 17: the same PeopleSoft look for its student records, reached only by CHRS. A roster read saves nothing: no “Saved” flash.
-  studentdb: { edge: 'chrs-studentdb', sessionEvent: 'studentdb_session', color: '--ps', cls: '', icon: 'db', title: 'PeopleSoft student records — demo stand-in', reachedBy: 'the CHRS Agent', tools: ['get_class_roster'], saved: /^(?!)/ },
+  studentdb: { edge: 'chrs-studentdb', sessionEvent: 'studentdb_session', color: '--ps', cls: '', icon: 'db', title: 'PeopleSoft Campus Solutions — demo stand-in', reachedBy: 'the CHRS Agent', tools: ['get_class_roster'], saved: /^(?!)/ },
 };
 const SYSTEM_OF_EDGE = Object.fromEntries(Object.entries(SYSTEMS).map(([id, v]) => [v.edge, id]));
 const SESSION = { connected: ['✓ Connected', 'ok'], unreachable: ['✕ Unreachable', 'bad'], not_configured: ['○ Not configured', 'muted'], none: ['○ Not connected yet', 'muted'] };
@@ -228,9 +228,15 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
           el('ellipse', { class: 'db', cx: 0, cy: -13, rx: 14, ry: 4.5 }),
           el('path', { class: 'db-line', d: 'M-14,-4 A14,4.5 0 0 0 14,-4 M-14,5 A14,4.5 0 0 0 14,5' }));
       const spark = el('g', { transform: 'translate(68 -22)' }, el('path', { class: 'spark', d: 'M0,-10 C1.5,-2 2,-1.5 10,0 C2,1.5 1.5,2 0,10 C-1.5,2 -2,1.5 -10,0 C-2,-1.5 -1.5,-2 0,-10 Z' }));
-      const words = el('g', { transform: 'translate(14 0)' },
-        el('text', { class: 'node-name', y: 4, 'text-anchor': 'middle' }, n.name),
-        el('text', { class: 'node-sub', y: 21, 'text-anchor': 'middle' }, n.role.toUpperCase()));
+      // A long name (PeopleSoft Campus Solutions) is drawn on two lines so it stays inside the tile.
+      const words = n.lines
+        ? el('g', { transform: 'translate(22 0)' },
+          el('text', { class: 'node-name two-line', y: -7, 'text-anchor': 'middle' }, n.lines[0]),
+          el('text', { class: 'node-name two-line', y: 10, 'text-anchor': 'middle' }, n.lines[1]),
+          el('text', { class: 'node-sub', y: 27, 'text-anchor': 'middle' }, n.role.toUpperCase()))
+        : el('g', { transform: 'translate(14 0)' },
+          el('text', { class: 'node-name', y: 4, 'text-anchor': 'middle' }, n.name),
+          el('text', { class: 'node-sub', y: 21, 'text-anchor': 'middle' }, n.role.toUpperCase()));
       const statusG = el('g', { class: 'node-status', transform: 'translate(0 64)' });
       const statusText = el('text', { class: 'status-text', y: 4, 'text-anchor': 'middle' }, '');
       statusG.append(el('rect', { class: 'status-pill', x: -62, y: -13, width: 124, height: 24, rx: 12 }), statusText);
@@ -499,7 +505,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
   }
   traceSelect.addEventListener('change', () => (traceSelect.value ? select({ kind: 'trace', id: traceSelect.value }) : select(null)));
 
-  const nodeName = (id) => { if (!NODES[id]) warnOnce(id); return NODES[id]?.fullName ?? NODES[id]?.name ?? id; }; // an agent this page doesn't draw yet (e.g. CHRS) is named by its id, never thrown on
+  const nodeName = (id) => { if (!NODES[id]) warnOnce(id); return NODES[id]?.name ?? id; }; // an agent this page doesn't draw yet (e.g. CHRS) is named by its id, never thrown on
   const route = (t) => (t.edge ? `${nodeName(t.from)} → ${nodeName(t.to)}` : `inside ${nodeName(t.node)}`);
   function listItem(ev) {
     const t = ev.topo;

@@ -16,8 +16,8 @@ import { planSteps, peoplesoftStatus, PEOPLESOFT_MODE } from './peoplesoft-model
 import { apiHost } from './llm.js';
 
 const HOST = '127.0.0.1';
-const DEMO = 'Demo stand-in for PeopleSoft:';
-const log = (...a) => console.log('[PeopleSoft]', ...a);
+const DEMO = 'Demo stand-in for PeopleSoft HR:';
+const log = (...a) => console.log('[PeopleSoft HR]', ...a);
 
 const asResult = (value, isError = false) => ({ content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value, ...(isError ? { isError: true } : {}) });
 const refusal = (code, reason) => asResult(REFUSAL_CODES.includes(code) ? { code, reason } : { code: 'tool_error', reason: 'PeopleSoft could not complete that request.' }, true);
@@ -145,7 +145,7 @@ export function startPeopleSoftServer({ port = 41246, token = process.env.PEOPLE
       if (process.env.PEOPLESOFT_TEST_HOOKS === '1') app.get('/test/records', (req, res) => res.json({ records: store._records() }));
 
       const baseUrl = `http://${HOST}:${actualPort}`;
-      console.log(`PeopleSoft MCP server (demo stand-in) listening on ${baseUrl}`);
+      console.log(`PeopleSoft HR MCP server (demo stand-in) listening on ${baseUrl}`);
       const st = peoplesoftStatus();
       log(`mode: ${PEOPLESOFT_MODE}, planner: ${st.model}`);
       if (PEOPLESOFT_MODE === 'live') log(`API host: ${apiHost()}`);

@@ -11,7 +11,7 @@
 
 const SPECIALISTS = new Set(['tutor', 'library', 'professor', 'hr', 'chrs']); // hr, chrs: staff only (reached only by the Hub's staff path / roster lookup)
 const edgeFor = (agentId) => (SPECIALISTS.has(agentId) ? `hub-${agentId}` : null);
-const NODE_NAMES = { student: 'Student', hub: 'University Hub', tutor: 'Tutor', library: 'Library', professor: 'Marketing 351 Faculty', hr: 'HR Agent', chrs: 'CHRS Agent', studentdb: 'PeopleSoft student records (demo stand-in)', peoplesoft: 'PeopleSoft (demo stand-in)', canvas: 'Canvas LMS (demo stand-in)', model: 'Model provider' };
+const NODE_NAMES = { student: 'Student', hub: 'University Hub', tutor: 'Tutor', library: 'Library', professor: 'Marketing 351 Faculty', hr: 'HR Agent', chrs: 'CHRS Agent', studentdb: 'PeopleSoft Campus Solutions (demo stand-in)', peoplesoft: 'PeopleSoft HR (demo stand-in)', canvas: 'Canvas LMS (demo stand-in)', model: 'Model provider' };
 
 function hop(from, to, category, phase, label) {
   const edge = from === 'model' || to === 'model' ? `${from === 'model' ? to : from}-model`
@@ -148,15 +148,15 @@ const SPECIALIST = {
   mcp_call_started: (a, d) => (a === 'chrs' ? hop('chrs', 'studentdb', 'tool', 'attempted', `tools/call ${d.tool}`) : hop(a === 'professor' ? 'professor' : 'hr', a === 'professor' ? 'canvas' : 'peoplesoft', 'tool', 'attempted', `tools/call ${d.tool}`)),
   mcp_call_result: (a, d) => (a === 'chrs'
     ? hop('studentdb', 'chrs', 'tool', d.ok ? 'completed' : d.outcome === 'uncertain' ? 'unknown' : 'failed',
-      d.ok ? (Number.isInteger(d.rosterCount) ? `Roster: ${d.rosterCount} students` : 'Student records answered') : d.outcome === 'refused' ? (d.code ? `Student records refused (${d.code})` : 'Student records refused') : "Student records didn't answer")
+      d.ok ? (Number.isInteger(d.rosterCount) ? `Roster: ${d.rosterCount} students` : 'Campus Solutions answered') : d.outcome === 'refused' ? (d.code ? `Campus Solutions refused (${d.code})` : 'Campus Solutions refused') : "Campus Solutions didn't answer")
     : a === 'professor'
     ? hop('canvas', 'professor', 'tool', d.ok ? 'completed' : d.outcome === 'uncertain' ? 'unknown' : 'failed',
       d.ok ? (d.quizId ? `${d.tool === 'publish_quiz' ? 'Published' : 'Saved as'} quiz #${d.quizId}` : 'Canvas answered') : d.outcome === 'refused' ? (d.code ? `Canvas refused (${d.code})` : 'Canvas refused') : "Canvas didn't answer")
     : hop('peoplesoft', 'hr', 'tool', d.ok ? 'completed' : d.outcome === 'uncertain' ? 'unknown' : 'failed',
-      d.ok ? (d.recordId ? `Saved as ${d.recordId}` : 'PeopleSoft answered') : d.outcome === 'refused' ? (d.code ? `PeopleSoft refused (${d.code})` : 'PeopleSoft refused') : "PeopleSoft didn't answer")),
+      d.ok ? (d.recordId ? `Saved as ${d.recordId}` : 'PeopleSoft HR answered') : d.outcome === 'refused' ? (d.code ? `PeopleSoft HR refused (${d.code})` : 'PeopleSoft HR refused') : "PeopleSoft HR didn't answer")),
   mcp_tool_refused: (a, d) => { const who = a === 'professor' ? 'Faculty' : a === 'chrs' ? 'CHRS' : 'HR'; return inside(a === 'professor' ? 'professor' : a === 'chrs' ? 'chrs' : 'hr', 'tool', 'failed', d.by === 'model_failed' ? `${who}’s AI didn’t answer — no call` : `${who}’s AI picked a tool not allowed here — no call`); },
-  peoplesoft_session: (a, d) => hop('hr', 'peoplesoft', 'registration', d.status === 'connected' ? 'completed' : 'failed', d.status === 'connected' ? 'MCP session open' : 'PeopleSoft unreachable'),
-  studentdb_session: (a, d) => hop('chrs', 'studentdb', 'registration', d.status === 'connected' ? 'completed' : 'failed', d.status === 'connected' ? 'MCP session open' : d.status === 'not_configured' ? 'Student records not configured' : 'Student records unreachable'),
+  peoplesoft_session: (a, d) => hop('hr', 'peoplesoft', 'registration', d.status === 'connected' ? 'completed' : 'failed', d.status === 'connected' ? 'MCP session open' : 'PeopleSoft HR unreachable'),
+  studentdb_session: (a, d) => hop('chrs', 'studentdb', 'registration', d.status === 'connected' ? 'completed' : 'failed', d.status === 'connected' ? 'MCP session open' : d.status === 'not_configured' ? 'Campus Solutions not configured' : 'Campus Solutions unreachable'),
   canvas_session: (a, d) => hop('professor', 'canvas', 'registration', d.status === 'connected' ? 'completed' : 'failed', d.status === 'connected' ? 'MCP session open' : d.status === 'not_configured' ? 'Canvas not configured' : 'Canvas unreachable'),
   card_notification: (a, d) => hop(a, 'hub', 'card', d.outcome === 'delivered' ? 'completed' : d.outcome === 'pending' ? 'unknown' : 'failed', `Card-change notice ${d.outcome}`),
 };

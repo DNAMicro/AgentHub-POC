@@ -90,7 +90,7 @@ test('a staff request opens HR’s card (bereavement); Submit files it and the c
   assert.equal(done.http, 200, JSON.stringify(done));
   assert.equal(done.status, 'accepted');
   const id = done.receipt.requestId;
-  assert.match(id, /^TO-/);
+  assert.match(id, /^\d{7}$/);
   st = await state();
   assert.equal(lastOf(st.chat, 'hr').text, `Your time off is recorded. Request ${id}: Bereavement (Grandparent/Great Grandparent), Thu, Nov 5 to Fri, Nov 6, 16 hours.`);
   assert.equal(lastOf(st.chat, 'hr').closed, true);
@@ -137,7 +137,7 @@ test('“both”: HR first; after Submit a class cancellation is offered for the
   const done = await hrAction({ operationId: `op-${randomUUID()}`, formRef: st.hrCard.formRef, action: submitAction(st.hrCard, { absenceType: ['SCK'], absenceReason: ['SCK'], beginDate: '2026-11-06', endDate: '2026-11-06', hours: '8' }) });
   assert.equal(done.status, 'accepted', JSON.stringify(done));
   st = await state();
-  assert.match(lastOf(st.chat, 'hr').text, /^Your time off is recorded\. Request TO-\w+: Sick Leave \(Sick Personal\), Fri, Nov 6, 8 hours\.$/);
+  assert.match(lastOf(st.chat, 'hr').text, /^Your time off is recorded\. Request \d{7}: Sick Leave \(Sick Personal\), Fri, Nov 6, 8 hours\.$/);
   assert.equal(lastOf(st.chat, 'assistant').text, 'You have Marketing 351 on Fri, Nov 6. Would you like me to send a cancellation to your students?');
   assert.equal(st.lessons.length, 0, 'not posted before the professor says yes');
 

@@ -140,7 +140,7 @@ export async function startChrs(env = {}) {
 }
 
 // PeopleSoft stand-in MCP server (Part 15): token required; records in memory.
-export const PEOPLESOFT_READY = /PeopleSoft MCP server \(demo stand-in\) listening on (http:\/\/127\.0\.0\.1:\d+)/;
+export const PEOPLESOFT_READY = /PeopleSoft HR MCP server \(demo stand-in\) listening on (http:\/\/127\.0\.0\.1:\d+)/;
 export async function startPeopleSoft(env = {}) {
   const ps = startProcess('src/peoplesoft-mcp.js', { PORT: '0', ...env }, PEOPLESOFT_READY);
   ps.url = await ps.ready;
@@ -148,7 +148,7 @@ export async function startPeopleSoft(env = {}) {
 }
 
 // PeopleSoft student records stand-in MCP server (Part 17): token required; roster in memory.
-export const STUDENT_RECORDS_READY = /PeopleSoft student records MCP server \(demo stand-in\) listening on (http:\/\/127\.0\.0\.1:\d+)/;
+export const STUDENT_RECORDS_READY = /PeopleSoft Campus Solutions MCP server \(demo stand-in\) listening on (http:\/\/127\.0\.0\.1:\d+)/;
 export async function startStudentRecords(env = {}) {
   const sr = startProcess('src/student-records-mcp.js', { PORT: '0', ...env }, STUDENT_RECORDS_READY);
   sr.url = await sr.ready;

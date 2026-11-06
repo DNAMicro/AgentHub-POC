@@ -147,7 +147,7 @@ test('missing absence name: HR asks; the follow-up fills the card; Forecast refu
   const ok = await act(second.reply.formRef, submit(second.reply, { absenceType: ['VAC'], absenceReason: ['VAC'], beginDate: '2026-11-20', endDate: '2026-11-20', hours: '8' }), operationId);
   assert.equal(ok.status, 'ok', JSON.stringify(ok));
   assert.equal(ok.reply.text, 'Your time off is recorded.');
-  assert.match(ok.reply.receipt.requestId, /^TO-/);
+  assert.match(ok.reply.receipt.requestId, /^\d{7}$/);
   assert.equal(ok.reply.closed, true);
   const again = await act(second.reply.formRef, submit(second.reply, { absenceType: ['VAC'], absenceReason: ['VAC'], beginDate: '2026-11-20', endDate: '2026-11-20', hours: '8' }), operationId);
   assert.equal(again.status, 'ok');
@@ -404,7 +404,7 @@ test('balance question gets text, no card', async () => {
 test('requests list after submit; an open card stays open and unchanged through a balance question', async () => {
   const conversationId = randomUUID();
   const first = await ask('show my time off requests', conversationId);
-  assert.match(first.reply.text, /^(You have no time-off requests\.|TO-)/);
+  assert.match(first.reply.text, /^(You have no time-off requests\.|Request \d{7}: )/);
   assert.equal(first.reply.formRef, undefined);
 
   const card = await ask("I'm sick on Wednesday, Nov 18", conversationId);
@@ -416,7 +416,7 @@ test('requests list after submit; an open card stays open and unchanged through 
   const id = done.reply.receipt.requestId;
 
   const list = await ask('what time off have I filed', conversationId);
-  assert.equal(list.reply.text.split('\n')[0], `${id}: Sick Leave (Sick Personal), Wed, Nov 18, 8 hours — recorded.`);
+  assert.equal(list.reply.text.split('\n')[0], `Request ${id}: Sick Leave (Sick Personal), Wed, Nov 18, 8 hours — recorded.`);
   assert.equal((await ask('my time off requests', conversationId)).reply.text.split('\n')[0], list.reply.text.split('\n')[0]);
   assert.equal(list.reply.formRef, undefined);
 });

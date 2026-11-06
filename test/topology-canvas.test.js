@@ -51,7 +51,7 @@ test('professor mcp_tool_refused stays inside Faculty; canvas_session is Faculty
 
 test('HR events still label on hr-peoplesoft; no label names a step or content', () => {
   assert.equal(hr('mcp_call_started', { tool: 'create_absence_request' }).edge, 'hr-peoplesoft');
-  assert.equal(hr('mcp_call_result', { ok: true, outcome: 'ok', recordId: 'ABS-000001' }).label, 'Saved as ABS-000001');
+  assert.equal(hr('mcp_call_result', { ok: true, outcome: 'ok', recordId: '00482131' }).label, 'Saved as 00482131');
   const text = JSON.stringify([prof('mcp_call_started', { tool: 'create_quiz', title: 'Secret Title', questions: ['q'] }), prof('mcp_call_result', { ok: false, outcome: 'refused', code: 'x', title: 'Secret Title' })]);
   assert.ok(!/Secret Title/.test(text));
 });

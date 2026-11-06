@@ -127,7 +127,7 @@ async (page) => {
   await press('Submit request');
   const receipt = page.locator('#prof-log .msg.hr-receipt').last();
   const receiptText = (await receipt.locator('.msg-text').textContent())?.trim();
-  check('submit: receipt names what was picked on the card', new RegExp(`^Your time off is recorded\\. Request TO-\\w+: Sick Leave \\(Family Care\\), ${DAY} to ${DAY}, 16 hours\\.$`).test(receiptText), receiptText);
+  check('submit: receipt names what was picked on the card', new RegExp(`^Your time off is recorded\\. Request \\d{7}: Sick Leave \\(Family Care\\), ${DAY} to ${DAY}, 16 hours\\.$`).test(receiptText), receiptText);
   // The closed card: HR's question stays, answered with what was filed; no stale "pick from the dropdown".
   const record = page.locator('#prof-log .msg.hr-closed').last();
   const recordText = ((await record.textContent()) ?? '').replace(/\s+/g, ' ');

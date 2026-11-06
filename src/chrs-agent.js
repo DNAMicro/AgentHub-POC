@@ -47,7 +47,7 @@ const records = createRecordsLink({ url: STUDENT_RECORDS_URL, token: process.env
 export const CHRS_DEFAULT_SKILLS = {
   skills: [{
     id: 'class-roster', kind: 'answer', enabled: true, name: 'Class roster',
-    description: 'Gives a course\'s own instructor the class roster (demo, synthetic records) from PeopleSoft student records, and tells the Hub who is enrolled so it can send class notices. University staff only.',
+    description: 'Gives a course\'s own instructor the class roster (demo, synthetic records) from PeopleSoft Campus Solutions, and tells the Hub who is enrolled so it can send class notices. University staff only.',
     tags: ['roster', 'class list', 'enrolled students'],
     examples: ['Who is in my class?', 'Show me my class roster'],
     scope: { allowed: ['class rosters for the course\'s own instructor'], excluded: ['students', 'grades', 'changing records'] },
@@ -127,7 +127,7 @@ function serveVizEvents(req, res) {
 function buildAgentCard(port) {
   return {
     name: 'CHRS Agent',
-    description: 'Staff services (demo, synthetic records): the class roster for a course\'s own instructor, from PeopleSoft student records. University staff only.',
+    description: 'Staff services (demo, synthetic records): the class roster for a course\'s own instructor, from PeopleSoft Campus Solutions. University staff only.',
     version: '0.1.0',
     supportedInterfaces: [{ url: `http://${HOST}:${port}${JSONRPC_PATH}`, protocolBinding: 'JSONRPC', protocolVersion: A2A_PROTOCOL_VERSION, tenant: '' }],
     provider: undefined,
@@ -197,5 +197,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   log(`Agent Card: ${baseUrl}/${AGENT_CARD_PATH}`);
   const s = chrsStatus();
   log(`mode: ${s.mode} (${s.model})${s.mode === 'live' ? `, API key (${keyEnvName()}): ${s.keyConfigured ? 'configured' : 'NOT SET'}, API host: ${apiHost()}` : ''}, staff only, synthetic records`);
-  log(`Student records (demo stand-in, MCP): ${STUDENT_RECORDS_URL}/mcp, token (STUDENT_RECORDS_TOKEN): ${process.env.STUDENT_RECORDS_TOKEN ? 'configured' : 'NOT SET'}`);
+  log(`PeopleSoft Campus Solutions (demo stand-in, MCP): ${STUDENT_RECORDS_URL}/mcp, token (STUDENT_RECORDS_TOKEN): ${process.env.STUDENT_RECORDS_TOKEN ? 'configured' : 'NOT SET'}`);
 }
