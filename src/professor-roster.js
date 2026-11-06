@@ -252,6 +252,9 @@ const RQ_STRONG = /\b(?:majors?|majoring|concentrations?|emphas[ie]s|freshm[ae]n
 // a who / which / what / how many / list / show / count / find opening AND a word for people.
 const RQ_WEAK = /\b(?:(?:academic|degree|study|program)\s+plans?|plans?\s+of\s+study|(?:which|what)\s+(?:degree\s+)?programs?|(?:degree|academic|undergraduate)\s+programs?|degrees?|(?:academic|class|school)\s+levels?|(?:what|which)\s+levels?|(?:what|which)\s+year|years?\s+in\s+school|(?:student\s+)?ids?|student\s+numbers?|e-?mails?(?:\s+address(?:es)?)?|units)\b/i;
 const RQ_PEOPLE = /\b(?:anyone|anybody|someone|somebody|everyone|everybody|who|whom|students?|people|classmates)\b/i;
+// Live matrix 2026-11-06: “which students are in Finance?” opened a message card. A who/which/how-many question about
+// students in, from or studying a field of study is a roster question.
+const RQ_SUBJECT = /\b(?:students?|anyone|anybody|who|people)\b[\s\S]{0,30}?\b(?:in|from|studying|study|majoring\s+in|taking)\s+(?:the\s+)?(?:finance|marketing|management|accounting|advertising|public\s+relations|pr|info(?:rmation)?\s+systems|communications?|business(?:\s+admin(?:istration)?)?|ent(?:repreneurship)?|hospitality|art|graphic\s+design|design)\b/i;
 const RQ_IN_CLASS = /\b(?:students?|anyone|anybody|who|people)\b[\s\S]*?\bin\s+(?:my|the|our)\s+(?:class|section|course)\b/i;
 export function asksRosterQuestion(text) {
   const t = String(text ?? '').trim();
@@ -259,6 +262,7 @@ export function asksRosterQuestion(text) {
   if (t.split(/\s+/).length > 25 || /!\s*$/.test(t) || /^\s*what\s+an?\b/i.test(t)) return false; // praise is a post
   if (!/\?\s*$/.test(t) && !RQ_START.test(t)) return false; // phrased as a question
   if (RQ_STRONG.test(t) || RQ_IN_CLASS.test(t)) return true;
+  if (RQ_STRONG_START.test(t) && RQ_SUBJECT.test(t)) return true;
   return RQ_WEAK.test(t) && !/\bmy\s+e-?mails?\b/i.test(t) && RQ_STRONG_START.test(t) && RQ_PEOPLE.test(t);
 }
 // What the query may use: field names, and the values the roster really has (+ the four standard levels, so “any

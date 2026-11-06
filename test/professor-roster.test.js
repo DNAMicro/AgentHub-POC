@@ -986,3 +986,9 @@ test('roster questions: an invalid query is dropped (the couldn\'t-tell sentence
   const down = createRosterDesk({ hubLink: { sendSigned: async () => ({ status: 'error' }) }, conversationId: () => 'c', readQuery: async () => { throw new Error('must not be asked'); } });
   assert.equal((await down.question({ operationId: 'op-d', hub: null, question: 'anyone not a business major?' })).reply, FAILED_ROSTER);
 });
+
+// Live matrix 2026-11-06: “which students are in Finance?” opened a message card to all 25 instead of being answered.
+test('roster questions: students in / from / studying a field of study are roster questions; class logistics questions are not', () => {
+  for (const t of ['which students are in Finance?', 'who is studying accounting?', 'how many students are from Communications?', 'Which of my students are majoring in graphic design?', 'who is in marketing?', 'list the students in Public Relations', 'how many people are studying info systems?']) assert.equal(asksRosterQuestion(t), true, t);
+  for (const t of ['who is in the lab today?', 'Who can volunteer Thursday?', 'Which students want to present first?', 'Who is bringing snacks?']) assert.equal(asksRosterQuestion(t), false, t);
+});
