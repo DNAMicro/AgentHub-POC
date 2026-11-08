@@ -938,6 +938,7 @@ export async function startUiServer({ port = 4444, auth: authCfg = authConfig(pr
       app.use('/a2a/jsonrpc', jsonRpcHandler({ requestHandler: studentHandler, userBuilder: UserBuilder.noAuthentication }));
       inbox.register(baseUrl);
       const close = () => {
+        gate.close();
         inbox.stop();
         feedAbort.abort();
         for (const res of clients) res.end();

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startUi } from './support/harness.js';
+import { startUi, waitFor } from './support/harness.js';
 import { hashPassword, saveAccess } from '../src/access.js';
 import { safeNext, authConfig, AuthConfigError } from '../src/auth-gate.js';
 
@@ -16,6 +16,7 @@ async function authUi(env = {}) {
   const file = join(mkdtempSync(join(tmpdir(), 'auth-')), 'access.json');
   saveAccess(file, [{ username: 'alex', ...(await hashPassword(PW)) }]);
   const ui = await startUi('http://127.0.0.1:9', { AUTH: 'on', AGENTHUB_ACCESS_FILE: file, ...env });
+  ui.accessFile = file;
   procs.push(ui);
   return ui;
 }
@@ -164,4 +165,21 @@ test('auth config: listening wide needs the sign-in; AUTH must be on/off; PUBLIC
   assert.throws(() => authConfig({ PUBLIC_ORIGIN: 'https://agenthub.example.org' }), /TRUST_PROXY=1/, 'behind a front server the gate must see real addresses');
   const pub = authConfig({ PUBLIC_ORIGIN: 'https://agenthub.example.org', TRUST_PROXY: '1' });
   assert.equal(pub.auth, true); assert.equal(pub.secure, true);
+});
+
+test('auth: adding, removing and changing accounts takes effect without a restart', async () => {
+  const ui = await authUi();
+  const alex = cookieFrom(await signIn(ui.url, 'alex', PW));
+  assert.equal((await get(`${ui.url}/api/status`, alex)).status, 200);
+  const sam = { username: 'sam', ...(await hashPassword('sam-pass-123')) };
+  saveAccess(ui.accessFile, [{ username: 'alex', ...(await hashPassword(PW)) }, sam]); // alex's password changed too
+  await waitFor(() => /accounts reloaded: 2 account\(s\), 1 added, 1 removed or changed, 1 session\(s\) signed out/.test(ui.output()), { timeout: 8000, what: 'the reload line' });
+  assert.equal((await get(`${ui.url}/api/status`, alex)).status, 401, 'a changed password signs that account out');
+  assert.equal((await signIn(ui.url, 'sam', 'sam-pass-123')).status, 303, 'a new account works at once');
+  const samCookie = cookieFrom(await signIn(ui.url, 'sam', 'sam-pass-123'));
+  saveAccess(ui.accessFile, []);
+  await waitFor(() => /accounts reloaded: 0 account\(s\)/.test(ui.output()), { timeout: 8000, what: 'the second reload' });
+  assert.equal((await get(`${ui.url}/api/status`, samCookie)).status, 401, 'a removed account is signed out at once');
+  assert.equal((await signIn(ui.url, 'sam', 'sam-pass-123')).status, 401);
+  assert.doesNotMatch(ui.output(), /sam-pass-123|[0-9a-f]{64}/, 'no password or hash in the log');
 });

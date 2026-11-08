@@ -41,12 +41,12 @@ if (cmd === 'list') {
   const { salt, hash } = await hashPassword(pw);
   const next = users.filter((x) => x.username !== u).concat({ username: u, salt, hash });
   saveAccess(file, next);
-  console.log(`${users.some((x) => x.username === u) ? 'Changed the password for' : 'Added'} ${u}. Restart the demo to use it.`);
+  console.log(`${users.some((x) => x.username === u) ? 'Changed the password for' : 'Added'} ${u}. A running demo picks it up within a few seconds.`);
 } else if (cmd === 'remove') {
   const u = normalUser(name);
   if (!u || !users.some((x) => x.username === u)) fail('No such account.');
   saveAccess(file, users.filter((x) => x.username !== u));
-  console.log(`Removed ${u}. Restart the demo to sign them out.`);
+  console.log(`Removed ${u}. A running demo signs them out within a few seconds.`);
 } else {
   fail('Usage: npm run access:add|access:remove <name>, or npm run access:list');
 }

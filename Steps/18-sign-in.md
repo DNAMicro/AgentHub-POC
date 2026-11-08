@@ -21,6 +21,7 @@
    - Usernames are lowercased, `[a-z0-9._-]{1,32}`.
    - `npm run access:add <name>` asks for the password twice without showing it (at least 8 characters). Without a terminal it reads the first line of stdin. Also `npm run access:remove <name>` and `npm run access:list`.
    - Checking an unknown username still runs one scrypt, so the timing doesn't reveal which usernames exist.
+1b. **Accounts change without a restart.** The running UI re-reads the accounts file when it changes (checked every second). A new account works at once; a removed account, or one whose password changed, is signed out at once. A file that can't be read keeps the last good list. `saveAccess` writes a temporary file and renames it so the reload never sees half a file.
 2. **Sessions** (`src/sessions.js`):
    - In memory only. They end 12 hours after sign-in, or after 2 hours idle.
    - Cookie `ah_session`: HttpOnly, SameSite=Lax, Path=/, Max-Age 43200. It is Secure only when `PUBLIC_ORIGIN` is https.
@@ -72,6 +73,7 @@
 ## Enhancements merged into this step
 
 - Back-end processes are proven to be loopback-only (`test/loopback-only.test.js`), because the owner asked whether the other ports are secured.
+- Accounts reload without a restart, because the owner asked: “have it take effect without restarting”.
 - `UI_HOST`, so the demo can be opened by the machine's IP, but only with the sign-in, because the owner wanted to test from the machine's IP.
 - Two fixes from the whole-branch security review: per-address locks, and fonts served from their own root.
 - Three fixes from the automatic security review: path normalization, tries in flight, and `TRUST_PROXY` being required with `PUBLIC_ORIGIN`.

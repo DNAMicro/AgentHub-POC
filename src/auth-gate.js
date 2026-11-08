@@ -5,7 +5,7 @@
 // may reach it; anyone else gets 404, signed in or not.
 // Never logs or emits a password, hash, cookie value or session id.
 import express from 'express';
-import { readFileSync } from 'node:fs';
+import { readFileSync, watchFile, unwatchFile } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import { verify, normalUser, loadAccess, DEFAULT_ACCESS_FILE } from './access.js';
@@ -109,9 +109,25 @@ const ICONS = {
 const NOTICE_KIND = { bad: 'bad', locked: 'warn', expired: 'info', out: 'ok' };
 
 export function createAuthGate({ cfg, publicDir, guardOrigin, log = () => {}, now } = {}) {
-  const users = cfg.auth ? loadAccess(cfg.accessFile) : [];
+  let users = cfg.auth ? loadAccess(cfg.accessFile) : [];
   if (cfg.auth && !users.length) throw new AuthConfigError(`AUTH=on but there are no accounts — add one with: npm run access:add <name>`);
   const sessions = createSessions(now ? { now } : {});
+
+  // Owner, 2026-11-07: “have it take effect without restarting”. The accounts file is re-read when it changes
+  // (checked every second). A removed account, or one whose password changed, is signed out at once. A file that
+  // can't be read keeps the last good list (logged); an empty list means nobody can sign in.
+  const reload = () => {
+    let next;
+    try { next = loadAccess(cfg.accessFile, { missingOk: true }); } catch (err) { log(`accounts file not reloaded: ${err.message}; keeping the previous list`); return; }
+    const now2 = new Map(next.map((u) => [u.username, u.hash]));
+    const gone = new Set(users.filter((u) => now2.get(u.username) !== u.hash).map((u) => u.username));
+    const added = next.filter((u) => !users.some((x) => x.username === u.username)).length;
+    users = next;
+    const out = gone.size ? sessions.endUsers(gone) : 0;
+    log(`accounts reloaded: ${users.length} account(s), ${added} added, ${gone.size} removed or changed${out ? `, ${out} session(s) signed out` : ''}`);
+  };
+  if (cfg.auth) watchFile(cfg.accessFile, { interval: 1000, persistent: false }, (cur, prev) => { if (cur.mtimeMs !== prev.mtimeMs || cur.ino !== prev.ino) reload(); });
+  const close = () => { if (cfg.auth) unwatchFile(cfg.accessFile); };
   const template = readFileSync(join(publicDir, 'signin.html'), 'utf8');
 
   const cookieOf = (req) => {
@@ -214,5 +230,5 @@ export function createAuthGate({ cfg, publicDir, guardOrigin, log = () => {}, no
     });
   };
 
-  return { middleware, routes, sessions };
+  return { middleware, routes, sessions, reload, close };
 }

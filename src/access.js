@@ -3,7 +3,7 @@
 // to the demo so that people can demo the full system”). Passwords are never stored — only a salted scrypt hash.
 // The file is git-ignored (config/access.json, or AGENTHUB_ACCESS_FILE). Dependency-free.
 import { scrypt, randomBytes, timingSafeEqual } from 'node:crypto';
-import { readFileSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, chmodSync, renameSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 export const DEFAULT_ACCESS_FILE = 'config/access.json';
@@ -57,8 +57,11 @@ export function loadAccess(file = DEFAULT_ACCESS_FILE, { missingOk = false } = {
   return users.map(({ username, salt, hash }) => ({ username, salt, hash }));
 }
 
+// Written to a temporary file and renamed, so a running demo that reloads the file never reads half of it.
 export function saveAccess(file, users) {
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, `${JSON.stringify({ users }, null, 2)}\n`, { mode: 0o600 });
-  chmodSync(file, 0o600);
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify({ users }, null, 2)}\n`, { mode: 0o600 });
+  chmodSync(tmp, 0o600);
+  renameSync(tmp, file);
 }

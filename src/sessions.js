@@ -36,6 +36,8 @@ export function createSessions({ now = Date.now } = {}) {
     return { username: s.username };
   };
   const end = (id) => { sessions.delete(id); };
+  // Sign out every session of these usernames (an account removed, or its password changed).
+  const endUsers = (names) => { let n = 0; for (const [k, s] of sessions) if (names.has(s.username)) { sessions.delete(k); n++; } return n; };
 
   const entry = (key, t) => {
     const e = fails.get(key) ?? { times: [], lockedUntil: 0 };
@@ -88,5 +90,5 @@ export function createSessions({ now = Date.now } = {}) {
       return n < ACCOUNT_SOFT ? 0 : Math.min(ACCOUNT_MAX_DELAY_MS, (n - ACCOUNT_SOFT + 1) * ACCOUNT_STEP_MS);
     },
   };
-  return { create, get, end, limiter, account, size: () => sessions.size };
+  return { create, get, end, endUsers, limiter, account, size: () => sessions.size };
 }

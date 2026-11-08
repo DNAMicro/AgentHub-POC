@@ -43,6 +43,8 @@ npm run access:list
 npm run access:remove farsheed
 ```
 
+Add as many accounts as you like. A running demo picks up changes within a few seconds — no restart; a removed account (or one whose password changed) is signed out at once.
+
 **Try it on your own network.** `npm run demo:live:lan` starts the demo with the front end on every address of this machine (`UI_HOST=0.0.0.0`) and the sign-in on. The startup lines say where (`[UI] also on http://172.16.70.100:4444 (sign-in required)`). macOS may ask once whether node may accept incoming connections: Allow. This is plain http, so the password crosses your network unencrypted — fine for a test, not for the internet.
 
 **On the internet.** Put an HTTPS front server (Caddy, nginx) in front and forward only to `127.0.0.1:4444`:
