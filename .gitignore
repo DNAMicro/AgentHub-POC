@@ -29,3 +29,6 @@ npm-debug.log*
 
 # Brainstorm mockup server (local scratch)
 .superpowers/
+
+# Sign-in accounts (Part 18): scrypt hashes only, still never commit
+config/access.json

@@ -32,7 +32,11 @@
     "hub:direct": "node src/hub-agent.js",
     "demo": "npm run build:ui && node scripts/start-all.js",
     "demo:live": "npm run build:ui && DEMO_MODE=live node scripts/start-all.js",
-    "demo:build": "node scripts/demo/build-walkthrough.js"
+    "demo:live:lan": "npm run build:ui && DEMO_MODE=live UI_HOST=0.0.0.0 AUTH=on node scripts/start-all.js",
+    "demo:build": "node scripts/demo/build-walkthrough.js",
+    "access:add": "node scripts/access.js add",
+    "access:remove": "node scripts/access.js remove",
+    "access:list": "node scripts/access.js list"
   },
   "keywords": [],
   "author": "",
