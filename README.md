@@ -29,8 +29,32 @@ Tests (no paid calls): `npm test`.
 
 - **Your API key stays in `.env`.** That file is git-ignored; only `.env.example` (a placeholder) is committed. The key is read server-side only and never sent to the browser, logged or put in A2A messages.
 - **Local data stays local.** Runtime data under `data/` (loans, lessons, inbox, outbox) is git-ignored and fictional.
-- **Localhost only.** Every server binds to 127.0.0.1; developer endpoints refuse cross-site requests.
+- **Localhost only, except the front end when you ask.** Every server binds to 127.0.0.1; developer endpoints refuse cross-site requests. Only the UI server may listen wider (`UI_HOST`, Part 18), and only with the sign-in on.
+- **One sign-in in front of the whole demo (Part 18).** See “Publishing” below.
 - **Not production-ready.** The per-process signing keys are a local demo measure, not real authentication.
+
+## Publishing: one sign-in in front of the demo (Part 18)
+
+One login opens the whole demo (both the student and the faculty side). Accounts are a short list you keep; passwords are stored only as scrypt hashes in `config/access.json` (git-ignored).
+
+```bash
+npm run access:add farsheed    # asks for the password twice (8+ characters); nothing is shown
+npm run access:list
+npm run access:remove farsheed
+```
+
+**Try it on your own network.** `npm run demo:live:lan` starts the demo with the front end on every address of this machine (`UI_HOST=0.0.0.0`) and the sign-in on. The startup lines say where (`[UI] also on http://172.16.70.100:4444 (sign-in required)`). macOS may ask once whether node may accept incoming connections: Allow. This is plain http, so the password crosses your network unencrypted — fine for a test, not for the internet.
+
+**On the internet.** Put an HTTPS front server (Caddy, nginx) in front and forward only to `127.0.0.1:4444`:
+
+```bash
+PUBLIC_ORIGIN=https://agenthub.example.org TRUST_PROXY=1 npm run demo:live
+```
+
+- `PUBLIC_ORIGIN` turns the sign-in on and marks the cookie Secure. It needs `TRUST_PROXY=1`, and the front server must send `X-Forwarded-For` (Caddy does by default; nginx: `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` and `proxy_set_header Host $host;`). Otherwise every visitor looks like one address, and one person's wrong tries would lock everyone out.
+- **Firewall:** open only 443 (and 80 for the certificate). Never open 4444 or 41241–41249. With Docker, publish only the front server's port.
+- The other nine processes always listen on 127.0.0.1 (`test/loopback-only.test.js` fails if one doesn't). The Student agent's inbound A2A door (`/a2a/jsonrpc`, its agent card) answers only a local caller with no proxy headers; anyone else gets 404.
+- What the gate does: pages without a session go to `/signin?next=…`; `/api/*`, `/auth/*` and the live streams get 401 (an open stream closes within a minute of the session ending). Sessions last 12 hours, or 2 hours idle, in memory only (a restart signs everyone out). 5 wrong tries in 15 minutes lock that username or address for 15 minutes.
 
 ## License
 

@@ -145,6 +145,13 @@ h1 { margin: 0; font-size: 1.2rem; font-weight: 700; letter-spacing: -0.01em; }
 .guide-link::before { content: "?"; display: inline-grid; place-items: center; width: 14px; height: 14px; margin-right: 5px; border-radius: 50%; background: var(--accent); color: var(--surface, #fff); font-size: 10px; font-weight: 800; vertical-align: 1px; }
 .guide-link:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .guide-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Part 18: who is signed in, and Sign out (only when the sign-in is on) */
+.who { display: inline-flex; align-items: center; margin: 0; border: 1px solid var(--border-strong); border-radius: 999px; overflow: hidden; font-size: 0.8rem; white-space: nowrap; }
+.who[hidden] { display: none; }
+.who-me { display: inline-flex; align-items: center; gap: 6px; padding: 1px 9px 1px 3px; color: var(--text); }
+.who-av { width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: var(--surface, #fff); display: inline-grid; place-items: center; font-size: 10px; font-weight: 800; }
+.who button { font: inherit; border: 0; border-left: 1px solid var(--border-strong); background: transparent; color: var(--muted); padding: 2px 10px; cursor: pointer; }
+.who button:hover, .who button:focus-visible { color: var(--bad); background: var(--bad-bg); outline: none; }
 .state:is([data-state="routing"], [data-state="sending"], [data-state="waiting"], [data-state="uncertain"]) { color: var(--warn); background: var(--warn-bg); border-color: transparent; }
 .state[data-state="completed"] { color: var(--ok); }
 .state[data-state="failed"] { color: var(--bad); background: var(--bad-bg); border-color: transparent; }

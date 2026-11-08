@@ -48,6 +48,8 @@ test('auth: nothing opens without signing in; the sign-in page and its files do'
   assert.match(html, /<h1>Sign in<\/h1>/);
   assert.match(html, /name="next" value="\/faculty"/);
   assert.doesNotMatch(html, /California State University/, 'the sign-in page never names the university');
+  // no-referrer made Chrome post the form with Origin: null, which the origin check refuses (found in the browser check).
+  assert.equal((await get(`${ui.url}/signin`)).headers.get('referrer-policy'), 'same-origin');
 });
 
 test('auth: wrong details, then right details, then signed in everywhere, then signed out', async () => {
@@ -110,6 +112,23 @@ test('auth: 5 wrong tries lock that username and address for 15 minutes', async 
   assert.equal(spoof.status, 429);
 });
 
+test('auth: a burst of parallel wrong tries cannot get past the limit', async () => {
+  const ui = await authUi();
+  const res = await Promise.all(Array.from({ length: 20 }, (_, i) => signIn(ui.url, 'alex', `burst-${i}-xx`)));
+  const checked = res.filter((r) => r.status === 401).length;
+  assert.ok(checked <= 5, `only 5 tries were checked, not ${checked}`);
+  assert.equal(res.filter((r) => r.status === 429).length, 20 - checked);
+});
+
+test('auth: other spellings of the inbound door get no special treatment', async () => {
+  const ui = await authUi();
+  for (const path of ['/A2A/jsonrpc', '/a2a/jsonrpc/', '/.well-known/agent-card.json/', '/.WELL-KNOWN/agent-card.json']) {
+    const viaProxy = await get(`${ui.url}${path}`, null, { 'x-forwarded-for': '203.0.113.9' });
+    assert.equal(viaProxy.status, 404, `${path} through a proxy`);
+  }
+  assert.equal((await get(`${ui.url}/.well-known/other.json`)).status, 302, 'only the agent card skips the sign-in, not all of .well-known');
+});
+
 test('auth: the local Hub still reaches the Student agent’s inbound door without signing in', async () => {
   const ui = await authUi();
   const card = await get(`${ui.url}/.well-known/agent-card.json`);
@@ -125,6 +144,7 @@ test('auth config: listening wide needs the sign-in; AUTH must be on/off; PUBLIC
   assert.equal(authConfig({ UI_HOST: '0.0.0.0' }).auth, true, 'wide turns the sign-in on by default');
   assert.throws(() => authConfig({ AUTH: 'yes' }), AuthConfigError);
   assert.throws(() => authConfig({ PUBLIC_ORIGIN: 'agenthub.example.org' }), AuthConfigError);
-  const pub = authConfig({ PUBLIC_ORIGIN: 'https://agenthub.example.org' });
+  assert.throws(() => authConfig({ PUBLIC_ORIGIN: 'https://agenthub.example.org' }), /TRUST_PROXY=1/, 'behind a front server the gate must see real addresses');
+  const pub = authConfig({ PUBLIC_ORIGIN: 'https://agenthub.example.org', TRUST_PROXY: '1' });
   assert.equal(pub.auth, true); assert.equal(pub.secure, true);
 });

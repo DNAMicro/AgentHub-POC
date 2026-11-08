@@ -24,6 +24,10 @@
       <span class="badge" id="router-mode" data-mode="unknown">Router: unknown</span>
       <span class="badge" id="tutor-mode" data-mode="unknown">Tutor: unknown</span>
       <span class="state" id="state" data-state="idle">idle</span>
+      <form class="who" id="who" method="post" action="/signout" hidden>
+        <span class="who-me"><span class="who-av" aria-hidden="true"></span><span class="visually-hidden">Signed in as </span><span class="who-name"></span></span>
+        <button type="submit" title="Sign out of the demo">Sign out</button>
+      </form>
     </div>
   </header>
 
@@ -226,6 +230,7 @@
     </form>
   </dialog>
 
+  <script src="session.js"></script>
   <script type="module" src="app.js"></script>
   <!-- Part 9: one lesson, opened by the student. Text is shown as text only. -->
   <dialog class="lesson-dialog" id="lesson-dialog" aria-labelledby="lesson-dialog-title">

@@ -42,6 +42,9 @@ export function authConfig(env = process.env) {
   if (authRaw && authRaw !== 'on' && authRaw !== 'off') throw new AuthConfigError('AUTH must be on or off');
   const auth = authRaw ? authRaw === 'on' : Boolean(publicOrigin || wide);
   if ((wide || publicOrigin) && !auth) throw new AuthConfigError(`refusing to listen on ${host} without sign-in (set AUTH=on and add an account)`);
+  // Behind a front server every visitor arrives from 127.0.0.1; only with TRUST_PROXY=1 (and the proxy's
+  // X-Forwarded-For) can the gate tell visitors apart and keep the Student agent's inbound door local-only.
+  if (publicOrigin && env.TRUST_PROXY !== '1') throw new AuthConfigError('PUBLIC_ORIGIN needs TRUST_PROXY=1, and the front server must send X-Forwarded-For');
   const accessFile = env.AGENTHUB_ACCESS_FILE || DEFAULT_ACCESS_FILE;
   return { host, wide, auth, publicOrigin, secure: publicOrigin?.startsWith('https://') ?? false, trustProxy: env.TRUST_PROXY === '1', accessFile };
 }
@@ -59,13 +62,17 @@ export function extraHostsAndOrigins(cfg, port) {
   return { hosts, origins };
 }
 
+// Express matches routes case-insensitively and ignores a trailing slash, so every path check here does the same.
+export const normPath = (p) => String(p ?? '').toLowerCase().replace(/\/+$/, '') || '/';
+const LOCAL_ONLY = ['/a2a/jsonrpc', '/.well-known/agent-card.json'];
+const underLocalOnly = (path) => { const p = normPath(path); return LOCAL_ONLY.some((x) => p === x || p.startsWith(`${x}/`)); };
+
 const isLoopbackCaller = (req) => LOOPBACK.has(req.socket.remoteAddress) && !req.headers['x-forwarded-for'] && !req.headers.forwarded;
 
 // Only a local caller with no proxy headers reaches these paths (the Hub delivering to the Student agent).
-export function localOnly(paths) {
-  const set = new Set(paths);
+export function localOnly() {
   return (req, res, next) => {
-    if (!set.has(req.path)) return next();
+    if (!underLocalOnly(req.path)) return next();
     if (isLoopbackCaller(req)) return next();
     res.status(404).json({ error: 'Not found.' });
   };
@@ -113,27 +120,28 @@ export function createAuthGate({ cfg, publicDir, guardOrigin, log = () => {}, no
       .replace('{{USER_STATE}}', notice === 'bad' ? ' aria-invalid="true"' : '')
       .replace('{{PASS_STATE}}', notice === 'bad' ? ' aria-invalid="true"' : '')
       .replace('{{LOCKED}}', notice === 'locked' ? ' disabled' : '');
-    res.status(status).set({ 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer' }).type('html').send(html);
+    res.status(status).set({ 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin' }).type('html').send(html);
   };
 
   const signedIn = (req) => (cfg.auth ? sessions.get(cookieOf(req)) : null);
 
   const middleware = (req, res, next) => {
     if (!cfg.auth) return next();
-    if (OPEN.has(req.path) || req.path.startsWith('/fonts/') || req.path === '/signout') return next();
-    if (req.path === '/a2a/jsonrpc' || req.path.startsWith('/.well-known/')) return next(); // localOnly() guards these
+    const p = normPath(req.path);
+    if (OPEN.has(p) || p.startsWith('/fonts/') || p === '/signout') return next();
+    if (underLocalOnly(p) && isLoopbackCaller(req)) return next(); // the local Hub; localOnly() already turned others away
     const id = cookieOf(req);
     const who = sessions.get(id);
     if (who) {
       req.signedInAs = who.username;
-      if (STREAMS.has(req.path)) { // an open stream ends when the session does (checked every minute)
+      if (STREAMS.has(p)) { // an open stream ends when the session does (checked every minute)
         const timer = setInterval(() => { if (!sessions.get(id, { peek: true })) res.end(); }, 60_000);
         timer.unref?.();
         res.on('close', () => clearInterval(timer));
       }
       return next();
     }
-    if (req.path.startsWith('/api') || req.path.startsWith('/auth') || !(req.method === 'GET' || req.method === 'HEAD')) {
+    if (p.startsWith('/api') || p.startsWith('/auth') || !(req.method === 'GET' || req.method === 'HEAD')) {
       return res.status(401).set('Cache-Control', 'no-store').json({ error: 'sign_in_required' });
     }
     const q = new URLSearchParams({ next: safeNext(req.originalUrl) });
@@ -158,9 +166,11 @@ export function createAuthGate({ cfg, publicDir, guardOrigin, log = () => {}, no
       const user = normalUser(raw);
       const userKey = `u:${user ?? raw.trim().toLowerCase()}`;
       const keys = [userKey, `ip:${req.ip}`];
-      if (sessions.limiter.locked(keys)) return page(res, { status: 429, notice: 'locked', next, username: raw });
-      if (!(await verify(users, user, password))) {
-        sessions.limiter.fail(keys);
+      const done = sessions.limiter.begin(keys);
+      if (!done) return page(res, { status: 429, notice: 'locked', next, username: raw });
+      let ok = false;
+      try { ok = await verify(users, user, password); } finally { done(ok); }
+      if (!ok) {
         log('sign-in refused (wrong details)');
         const locked = sessions.limiter.locked(keys);
         return page(res, { status: locked ? 429 : 401, notice: locked ? 'locked' : 'bad', next, username: raw });

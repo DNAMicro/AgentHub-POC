@@ -39,8 +39,24 @@ export function createSessions({ now = Date.now } = {}) {
     e.times = e.times.filter((x) => t - x < FAIL_WINDOW_MS);
     return e;
   };
+  // Tries still being checked count too, so a burst of parallel guesses can't all slip past the lock check.
+  const pending = new Map();
+  const over = (k, t) => (fails.get(k)?.lockedUntil ?? 0) > t || entry(k, t).times.length + (pending.get(k) ?? 0) >= MAX_FAILS;
   const limiter = {
     locked: (keys) => { const t = now(); return keys.some((k) => (fails.get(k)?.lockedUntil ?? 0) > t); },
+    // begin(keys) → null when locked or at the limit with tries in flight; else done(ok) to call once the check ends.
+    begin: (keys) => {
+      const t = now();
+      if (keys.some((k) => over(k, t))) return null;
+      for (const k of keys) pending.set(k, (pending.get(k) ?? 0) + 1);
+      let ended = false;
+      return (ok) => {
+        if (ended) return;
+        ended = true;
+        for (const k of keys) { const n = (pending.get(k) ?? 1) - 1; if (n > 0) pending.set(k, n); else pending.delete(k); }
+        if (!ok) limiter.fail(keys);
+      };
+    },
     fail: (keys) => {
       const t = now();
       for (const k of keys) {

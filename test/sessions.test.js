@@ -45,3 +45,16 @@ test('limiter: 5 wrong tries lock for 15 minutes; clear resets', () => {
   limiter.clear('u:sam'); limiter.fail(['u:sam']);
   assert.equal(limiter.locked(['u:sam']), false);
 });
+
+test('limiter: tries in flight count toward the limit; a right password does not add a failure', () => {
+  const now = clock(); const { limiter } = createSessions({ now });
+  const keys = ['u:alex', 'ip:1.2.3.4'];
+  const inFlight = Array.from({ length: 5 }, () => limiter.begin(keys));
+  assert.ok(inFlight.every(Boolean));
+  assert.equal(limiter.begin(keys), null, 'a 6th parallel try waits for the first five');
+  inFlight[0](true);
+  const again = limiter.begin(keys);
+  assert.ok(again, 'one finished as a right password: room for one more');
+  for (const d of [...inFlight.slice(1), again]) d(false);
+  assert.equal(limiter.locked(keys), true);
+});

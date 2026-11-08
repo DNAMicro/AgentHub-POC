@@ -263,7 +263,7 @@ export async function startUiServer({ port = 4444, auth: authCfg = authConfig(pr
   if (authCfg.trustProxy) app.set('trust proxy', 'loopback'); // only a proxy on this machine may name the visitor's address
   app.use((req, res, next) => guardHost(req, res, next));
   // Part 18: the Student agent's inbound A2A door is for the local Hub only; then one login in front of everything else.
-  app.use(localOnly(['/a2a/jsonrpc', `/${AGENT_CARD_PATH}`]));
+  app.use(localOnly()); // /a2a/jsonrpc and the agent card
   const gate = createAuthGate({ cfg: authCfg, publicDir: PUBLIC_DIR, guardOrigin: (req, res, next) => guardOrigin(req, res, next), log: authLog });
   app.use(gate.middleware);
   gate.routes(app);
