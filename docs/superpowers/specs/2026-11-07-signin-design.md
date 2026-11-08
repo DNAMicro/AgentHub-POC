@@ -20,7 +20,7 @@ The owner will put the app on the internet and wants only people they choose to 
 
 ## Non-goals
 
-- Changing who sees which tab (see the open question below).
+- Changing who sees which tab: one login opens the full demo.
 - Real university single sign-on.
 - A database. Remember-me past 12 hours. Two-factor sign-in.
 - Exposing the other nine processes. They stay on 127.0.0.1; only the UI server is published.
@@ -52,7 +52,7 @@ The owner will put the app on the internet and wants only people they choose to 
 4. `public/signin.html`, `public/signin.css` and a small `signin.js`, built from the approved mockup (`textContent` only).
 5. Header pill and Sign out in `index.html`, `app.js` and `styles.css`. Also `/guide`'s link. When a stream gets a 401, the page goes to `/signin?next=…`.
 6. `PUBLIC_ORIGIN` / `TRUST_PROXY` in `local-guard.js` and `config.js`, and the `AUTH` switch.
-7. Tests: `test/auth.test.js` (end to end on a stack: every route kind refused, then allowed after sign-in; lockout; sign out; `next` open-redirect cases), plus a browser check `scripts/browser-checks/signin.js` on a separate stack.
+7. Tests: `test/loopback-only.test.js` (every server binds 127.0.0.1), `test/auth.test.js` (end to end on a stack: every route kind refused, then allowed after sign-in; lockout; sign out; `next` open-redirect cases), plus a browser check `scripts/browser-checks/signin.js` on a separate stack.
 8. Docs: CLAUDE.md section, README “Publishing”, `Steps/18-sign-in.md` (copied to the Exercise repo, committed locally only).
 
 ## Risks
@@ -60,6 +60,23 @@ The owner will put the app on the internet and wants only people they choose to 
 - Behind a proxy, a wrong `TRUST_PROXY` setting makes every visitor share one IP, so one person's wrong tries would lock out everyone. Step 6 tests this both ways.
 - Long-lived streams already open when a session ends keep running until they reconnect. The gate checks the session at connect time and every 60 s, then closes the stream.
 
-## Open question for the owner
+## One login for the whole demo (owner, 2026-11-07)
 
-Should signing in also decide **which views** a person sees? For example, a student account sees only Conversation and the faculty account sees everything. Or does every account see the full demo, as today?
+“No this is one login to get to the demo so that people can demo the full system.” Signing in opens everything: all four tabs, both the student and the faculty side. Accounts only decide who can get in, not what they see.
+
+## The other nine processes (owner asked: “are they going to be also secured”)
+
+- **Already true, checked 2026-11-07.** Every server has `HOST = '127.0.0.1'` hard-coded:
+  - the Hub and the agents: Tutor, Library, Faculty, HR, Campus Agent
+  - the three stand-ins: PeopleSoft CHRS, Canvas, Campus Solutions
+  - the UI server
+  `lsof` on the running demo shows all ten listening on `127.0.0.1` only. Another computer cannot connect to them at all.
+- **The only way in is the UI server**, behind the sign-in. The browser reaches the Hub and the Faculty agent only through the UI server's `/api/*` routes, which the gate covers.
+- **A second lock already exists between them.** The processes already check each other:
+  - signed Hub messages with per-process keys
+  - random tokens for the three stand-ins, made fresh at every start
+  - host and origin guards
+- **New in this work:**
+  - a test, `test/loopback-only.test.js`, that fails if any server would listen on anything but 127.0.0.1;
+  - a README rule: on the server, open only port 443 (and 80 for the certificate) in the firewall, never 41241–41249 or 4444;
+  - when using Docker, publish only the proxy's port.
