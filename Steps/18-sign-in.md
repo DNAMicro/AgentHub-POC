@@ -11,6 +11,7 @@
 - *“No this is one login to get to the demo so that people can demo the full system.”* Signing in opens everything. Accounts don't decide what someone sees.
 - You asked *“Since we have agents on various systems and ports are they going to be also secured”*. The answer: the nine back-end processes stay on 127.0.0.1, and a test enforces it.
 - *“let the frontend listen on all ip addresses so I can test this out by opening the frontend using the IP of the machine and see it working”*. This added `UI_HOST`. The builder's call: it works only with the sign-in on.
+- *“terminal is enough”*: there is no password page in the app. Passwords are set and changed only with `npm run access:add <name>`.
 - *“yes approved, go ahead and build it”*. Branch `signin`.
 
 ## Instructions
