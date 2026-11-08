@@ -22,6 +22,8 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { askTutor, sendFormAction } from './student-agent.js';
 import { hostGuard, sameOriginGuard } from './local-guard.js';
+import { AccessError } from './access.js';
+import { authConfig, createAuthGate, extraHostsAndOrigins, localOnly, AuthConfigError, lanAddresses } from './auth-gate.js';
 import { A2UI_VERSION, WORKFLOWS, checkAction, surfaceButtons, validateBookingCriteria, validateFinal } from './forms.js';
 import { loadStudentConfig } from './config.js';
 import { getCard, validateCard } from './cards.js';
@@ -40,7 +42,7 @@ import { DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
 import { createStudentInbox } from './student-inbox.js';
 
-const HOST = '127.0.0.1';
+const HOST = '127.0.0.1'; // the address the local Hub uses to reach this server; Part 18: UI_HOST may add more (authConfig)
 const MAX_TEXT_LENGTH = 2000;
 const MAX_HISTORY = Number(process.env.UI_HISTORY_LIMIT ?? 1000); // bounded; older events are dropped with a notice
 const FEED_RETRY_MS = 1000;
@@ -90,7 +92,7 @@ const NEXT_STATES = {
 // rejected → editing (explicit "Edit and retry");  confirmation_pending → submitting (reconcile, same operation ID)
 const CLOSED_FORM_STATES = new Set(['accepted', 'cancelled', 'superseded']);
 
-export async function startUiServer({ port = 4444 } = {}) {
+export async function startUiServer({ port = 4444, auth: authCfg = authConfig(process.env), log: authLog = (...a) => console.log('[UI]', ...a) } = {}) {
   const cfg = loadStudentConfig(); // throws a clear error on invalid configuration
   useModel(cfg.model); // the Student's own model and key variable (used only when STUDENT_MODE=live)
   const hub = { name: cfg.university.name, baseUrl: cfg.university.hubUrl, cardUrl: cfg.university.cardUrl, rpcUrl: `${cfg.university.hubUrl}/a2a/jsonrpc`, vizUrl: `${cfg.university.hubUrl}/viz/events`, devUrl: `${cfg.university.hubUrl}/dev` };
@@ -257,7 +259,14 @@ export async function startUiServer({ port = 4444 } = {}) {
   let guardOrigin;
 
   const app = express();
+  app.disable('x-powered-by');
+  if (authCfg.trustProxy) app.set('trust proxy', 'loopback'); // only a proxy on this machine may name the visitor's address
   app.use((req, res, next) => guardHost(req, res, next));
+  // Part 18: the Student agent's inbound A2A door is for the local Hub only; then one login in front of everything else.
+  app.use(localOnly(['/a2a/jsonrpc', `/${AGENT_CARD_PATH}`]));
+  const gate = createAuthGate({ cfg: authCfg, publicDir: PUBLIC_DIR, guardOrigin: (req, res, next) => guardOrigin(req, res, next), log: authLog });
+  app.use(gate.middleware);
+  gate.routes(app);
   app.use(express.json({ limit: '64kb' }));
   app.get('/shared/forms.js', (req, res) => res.type('text/javascript').sendFile(SHARED_FORM_MODULE));
   app.get('/shared/absence-types.js', (req, res) => res.type('text/javascript').sendFile(SHARED_ABSENCE_MODULE));
@@ -905,11 +914,12 @@ export async function startUiServer({ port = 4444 } = {}) {
   discoverHub('startup');
 
   return new Promise((resolve, reject) => {
-    const server = app.listen(port, HOST, (err) => {
+    const server = app.listen(port, authCfg.host, (err) => {
       if (err) return reject(err); // Express 5 passes listen errors (e.g. EADDRINUSE) here
       const actualPort = server.address().port;
-      guardHost = hostGuard(actualPort);
-      guardOrigin = sameOriginGuard(actualPort);
+      const extra = extraHostsAndOrigins(authCfg, actualPort);
+      guardHost = hostGuard(actualPort, extra.hosts);
+      guardOrigin = sameOriginGuard(actualPort, extra.origins);
       const baseUrl = `http://${HOST}:${actualPort}`;
       // Part 9: the Student agent's inbound A2A endpoint (only typed, signed messages from the Hub).
       endpointUrl = baseUrl;
@@ -946,8 +956,22 @@ function writeEvent(res, event) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const port = process.env.UI_PORT === undefined ? 4444 : Number(process.env.UI_PORT);
   process.env.STUDENT_LOG_CONTENT ??= '0'; // keep chat text out of this server's logs by default
-  const { baseUrl, hubUrl, universityName } = await startUiServer({ port });
+  let auth;
+  try { auth = authConfig(process.env); } catch (err) {
+    if (!(err instanceof AuthConfigError)) throw err;
+    console.error(`[UI] ${err.message}`); process.exit(1);
+  }
+  let started;
+  try { started = await startUiServer({ port, auth }); } catch (err) {
+    if (!(err instanceof AuthConfigError) && !(err instanceof AccessError)) throw err;
+    console.error(`[UI] refusing to start: ${err.message}`); process.exit(1);
+  }
+  const { baseUrl, hubUrl, universityName, server } = started;
   console.log(`[UI] listening on ${baseUrl}`);
+  const actual = server.address().port;
+  if (auth.wide) for (const ip of lanAddresses()) console.log(`[UI] also on http://${ip}:${actual} (sign-in required)`);
+  if (auth.publicOrigin) console.log(`[UI] public address: ${auth.publicOrigin} (sign-in required)`);
+  console.log(`[UI] sign-in: ${auth.auth ? 'on' : 'off (local only)'}`);
   console.log(`[UI] Student Agent connects only to ${universityName} at ${hubUrl}`);
   const s = studentAssistantStatus();
   console.log(`[UI] Student model: ${s.mode}${s.model ? ` (${s.model})` : ''}${s.mode === 'live' ? `, API key (${keyEnvName()}): ${s.keyConfigured ? 'configured' : 'NOT SET'}, API host: ${apiHost()}` : ''}`);

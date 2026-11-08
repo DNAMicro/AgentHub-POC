@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Sign in · AgentHub</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/signin.css">
+</head>
+<body>
+  <main class="page">
+    <div class="card">
+      <aside class="side" aria-hidden="true">
+        <div class="mark">
+          <svg width="34" height="34" viewBox="0 0 34 34"><rect width="34" height="34" rx="9" fill="#2b59c3"/><circle cx="17" cy="17" r="4.2" fill="#fff"/><circle cx="8.5" cy="10" r="2.6" fill="#fff" opacity=".85"/><circle cx="25.5" cy="10" r="2.6" fill="#fff" opacity=".85"/><circle cx="8.5" cy="24" r="2.6" fill="#fff" opacity=".85"/><circle cx="25.5" cy="24" r="2.6" fill="#fff" opacity=".85"/><path d="M10.5 11.5 14 14.5M23.5 11.5 20 14.5M10.5 22.5 14 19.5M23.5 22.5 20 19.5" stroke="#fff" stroke-width="1.6" stroke-linecap="round" opacity=".85"/></svg>
+          <div><b>AgentHub</b><small>University agents demo</small></div>
+        </div>
+        <svg class="net" viewBox="0 0 300 230">
+          <g stroke="#3b4452" stroke-width="1.2" fill="none"><path d="M150 115 L60 45"/><path d="M150 115 L240 45"/><path d="M150 115 L45 150"/><path d="M150 115 L255 150"/><path d="M150 115 L150 205"/></g>
+          <g stroke="#e3b04b" stroke-width="1.6" fill="none" class="flow"><path d="M150 115 L240 45"/><path d="M150 115 L45 150"/></g>
+          <circle cx="150" cy="115" r="17" fill="#e3b04b" class="pulse"/><text x="150" y="119.5" text-anchor="middle" font-size="11" font-weight="700" fill="#18202b">Hub</text>
+          <circle cx="60" cy="45" r="10" fill="#86a2ff" class="pulse d2"/>
+          <circle cx="240" cy="45" r="10" fill="#c99ae6" class="pulse d3"/>
+          <circle cx="45" cy="150" r="10" fill="#4cc4a0" class="pulse d4"/>
+          <circle cx="255" cy="150" r="10" fill="#f08aae" class="pulse d5"/>
+          <circle cx="150" cy="205" r="10" fill="#6cc0dd" class="pulse"/>
+          <g font-size="10.5" fill="#98a3b1" text-anchor="middle"><text x="60" y="27">Student</text><text x="240" y="27">Tutoring</text><text x="45" y="175">Library</text><text x="255" y="175">Faculty</text><text x="150" y="228">HR</text></g>
+        </svg>
+        <p><strong>A private demo.</strong> Student and faculty agents talking through one university hub. All people and records here are fictional.</p>
+      </aside>
+      <form class="form" method="post" action="/signin" id="signin-form" novalidate>
+        <div class="mini-mark"><svg width="26" height="26" viewBox="0 0 34 34" aria-hidden="true"><rect width="34" height="34" rx="9" class="mm-bg"/><circle cx="17" cy="17" r="4.6" class="mm-dot"/></svg>AgentHub</div>
+        <h1>Sign in</h1>
+        <p class="sub">Use the account you were given to open the demo.</p>
+        {{NOTICE}}
+        <input type="hidden" name="next" value="{{NEXT}}">
+        <label class="f" for="username">Username</label>
+        <div class="input"><input id="username" name="username" value="{{USERNAME}}" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="64" required{{USER_STATE}}></div>
+        <label class="f" for="password">Password</label>
+        <div class="input"><input id="password" name="password" type="password" autocomplete="current-password" maxlength="256" required{{PASS_STATE}}><button class="eye" type="button" id="show" aria-controls="password" aria-pressed="false" hidden>Show</button></div>
+        <p class="caps" id="caps" hidden>Caps Lock is on</p>
+        <button class="btn" type="submit" id="submit"{{LOCKED}}>Sign in</button>
+        <p class="help">No account? Ask the person who shared this link with you.</p>
+        <div class="foot"><span>Fictional demo data only</span><span>Signed-in sessions last 12 hours</span></div>
+      </form>
+    </div>
+  </main>
+  <script src="/signin.js"></script>
+</body>
+</html>
