@@ -20,6 +20,7 @@ export const TEXT = {
 };
 const STREAMS = new Set(['/api/ui/stream', '/api/events', '/api/ag-ui/stream', '/api/ag-ui/professor/stream']);
 const OPEN = new Set(['/signin', '/signin.css', '/signin.js']);
+const PAGES = new Set(['/', '/conversation', '/activity', '/topology', '/faculty', '/professor', '/guide', '/index.html', '/guide.html']);
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 const DEFAULT_NEXT = '/conversation';
 
@@ -112,6 +113,9 @@ export function createAuthGate({ cfg, publicDir, guardOrigin, log = () => {}, no
   let users = cfg.auth ? loadAccess(cfg.accessFile) : [];
   if (cfg.auth && !users.length) throw new AuthConfigError(`AUTH=on but there are no accounts — add one with: npm run access:add <name>`);
   const sessions = createSessions(now ? { now } : {});
+  // Open live streams per session: signing out, or an account being removed or changed, closes them at once.
+  const streams = new Map();
+  const closeStreams = (ids) => { for (const id of ids) { for (const r of streams.get(id) ?? []) r.end(); streams.delete(id); } };
 
   // Owner, 2026-11-07: “have it take effect without restarting”. The accounts file is re-read when it changes
   // (checked every second). A removed account, or one whose password changed, is signed out at once. A file that
@@ -123,7 +127,9 @@ export function createAuthGate({ cfg, publicDir, guardOrigin, log = () => {}, no
     const gone = new Set(users.filter((u) => now2.get(u.username) !== u.hash).map((u) => u.username));
     const added = next.filter((u) => !users.some((x) => x.username === u.username)).length;
     users = next;
-    const out = gone.size ? sessions.endUsers(gone) : 0;
+    const ended = gone.size ? sessions.endUsers(gone) : [];
+    closeStreams(ended);
+    const out = ended.length;
     log(`accounts reloaded: ${users.length} account(s), ${added} added, ${gone.size} removed or changed${out ? `, ${out} session(s) signed out` : ''}`);
   };
   if (cfg.auth) watchFile(cfg.accessFile, { interval: 1000, persistent: false }, (cur, prev) => { if (cur.mtimeMs !== prev.mtimeMs || cur.ino !== prev.ino) reload(); });
@@ -163,10 +169,15 @@ export function createAuthGate({ cfg, publicDir, guardOrigin, log = () => {}, no
     const who = sessions.get(id);
     if (who) {
       req.signedInAs = who.username;
-      if (STREAMS.has(p)) { // an open stream ends when the session does (checked every minute)
+      // Nothing a signed-in person sees is kept by the browser after signing out (pages, data, the Back button).
+      if (p.startsWith('/api') || p.startsWith('/auth') || PAGES.has(p)) res.set('Cache-Control', 'no-store');
+      res.set('X-Frame-Options', 'DENY');
+      if (STREAMS.has(p)) { // closed at once on sign-out (closeStreams); an expired session is noticed within a minute
+        const set = streams.get(id) ?? new Set();
+        set.add(res); streams.set(id, set);
         const timer = setInterval(() => { if (!sessions.get(id, { peek: true })) res.end(); }, 60_000);
         timer.unref?.();
-        res.on('close', () => clearInterval(timer));
+        res.on('close', () => { clearInterval(timer); set.delete(res); if (!set.size && streams.get(id) === set) streams.delete(id); });
       }
       return next();
     }
@@ -220,14 +231,14 @@ export function createAuthGate({ cfg, publicDir, guardOrigin, log = () => {}, no
       }
       sessions.limiter.clear(userKey);
       const old = cookieOf(req);
-      if (old) sessions.end(old);
+      if (old) { sessions.end(old); closeStreams([old]); }
       setCookie(res, sessions.create(user), Math.floor(SESSION_MAX_MS / 1000));
       log(`signed in: ${user}`);
       res.redirect(303, next);
     });
     app.post('/signout', (req, res, nxt) => guardOrigin(req, res, nxt), (req, res) => {
       const id = cookieOf(req);
-      if (id) sessions.end(id);
+      if (id) { sessions.end(id); closeStreams([id]); }
       setCookie(res, '', 0);
       res.redirect(303, cfg.auth ? '/signin?e=out' : DEFAULT_NEXT);
     });

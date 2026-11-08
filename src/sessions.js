@@ -37,7 +37,8 @@ export function createSessions({ now = Date.now } = {}) {
   };
   const end = (id) => { sessions.delete(id); };
   // Sign out every session of these usernames (an account removed, or its password changed).
-  const endUsers = (names) => { let n = 0; for (const [k, s] of sessions) if (names.has(s.username)) { sessions.delete(k); n++; } return n; };
+  // Returns the ended session ids, so their open live streams can be closed too.
+  const endUsers = (names) => { const ids = []; for (const [k, s] of sessions) if (names.has(s.username)) { sessions.delete(k); ids.push(k); } return ids; };
 
   const entry = (key, t) => {
     const e = fails.get(key) ?? { times: [], lockedUntil: 0 };

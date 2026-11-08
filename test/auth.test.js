@@ -183,3 +183,24 @@ test('auth: adding, removing and changing accounts takes effect without a restar
   assert.equal((await signIn(ui.url, 'sam', 'sam-pass-123')).status, 401);
   assert.doesNotMatch(ui.output(), /sam-pass-123|[0-9a-f]{64}/, 'no password or hash in the log');
 });
+
+test('auth: signing out closes that session’s live stream at once; pages and data are never kept by the browser', async () => {
+  const ui = await authUi();
+  const cookie = cookieFrom(await signIn(ui.url, 'alex', PW));
+  for (const path of ['/api/status', '/conversation', '/auth/me']) {
+    const r = await get(`${ui.url}${path}`, cookie);
+    assert.equal(r.headers.get('cache-control'), 'no-store', path);
+    assert.equal(r.headers.get('x-frame-options'), 'DENY', path);
+  }
+  const stream = await fetch(`${ui.url}/api/ui/stream?monitor=0&student=0`, { headers: { cookie } });
+  assert.equal(stream.status, 200);
+  const reader = stream.body.getReader();
+  await reader.read(); // the stream is open
+  const t0 = Date.now();
+  await fetch(`${ui.url}/signout`, { method: 'POST', redirect: 'manual', headers: { cookie } });
+  let ended = false;
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) { const { done } = await reader.read(); if (done) { ended = true; break; } }
+  assert.ok(ended, 'the stream ended');
+  assert.ok(Date.now() - t0 < 5000, 'within seconds, not a minute');
+});

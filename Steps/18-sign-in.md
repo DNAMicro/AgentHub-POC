@@ -32,7 +32,8 @@
    - Open without a session: `/signin`, `/signin.css`, `/signin.js`, and `/fonts/*` from its own static root mounted before the gate (an open `/fonts/` prefix on the main static leaked page code via `/fonts/..%2fapp.js`).
    - A page without a session → 302 to `/signin?next=<path>`. If an old cookie was sent, also add `&e=expired`.
    - `/api/*`, `/auth/*` and any non-GET → 401 `{"error":"sign_in_required"}`.
-   - Open live streams are re-checked every minute and closed when the session has ended.
+   - Signing out, or an account being removed or changed, closes that session's open live streams at once. An expired session's stream ends within a minute.
+   - Signed-in pages and data are sent with `Cache-Control: no-store` (nothing kept after signing out, not even for the Back button) and `X-Frame-Options: DENY`.
    - `next` is used only if it is a same-site path. Otherwise the person goes to `/conversation`.
    - `GET /auth/me` → `{ auth, username }`. `POST /signout` → `/signin?e=out`.
    - The sign-in and sign-out posts are origin-checked.
