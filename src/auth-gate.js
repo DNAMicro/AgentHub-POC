@@ -7,6 +7,7 @@
 import express from 'express';
 import { readFileSync, watchFile, unwatchFile } from 'node:fs';
 import { networkInterfaces } from 'node:os';
+import { isIP } from 'node:net';
 import { join } from 'node:path';
 import { verify, normalUser, loadAccess, DEFAULT_ACCESS_FILE } from './access.js';
 import { createSessions, SESSION_MAX_MS } from './sessions.js';
@@ -45,9 +46,19 @@ export function authConfig(env = process.env) {
   if ((wide || publicOrigin) && !auth) throw new AuthConfigError(`refusing to listen on ${host} without sign-in (set AUTH=on and add an account)`);
   // Behind a front server every visitor arrives from 127.0.0.1; only with TRUST_PROXY=1 (and the proxy's
   // X-Forwarded-For) can the gate tell visitors apart and keep the Student agent's inbound door local-only.
-  if (publicOrigin && env.TRUST_PROXY !== '1') throw new AuthConfigError('PUBLIC_ORIGIN needs TRUST_PROXY=1, and the front server must send X-Forwarded-For');
+  // TRUST_PROXY=1 trusts a front server on this machine; TRUST_PROXY=<address>[,<address>] trusts that front
+  // server only (e.g. nginx on another machine: TRUST_PROXY=172.16.70.87). Nothing else may name the visitor.
+  const tp = (env.TRUST_PROXY ?? '').trim();
+  let trustProxy = false;
+  if (tp === '1') trustProxy = 'loopback';
+  else if (tp) {
+    const list = tp.split(',').map((x) => x.trim()).filter(Boolean);
+    if (!list.every((x) => isIP(x))) throw new AuthConfigError('TRUST_PROXY must be 1 or the front server\'s address, e.g. TRUST_PROXY=172.16.70.87');
+    trustProxy = list;
+  }
+  if (publicOrigin && !trustProxy) throw new AuthConfigError('PUBLIC_ORIGIN needs TRUST_PROXY (1, or the front server\'s address), and the front server must send X-Forwarded-For');
   const accessFile = env.AGENTHUB_ACCESS_FILE || DEFAULT_ACCESS_FILE;
-  return { host, wide, auth, publicOrigin, secure: publicOrigin?.startsWith('https://') ?? false, trustProxy: env.TRUST_PROXY === '1', accessFile };
+  return { host, wide, auth, publicOrigin, secure: publicOrigin?.startsWith('https://') ?? false, trustProxy, accessFile };
 }
 
 // The machine's own network addresses (IPv4, not internal) — what “open it by the machine's IP” uses.

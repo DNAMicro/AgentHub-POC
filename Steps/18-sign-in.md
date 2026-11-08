@@ -55,7 +55,7 @@
    - A non-loopback value requires the sign-in: `AUTH=off` exits with “refusing to listen on … without sign-in”, and no accounts also exits.
    - The ready line stays `[UI] listening on http://127.0.0.1:<port>`. When wide, it adds `[UI] also on http://<ip>:<port> (sign-in required)`.
    - The Host and Origin guards accept the machine's own IPv4 addresses and the `PUBLIC_ORIGIN` host. Every other Host name still gets 421.
-   - `PUBLIC_ORIGIN` requires `TRUST_PROXY=1`.
+   - `PUBLIC_ORIGIN` requires `TRUST_PROXY`: `1` for a front server on the same machine, or the front server's address (e.g. `172.16.70.87`) when it runs elsewhere. A bare `1` behind a front server on another machine would make every visitor look like that machine.
    - The Student agent's inbound A2A door (`/a2a/jsonrpc`, the agent card) answers only a local caller with no proxy headers; anyone else gets 404.
    - `npm run demo:live:lan` = the live demo with `UI_HOST=0.0.0.0 AUTH=on`.
 

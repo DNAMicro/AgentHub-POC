@@ -260,7 +260,7 @@ export async function startUiServer({ port = 4444, auth: authCfg = authConfig(pr
 
   const app = express();
   app.disable('x-powered-by');
-  if (authCfg.trustProxy) app.set('trust proxy', 'loopback'); // only a proxy on this machine may name the visitor's address
+  if (authCfg.trustProxy) app.set('trust proxy', authCfg.trustProxy); // only the named front server (or one on this machine) may name the visitor's address
   app.use((req, res, next) => guardHost(req, res, next));
   // Part 18: the Student agent's inbound A2A door is for the local Hub only; then one login in front of everything else.
   app.use(localOnly()); // /a2a/jsonrpc and the agent card

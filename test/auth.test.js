@@ -162,7 +162,10 @@ test('auth config: listening wide needs the sign-in; AUTH must be on/off; PUBLIC
   assert.equal(authConfig({ UI_HOST: '0.0.0.0' }).auth, true, 'wide turns the sign-in on by default');
   assert.throws(() => authConfig({ AUTH: 'yes' }), AuthConfigError);
   assert.throws(() => authConfig({ PUBLIC_ORIGIN: 'agenthub.example.org' }), AuthConfigError);
-  assert.throws(() => authConfig({ PUBLIC_ORIGIN: 'https://agenthub.example.org' }), /TRUST_PROXY=1/, 'behind a front server the gate must see real addresses');
+  assert.throws(() => authConfig({ PUBLIC_ORIGIN: 'https://agenthub.example.org' }), /needs TRUST_PROXY/, 'behind a front server the gate must see real addresses');
+  assert.deepEqual(authConfig({ PUBLIC_ORIGIN: 'https://agenthub.example.org', TRUST_PROXY: '172.16.70.87' }).trustProxy, ['172.16.70.87'], 'nginx on another machine');
+  assert.equal(authConfig({ TRUST_PROXY: '1' }).trustProxy, 'loopback');
+  assert.throws(() => authConfig({ TRUST_PROXY: 'yes' }), AuthConfigError);
   const pub = authConfig({ PUBLIC_ORIGIN: 'https://agenthub.example.org', TRUST_PROXY: '1' });
   assert.equal(pub.auth, true); assert.equal(pub.secure, true);
 });
