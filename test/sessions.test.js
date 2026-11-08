@@ -79,4 +79,6 @@ test('address key: IPv6 grouped by /64, IPv4 as is', () => {
   assert.equal(addressKey('2001:db8:1:2:aaaa:bbbb:cccc:dddd'), '2001:db8:1:2::/64');
   assert.equal(addressKey('2001:db8:1:2::5'), '2001:db8:1:2::/64');
   assert.equal(addressKey('2001:0db8::1'), '2001:db8:0:0::/64');
+  assert.equal(addressKey('64:ff9b::198.51.100.7'), '198.51.100.7', 'NAT64 → the IPv4 address');
+  assert.equal(addressKey('::198.51.100.7'), '198.51.100.7');
 });

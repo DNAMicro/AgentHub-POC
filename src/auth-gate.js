@@ -70,7 +70,9 @@ const underLocalOnly = (path) => { const p = normPath(path); return LOCAL_ONLY.s
 // IPv6 visitors are grouped by their /64 network, so one network can't rotate addresses past the lock.
 export function addressKey(ip) {
   const a = String(ip ?? '');
-  if (!a.includes(':') || a.startsWith('::ffff:')) return a.replace(/^::ffff:/, '');
+  const v4 = a.match(/(\d{1,3}(?:\.\d{1,3}){3})$/); // ::ffff:a.b.c.d, ::a.b.c.d, NAT64 …:a.b.c.d → the IPv4 address
+  if (v4) return v4[1];
+  if (!a.includes(':')) return a;
   const [head, tail = ''] = a.split('::');
   const left = head ? head.split(':') : [];
   const right = tail ? tail.split(':') : [];
@@ -177,10 +179,12 @@ export function createAuthGate({ cfg, publicDir, guardOrigin, log = () => {}, no
       const user = normalUser(raw);
       // Locks are per address and per (username, address): wrong tries from one place never lock out someone
       // else who has the right password (security review, 2026-11-07: the shared account could be kept locked).
-      const where = addressKey(req.ip);
+      // The hard lock on an address alone uses the exact address (a /64 can be a whole campus network);
+      // the (username, address) lock groups IPv6 by /64 so one network can't rotate addresses to keep guessing.
+      const exact = addressKey(req.ip).endsWith('::/64') ? String(req.ip) : addressKey(req.ip);
       const acctKey = `acct:${user ?? raw.trim().toLowerCase()}`;
-      const userKey = `u:${user ?? raw.trim().toLowerCase()}|ip:${where}`;
-      const keys = [userKey, `ip:${where}`];
+      const userKey = `u:${user ?? raw.trim().toLowerCase()}|ip:${addressKey(req.ip)}`;
+      const keys = [userKey, `ip:${exact}`];
       const done = sessions.limiter.begin(keys);
       if (!done) return page(res, { status: 429, notice: 'locked', next, username: raw });
       let ok = false;
