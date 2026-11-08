@@ -207,7 +207,10 @@ export function createAuthGate({ cfg, publicDir, guardOrigin, log = () => {}, no
       try {
         const wait = sessions.account.delayFor(acctKey); // many wrong tries on this account from anywhere: slow down
         if (wait) await new Promise((r) => setTimeout(r, wait));
+        const before = users.find((u) => u.username === user)?.hash;
         ok = await verify(users, user, password);
+        // The accounts file may have reloaded during the check: the account must still exist with the same password.
+        if (ok && users.find((u) => u.username === user)?.hash !== before) ok = false;
       } finally { done(ok); }
       if (!ok) {
         sessions.account.fail(acctKey);
