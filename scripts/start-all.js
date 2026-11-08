@@ -35,13 +35,21 @@ const procs = [
   });
   out(child.stdout);
   out(child.stderr);
-  child.on('exit', (code) => console.log(`${name.padEnd(7)} | exited (${code})`));
+  child.on('exit', (code) => {
+    console.log(`${name.padEnd(7)} | exited (${code})`);
+    // Under a process manager (pm2: STOP_ALL_ON_EXIT=1) one crashed process takes the set down, so all ten
+    // restart together instead of leaving a half-working demo. Locally the others keep running, as before.
+    if (process.env.STOP_ALL_ON_EXIT === '1' && !stopping) { console.log(`${name} stopped — stopping all so they restart together`); stop(1); }
+  });
   return child;
 });
-const stop = () => {
-  for (const p of procs) p.kill('SIGTERM');
-  setTimeout(() => process.exit(0), 1000);
+let stopping = false;
+const stop = (code = 0) => {
+  if (stopping) return;
+  stopping = true;
+  for (const p of procs) if (p.exitCode === null && p.signalCode === null) p.kill('SIGTERM');
+  setTimeout(() => process.exit(code), 1500);
 };
-process.on('SIGINT', stop);
-process.on('SIGTERM', stop);
+process.on('SIGINT', () => stop(0));
+process.on('SIGTERM', () => stop(0));
 console.log(`Starting ten processes: the University Hub, Tutor, Library, Marketing 351 Faculty, HR Agent and CHRS (staff only), PeopleSoft, Canvas LMS and PeopleSoft student records (demo stand-ins, MCP) and Student UI (${live ? 'LIVE models — paid' : 'mock models, no network'}). Open http://127.0.0.1:4444`);

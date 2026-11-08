@@ -207,3 +207,14 @@ test('auth: signing out closes that session’s live stream at once; pages and d
   assert.ok(ended, 'the stream ended');
   assert.ok(Date.now() - t0 < 5000, 'within seconds, not a minute');
 });
+
+test('auth: with no accounts yet the UI starts, nobody can sign in, and the first account works without a restart', async () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'auth-')), 'access.json'); // does not exist yet
+  const ui = await startUi('http://127.0.0.1:9', { AUTH: 'on', AGENTHUB_ACCESS_FILE: file });
+  procs.push(ui);
+  await waitFor(() => /no accounts yet/.test(ui.output()), { what: 'the no-accounts line' });
+  assert.equal((await signIn(ui.url, 'alex', PW)).status, 401);
+  saveAccess(file, [{ username: 'alex', ...(await hashPassword(PW)) }]);
+  await waitFor(() => /accounts reloaded: 1 account/.test(ui.output()), { timeout: 8000, what: 'the reload' });
+  assert.equal((await signIn(ui.url, 'alex', PW)).status, 303);
+});

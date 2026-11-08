@@ -58,6 +58,14 @@ PUBLIC_ORIGIN=https://agenthub.example.org TRUST_PROXY=1 npm run demo:live
 - The other nine processes always listen on 127.0.0.1 (`test/loopback-only.test.js` fails if one doesn't). The Student agent's inbound A2A door (`/a2a/jsonrpc`, its agent card) answers only a local caller with no proxy headers; anyone else gets 404.
 - What the gate does: pages without a session go to `/signin?next=…`; `/api/*`, `/auth/*` and the live streams get 401 (signing out closes the live view at once; nothing is kept in the browser's cache). Sessions last 12 hours, or 2 hours idle, in memory only (a restart signs everyone out). 5 wrong tries in 15 minutes lock that address for 15 minutes (others with the right password still get in).
 
+### Running it on a server with pm2 (how csuf.f.dnaproto.net runs)
+
+- Container: Debian 13 LXC 144 on Proxmox, `172.16.70.144`, user `agenthub`, repo in `/home/agenthub/AgentHub-POC` (branch `signin`), Node 26.
+- pm2 runs `/home/agenthub/ecosystem.config.cjs` (not in git) → `node scripts/start-all.js` with `DEMO_MODE=live UI_HOST=0.0.0.0 AUTH=on PUBLIC_ORIGIN=https://csuf.f.dnaproto.net TRUST_PROXY=172.16.70.87 STOP_ALL_ON_EXIT=1` (one crashed process restarts all ten together). `pm2 startup` + `pm2 save` start it at boot.
+- nginx on `172.16.70.87`: `/etc/nginx/sites-available/csuf.f.dnaproto.net` proxies to `http://172.16.70.144:4444` with the `*.f.dnaproto.net` certificate, `proxy_buffering off` for the live view.
+- The API key goes in `/home/agenthub/AgentHub-POC/.env` (`ANTHROPIC_API_KEY=…`, mode 600) followed by `pm2 restart agenthub`; accounts with `npm run access:add <name>` in the repo folder (no restart). With no account yet the site starts and nobody can sign in.
+- Update: `cd ~/AgentHub-POC && git pull && npm ci && npm run build:ui && pm2 restart agenthub` (as `agenthub`).
+
 ## License
 
 [MIT](LICENSE) © 2026 Farsheed Atef. Third-party packages keep their own licenses; the self-hosted fonts under `public/fonts/` are under the SIL Open Font License.

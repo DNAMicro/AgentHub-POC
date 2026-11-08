@@ -121,8 +121,10 @@ const ICONS = {
 const NOTICE_KIND = { bad: 'bad', locked: 'warn', expired: 'info', out: 'ok' };
 
 export function createAuthGate({ cfg, publicDir, guardOrigin, log = () => {}, now } = {}) {
-  let users = cfg.auth ? loadAccess(cfg.accessFile) : [];
-  if (cfg.auth && !users.length) throw new AuthConfigError(`AUTH=on but there are no accounts — add one with: npm run access:add <name>`);
+  // No accounts yet is allowed: nobody can sign in until one is added, and the reload below picks it up within
+  // seconds (a server run by pm2 can start before the owner has set a username). An unreadable file still stops it.
+  let users = cfg.auth ? loadAccess(cfg.accessFile, { missingOk: true }) : [];
+  if (cfg.auth && !users.length) log('no accounts yet — nobody can sign in until one is added with: npm run access:add <name>');
   const sessions = createSessions(now ? { now } : {});
   // Open live streams per session: signing out, or an account being removed or changed, closes them at once.
   const streams = new Map();

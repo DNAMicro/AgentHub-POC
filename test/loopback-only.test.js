@@ -2,7 +2,7 @@
 // the nine back-end servers listen on 127.0.0.1 only; only the UI server may listen wider, and only with the sign-in.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync, mkdtempSync } from 'node:fs';
+import { readFileSync, readdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -29,14 +29,16 @@ test('loopback only: every back-end server binds 127.0.0.1; only the UI reads UI
   }
 });
 
-test('loopback only: the UI refuses to listen wide without the sign-in, or with no accounts', () => {
+test('loopback only: the UI refuses to listen wide without the sign-in, or with an unreadable accounts file', () => {
   const run = (env) => spawnSync(process.execPath, ['src/ui-server.js'], { env: { ...process.env, UI_PORT: '0', HUB_URL: 'http://127.0.0.1:9', ...env }, encoding: 'utf8', timeout: 15000 });
   const off = run({ UI_HOST: '0.0.0.0', AUTH: 'off' });
   assert.equal(off.status, 1);
   assert.match(off.stderr, /\[UI\] refusing to listen on 0\.0\.0\.0 without sign-in/);
-  const empty = run({ UI_HOST: '0.0.0.0', AGENTHUB_ACCESS_FILE: join(mkdtempSync(join(tmpdir(), 'acc-')), 'none.json') });
-  assert.equal(empty.status, 1);
-  assert.match(empty.stderr, /\[UI\] refusing to start/);
+  const dir = mkdtempSync(join(tmpdir(), 'acc-'));
+  writeFileSync(join(dir, 'bad.json'), '{ not json');
+  const bad = run({ UI_HOST: '0.0.0.0', AGENTHUB_ACCESS_FILE: join(dir, 'bad.json') });
+  assert.equal(bad.status, 1);
+  assert.match(bad.stderr, /\[UI\] refusing to start: the accounts file is not valid JSON/);
 });
 
 const lan = lanAddresses()[0];
