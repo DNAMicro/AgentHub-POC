@@ -80,3 +80,21 @@ The owner will put the app on the internet and wants only people they choose to 
   - a test, `test/loopback-only.test.js`, that fails if any server would listen on anything but 127.0.0.1;
   - a README rule: on the server, open only port 443 (and 80 for the certificate) in the firewall, never 41241–41249 or 4444;
   - when using Docker, publish only the proxy's port.
+
+## The front end on all addresses (owner, 2026-11-07)
+
+“let the frontend listen on all ip addresses so I can test this out by opening the frontend using the IP of the machine and see it working”
+
+- **New setting `UI_HOST`.** It defaults to `127.0.0.1`, so nothing changes for `npm test` or a plain `npm run demo`.
+  - With `UI_HOST=0.0.0.0`, only the UI server (:4444) listens on every address, e.g. `http://172.16.70.100:4444` on the office network.
+  - The other nine processes stay on `127.0.0.1`; the setting doesn't touch them.
+- **New npm script.** `npm run demo:live:lan` runs `demo:live` with `UI_HOST=0.0.0.0` and `AUTH=on`.
+- **It won't listen wide without the sign-in (my call).** The UI server refuses to start with `UI_HOST` other than loopback unless `AUTH=on` and the accounts file has at least one account. Startup then exits with a clear line. Without this rule, anyone on the same Wi-Fi could use the demo and its paid model calls.
+- **Host and Origin checks.** `hostGuard` and `sameOriginGuard` accept the machine's own network addresses when `UI_HOST` is wide. Those addresses are read from `os.networkInterfaces()` at start. `PUBLIC_ORIGIN` is added to them.
+  - A `Host` header naming some other name is still refused with 421. This keeps the DNS-rebinding protection.
+- **The Student agent's inbound A2A endpoint stays loopback-only.** This covers `/a2a/jsonrpc` and the agent card. A caller that is not `127.0.0.1` / `::1` gets 404, even when signed in. The Hub is the only caller and is always local.
+- **Plain http on the local network.** The cookie isn't marked Secure there, because it is not https. The password crosses the local network unencrypted. That is fine for an office test with a demo password, not for the internet. The internet setup uses https via the front server.
+- **macOS.** The first wide start may show “allow incoming connections for node?”. Choose Allow.
+- **Tests.**
+  - `test/loopback-only.test.js`: the nine back-end servers always bind 127.0.0.1. The UI binds wide only with `AUTH=on`.
+  - `test/auth.test.js`: a request with a LAN Host is signed-in-gated, and the A2A endpoint from a non-loopback address returns 404. This uses a test hook that fakes the remote address.
