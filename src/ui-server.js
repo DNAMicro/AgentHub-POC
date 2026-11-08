@@ -264,6 +264,8 @@ export async function startUiServer({ port = 4444, auth: authCfg = authConfig(pr
   app.use((req, res, next) => guardHost(req, res, next));
   // Part 18: the Student agent's inbound A2A door is for the local Hub only; then one login in front of everything else.
   app.use(localOnly()); // /a2a/jsonrpc and the agent card
+  // The sign-in page's fonts load before signing in; this static root can't reach any other file in public/.
+  app.use('/fonts', express.static(fileURLToPath(new URL('../public/fonts', import.meta.url)), { fallthrough: false, index: false }));
   const gate = createAuthGate({ cfg: authCfg, publicDir: PUBLIC_DIR, guardOrigin: (req, res, next) => guardOrigin(req, res, next), log: authLog });
   app.use(gate.middleware);
   gate.routes(app);

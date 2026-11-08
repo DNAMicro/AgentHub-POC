@@ -128,7 +128,7 @@ export function createAuthGate({ cfg, publicDir, guardOrigin, log = () => {}, no
   const middleware = (req, res, next) => {
     if (!cfg.auth) return next();
     const p = normPath(req.path);
-    if (OPEN.has(p) || p.startsWith('/fonts/') || p === '/signout') return next();
+    if (OPEN.has(p) || p === '/signout') return next(); // fonts are served before the gate, from their own folder only
     if (underLocalOnly(p) && isLoopbackCaller(req)) return next(); // the local Hub; localOnly() already turned others away
     const id = cookieOf(req);
     const who = sessions.get(id);
@@ -164,7 +164,9 @@ export function createAuthGate({ cfg, publicDir, guardOrigin, log = () => {}, no
       const raw = typeof req.body?.username === 'string' ? req.body.username.slice(0, 64) : '';
       const password = typeof req.body?.password === 'string' ? req.body.password.slice(0, 256) : '';
       const user = normalUser(raw);
-      const userKey = `u:${user ?? raw.trim().toLowerCase()}`;
+      // Locks are per address and per (username, address): wrong tries from one place never lock out someone
+      // else who has the right password (security review, 2026-11-07: the shared account could be kept locked).
+      const userKey = `u:${user ?? raw.trim().toLowerCase()}|ip:${req.ip}`;
       const keys = [userKey, `ip:${req.ip}`];
       const done = sessions.limiter.begin(keys);
       if (!done) return page(res, { status: 429, notice: 'locked', next, username: raw });

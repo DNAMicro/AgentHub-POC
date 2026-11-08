@@ -54,7 +54,7 @@ PUBLIC_ORIGIN=https://agenthub.example.org TRUST_PROXY=1 npm run demo:live
 - `PUBLIC_ORIGIN` turns the sign-in on and marks the cookie Secure. It needs `TRUST_PROXY=1`, and the front server must send `X-Forwarded-For` (Caddy does by default; nginx: `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` and `proxy_set_header Host $host;`). Otherwise every visitor looks like one address, and one person's wrong tries would lock everyone out.
 - **Firewall:** open only 443 (and 80 for the certificate). Never open 4444 or 41241–41249. With Docker, publish only the front server's port.
 - The other nine processes always listen on 127.0.0.1 (`test/loopback-only.test.js` fails if one doesn't). The Student agent's inbound A2A door (`/a2a/jsonrpc`, its agent card) answers only a local caller with no proxy headers; anyone else gets 404.
-- What the gate does: pages without a session go to `/signin?next=…`; `/api/*`, `/auth/*` and the live streams get 401 (an open stream closes within a minute of the session ending). Sessions last 12 hours, or 2 hours idle, in memory only (a restart signs everyone out). 5 wrong tries in 15 minutes lock that username or address for 15 minutes.
+- What the gate does: pages without a session go to `/signin?next=…`; `/api/*`, `/auth/*` and the live streams get 401 (an open stream closes within a minute of the session ending). Sessions last 12 hours, or 2 hours idle, in memory only (a restart signs everyone out). 5 wrong tries in 15 minutes lock that address for 15 minutes (others with the right password still get in).
 
 ## License
 

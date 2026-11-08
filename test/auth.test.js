@@ -12,10 +12,10 @@ const PW = 'demo-pass-123';
 const procs = [];
 after(() => { for (const p of procs) p.proc.kill(); });
 
-async function authUi() {
+async function authUi(env = {}) {
   const file = join(mkdtempSync(join(tmpdir(), 'auth-')), 'access.json');
   saveAccess(file, [{ username: 'alex', ...(await hashPassword(PW)) }]);
-  const ui = await startUi('http://127.0.0.1:9', { AUTH: 'on', AGENTHUB_ACCESS_FILE: file });
+  const ui = await startUi('http://127.0.0.1:9', { AUTH: 'on', AGENTHUB_ACCESS_FILE: file, ...env });
   procs.push(ui);
   return ui;
 }
@@ -110,6 +110,23 @@ test('auth: 5 wrong tries lock that username and address for 15 minutes', async 
   // X-Forwarded-For is ignored without TRUST_PROXY, so it can't dodge the address lock.
   const spoof = await fetch(`${ui.url}/signin`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-forwarded-for': '9.9.9.9' }, body: new URLSearchParams({ username: 'other', password: 'whatever-1' }) });
   assert.equal(spoof.status, 429);
+});
+
+test('auth: no file outside the fonts folder opens without signing in, however the path is spelled', async () => {
+  const ui = await authUi();
+  for (const path of ['/fonts/..%2fapp.js', '/fonts/%2e%2e/app.js', '/fonts/..%2findex.html', '/fonts/..%2fguide.html', '/signin.js/..%2fapp.js', '/fonts/']) {
+    const r = await get(`${ui.url}${path}`);
+    assert.ok([302, 401, 403, 404].includes(r.status), `${path} → ${r.status}`);
+    assert.doesNotMatch(await r.text(), /followBottom|<nav class="tabs"|import /, `${path} must not leak page code`);
+  }
+});
+
+test('auth: wrong tries from one address never lock out the right password from another', async () => {
+  const ui = await authUi({ TRUST_PROXY: '1' });
+  const from = (ip, password) => fetch(`${ui.url}/signin`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-forwarded-for': ip }, body: new URLSearchParams({ username: 'alex', password }) });
+  for (let i = 0; i < 5; i++) await from('198.51.100.1', `wrong-${i}-xx`);
+  assert.equal((await from('198.51.100.1', PW)).status, 429, 'the guessing address waits');
+  assert.equal((await from('198.51.100.2', PW)).status, 303, 'someone else with the right password gets in');
 });
 
 test('auth: a burst of parallel wrong tries cannot get past the limit', async () => {

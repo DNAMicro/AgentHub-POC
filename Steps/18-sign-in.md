@@ -25,9 +25,9 @@
    - In memory only. They end 12 hours after sign-in, or after 2 hours idle.
    - Cookie `ah_session`: HttpOnly, SameSite=Lax, Path=/, Max-Age 43200. It is Secure only when `PUBLIC_ORIGIN` is https.
    - Sign-in issues a new id and ends the old one.
-   - Limiter: 5 wrong tries in 15 minutes for the same username, or from the same address, lock it for 15 minutes. Tries still being checked count toward the limit.
+   - Limiter: 5 wrong tries in 15 minutes from one address (or for one username from one address) lock that address for 15 minutes. Never lock a username alone. Tries still being checked count toward the limit.
 3. **The gate** (`src/auth-gate.js`), mounted in `src/ui-server.js` right after the Host guard and before every route and the static files:
-   - Open without a session: `/signin`, `/signin.css`, `/signin.js`, `/fonts/*`.
+   - Open without a session: `/signin`, `/signin.css`, `/signin.js`, and `/fonts/*` from its own static root mounted before the gate (an open `/fonts/` prefix on the main static leaked page code via `/fonts/..%2fapp.js`).
    - A page without a session → 302 to `/signin?next=<path>`. If an old cookie was sent, also add `&e=expired`.
    - `/api/*`, `/auth/*` and any non-GET → 401 `{"error":"sign_in_required"}`.
    - Open live streams are re-checked every minute and closed when the session has ended.
@@ -60,6 +60,8 @@
 
 - Don't send `Referrer-Policy: no-referrer` on the sign-in page. Chrome then posts the form with `Origin: null`, and the origin check refuses the sign-in (“Cross-origin request refused.”). Use `same-origin`.
 - Don't compare paths exactly. Express matches `/A2A/jsonrpc` and `/a2a/jsonrpc/` to the same route, so a check that compares exact text can be bypassed. Lowercase and strip the trailing slash first.
+- Don't lock a username by itself: with one shared account, anyone could send 5 wrong passwords every 15 minutes and keep everyone out. Lock per address and per (username, address).
+- Don't open a path prefix (`/fonts/`) on the main static server: `/fonts/..%2fapp.js` served page code without signing in. Mount the fonts folder as its own static root before the gate.
 - Don't check the lock and then count the try after an `await`. A burst of parallel guesses would all pass the check. Count tries in flight.
 - Don't trust 127.0.0.1 behind a front server on the same machine. Every visitor would look local. Require `TRUST_PROXY=1` with `PUBLIC_ORIGIN`, and treat a request with `X-Forwarded-For` as not local.
 - Don't put a plain apostrophe inside a single-quoted JS string (“don't”). Use ’.
@@ -71,4 +73,5 @@
 
 - Back-end processes are proven to be loopback-only (`test/loopback-only.test.js`), because the owner asked whether the other ports are secured.
 - `UI_HOST`, so the demo can be opened by the machine's IP, but only with the sign-in, because the owner wanted to test from the machine's IP.
+- Two fixes from the whole-branch security review: per-address locks, and fonts served from their own root.
 - Three fixes from the automatic security review: path normalization, tries in flight, and `TRUST_PROXY` being required with `PUBLIC_ORIGIN`.
