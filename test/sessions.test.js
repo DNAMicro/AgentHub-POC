@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createSessions, SESSION_IDLE_MS, SESSION_MAX_MS, LOCK_MS } from '../src/sessions.js';
+import { createSessions, SESSION_IDLE_MS, SESSION_MAX_MS, LOCK_MS, ACCOUNT_SOFT, FAIL_WINDOW_MS } from '../src/sessions.js';
+import { addressKey } from '../src/auth-gate.js';
 
 const clock = () => { let t = 1_000_000; const now = () => t; now.add = (ms) => { t += ms; }; return now; };
 
@@ -57,4 +58,25 @@ test('limiter: tries in flight count toward the limit; a right password does not
   assert.ok(again, 'one finished as a right password: room for one more');
   for (const d of [...inFlight.slice(1), again]) d(false);
   assert.equal(limiter.locked(keys), true);
+});
+
+test('account throttle: many wrong tries from anywhere slow that account down, never lock it', () => {
+  const now = clock(); const { account } = createSessions({ now });
+  for (let i = 0; i < ACCOUNT_SOFT - 1; i++) account.fail('acct:alex');
+  assert.equal(account.delayFor('acct:alex'), 0);
+  account.fail('acct:alex');
+  assert.equal(account.delayFor('acct:alex'), 1000);
+  for (let i = 0; i < 50; i++) account.fail('acct:alex');
+  assert.equal(account.delayFor('acct:alex'), 10_000, 'capped');
+  assert.equal(account.delayFor('acct:sam'), 0);
+  now.add(FAIL_WINDOW_MS + 1);
+  assert.equal(account.delayFor('acct:alex'), 0);
+});
+
+test('address key: IPv6 grouped by /64, IPv4 as is', () => {
+  assert.equal(addressKey('203.0.113.9'), '203.0.113.9');
+  assert.equal(addressKey('::ffff:203.0.113.9'), '203.0.113.9');
+  assert.equal(addressKey('2001:db8:1:2:aaaa:bbbb:cccc:dddd'), '2001:db8:1:2::/64');
+  assert.equal(addressKey('2001:db8:1:2::5'), '2001:db8:1:2::/64');
+  assert.equal(addressKey('2001:0db8::1'), '2001:db8:0:0::/64');
 });

@@ -6,7 +6,10 @@ export const SESSION_MAX_MS = 12 * 60 * 60 * 1000;   // 12 hours after sign-in
 export const SESSION_IDLE_MS = 2 * 60 * 60 * 1000;   // or 2 hours without a request
 export const MAX_FAILS = 5;
 export const FAIL_WINDOW_MS = 15 * 60 * 1000;        // 5 wrong tries in 15 minutes …
-export const LOCK_MS = 15 * 60 * 1000;               // … lock that username / address for 15 minutes
+export const LOCK_MS = 15 * 60 * 1000;               // … lock that address (or username from that address) for 15 minutes
+export const ACCOUNT_SOFT = 20;                      // more than this many wrong tries on one account, from anywhere …
+export const ACCOUNT_STEP_MS = 1000;                 // … and each further try waits 1 s longer, up to …
+export const ACCOUNT_MAX_DELAY_MS = 10_000;          // … 10 s. Slows guessing; never locks the right password out.
 
 export function createSessions({ now = Date.now } = {}) {
   const sessions = new Map();
@@ -69,5 +72,21 @@ export function createSessions({ now = Date.now } = {}) {
     },
     clear: (key) => { fails.delete(key); },
   };
-  return { create, get, end, limiter, size: () => sessions.size };
+  // Per account, across all addresses: a growing delay, not a lock (a lock would let anyone keep the shared account out).
+  const accountFails = new Map();
+  const account = {
+    fail: (key) => {
+      const t = now();
+      const times = (accountFails.get(key) ?? []).filter((x) => t - x < FAIL_WINDOW_MS);
+      times.push(t);
+      accountFails.set(key, times.slice(-1000));
+      if (accountFails.size > 10000) for (const [k, v] of accountFails) if (!v.some((x) => t - x < FAIL_WINDOW_MS)) accountFails.delete(k);
+    },
+    delayFor: (key) => {
+      const t = now();
+      const n = (accountFails.get(key) ?? []).filter((x) => t - x < FAIL_WINDOW_MS).length;
+      return n < ACCOUNT_SOFT ? 0 : Math.min(ACCOUNT_MAX_DELAY_MS, (n - ACCOUNT_SOFT + 1) * ACCOUNT_STEP_MS);
+    },
+  };
+  return { create, get, end, limiter, account, size: () => sessions.size };
 }

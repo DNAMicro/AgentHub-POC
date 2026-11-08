@@ -67,6 +67,17 @@ export const normPath = (p) => String(p ?? '').toLowerCase().replace(/\/+$/, '')
 const LOCAL_ONLY = ['/a2a/jsonrpc', '/.well-known/agent-card.json'];
 const underLocalOnly = (path) => { const p = normPath(path); return LOCAL_ONLY.some((x) => p === x || p.startsWith(`${x}/`)); };
 
+// IPv6 visitors are grouped by their /64 network, so one network can't rotate addresses past the lock.
+export function addressKey(ip) {
+  const a = String(ip ?? '');
+  if (!a.includes(':') || a.startsWith('::ffff:')) return a.replace(/^::ffff:/, '');
+  const [head, tail = ''] = a.split('::');
+  const left = head ? head.split(':') : [];
+  const right = tail ? tail.split(':') : [];
+  const full = a.includes('::') ? [...left, ...Array(8 - left.length - right.length).fill('0'), ...right] : left;
+  return `${full.slice(0, 4).map((h) => h.toLowerCase().replace(/^0+(?=.)/, '')).join(':')}::/64`;
+}
+
 const isLoopbackCaller = (req) => LOOPBACK.has(req.socket.remoteAddress) && !req.headers['x-forwarded-for'] && !req.headers.forwarded;
 
 // Only a local caller with no proxy headers reaches these paths (the Hub delivering to the Student agent).
@@ -166,13 +177,20 @@ export function createAuthGate({ cfg, publicDir, guardOrigin, log = () => {}, no
       const user = normalUser(raw);
       // Locks are per address and per (username, address): wrong tries from one place never lock out someone
       // else who has the right password (security review, 2026-11-07: the shared account could be kept locked).
-      const userKey = `u:${user ?? raw.trim().toLowerCase()}|ip:${req.ip}`;
-      const keys = [userKey, `ip:${req.ip}`];
+      const where = addressKey(req.ip);
+      const acctKey = `acct:${user ?? raw.trim().toLowerCase()}`;
+      const userKey = `u:${user ?? raw.trim().toLowerCase()}|ip:${where}`;
+      const keys = [userKey, `ip:${where}`];
       const done = sessions.limiter.begin(keys);
       if (!done) return page(res, { status: 429, notice: 'locked', next, username: raw });
       let ok = false;
-      try { ok = await verify(users, user, password); } finally { done(ok); }
+      try {
+        const wait = sessions.account.delayFor(acctKey); // many wrong tries on this account from anywhere: slow down
+        if (wait) await new Promise((r) => setTimeout(r, wait));
+        ok = await verify(users, user, password);
+      } finally { done(ok); }
       if (!ok) {
+        sessions.account.fail(acctKey);
         log('sign-in refused (wrong details)');
         const locked = sessions.limiter.locked(keys);
         return page(res, { status: locked ? 429 : 401, notice: locked ? 'locked' : 'bad', next, username: raw });

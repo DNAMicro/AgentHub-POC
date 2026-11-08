@@ -25,7 +25,7 @@
    - In memory only. They end 12 hours after sign-in, or after 2 hours idle.
    - Cookie `ah_session`: HttpOnly, SameSite=Lax, Path=/, Max-Age 43200. It is Secure only when `PUBLIC_ORIGIN` is https.
    - Sign-in issues a new id and ends the old one.
-   - Limiter: 5 wrong tries in 15 minutes from one address (or for one username from one address) lock that address for 15 minutes. Never lock a username alone. Tries still being checked count toward the limit.
+   - Limiter: 5 wrong tries in 15 minutes from one address (or for one username from one address) lock that address for 15 minutes. Never lock a username alone; instead, after 20 wrong tries on one account in 15 minutes from anywhere, each further try waits 1 s longer (max 10 s). IPv6 addresses are grouped by /64. Tries still being checked count toward the limit.
 3. **The gate** (`src/auth-gate.js`), mounted in `src/ui-server.js` right after the Host guard and before every route and the static files:
    - Open without a session: `/signin`, `/signin.css`, `/signin.js`, and `/fonts/*` from its own static root mounted before the gate (an open `/fonts/` prefix on the main static leaked page code via `/fonts/..%2fapp.js`).
    - A page without a session → 302 to `/signin?next=<path>`. If an old cookie was sent, also add `&e=expired`.
