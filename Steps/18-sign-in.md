@@ -39,7 +39,7 @@
    - The sign-in and sign-out posts are origin-checked.
    - Paths are compared lowercased and without a trailing slash.
 4. **The page** (`public/signin.html/.css/.js`), from the approved mockup:
-   - Two panels: on the left a dark panel with the AgentHub mark and a small animated hub diagram, on the right the form. One column below 720 px. Light and dark mode.
+   - Two panels: on the left a dark panel with the AgentHub mark and a small animated hub diagram (no text under it), on the right the form, centred, with nothing under the Sign in button (owner, 2026-11-07: “remove these writings” — the “A private demo …” paragraph, “No account? …” and the footer “Fictional demo data only · Signed-in sessions last 12 hours” are gone). One column below 720 px. Light and dark mode.
    - The name is “AgentHub — University agents demo”, never the university's name.
    - The server fills in the message, `next` and the username, escaped. The page works without JavaScript; the script adds only Show/Hide, a Caps Lock hint and “Signing in…”.
    - Copy:
