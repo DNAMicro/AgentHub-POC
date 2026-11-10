@@ -35,14 +35,19 @@
 
   <nav class="tabs" role="tablist" aria-label="Views">
     <!-- Real links: each view has its own address, so Cmd/Ctrl-click or middle-click opens it in a new browser tab. -->
-    <a href="/conversation" role="tab" id="tab-conversation" aria-controls="view-conversation" aria-selected="true">Conversation</a>
+    <!-- Side by side (owner, 2026-11-10; mockup docs/superpowers/specs/2026-11-10-side-by-side-mockup.html): the default view —
+         Student, Topology and Faculty in one screen for presenting. It shows the three views below; it has no panel of its own. -->
+    <a href="/" role="tab" id="tab-trio" aria-controls="view-conversation view-topology view-professor" aria-selected="true">Side by side</a>
+    <a href="/student" role="tab" id="tab-conversation" aria-controls="view-conversation" aria-selected="false" tabindex="-1">Student</a>
     <a href="/activity" role="tab" id="tab-activity" aria-controls="view-activity" aria-selected="false" tabindex="-1">Agent activity</a>
     <a href="/topology" role="tab" id="tab-topology" aria-controls="view-topology" aria-selected="false" tabindex="-1">Topology <span class="tab-pulse" id="tab-pulse" aria-hidden="true"></span></a>
     <a href="/faculty" role="tab" id="tab-professor" aria-controls="view-professor" aria-selected="false" tabindex="-1">Faculty view <span class="tab-count" id="prof-waiting" hidden></span></a>
   </nav>
 
-  <!-- Conversation: you and the university -->
+  <main class="desk" id="desk">
+  <!-- Student (was “Conversation”): you and the university -->
   <section class="view view-conversation" id="view-conversation" role="tabpanel" aria-labelledby="tab-conversation">
+    <div class="trio-head" data-agent="student"><b>Student</b><span>what the student sees</span><a href="/student" target="_blank" rel="noopener">Open ↗</a></div>
     <section class="panel chat" aria-labelledby="student-title" data-agent="student">
       <header class="panel-head">
         <h2 id="student-title">Conversation with the university</h2>
@@ -138,6 +143,7 @@
 
   <!-- Part 9: the professor's own console (a separate role in this demo; proxied to the Professor agent) -->
   <section class="view view-professor" id="view-professor" role="tabpanel" aria-labelledby="tab-professor" hidden>
+    <div class="trio-head" data-agent="professor"><b>Faculty</b><span>what the faculty member sees</span><a href="/faculty" target="_blank" rel="noopener">Open ↗</a></div>
     <section class="panel chat prof-chat" aria-labelledby="author-title" data-agent="professor">
       <header class="panel-head">
         <h2 id="author-title">Marketing 351 — Faculty</h2>
@@ -161,6 +167,7 @@
 
   <!-- Topology: the live switchboard -->
   <section class="view view-topology" id="view-topology" role="tabpanel" aria-labelledby="tab-topology" hidden>
+    <div class="trio-head" data-agent="hub"><b>Topology</b><span>every hop, live</span><a href="/topology" target="_blank" rel="noopener">Open full Topology ↗</a></div>
     <div class="topo-stage">
       <div class="topo-toolbar" role="group" aria-label="Topology controls">
         <label class="check"><input type="checkbox" id="topo-heartbeats"> Show heartbeats</label>
@@ -196,6 +203,7 @@
         <li><span class="glyph phase" data-phase="unknown"></span>Outcome unknown</li>
         <li class="sep legend-note">Color = the agent that sent it. Pulses appear only for events the agents reported.</li>
       </ul>
+      <p class="legend-short">● question or answer · ■ form · ⚑ lesson · dashed = model call · dash-dot = MCP · colour = the agent that sent it</p>
     </div>
     <aside class="topo-side" aria-labelledby="topo-detail-title">
       <h2 id="topo-detail-title">Details</h2>
@@ -205,6 +213,7 @@
       <ol class="topo-events" id="topo-events" aria-labelledby="topo-events-title"></ol>
     </aside>
   </section>
+  </main>
 
   <dialog id="skills-dialog" aria-labelledby="skills-dialog-title">
     <form method="dialog" id="skills-form" novalidate>

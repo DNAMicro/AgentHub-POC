@@ -21,9 +21,9 @@ export const TEXT = {
 };
 const STREAMS = new Set(['/api/ui/stream', '/api/events', '/api/ag-ui/stream', '/api/ag-ui/professor/stream']);
 const OPEN = new Set(['/signin', '/signin.css', '/signin.js']);
-const PAGES = new Set(['/', '/conversation', '/activity', '/topology', '/faculty', '/professor', '/guide', '/index.html', '/guide.html']);
+const PAGES = new Set(['/', '/side-by-side', '/student', '/conversation', '/activity', '/topology', '/faculty', '/professor', '/guide', '/index.html', '/guide.html']);
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
-const DEFAULT_NEXT = '/conversation';
+const DEFAULT_NEXT = '/'; // Side by side, the default view (owner, 2026-11-10)
 
 export class AuthConfigError extends Error {}
 const isLoopbackHost = (h) => h === '127.0.0.1' || h === 'localhost' || h === '::1';

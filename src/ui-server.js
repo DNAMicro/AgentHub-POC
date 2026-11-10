@@ -280,7 +280,7 @@ export async function startUiServer({ port = 4444, auth: authCfg = authConfig(pr
   app.get('/shared/quiz-rules.js', (req, res) => res.type('text/javascript').sendFile(SHARED_QUIZ_MODULE));
   app.get('/shared/cancel-text.js', (req, res) => res.type('text/javascript').sendFile(SHARED_CANCEL_MODULE));
   // Each tab has its own address; the page picks the tab from the path. Only these three exist.
-  app.get(['/conversation', '/activity', '/topology', '/faculty', '/professor'], (req, res) => res.sendFile('index.html', { root: PUBLIC_DIR }));
+  app.get(['/side-by-side', '/student', '/conversation', '/activity', '/topology', '/faculty', '/professor'], (req, res) => res.sendFile('index.html', { root: PUBLIC_DIR }));
   app.get('/guide', (req, res) => res.sendFile('guide.html', { root: PUBLIC_DIR })); // the how-to guide linked from the header
   app.use(express.static(PUBLIC_DIR));
 

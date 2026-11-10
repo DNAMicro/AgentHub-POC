@@ -184,11 +184,14 @@ test('input validation: empty and oversized messages are rejected without starti
 
 test('each tab has its own address that serves the page; other paths do not', async () => {
   const home = await (await fetch(`${uiUrl}/`)).text();
-  for (const slug of ['conversation', 'activity', 'topology']) {
+  // Side by side (owner, 2026-11-10) is the default at /; “Conversation” is now “Student” at /student.
+  assert.match(home, /<a href="\/" role="tab" id="tab-trio" aria-controls="view-conversation view-topology view-professor" aria-selected="true">Side by side</);
+  assert.match(home, /<a href="\/student" role="tab" id="tab-conversation"[^>]*>Student</);
+  for (const slug of ['student', 'activity', 'topology', 'faculty']) assert.match(home, new RegExp(`<a href="/${slug}" role="tab"`), `${slug} tab is a real link`);
+  for (const slug of ['side-by-side', 'student', 'conversation', 'activity', 'topology', 'faculty', 'professor']) {
     const res = await fetch(`${uiUrl}/${slug}`);
     assert.equal(res.status, 200, slug);
     assert.equal(await res.text(), home, `${slug} serves the same page`);
-    assert.match(home, new RegExp(`<a href="/${slug}" role="tab"`), `${slug} tab is a real link`);
   }
   assert.equal((await fetch(`${uiUrl}/nope`)).status, 404);
 });

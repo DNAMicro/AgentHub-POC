@@ -88,8 +88,8 @@ const topology = createTopology({
 // Part 9: the course inbox, lesson view and toast (Conversation) and the Faculty view.
 const classroom = createClassroom({
   sendChat: (text, extra) => { chatFollow.pin(); return startRun({ text, contextId: currentContextId, ...extra }); },
-  showConversation: () => { if ($('view-conversation').hidden) showTab(tabs[0], { history: 'push' }); },
-  focusComposer: () => { showTab(tabs[0], { history: 'push' }); els.message.focus(); },
+  showConversation: () => { if ($('view-conversation').hidden) showTab($('tab-conversation'), { history: 'push' }); },
+  focusComposer: () => { if ($('view-conversation').hidden) showTab($('tab-conversation'), { history: 'push' }); els.message.focus(); },
   onInboxChange: () => renderState(),
   followLog: (log) => followBottom(log), // the professor's chat scrolls like the student's
 });
@@ -1637,19 +1637,25 @@ async function connectUi() {
 connectUi();
 
 // ---- tabs (WAI-ARIA tabs: arrow keys move between them) ---------------------------------
-// Each tab is a link with its own address (/conversation, /activity, /topology), so it can be opened in
-// its own browser tab and bookmarked. The plain address / always opens Conversation.
+// Each tab is a link with its own address (/, /student, /activity, /topology, /faculty), so it can be opened in its own
+// browser tab and bookmarked. Side by side (owner, 2026-11-10) is the default (/ and /side-by-side): it shows the Student,
+// Topology and Faculty views at once, in that order, and has no panel of its own. Old addresses: /conversation (Student,
+// renamed from “Conversation”) and /professor (Faculty view).
 const tabs = [...document.querySelectorAll('[role="tab"]')];
-const tabForPath = (path) => tabs.find((t) => t.getAttribute('href') === (path === '/professor' ? '/faculty' : path)) ?? tabs[0]; // /professor: the old address of the Faculty view
+const ALIASES = { '/side-by-side': '/', '/conversation': '/student', '/professor': '/faculty' };
+const tabForPath = (path) => tabs.find((t) => t.getAttribute('href') === (ALIASES[path] ?? path)) ?? tabs[0];
+const panelsOf = (t) => t.getAttribute('aria-controls').split(/\s+/);
 function showTab(tab, { focus = false, history: how = null } = {}) {
+  const shown = new Set(panelsOf(tab));
   for (const t of tabs) {
     const on = t === tab;
     t.setAttribute('aria-selected', String(on));
     t.tabIndex = on ? 0 : -1;
-    document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
   }
-  if (tab.id === 'tab-topology') els.tabPulse.dataset.on = 'false';
-  if (tab.id === 'tab-professor') classroom.professorShown(); else classroom.professorHidden();
+  for (const id of new Set(tabs.flatMap(panelsOf))) document.getElementById(id).hidden = !shown.has(id);
+  document.body.dataset.layout = shown.size > 1 ? 'trio' : 'single';
+  if (shown.has('view-topology')) els.tabPulse.dataset.on = 'false';
+  if (shown.has('view-professor')) classroom.professorShown(); else classroom.professorHidden();
   if (focus) tab.focus();
   const path = tab.getAttribute('href');
   if (how && location.pathname !== path) window.history[how === 'push' ? 'pushState' : 'replaceState'](null, '', path);

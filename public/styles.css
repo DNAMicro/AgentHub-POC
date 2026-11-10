@@ -1166,3 +1166,39 @@ details.dlist .per-student { margin-top: 8px; }
 .notify-card[data-status="sent"] .nc-result { color: var(--ok, #1d7a46); background: color-mix(in srgb, var(--ok, #1d7a46) 14%, transparent); }
 .notify-card[data-status="not_sent"] .nc-result { color: var(--muted); background: var(--field); }
 .notify-card [hidden] { display: none !important; }
+
+/* ---- Side by side (owner, 2026-11-10; mockup docs/superpowers/specs/2026-11-10-side-by-side-mockup.html) ----------------
+   The default view: Student | Topology | Faculty, all live. app.js sets body[data-layout="trio"] and un-hides the three
+   views; the Hop by hop strip, the Topology's Details/Events list and its full legend are left out here (each has its own
+   view). Below 1100 px the three columns stack. */
+.desk { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.trio-head, .legend-short { display: none; }
+body[data-layout="trio"] .desk { display: grid; grid-template-columns: minmax(300px, 1fr) minmax(380px, 1.35fr) minmax(300px, 1fr); gap: 10px; padding: 10px; }
+body[data-layout="trio"] .desk > .view { display: flex; flex-direction: column; gap: 6px; padding: 0; margin: 0; max-width: none; min-width: 0; min-height: 0; }
+body[data-layout="trio"] .view-conversation { order: 1; }
+body[data-layout="trio"] .view-topology { order: 2; }
+body[data-layout="trio"] .view-professor { order: 3; }
+body[data-layout="trio"] .desk > .view > .panel, body[data-layout="trio"] .topo-stage { flex: 1; min-height: 0; }
+body[data-layout="trio"] .trio-head { display: flex; align-items: baseline; gap: 10px; padding: 0 4px; font-size: 0.82rem; color: var(--muted); }
+body[data-layout="trio"] .trio-head b { font-size: 0.95rem; color: var(--agent); }
+body[data-layout="trio"] .trio-head a { margin-left: auto; color: var(--muted); white-space: nowrap; }
+body[data-layout="trio"] .trio-head a:hover { color: var(--agent); }
+.trio-head[data-agent="student"] { --agent: var(--student); }
+.trio-head[data-agent="hub"] { --agent: var(--hub); }
+.trio-head[data-agent="professor"] { --agent: var(--professor); }
+body[data-layout="trio"] .view-conversation .timeline-panel, body[data-layout="trio"] .topo-side, body[data-layout="trio"] .legend { display: none; }
+body[data-layout="trio"] .legend-short { display: block; margin: 0; font-size: 0.78rem; color: var(--muted); }
+body[data-layout="trio"] .topo { min-height: 0; max-height: none; }
+/* Narrow columns: the panel heads put their description on its own row (as on phones). */
+body[data-layout="trio"] .panel-head .role { grid-column: 1 / -1; grid-row: auto; }
+body[data-layout="trio"] .chat .panel-head .conversation { grid-column: 2 / -1; grid-row: 1; }
+@media (min-width: 1101px) {
+  body[data-layout="trio"] { height: 100dvh; }
+}
+@media (max-width: 1100px) {
+  body[data-layout="trio"] .desk { display: flex; flex-direction: column; flex: none; }
+  body[data-layout="trio"] .desk > .view { flex: none; }
+  body[data-layout="trio"] .view-conversation, body[data-layout="trio"] .view-professor { height: 80dvh; }
+  body[data-layout="trio"] .topo-stage { flex: none; }
+  body[data-layout="trio"] .topo { flex: none; height: 75dvh; }
+}

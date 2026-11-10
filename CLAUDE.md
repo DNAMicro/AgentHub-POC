@@ -386,3 +386,11 @@ Do not add token streaming, push notifications, multi-agent fan-out (the Hub for
 - **Card** (`public/notify-ui.js`, memory only in `notifyCards`, cleared by New conversation): `POST /api/notify/:cardId/send { text }` / `…/decline`. Send = a chat run with `requestedCapability` + `metadata.studentNote: true` and `notifyCardId` on its events (the card's words are not drawn again as a `request_sent` bubble). Only the Faculty agent's `professor.outcome === 'notified'` marks it `sent`; not delivered → `open` + problem, new messageId; uncertain → `unsure`, same messageId and words (the Hub's chat ledger answers the repeat).
 - **Hub** forwards `studentNote` only when the Student named the course (`decidedBy: 'student'`) and no lesson. **Faculty agent** stores the hand-over (`recordReply`, `relayed: true`, `needsProfessor`) BEFORE answering “Got it — Dr. Dabirian has been notified. They’ll reply to you here.” (+ “Feel better soon.” when `soundsIll`).
 - Tests: `test/student-notify.test.js`.
+
+## Part 20 (side by side view) notes
+
+- **Owner, 2026-11-10:** “propose a view that can show the three next to each other. student should be on the left, topology on the middle and faculty chat on the right. Also rename the conversation menu to student … This should be the default view. Keep the individual links still.” Mockup `docs/superpowers/specs/2026-11-10-side-by-side-mockup.html`; Steps/20-side-by-side-view.md.
+- **Tabs:** Side by side (`#tab-trio`, `/`, also `/side-by-side`; `aria-controls` lists the three views), Student (`#tab-conversation`, `/student`, was “Conversation”; `/conversation` still works), Agent activity, Topology, Faculty view. `showTab` un-hides every id in `aria-controls` and sets `body[data-layout="trio" | "single"]`; the Faculty “shown” hooks run whenever the Faculty column is visible. Sign-in's default next is `/`.
+- **Layout:** views live in `<main class="desk">`; trio = 3-column grid (Student, Topology, Faculty), hiding the Hop by hop strip, the Topology side list and full legend (`.legend-short` instead); ≤ 1100 px stacks with explicit heights. Single views look as before.
+- Browser scripts that `goto('/conversation')` still land on the Student view; a script that needs the full Topology side list must open `/topology`.
+

@@ -92,11 +92,11 @@ test('auth: a cross-site sign-in post is refused; a bad next never leaves the si
   });
   assert.equal(cross.status, 403);
   for (const next of ['//evil.com', '/\\evil.com', 'https://evil.com', '/signin?x', '/signout', 'javascript:alert(1)']) {
-    assert.equal(safeNext(next), '/conversation', next);
+    assert.equal(safeNext(next), '/', next);
   }
   assert.equal(safeNext('/faculty?x=1'), '/faculty?x=1');
   const ok = await signIn(ui.url, 'alex', PW, '//evil.com');
-  assert.equal(ok.headers.get('location'), '/conversation');
+  assert.equal(ok.headers.get('location'), '/');
 });
 
 test('auth: 5 wrong tries lock that username and address for 15 minutes', async () => {

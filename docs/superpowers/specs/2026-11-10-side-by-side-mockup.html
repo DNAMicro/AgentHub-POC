@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Side by Side Mockup</title>
+<style>
+@font-face { font-family: "Atkinson Hyperlegible Next"; src: url("../../../public/fonts/atkinson-hyperlegible-next-latin.woff2") format("woff2"); font-weight: 200 800; }
+:root {
+  color-scheme: light;
+  --bg: #eef1f5; --surface: #fff; --field: #f7f9fb; --text: #18202b; --muted: #5a6676;
+  --border: #d6dce4; --border-strong: #b8c1cd; --student: #2b59c3; --student-tint: #e6edfb;
+  --hub: #a8740f; --professor: #a3315a; --professor-tint: #fbeaf0; --tutor: #7b3fb0; --library: #1d7a6a;
+  --hr: #1f6a8a; --chrs: #4338ca; --lms: #4d7c0f; --ps: #c2410c; --ok: #1d7a46; --ok-bg: #e2f3e8;
+  --mono: ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #11151b; --surface: #181d25; --field: #1f2530; --text: #e4e8ee; --muted: #98a3b1;
+    --border: #2a313c; --border-strong: #3b4452; --student: #86a2ff; --student-tint: #1e2a45;
+    --hub: #e3b04b; --professor: #f08aae; --professor-tint: #3a1a27; --tutor: #c69cf0; --library: #5fd0bb;
+    --hr: #6cc0e0; --chrs: #a5b4fc; --lms: #a3d65c; --ps: #fb8a4c; --ok: #63cf93; --ok-bg: #15301f;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--text); font-family: "Atkinson Hyperlegible Next", system-ui, sans-serif; font-size: 14px; line-height: 1.45; }
+.note { max-width: 1200px; margin: 18px auto 10px; padding: 0 16px; color: var(--muted); }
+.note h1 { color: var(--text); font-size: 1.3rem; margin: 0 0 4px; }
+.note ul { margin: 6px 0 0; padding-left: 20px; }
+.frame { margin: 0 16px 30px; border: 1px solid var(--border-strong); border-radius: 12px; overflow: hidden; background: var(--bg); }
+.topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.topbar h2 { margin: 0; font-size: 1.1rem; }
+.badges { display: flex; gap: 6px; flex-wrap: wrap; }
+.badge { border: 1px solid var(--border-strong); border-radius: 999px; padding: 1px 10px; font-size: .8rem; color: var(--ok); }
+.tabs { display: flex; gap: 4px; padding: 0 12px; background: var(--surface); border-bottom: 1px solid var(--border); overflow-x: auto; }
+.tabs a { padding: 9px 14px; color: var(--muted); text-decoration: none; font-weight: 600; border-bottom: 3px solid transparent; white-space: nowrap; }
+.tabs a[aria-selected="true"] { color: var(--text); border-color: var(--hub); }
+.tabs .new { font-size: .68rem; font-weight: 700; color: var(--hub); border: 1px solid var(--hub); border-radius: 999px; padding: 0 6px; margin-left: 4px; vertical-align: 2px; }
+.trio { display: grid; grid-template-columns: minmax(300px, 1fr) minmax(380px, 1.35fr) minmax(300px, 1fr); gap: 10px; padding: 10px; height: 760px; }
+.col { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.col-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); border-top: 3px solid var(--who); }
+.col-head b { color: var(--who); }
+.col-head span { color: var(--muted); font-size: .8rem; }
+.col-head a { font-size: .78rem; color: var(--muted); }
+.stu { --who: var(--student); } .topo { --who: var(--hub); } .fac { --who: var(--professor); }
+.log { flex: 1; overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; background: var(--bg); }
+.msg { --c: var(--border-strong); max-width: 92%; background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--c); border-radius: 4px 12px 12px 12px; padding: 6px 11px 8px; }
+.msg.me { align-self: flex-end; --c: var(--student); background: var(--student-tint); border-left: 1px solid var(--border); border-right: 4px solid var(--c); border-radius: 12px 4px 12px 12px; }
+.msg.prof-me { align-self: flex-end; --c: var(--professor); background: var(--professor-tint); border-left: 1px solid var(--border); border-right: 4px solid var(--c); border-radius: 12px 4px 12px 12px; }
+.msg.fac { --c: var(--professor); } .msg.agent { --c: var(--student); }
+.msg .h { display: flex; justify-content: space-between; font-size: .74rem; color: var(--muted); }
+.msg .h b { color: var(--c); }
+.msg p { margin: 2px 0 0; }
+.handover { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--professor); border-radius: 4px 12px 12px 12px; padding: 8px 12px; }
+.handover .t { color: var(--professor); font-weight: 700; }
+.handover blockquote { margin: 6px 0; padding: 6px 9px; background: var(--professor-tint); border-radius: 7px; }
+.handover .s { display: flex; justify-content: space-between; color: var(--muted); font-size: .8rem; }
+.composer { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--border); }
+.composer div { flex: 1; border: 1px solid var(--border-strong); border-radius: 8px; padding: 8px 10px; color: var(--muted); background: var(--field); }
+.composer button { font: inherit; font-weight: 700; border: 0; border-radius: 8px; padding: 0 16px; color: #fff; background: var(--who); }
+.toolbar { display: flex; gap: 12px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--border); font-size: .8rem; color: var(--muted); flex-wrap: wrap; }
+.toolbar select { font: inherit; font-size: .8rem; }
+.toolbar .clock { margin-left: auto; font-family: var(--mono); }
+svg.map { flex: 1; width: 100%; min-height: 0; }
+svg text { font-family: inherit; }
+.legend { padding: 6px 12px 10px; font-size: .78rem; color: var(--muted); border-top: 1px solid var(--border); }
+.callout { display: inline-block; background: #fff3c4; color: #5b4500; border-radius: 6px; padding: 1px 7px; font-size: .74rem; font-weight: 700; }
+@media (prefers-color-scheme: dark) { .callout { background: #4a3b0a; color: #ffe9a3; } }
+</style>
+</head>
+<body>
+<div class="note">
+  <h1>Side by side — the default view</h1>
+  <p>Mockup for review. One screen for presenting: the student on the left, the live Topology in the middle, Dr. Dabirian's Faculty chat on the right. Fictional names; no model names on the people's screens.</p>
+  <ul>
+    <li><b>New first tab “Side by side”</b> at <code>/</code> (and <code>/side-by-side</code>). The other tabs and their links stay: <code>/student</code> (the old <code>/conversation</code> still opens it), <code>/activity</code>, <code>/topology</code>, <code>/faculty</code>.</li>
+    <li><b>“Conversation” is renamed “Student”.</b></li>
+    <li>All three columns are live and usable: type as the student on the left and as Dr. Dabirian on the right, and watch each hop light up in the middle.</li>
+    <li>The middle column is the same Topology, fitted to the column. Its Details / Events side list is left out here; the legend is folded into one line. “Open full Topology ↗” opens the full view.</li>
+    <li>On a screen narrower than about 1,100 px the three columns stack (student, topology, faculty).</li>
+  </ul>
+</div>
+
+<div class="frame">
+  <div class="topbar">
+    <h2>California State University Fullerton ›</h2>
+    <div class="badges"><span class="badge">Guide</span><span class="badge">Live view: connected</span><span class="badge">Hub telemetry: connected</span><span class="badge">amir · Sign out</span></div>
+  </div>
+  <nav class="tabs">
+    <a aria-selected="true">Side by side<span class="new">NEW</span></a>
+    <a>Student <span class="callout">was “Conversation”</span></a>
+    <a>Agent activity</a>
+    <a>Topology</a>
+    <a>Faculty view</a>
+  </nav>
+
+  <div class="trio">
+    <!-- Student -->
+    <section class="col stu">
+      <div class="col-head"><b>Student</b><span>Alex Student · student-alex</span><a>Open ↗</a></div>
+      <div class="log">
+        <div class="msg me"><div class="h"><b>You</b><time>13:20:58</time></div><p>i am sick today</p></div>
+        <div class="msg agent"><div class="h"><b>Your Student agent</b><time>13:20:58</time></div><p>Sorry you’re not feeling well. Who would you like me to let know?</p></div>
+        <div class="msg me"><div class="h"><b>You</b><time>13:21:04</time></div><p>my classes</p></div>
+        <div class="msg fac"><div class="h"><b>Dr. Dabirian's course assistant</b><time>13:21:09</time></div><p>Got it — Dr. Dabirian has been notified. They’ll reply to you here. Feel better soon.</p></div>
+      </div>
+      <div class="composer"><div>Ask anything…</div><button>Send</button></div>
+    </section>
+
+    <!-- Topology -->
+    <section class="col topo">
+      <div class="col-head"><b>Topology</b><span>every hop, live</span><a>Open full Topology ↗</a></div>
+      <div class="toolbar"><label><input type="checkbox"> Heartbeats</label><label><input type="checkbox"> Reduce motion</label><label>Trace <select><option>All traffic</option></select></label><span class="clock">live · 13:21:09</span></div>
+      <svg class="map" viewBox="0 0 1100 1285" preserveAspectRatio="xMidYMid meet" aria-label="Topology preview">
+        <g stroke="var(--border-strong)" stroke-width="2" fill="none">
+          <line x1="150" y1="605" x2="430" y2="605"/>
+          <line x1="430" y1="605" x2="710" y2="95"/><line x1="430" y1="605" x2="710" y2="350"/>
+          <line x1="430" y1="605" x2="710" y2="605" stroke="var(--professor)" stroke-width="5"/>
+          <line x1="150" y1="605" x2="430" y2="605" stroke="var(--student)" stroke-width="5"/>
+          <line x1="430" y1="605" x2="710" y2="860"/><line x1="430" y1="605" x2="710" y2="1115"/>
+          <line x1="710" y1="605" x2="985" y2="680" stroke-dasharray="10 6 2 6"/>
+          <line x1="710" y1="860" x2="985" y2="935" stroke-dasharray="10 6 2 6"/>
+          <line x1="710" y1="1115" x2="985" y2="1190" stroke-dasharray="10 6 2 6"/>
+        </g>
+        <circle cx="580" cy="605" r="14" fill="var(--professor)"/>
+        <g font-size="30" font-weight="700" text-anchor="middle">
+          <circle cx="150" cy="605" r="80" fill="var(--surface)" stroke="var(--student)" stroke-width="5"/><text x="150" y="615" fill="var(--student)">Student</text>
+          <circle cx="430" cy="605" r="95" fill="var(--surface)" stroke="var(--hub)" stroke-width="5"/><text x="430" y="615" fill="var(--hub)">Hub</text>
+          <circle cx="710" cy="95" r="75" fill="var(--surface)" stroke="var(--tutor)" stroke-width="5"/><text x="710" y="105" fill="var(--tutor)">Tutor</text>
+          <circle cx="710" cy="350" r="75" fill="var(--surface)" stroke="var(--library)" stroke-width="5"/><text x="710" y="360" fill="var(--library)">Library</text>
+          <circle cx="710" cy="605" r="75" fill="var(--surface)" stroke="var(--professor)" stroke-width="7"/><text x="710" y="615" fill="var(--professor)">Faculty</text>
+          <circle cx="710" cy="860" r="75" fill="var(--surface)" stroke="var(--hr)" stroke-width="5"/><text x="710" y="870" fill="var(--hr)">HR</text>
+          <circle cx="710" cy="1115" r="75" fill="var(--surface)" stroke="var(--chrs)" stroke-width="5"/><text x="710" y="1125" fill="var(--chrs)">Campus</text>
+          <rect x="895" y="635" width="180" height="90" rx="14" fill="var(--surface)" stroke="var(--lms)" stroke-width="4"/><text x="985" y="690" fill="var(--lms)" font-size="26">Canvas</text>
+          <rect x="895" y="890" width="180" height="90" rx="14" fill="var(--surface)" stroke="var(--ps)" stroke-width="4"/><text x="985" y="945" fill="var(--ps)" font-size="24">PeopleSoft</text>
+          <rect x="895" y="1145" width="180" height="90" rx="14" fill="var(--surface)" stroke="var(--ps)" stroke-width="4"/><text x="985" y="1200" fill="var(--ps)" font-size="24">Campus Sol.</text>
+        </g>
+        <text x="550" y="1270" text-anchor="middle" font-size="26" fill="var(--muted)">(simplified drawing — the real Topology with model boxes and pulses goes here)</text>
+      </svg>
+      <div class="legend">● question/answer · ■ form · ⚑ lesson · dashed = model call · dash-dot = MCP · colour = the agent that sent it</div>
+    </section>
+
+    <!-- Faculty -->
+    <section class="col fac">
+      <div class="col-head"><b>Faculty</b><span>Dr. Dabirian · Marketing 351</span><a>Open ↗</a></div>
+      <div class="log">
+        <div class="handover"><div class="t">Message from a student</div><div class="s"><span>Alex Student · 13:21</span></div>
+          <blockquote>i am sick today and won't make it to class. I'll catch up on the notes.</blockquote>
+          <div class="s"><span>Waiting for your reply</span><span>↩ Reply</span></div></div>
+        <div class="msg prof-me"><div class="h"><b>You</b><time>13:22:30</time></div><p>Feel better, Alex — the slides are in Canvas.</p></div>
+      </div>
+      <div class="composer"><div>Write to your class — tag students with @…</div><button>Send</button></div>
+    </section>
+  </div>
+</div>
+</body>
+</html>
