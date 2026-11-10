@@ -240,7 +240,11 @@ export function rearmStaff(rearm) {
 // One card at a time. The card is what the professor reads before anything goes out: the exact code-built text, who gets
 // it (the class size from the fresh class record), an optional note, Send / Don't send. A typed “yes” (with or without a
 // note) or “no” in the chat does the same as the buttons. Nothing about a student is on the card.
-export const CARD_NOTE_PRIVATE = 'Your note talks about you, and all your students would read it. Change the note or remove it, then press Send again.';
+// Owner, 2026-11-10 (“this was done on the faculty side it should not be getting this error”, after “I will be cancelling
+// the class due to personal reasons.” was refused): the card shows him exactly what goes out, so his own words about
+// himself are his choice. Only a note naming an illness, his leave or a relative is refused here. (A typed “yes + note”
+// in the chat has no preview of the note, so it still asks about any note that talks about him — NOTE_PRIVATE.)
+export const CARD_NOTE_PRIVATE = 'Your note mentions an illness, leave or a family matter, and all your students would read it. Change the note or remove it, then press Send again.';
 export const CARD_NOTE_TOO_LONG = `Your note is too long — keep it under ${NOTE_MAX} characters.`;
 export const CARD_CHANGED = 'The class time or room changed since this preview. Check the new preview, then send it again.';
 // The preview was made without the class time and room (they couldn't be read then); now they can be: shown first.
@@ -257,13 +261,13 @@ export function cancelCardView() {
   };
 }
 // His note from the card, checked here (authoritative; the page only previews it): → { note } (null = no note) or
-// { code, text } refused — the Part 14 / review A5 rules: a note about himself, an illness, his leave or a relative is
-// never sent; 500 characters at most.
+// { code, text } refused — a note naming an illness, his leave or a relative is never sent (a note in his own words
+// about the class, “I will be cancelling the class due to personal reasons.”, is); 500 characters at most.
 export function checkCardNote(raw) {
   const note = cancelNoteText(raw);
   if (!note) return { note: null };
   if (note.length > NOTE_MAX) return { code: 'note_too_long', text: CARD_NOTE_TOO_LONG };
-  if (noteNeedsAsking(note)) return { code: 'note_private', text: CARD_NOTE_PRIVATE };
+  if (notePrivate(note)) return { code: 'note_private', text: CARD_NOTE_PRIVATE };
   return { note };
 }
 // Take an open card for sending (Send or a typed yes): the offer leaves the chat desk while it is sent.

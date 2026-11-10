@@ -108,13 +108,13 @@ test('a double click sends once: two presses at the same time, and the same oper
   assert.equal((await cancelPosts()).length, 1, 'one cancellation');
 });
 
-test('a note about himself, an illness, his leave or a relative is refused inline; nothing is sent; the card stays open', async () => {
+test('a note naming an illness, his leave or a relative is refused inline; nothing is sent; the card stays open', async () => {
   const card = (await fileThu()).cancelCard;
   for (const note of ['I have the flu, sorry', 'Dr. Dabirian is sick today', 'my mother is in the hospital', 'family emergency, back next week', 'I am at a funeral', "I'm recovering from surgery"]) {
     const r = await act({ cardId: card.id, operationId: op(), action: 'send', note });
     assert.equal(r.http, 422, note);
     assert.equal(r.code, 'note_private', note);
-    assert.equal(r.text, 'Your note talks about you, and all your students would read it. Change the note or remove it, then press Send again.');
+    assert.equal(r.text, 'Your note mentions an illness, leave or a family matter, and all your students would read it. Change the note or remove it, then press Send again.');
   }
   assert.equal((await cancelPosts()).length, 0);
   assert.equal((await state()).cancelCard.status, 'open');
@@ -145,6 +145,18 @@ test("Don't send: “Not sent.”, the card closes, nothing goes out, and a late
   assert.deepEqual([send.http, send.status], [409, 'not_sent']);
   await say('yes');
   assert.equal((await cancelPosts()).length, 0);
+});
+
+// Owner, 2026-11-10: “this was done on the faculty side it should not be getting this error” — his own words on the card
+// (which shows him exactly what goes out) are sent even when they say “I”.
+test('a note in his own words about the class goes out from the card, even with “I”', async () => {
+  const card = (await fileThu()).cancelCard;
+  const { checkCardNote } = await import('../src/professor-staff.js');
+  for (const note of ["I'll hold extra office hours on Friday.", 'My slides for the week are posted in Canvas.']) assert.deepEqual(checkCardNote(note), { note }, note);
+  const note = 'I will be cancelling the class due to personal reasons.';
+  const r = await act({ cardId: card.id, operationId: op(), action: 'send', note });
+  assert.equal(r.status, 'sent', JSON.stringify(r));
+  assert.deepEqual((await cancelPosts()).map((p) => p.text), [`${card.text}\n\nFrom Dr. Dabirian: ${note}`]);
 });
 
 test('typing still works: “yes” (with a note) sends the card, “no” closes it — the card follows', async () => {
