@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Student Notify Mockup</title>
+<style>
+@font-face { font-family: "Atkinson Hyperlegible Next"; src: url("../../../public/fonts/atkinson-hyperlegible-next-latin.woff2") format("woff2"); font-weight: 200 800; }
+:root {
+  color-scheme: light;
+  --bg: #eef1f5; --surface: #fff; --field: #f7f9fb; --text: #18202b; --muted: #5a6676;
+  --border: #d6dce4; --border-strong: #b8c1cd; --student: #2b59c3; --student-tint: #e6edfb;
+  --professor: #a3315a; --professor-tint: #fbeaf0; --ok: #1d7a46; --ok-bg: #e2f3e8; --mono: ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #11151b; --surface: #181d25; --field: #1f2530; --text: #e4e8ee; --muted: #98a3b1;
+    --border: #2a313c; --border-strong: #3b4452; --student: #86a2ff; --student-tint: #1e2a45;
+    --professor: #f08aae; --professor-tint: #3a1a27; --ok: #63cf93; --ok-bg: #15301f;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: "Atkinson Hyperlegible Next", system-ui, sans-serif; line-height: 1.45; }
+main { max-width: 860px; margin: 0 auto; padding: 28px 16px 60px; }
+h1 { font-size: 1.5rem; margin: 0 0 4px; }
+.lead { color: var(--muted); margin: 0 0 26px; }
+.step { margin: 0 0 34px; }
+.step-label { display: flex; gap: 10px; align-items: baseline; margin: 0 0 8px; }
+.step-label b { background: var(--text); color: var(--surface); border-radius: 999px; padding: 1px 10px; font-size: .8rem; }
+.step-label span { font-weight: 700; }
+.step-note { color: var(--muted); font-size: .9rem; margin: 6px 0 0; }
+.screen { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.screen-head { display: flex; justify-content: space-between; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: .88rem; }
+.screen-head .t { color: var(--student); font-weight: 700; }
+.screen-head.fac .t { color: var(--professor); }
+.screen-head .s { color: var(--muted); }
+.chat { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; background: var(--bg); }
+.msg { --who: var(--border-strong); max-width: 78%; background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--who); border-radius: 4px 14px 14px 14px; padding: 8px 14px 10px; }
+.msg.me { align-self: flex-end; --who: var(--student); background: var(--student-tint); border-left: 1px solid var(--border); border-right: 4px solid var(--student); border-radius: 14px 4px 14px 14px; }
+.msg.agent { --who: var(--student); }
+.msg.fac { --who: var(--professor); }
+.msg-head { display: flex; justify-content: space-between; gap: 10px; font-size: .8rem; color: var(--muted); }
+.msg-head .who { font-weight: 700; color: var(--who); }
+.msg-head time { font-family: var(--mono); font-size: .74rem; }
+.msg p { margin: 3px 0 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.chip { font: inherit; font-size: .9rem; border: 1px solid var(--student); color: var(--student); background: var(--surface); border-radius: 999px; padding: 5px 13px; cursor: pointer; }
+.chip.picked { background: var(--student); color: var(--surface); }
+.chip.ghost { border-color: var(--border-strong); color: var(--muted); }
+.card { align-self: flex-start; width: min(100%, 600px); background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--student); border-radius: 4px 14px 14px 14px; padding: 12px 18px 16px; }
+.card .title { color: var(--student); font-weight: 700; }
+.card .to { margin: 6px 0 10px; font-size: .92rem; }
+.card label { display: block; font-size: .86rem; font-weight: 600; margin: 0 0 4px; }
+.card textarea { width: 100%; min-height: 5.2em; font: inherit; font-size: .95rem; padding: 9px 11px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--field); color: var(--text); resize: vertical; }
+.card textarea:focus { outline: none; border-color: var(--student); box-shadow: 0 0 0 3px var(--student-tint); background: var(--surface); }
+.card .meta { display: flex; justify-content: space-between; font-size: .78rem; color: var(--muted); margin-top: 4px; }
+.card .meta .count { font-family: var(--mono); }
+.card .actions { display: flex; align-items: center; gap: 14px; margin-top: 12px; }
+.btn { font: inherit; font-weight: 700; border: 0; border-radius: 9px; padding: 8px 18px; background: var(--student); color: var(--surface); cursor: pointer; }
+.link { font: inherit; border: 0; background: none; color: var(--muted); text-decoration: underline; cursor: pointer; padding: 0; }
+.card.sent .sent-text { white-space: pre-wrap; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); padding: 9px 12px; font-size: .95rem; }
+.result { display: inline-flex; gap: 6px; align-items: center; margin-top: 10px; font-weight: 700; color: var(--ok); background: var(--ok-bg); border-radius: 999px; padding: 3px 12px; font-size: .86rem; }
+.handover { align-self: flex-start; width: min(100%, 600px); background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--professor); border-radius: 4px 14px 14px 14px; padding: 12px 18px 14px; }
+.handover .title { color: var(--professor); font-weight: 700; }
+.handover .from { font-size: .86rem; color: var(--muted); margin: 2px 0 8px; }
+.handover blockquote { margin: 0; padding: 9px 12px; border-radius: 8px; background: var(--professor-tint); white-space: pre-wrap; }
+.handover .strip { margin-top: 10px; font-size: .84rem; color: var(--muted); display: flex; justify-content: space-between; align-items: center; }
+.handover .reply { font: inherit; font-weight: 700; border: 1px solid var(--professor); color: var(--professor); background: var(--surface); border-radius: 9px; padding: 5px 14px; }
+.private { font-size: .8rem; color: var(--muted); margin-top: 8px; }
+@media (max-width: 600px) { .msg { max-width: 92%; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Student lets their instructor know</h1>
+  <p class="lead">Mockup for review — Conversation tab (student) and Faculty view. Fictional names; no model names on screen.</p>
+
+  <section class="step">
+    <div class="step-label"><b>1</b><span>The student says they can't come — the Student agent asks who should know</span></div>
+    <div class="screen">
+      <div class="screen-head"><span class="t">Conversation with the university</span><span class="s">Student agent “student-alex”</span></div>
+      <div class="chat">
+        <div class="msg me"><div class="msg-head"><span class="who">You</span><time>14:59:37</time></div><p>i am sick today</p></div>
+        <div class="msg agent">
+          <div class="msg-head"><span class="who">Your Student agent</span><time>14:59:38</time></div>
+          <p>Sorry you're not feeling well. Who would you like me to let know?</p>
+          <div class="chips"><button class="chip">Dr. Dabirian · Marketing 351</button><button class="chip ghost">Cancel</button></div>
+        </div>
+      </div>
+    </div>
+    <p class="step-note">Typing works too: “my classes”, “my professor”, “my teacher”, “Dr. Dabirian”, “marketing” → the instructor. Anyone the demo can't reach (“my boss”) → “Here I can only reach Dr. Dabirian, your Marketing 351 instructor. Want me to let them know?”</p>
+  </section>
+
+  <section class="step">
+    <div class="step-label"><b>2</b><span>“my classes” → a message card, already filled with what they typed</span></div>
+    <div class="screen">
+      <div class="screen-head"><span class="t">Conversation with the university</span><span class="s">Student agent “student-alex”</span></div>
+      <div class="chat">
+        <div class="msg me"><div class="msg-head"><span class="who">You</span><time>15:00:02</time></div><p>my classes</p></div>
+        <div class="card">
+          <div class="title">Message to your instructor</div>
+          <div class="to">To: <b>Dr. Dabirian</b> · Marketing 351</div>
+          <label for="m">Your message — edit it or add more</label>
+          <textarea id="m">i am sick today</textarea>
+          <div class="meta"><span>Only Dr. Dabirian will see this — not your classmates.</span><span class="count">15 / 1000</span></div>
+          <div class="actions"><button class="btn">Send</button><button class="link">Don't send</button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="step">
+    <div class="step-label"><b>3</b><span>Send → the Faculty agent confirms receipt → the student is told</span></div>
+    <div class="screen">
+      <div class="screen-head"><span class="t">Conversation with the university</span><span class="s">Student agent “student-alex”</span></div>
+      <div class="chat">
+        <div class="card sent">
+          <div class="title">Message to your instructor</div>
+          <div class="to">To: <b>Dr. Dabirian</b> · Marketing 351</div>
+          <div class="sent-text">i am sick today and won't make it to class. I'll catch up on the notes.</div>
+          <span class="result">✓ Sent</span>
+        </div>
+        <div class="msg fac">
+          <div class="msg-head"><span class="who">Dr. Dabirian's course assistant</span><time>15:00:41</time></div>
+          <p>Got it — Dr. Dabirian has been notified. They'll reply to you here. Feel better soon.</p>
+        </div>
+      </div>
+    </div>
+    <p class="step-note">The receipt comes from the Faculty agent only after it has really stored the message. If it can't be delivered: “I couldn't reach Dr. Dabirian just now, so nothing was sent. Press Send again in a moment.” The card stays open.</p>
+  </section>
+
+  <section class="step">
+    <div class="step-label"><b>4</b><span>What Dr. Dabirian sees (Faculty view) — the existing hand-over card</span></div>
+    <div class="screen">
+      <div class="screen-head fac"><span class="t">Faculty view · Marketing 351</span><span class="s">Dr. Dabirian</span></div>
+      <div class="chat">
+        <div class="handover">
+          <div class="title">Message from a student</div>
+          <div class="from">Alex Student · 15:00</div>
+          <blockquote>i am sick today and won't make it to class. I'll catch up on the notes.</blockquote>
+          <div class="strip"><span>Waiting for your reply</span><button class="reply">↩ Reply</button></div>
+        </div>
+      </div>
+    </div>
+    <p class="private">Private: the message text never goes to classmates, Topology labels or logs — only IDs and status.</p>
+  </section>
+</main>
+</body>
+</html>

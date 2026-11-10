@@ -1138,3 +1138,31 @@ details.dlist .per-student { margin-top: 8px; }
 .message-card .mc-sent { margin-top: 2px; }
 .message-card[data-status="not_sent"] .mc-sent { color: var(--muted); text-decoration: line-through; }
 .message-card [hidden] { display: none !important; }
+
+/* The student lets their instructor know (owner, 2026-11-09; mockup docs/superpowers/specs/2026-11-09-student-notify-mockup.html). */
+.notify-choices { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 2px; }
+.notify-choice { font: inherit; font-size: .9rem; border: 1px solid var(--student); color: var(--student); background: var(--surface); border-radius: 999px; padding: 5px 13px; cursor: pointer; }
+.notify-choice:hover:not(:disabled), .notify-choice:focus-visible { background: var(--student); color: var(--surface); }
+.notify-choice.ghost { border-color: var(--border-strong); color: var(--muted); }
+.notify-choice.ghost:hover:not(:disabled) { background: var(--field); color: var(--text); }
+.notify-choice:disabled { opacity: .55; cursor: default; }
+.notify-card { list-style: none; align-self: flex-start; max-width: min(100%, 600px); width: 100%; border: 1px solid var(--border); border-left: 4px solid var(--student); border-radius: 4px 14px 14px 14px; background: var(--surface); padding: 12px 18px 16px; }
+.notify-card .nc-title { color: var(--student); font-weight: 700; }
+.notify-card[data-status="not_sent"] .nc-title { color: var(--muted); }
+.notify-card .nc-to { margin: 6px 0 10px; font-size: .92rem; }
+.notify-card .nc-label { display: block; margin: 0 0 4px; font-size: .86rem; font-weight: 600; }
+.notify-card .nc-text { width: 100%; min-height: 5.2em; font: inherit; font-size: .95rem; padding: 9px 11px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--field); color: var(--text); resize: vertical; box-sizing: border-box; }
+.notify-card .nc-text:focus { outline: none; border-color: var(--student); box-shadow: 0 0 0 3px color-mix(in srgb, var(--student) 22%, transparent); background: var(--surface); }
+.notify-card .nc-meta { display: flex; justify-content: space-between; gap: 10px; margin-top: 4px; font-size: .78rem; color: var(--muted); }
+.notify-card .nc-count { font-family: var(--mono); }
+.notify-card .nc-sent { white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); padding: 9px 12px; font-size: .95rem; line-height: 1.45; }
+.notify-card[data-status="not_sent"] .nc-sent { color: var(--muted); text-decoration: line-through; }
+.notify-card .nc-problem { margin: 10px 0 0; font-size: .88rem; font-weight: 600; color: var(--bad, #b91c1c); }
+.notify-card .nc-actions { display: flex; align-items: center; gap: 14px; margin-top: 12px; }
+.notify-card .nc-send { font: inherit; font-weight: 700; border: 0; border-radius: 9px; padding: 8px 18px; background: var(--student); color: var(--surface); cursor: pointer; }
+.notify-card .nc-send:disabled { opacity: .6; cursor: default; }
+.notify-card .nc-decline { font: inherit; border: 0; background: none; color: var(--muted); text-decoration: underline; cursor: pointer; padding: 0; }
+.notify-card .nc-result { display: inline-block; margin-top: 10px; font-weight: 700; font-size: .86rem; border-radius: 999px; padding: 3px 12px; }
+.notify-card[data-status="sent"] .nc-result { color: var(--ok, #1d7a46); background: color-mix(in srgb, var(--ok, #1d7a46) 14%, transparent); }
+.notify-card[data-status="not_sent"] .nc-result { color: var(--muted); background: var(--field); }
+.notify-card [hidden] { display: none !important; }

@@ -55,6 +55,8 @@ const STUDENT = {
   course_available: () => inside('student', 'lesson', 'completed', 'Course available notice received'),
   inbox_reset: () => inside('student', 'lesson', 'completed', 'Inbox cleared (New conversation)'),
   request_declined: () => inside('student', 'request', 'completed', 'Student answered you itself (not offered by the university)'),
+  notify_step: (d) => inside('student', 'request', 'completed', d.chose === 'instructor' ? 'Student opened a message card for your instructor (nothing sent yet)' : d.asks ? 'Student asked who should know (nothing sent)' : 'Student answered you itself (nothing sent)'),
+  notify_card: (d) => (d.status === 'not_sent' ? inside('student', 'request', 'completed', 'You chose not to send the message') : null),
   // Only a real discovery (it carries a reason); the per-request reuse of the known card is not a hop.
   card_discovered: (d) => (d.reason ? hop('hub', 'student', 'card', 'completed', 'Student read the university’s public card') : null),
   request_sent: () => hop('student', 'hub', 'request', 'attempted', 'Question sent to the Hub'),

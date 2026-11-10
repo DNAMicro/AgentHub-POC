@@ -11,6 +11,7 @@ import { createTopology } from './topology.js';
 import { createClassroom } from './classroom.js';
 import { quizFactsLine } from './quiz-ui.js';
 import { renderRichText } from './rich-text.js';
+import { createNotifyUi } from './notify-ui.js';
 import { WORKFLOWS, prettyDate } from '/shared/forms.js';
 
 const $ = (id) => document.getElementById(id);
@@ -143,6 +144,23 @@ let awaitingRunId = null; // set between clicking Send and that run leaving a bu
 const follow = new Map([els.studentLog, els.studentConsole, els.hubLog, els.tutorLog, els.libraryLog, els.professorLog].map((log) => [log, followBottom(log)]));
 const chatFollow = follow.get(els.studentLog);
 window.__chatFollow = chatFollow; // read-only hook for browser tests (following state)
+// The student lets their instructor know: the “who should know?” buttons and the message card (notify-ui.js).
+const notifyUi = createNotifyUi({
+  log: els.studentLog,
+  append: (li) => appendTo(els.studentLog, li),
+  item: (props) => messageItem(props),
+  ask: (text) => { chatFollow.pin(); return startRun({ text, contextId: currentContextId }); },
+  send: async (cardId, text) => {
+    chatFollow.pin();
+    const res = await fetch(`/api/notify/${encodeURIComponent(cardId)}/send`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+    if (res.ok) { awaitingRunId = (await res.json()).runId; renderState(); return null; }
+    return (await res.json().catch(() => ({}))).error ?? `Couldn’t send (HTTP ${res.status}).`;
+  },
+  decline: async (cardId) => {
+    const res = await fetch(`/api/notify/${encodeURIComponent(cardId)}/decline`, { method: 'POST' });
+    return res.ok ? null : (await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`;
+  },
+});
 const formsUi = createFormsUi({ log: els.studentLog, agentName: (id) => viaUniversity(id), onChange: () => renderState(), pinToBottom: () => chatFollow.pin() });
 let currentContextId = null; // the chat conversation follow-up questions belong to (null → start a new one)
 
@@ -954,7 +972,7 @@ function handle(event, { live = true } = {}) {
       student({ dir: 'info', label: 'Form', text: data.text, ids: { form: data.formId, run } });
     }
   } else if (source === 'student') {
-    if (['reply_received', 'tutor_error', 'request_failed', 'form_received', 'clarification_asked', 'request_declined', 'form_filled'].includes(type)) answerArrived(runId);
+    if (['reply_received', 'tutor_error', 'request_failed', 'form_received', 'clarification_asked', 'request_declined', 'form_filled', 'notify_step'].includes(type)) answerArrived(runId);
     switch (type) {
       case 'card_discovered':
         if (data.reason) studentConsole({ dir: 'received', label: 'University card verified', text: `${data.name}: name, endpoint and protocol match this Student’s configuration.`, ids: { endpoint: data.url, skills: data.skills?.join(', ') } });
@@ -964,7 +982,7 @@ function handle(event, { live = true } = {}) {
         break;
       // The Student's own model (STUDENT_MODE): its plan before anything is sent, and its calls.
       case 'request_planned': {
-        const how = { uncertain: 'your answer didn’t settle it — the Hub decides', rule: 'obvious from the words — the Hub routes it', model: 'decided by the Student’s model', heuristic: 'mock heuristic', context: 'reply to the university’s question', off: 'Student model off', model_failed: 'Student model failed', lesson: 'about a lesson or message you received — routed by its delivery record', course: 'asked for this course' }[data.by] ?? data.by;
+        const how = { uncertain: 'your answer didn’t settle it — the Hub decides', rule: 'obvious from the words — the Hub routes it', model: 'decided by the Student’s model', heuristic: 'mock heuristic', context: 'reply to the university’s question', off: 'Student model off', model_failed: 'Student model failed', lesson: 'about a lesson or message you received — routed by its delivery record', course: 'asked for this course', notify: 'your message card for your instructor' }[data.by] ?? data.by;
         // Part 11: a fill never goes to the Hub (only a question asked alongside it does).
         const asks = data.sent === 'question';
         const text = data.action === 'fill' ? (asks ? 'Filled here, in your open form; only your question goes to the university.' : 'Filled here, in your open form; nothing goes to the university.') : data.action === 'clarify' ? 'Not clear enough to send yet — asking you first.' : data.action === 'decline' ? 'Clearly not a university service — answering you here; nothing sent.' : data.capability ? `Needs ${data.capabilityName ?? data.capability}; the Hub will be asked for that capability.` : 'No capability chosen; the Hub routes it.';
@@ -1052,6 +1070,12 @@ function handle(event, { live = true } = {}) {
         studentConsole({ dir: 'info', label: 'Form filled from the chat', text: `${data.fields?.length ? `Filled: ${data.fields.join(', ')}.` : 'Nothing filled.'}${data.rejected?.length ? ` Not filled: ${data.rejected.map((r) => r.field).join(', ')}.` : ''}`, ids: { form: data.formId, how: data.by, run } });
         break;
       }
+      case 'notify_step':
+        notifyUi.step({ at, data, run });
+        break;
+      case 'notify_card':
+        notifyUi.card({ data });
+        break;
       case 'request_declined':
         student({ dir: 'sent', speaker: 'student', label: 'You (not sent — answered by your Student agent)', text: data.question, ids: { contextId: data.contextId, run } });
         student({ dir: 'info', speaker: 'student', label: 'Your Student agent — not offered by the university', text: data.text, ids: { note: 'Nothing was sent to the university.', run } });
@@ -1066,7 +1090,8 @@ function handle(event, { live = true } = {}) {
         studentConsole({ dir: 'error', label: 'Model error', text: data.message, ids: { code: data.code, anthropicRequest: data.requestId, run } });
         break;
       case 'request_sent':
-        student({ dir: 'sent', speaker: 'student', label: `Sent to ${universityName}`, text: data.text, ids: { messageId: data.messageId, contextId: data.contextId, run } });
+        // A message card's words are on the card itself: no second bubble for them.
+        if (!data.notifyCardId) student({ dir: 'sent', speaker: 'student', label: `Sent to ${universityName}`, text: data.text, ids: { messageId: data.messageId, contextId: data.contextId, run } });
         studentConsole({ dir: 'sent', label: 'A2A request to the Hub', text: `message/send (${data.text?.length ?? 0} characters)`, ids: { messageId: data.messageId, contextId: data.contextId, run } });
         break;
       case 'reply_received': {

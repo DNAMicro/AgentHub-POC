@@ -38,6 +38,7 @@ import { deliveredText } from './delivery-text.js';
 import { nowFn } from './test-clock.js';
 import { CLASSMATES_FAILED_TEXT, PRIVATE_DETAIL_TEXT, asksPrivateDetail, classmatesAnswer } from './classmates.js';
 import { ALREADY_SENT_TEXT, LATE_YES_TEXT, OFFER_ASK_TEXT, OFFER_NOT_SENT_TEXT, OFFER_DECISION_TEXT, OFFER_TTL_MS, OFFER_UNKNOWN_TEXT, SENT_TEXT, classFactsBlock, courseAnswer, isNo, yesOf } from './student-course.js';
+import { soundsIll } from './student-notify.js';
 
 const HOST = '127.0.0.1';
 const JSONRPC_PATH = '/a2a/jsonrpc';
@@ -109,6 +110,17 @@ async function handleChat(ctx, bus, runId) {
     emitViz('meeting_choice', runId, { meetingId: lesson.meeting.meetingId, slotId: incoming.metadata.meetingSlot, status: r.status });
     metadata.professor = { name: COURSE.professorName, outcome: 'meeting', onBehalf: true, mode: PROFESSOR_MODE, model: null, usage: null, lessonId: lesson.lessonId, topics: [], meeting: { meetingId: lesson.meeting.meetingId, status: r.status, slotId: r.slot?.slotId ?? null } };
     return publishReply(ctx, bus, runId, incoming, r.text, metadata);
+  }
+  // The student's own message card (owner, 2026-11-09: “the instructor agent acknowledges receipt and tells the student that the
+  // instructor has been notified”). The Hub marks it only for a course the Student agent named, never with a lesson. It is
+  // stored in Dr. Dabirian's chat as a hand-over FIRST; only then does the student read that Dr. Dabirian was notified.
+  if (incoming.metadata?.studentNote === true && !lesson) {
+    metadata.professor = assistantSaid({ outcome: student ? 'notified' : 'out_of_scope', decidedBy: 'code' });
+    if (!student) return publishReply(ctx, bus, runId, incoming, NOT_PASSED_TEXT, metadata);
+    const text = `Got it — ${COURSE.professorName} has been notified. They’ll reply to you here.${soundsIll(question) ? ' Feel better soon.' : ''}`;
+    recordReply(incoming.messageId, { studentId: student, text: question, about: null, relayed: true, note: true }, { text, model: null, needsProfessor: true, onBehalf: false });
+    emitViz('student_reply', runId, { lessonId: null, relayed: true, needsProfessor: true });
+    return publishReply(ctx, bus, runId, incoming, text, metadata, question, { handoverRequest: true, sent: true, handedOver: true });
   }
   // ↩ Reply to the professor's own message: the student chose to write to Dr. Dabirian — a direct relay, no offer.
   if (lesson && lesson.kind === 'message' && author === 'professor') {

@@ -37,6 +37,7 @@ import { ID } from './lessons.js';
 import { checkQuiz, validExisting } from './quiz-rules.js';
 import { nowFn } from './test-clock.js';
 import { decideFill } from './form-fill.js';
+import { CANCEL_LABEL, NOTHING_SENT_TEXT, NOTIFY_MAX, NOTIFY_TTL_MS, NOT_REACHED_TEXT, UNSURE_TEXT, askWhoText, instructorLabel, onlyInstructorText, readsAbsence, whoOf } from './student-notify.js';
 import { AGENT_CARD_PATH, A2A_PROTOCOL_VERSION } from '@a2a-js/sdk';
 import { DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
@@ -133,6 +134,9 @@ export async function startUiServer({ port = 4444, auth: authCfg = authConfig(pr
     if (!conversations.has(contextId)) conversations.set(contextId, { turns: [], pending: null });
     return conversations.get(contextId);
   };
+  // The student lets their instructor know (owner, 2026-11-09): message cards, memory only. cardId → { cardId, contextId,
+  // status: open | sending | sent | unsure | not_sent, to, course, capability, text, messageId, problem }.
+  const notifyCards = new Map();
   let hubCardError = null;
 
   function publish(event) {
@@ -313,19 +317,23 @@ export async function startUiServer({ port = 4444, auth: authCfg = authConfig(pr
     }
     askTutor(hub.baseUrl, run.text, {
       runId, card, contextId: run.contextId, messageId: run.messageId, timeoutMs: cfg.timeouts.chatMs, signer: inbox.signer,
-      metadata: { ...identity, ...(run.requestedCapability ? { requestedCapability: run.requestedCapability } : {}), ...(run.lessonDeliveryId ? { lessonDeliveryId: run.lessonDeliveryId } : {}), ...(run.meetingSlot ? { meetingSlot: run.meetingSlot } : {}) },
+      metadata: { ...identity, ...(run.requestedCapability ? { requestedCapability: run.requestedCapability } : {}), ...(run.lessonDeliveryId ? { lessonDeliveryId: run.lessonDeliveryId } : {}), ...(run.meetingSlot ? { meetingSlot: run.meetingSlot } : {}), ...(run.studentNote ? { studentNote: true } : {}) },
       onEvent: (type, data) => {
         // A relayed form: register it (issuer, workflow, conversation, Hub reference) before showing it.
         const extra = type === 'form_received' ? registerForm(data, { conversationId: run.contextId, runId }) : {};
-        publish({ source: 'student', type, runId, data: { ...data, ...(type === 'form_received' ? { agentId: data.issuer } : {}), ...extra } });
+        publish({ source: 'student', type, runId, data: { ...data, ...(type === 'form_received' ? { agentId: data.issuer } : {}), ...(run.notifyCardId ? { notifyCardId: run.notifyCardId } : {}), ...extra } });
       },
     })
       .then((reply) => {
         const conv = conversationFor(run.contextId);
         conv.turns = [...conv.turns, { question: run.text, capability: reply?.hub?.destination ?? null, answer: briefReply(reply?.text) }].slice(-6);
+        if (run.notifyCardId) finishCard(runId, run, reply, null);
         setState(runId, 'completed', { servedBy: reply?.servedBy ?? null, decision: reply?.hub?.decision ?? null });
       })
-      .catch((err) => setState(runId, err.outcome === 'uncertain' ? 'uncertain' : 'failed', err.tutorError ? { tutorError: err.tutorError.code } : {}))
+      .catch((err) => {
+        if (run.notifyCardId) finishCard(runId, run, null, err);
+        setState(runId, err.outcome === 'uncertain' ? 'uncertain' : 'failed', err.tutorError ? { tutorError: err.tutorError.code } : {});
+      })
       .finally(() => {
         if (activeRunId === runId) activeRunId = null;
       });
@@ -341,6 +349,9 @@ export async function startUiServer({ port = 4444, auth: authCfg = authConfig(pr
       publish({ source: 'student', type: 'request_planned', runId, data: { action: 'send', capability: run.requestedCapability ?? null, capabilityName: run.requestedCapability ? capabilities.find((c) => c.id === run.requestedCapability)?.name ?? null : null, by: run.lessonDeliveryId ? 'lesson' : 'course', reason: run.lessonDeliveryId ? (inbox.lesson(run.lessonDeliveryId)?.kind === 'message' ? 'A reply to a message you received — the university routes it back to whoever sent it.' : 'A question about a lesson you received — the university routes it to that lesson’s professor.') : 'A question for this course.', matched: [], model: null, usage: null, error: null, relation: null } });
       return sendChat(runId, run);
     }
+    // The student says they can't come (“i am sick today”): the Student agent asks who should know, then opens a message
+    // card for the instructor (src/student-notify.js). A pending clarifying question keeps its meaning.
+    if (!run.pending && notifyTurn(runId, run, conv)) return;
     // Part 11: a form is open in this conversation and the message fills it — on the student's side only.
     // Nothing goes to the university; the student presses the form's own button. A pending clarifying
     // question keeps its meaning (the message answers it).
@@ -401,6 +412,69 @@ export async function startUiServer({ port = 4444, auth: authCfg = authConfig(pr
       run.requestedCapability = plan.capability;
     }
     sendChat(runId, run);
+  }
+
+  // ---- The student lets their instructor know (owner, 2026-11-09) ------------------------------------------------------
+  // Who teaches which course comes from the course notice in this Student agent's own inbox, and the course capability is
+  // the one public capability tagged for the class (as for classmate questions) — never from the student's words.
+  function notifyCourse() {
+    const notice = inbox.view().notices.find((n) => n.professorName && n.courseTitle);
+    const course = capabilities.filter((c) => (c.tags ?? []).some((t) => /^classmates?$/i.test(t)));
+    return notice && course.length === 1 ? { professorName: notice.professorName, courseTitle: notice.courseTitle, capability: course[0].id } : null;
+  }
+  const publicCard = ({ capability: _c, messageId: _m, contextId: _x, ...card }) => card;
+  const publishCard = (card, runId = null) => publish({ source: 'student', type: 'notify_card', runId, data: { ...publicCard(card), contextId: card.contextId } });
+  // Returns true when this message was the Student agent's own step (nothing goes to the university).
+  function notifyTurn(runId, run, conv) {
+    const course = notifyCourse();
+    if (!course) return false;
+    const waiting = conv.notify && Date.now() - conv.notify.at < NOTIFY_TTL_MS ? conv.notify : null;
+    conv.notify = null;
+    const choices = [{ id: 'instructor', label: instructorLabel(course) }, { id: 'cancel', label: CANCEL_LABEL }];
+    const step = (text, extra = {}) => publish({ source: 'student', type: 'notify_step', runId, data: { question: run.text, text, contextId: run.contextId, ...extra } });
+    const done = () => {
+      setState(runId, 'completed', { decision: 'student_notify' });
+      activeRunId = null;
+      return true;
+    };
+    if (waiting) {
+      const who = whoOf(run.text, { offered: waiting.offered, course });
+      if (who === 'instructor') {
+        step(null, { chose: 'instructor' });
+        const card = { cardId: randomUUID(), contextId: run.contextId, status: 'open', to: course.professorName, course: course.courseTitle, capability: course.capability, text: waiting.original.slice(0, NOTIFY_MAX), max: NOTIFY_MAX, messageId: null, problem: null };
+        notifyCards.set(card.cardId, card);
+        publishCard(card, runId);
+        return done();
+      }
+      if (who === 'cancel') {
+        step(NOTHING_SENT_TEXT, { chose: 'cancel' });
+        return done();
+      }
+      if (who === 'other') {
+        conv.notify = { ...waiting, offered: true, at: Date.now() };
+        step(onlyInstructorText(course), { choices });
+        return done();
+      }
+      // Not an answer to “who …?”: a new message, handled below as usual.
+    }
+    // Written to (or about) the instructor already — “tell Dr. Dabirian I'm sick” — goes on as before (sent at once).
+    const last = course.professorName.split(/\s+/).at(-1);
+    if (readsAbsence(run.text) && !new RegExp(`\\b(?:${last}|professor|prof|instructor|teacher)\\b`, 'i').test(run.text)) {
+      conv.notify = { original: run.text, offered: false, at: Date.now() };
+      step(askWhoText(run.text), { choices, asks: true });
+      return done();
+    }
+    return false;
+  }
+  // The Faculty agent's answer decides the card: 'notified' = Dr. Dabirian has it (stored before that answer).
+  function finishCard(runId, run, reply, err) {
+    const card = notifyCards.get(run.notifyCardId);
+    if (!card) return;
+    const course = { professorName: card.to, courseTitle: card.course };
+    if (reply?.professor?.outcome === 'notified') Object.assign(card, { status: 'sent', problem: null });
+    else if (err?.outcome === 'uncertain') Object.assign(card, { status: 'unsure', problem: UNSURE_TEXT(course) }); // same request ID on retry
+    else Object.assign(card, { status: 'open', problem: NOT_REACHED_TEXT(course), messageId: null });
+    publishCard(card, runId);
   }
 
   // ---- Part 6: forms the agents decided to send --------------------------------------------
@@ -587,6 +661,37 @@ export async function startUiServer({ port = 4444, auth: authCfg = authConfig(pr
     queueMicrotask(() => planAndSend(runId, run));
     return { status: 202, json: { runId, contextId: run.contextId } };
   }
+  // The message card: Send (the box's words, or the same words again after an unsure answer) and Don't send.
+  apiPost.post('/notify/:cardId/send', (req, res) => {
+    const card = notifyCards.get(req.params.cardId);
+    if (!card) return res.status(404).json({ error: 'This message is no longer open.' });
+    if (!['open', 'unsure'].includes(card.status)) return res.status(409).json({ error: card.status === 'sent' ? 'This message was already sent.' : card.status === 'sending' ? 'Sending…' : 'This message wasn’t sent.', status: card.status });
+    if (activeRunId) return res.status(409).json({ error: 'A request is already in progress.' });
+    const text = card.status === 'unsure' ? card.text : (typeof req.body?.text === 'string' ? req.body.text.trim() : '');
+    if (!text) return res.status(422).json({ error: 'Write a message first.' });
+    if (text.length > NOTIFY_MAX) return res.status(422).json({ error: `Keep it under ${NOTIFY_MAX} characters.` });
+    if (card.status !== 'unsure' || !card.messageId) card.messageId = randomUUID();
+    Object.assign(card, { text, status: 'sending', problem: null });
+    const run = { kind: 'chat', state: 'sending', text, typed: text, contextId: card.contextId, messageId: card.messageId, clarified: false, pending: null, lessonDeliveryId: null, meetingSlot: null, requestedCapability: card.capability, studentNote: true, notifyCardId: card.cardId, formValues: {} };
+    const runId = randomUUID();
+    runs.set(runId, run);
+    publish({ source: 'system', type: 'run_started', runId, data: { kind: 'chat', text, contextId: run.contextId, newConversation: false, messageId: run.messageId, notifyCardId: card.cardId, routerMode: topology?.hub?.router?.mode ?? null, studentMode: agentStatus.student.mode, pendingClarification: false } });
+    publish({ source: 'system', type: 'state', runId, data: { state: run.state } });
+    publishCard(card, runId);
+    const name = capabilities.find((c) => c.id === card.capability)?.name ?? null;
+    publish({ source: 'student', type: 'request_planned', runId, data: { action: 'send', capability: card.capability, capabilityName: name, by: 'notify', reason: `Your message to ${card.to}: the university hands it to ${card.course}.`, relation: null, matched: [], model: null, usage: null, error: null } });
+    activeRunId = runId;
+    queueMicrotask(() => sendChat(runId, run));
+    res.status(202).json({ runId });
+  });
+  apiPost.post('/notify/:cardId/decline', (req, res) => {
+    const card = notifyCards.get(req.params.cardId);
+    if (!card) return res.status(404).json({ error: 'This message is no longer open.' });
+    if (card.status !== 'open') return res.status(409).json({ error: card.status === 'not_sent' ? 'This message wasn’t sent.' : 'This message can’t be stopped now.', status: card.status });
+    card.status = 'not_sent';
+    publishCard(card);
+    res.json({ status: 'not_sent' });
+  });
   apiPost.post('/runs', (req, res) => {
     const r = startChatRun(req.body);
     res.status(r.status).json(r.json);
@@ -616,6 +721,7 @@ export async function startUiServer({ port = 4444, auth: authCfg = authConfig(pr
     for (const f of forms.values()) if (f.state === 'editing' || f.state === 'rejected') setLifecycle(f.formId, 'cancelled', { reason: 'new_conversation' });
     // The screen clears first, so the agents' reset events below stay visible in their consoles.
     publish({ source: 'system', type: 'conversation_reset', runId: null, data: {} });
+    notifyCards.clear(); // message cards are memory only and belong to the old conversation
     // Part 9 (demo reset): every student's lessons and messages are cleared — this Student's inbox here,
     // the Hub's records for everyone, and the Professor's posted list (asked by the Hub). The professor
     // sends again.
