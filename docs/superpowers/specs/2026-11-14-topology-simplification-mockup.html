@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Topology simplification — mockup</title>
+<style>
+@font-face { font-family: "Atkinson Hyperlegible Next"; src: url("../../../public/fonts/atkinson-hyperlegible-next-latin.woff2") format("woff2"); font-weight: 200 800; font-display: swap; }
+@font-face { font-family: "IBM Plex Mono"; src: url("../../../public/fonts/ibm-plex-mono-400-latin.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+:root {
+  color-scheme: light;
+  --bg: #eef1f5; --surface: #ffffff; --field: #f7f9fb; --text: #18202b; --muted: #5a6676; --border: #d6dce4; --border-strong: #b8c1cd;
+  --idle: #8791a0;
+  --student: #2b59c3; --tutor: #8a3fa8; --library: #16765e; --professor: #a3315a; --hub: #9a6300; --model: #5b6472;
+  --hr: #1f6f8b; --ps: #c2410c; --lms: #4d7c0f; --chrs: #4338ca;
+  --ok: #1d7a46; --ok-bg: #e2f3e8; --bad: #b4261f; --bad-bg: #fbe6e4;
+  --font: "Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #11151b; --surface: #181d25; --field: #1f2530; --text: #e4e8ee; --muted: #98a3b1; --border: #2c3440; --border-strong: #46505f;
+    --idle: #6f7a89;
+    --student: #86a2ff; --tutor: #c99ae6; --library: #4cc4a0; --professor: #f08aae; --hub: #e0a63a; --model: #a3adba;
+    --hr: #6cc0dd; --ps: #fb8a4c; --lms: #a3d65c; --chrs: #a5b4fc;
+    --ok: #63cf93; --ok-bg: #15301f; --bad: #ff8f86; --bad-bg: #3a1916;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 var(--font); }
+button, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--student); outline-offset: 2px; }
+
+.page { max-width: 1500px; margin: 0 auto; padding: 28px 24px 48px; }
+.top { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 32px; align-items: end; margin-bottom: 22px; }
+h1 { margin: 0; font-size: 2.1rem; line-height: 1.1; font-weight: 750; letter-spacing: -0.02em; }
+.lede { margin: 6px 0 0; max-width: 68ch; color: var(--muted); }
+.tally { display: flex; gap: 22px; font-family: var(--mono); font-size: 0.8rem; color: var(--muted); }
+.tally b { display: block; font: 750 1.7rem/1 var(--font); color: var(--text); font-variant-numeric: tabular-nums; }
+
+.work { display: grid; grid-template-columns: 250px minmax(0, 1fr) 320px; gap: 18px; align-items: start; }
+@media (max-width: 1150px) { .work { grid-template-columns: 1fr; } .top { grid-template-columns: 1fr; } }
+
+/* the six versions: a list you walk down, the chosen one carries the Hub's ochre bar */
+.ideas { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.ideas button { width: 100%; text-align: left; display: grid; grid-template-columns: 30px 1fr; gap: 0 10px; padding: 10px 12px; border: 0; border-left: 4px solid transparent; border-radius: 0 8px 8px 0; background: transparent; cursor: pointer; }
+.ideas button:hover { background: color-mix(in srgb, var(--surface) 70%, transparent); }
+.ideas button[aria-pressed="true"] { background: var(--surface); border-left-color: var(--hub); }
+.ideas .tag { grid-row: span 2; font: 750 1.25rem/1.2 var(--font); color: var(--hub); }
+.ideas .nm { font-weight: 700; }
+.ideas .ds { font-size: 0.86rem; color: var(--muted); line-height: 1.35; }
+@media (max-width: 1150px) { .ideas { flex-direction: row; flex-wrap: wrap; } .ideas li { flex: 1 1 200px; } }
+
+.stage { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px 14px; min-width: 0; }
+.stage.narrow { max-width: 460px; margin: 0 auto; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 0.9rem; }
+.bar .lbl { color: var(--muted); margin-right: 2px; }
+.pillbtn { padding: 5px 12px; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--field); cursor: pointer; }
+.pillbtn:hover { border-color: var(--text); }
+.pillbtn[aria-pressed="true"] { background: var(--text); color: var(--surface); border-color: var(--text); }
+.bar .gap { flex: 1; }
+.check { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; color: var(--muted); }
+.lens { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.lens[hidden] { display: none; }
+.now { margin: 10px 0 4px; padding: 8px 12px; border-radius: 8px; background: var(--field); display: flex; gap: 12px; align-items: baseline; min-height: 40px; }
+.now .n { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
+.now .t { font-weight: 600; }
+.topo { display: block; width: 100%; height: auto; max-height: max(480px, calc(100vh - 330px)); }
+.key { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 0.82rem; color: var(--muted); margin-top: 6px; }
+.key svg { width: 34px; height: 8px; vertical-align: middle; margin-right: 6px; }
+.key line { stroke: var(--idle); stroke-width: 2; }
+.key[hidden] { display: none; }
+
+.notes h2 { margin: 0 0 4px; font-size: 1.3rem; line-height: 1.2; }
+.notes p { margin: 0 0 12px; }
+.notes dl { margin: 0; display: grid; gap: 12px; }
+.notes dt { font-weight: 700; font-size: 0.9rem; color: var(--muted); }
+.notes dd { margin: 2px 0 0; font-size: 0.95rem; }
+.notes .counts { font-family: var(--mono); font-size: 0.8rem; padding: 8px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 14px; }
+.notes a, .research a { color: var(--student); }
+
+.research { margin-top: 30px; max-width: 100ch; }
+.research summary { cursor: pointer; font-weight: 700; font-size: 1.05rem; }
+.research li { margin: 6px 0; }
+.research .warn { color: var(--muted); font-size: 0.92rem; }
+
+/* ================= the diagram ================= */
+.topo text { font-family: var(--font); pointer-events: none; }
+.topo .node > *, .topo .disc, .topo .line, .topo .name { transition: stroke 0.35s, stroke-width 0.35s, fill 0.35s, opacity 0.35s, transform 0.35s; }
+.topo .disc { fill: var(--surface); stroke: var(--idle); stroke-width: 1.5; }
+.topo .name { font-weight: 700; font-size: 15px; fill: var(--muted); text-anchor: middle; }
+.topo .model .name, .topo .system .name { font-size: 13px; }
+.topo .sub { font-size: 12px; fill: var(--muted); text-anchor: middle; opacity: 0; }
+.topo .ico { stroke: var(--idle); fill: none; stroke-width: 1.6; }
+.topo .ico.fill { fill: var(--idle); stroke: none; }
+.topo .line { stroke: var(--idle); stroke-width: 1.5; fill: none; }
+.topo .edge[data-kind="model"] .line { stroke-dasharray: 5 5; }
+.topo .edge[data-kind="mcp"] .line { stroke-dasharray: 14 4 2 4; }
+
+/* used earlier in this request: the colour stays, lighter */
+.topo .node[data-s="trail"] .disc { stroke: var(--c); stroke-width: 2.5; }
+.topo .node[data-s="trail"] .name, .topo .node[data-s="live"] .name { fill: var(--c); }
+.topo .node[data-s="trail"] .sub, .topo .node[data-s="live"] .sub { opacity: 1; }
+.topo .node[data-s="trail"] .ico, .topo .node[data-s="live"] .ico { stroke: var(--c); }
+.topo .node[data-s="trail"] .ico.fill, .topo .node[data-s="live"] .ico.fill { fill: var(--c); stroke: none; }
+.topo .edge[data-s="trail"] .line { stroke: color-mix(in srgb, var(--c) 62%, var(--surface)); stroke-width: 2.5; }
+/* in use right now: thick, tinted — weight and fill change too, never colour alone */
+.topo .node[data-s="live"] .disc { stroke: var(--c); stroke-width: 5; fill: color-mix(in srgb, var(--c) 14%, var(--surface)); }
+.topo .edge[data-s="live"] .line { stroke: var(--c); stroke-width: 4; }
+.topo .dot { stroke: var(--surface); stroke-width: 2; }
+.topo .ripple { fill: none; stroke-width: 3; animation: ripple 0.75s ease-out forwards; }
+@keyframes ripple { from { opacity: 0.9; transform: scale(0.6); } to { opacity: 0; transform: scale(2.3); } }
+
+/* problems always show at full strength, in every version */
+.topo .alert rect { fill: var(--bad-bg); }
+.topo .alert text { fill: var(--bad); font-weight: 700; font-size: 12px; text-anchor: middle; }
+.topo .node.bad .disc { stroke: var(--bad); stroke-dasharray: 6 5; stroke-width: 2.5; }
+.topo .node.bad .name { fill: var(--bad); }
+
+/* ---- Today: everything at full strength ---- */
+.topo[data-mode="today"] .disc { stroke: var(--c); stroke-width: 4; }
+.topo[data-mode="today"] .model .disc { stroke: var(--model); stroke-width: 2.5; }
+.topo[data-mode="today"] .system .disc { stroke-width: 3; }
+.topo[data-mode="today"] .name { fill: var(--c); }
+.topo[data-mode="today"] .model .name { fill: var(--model); }
+.topo[data-mode="today"] .sub { opacity: 1; }
+.topo[data-mode="today"] .ico { stroke: var(--c); }
+.topo[data-mode="today"] .line { stroke: var(--border-strong); stroke-width: 2; color: var(--border-strong); }
+.topo[data-mode="today"] .edge[data-s="live"] .line { stroke: var(--c); stroke-width: 3.4; }
+.topo .extra { font: 11px var(--mono); fill: var(--muted); text-anchor: middle; }
+.topo .elabel { font: 600 11px var(--mono); fill: var(--muted); text-anchor: middle; }
+.topo .pill rect { fill: var(--ok-bg); }
+.topo .pill text { fill: var(--ok); font-weight: 600; font-size: 12px; text-anchor: middle; }
+.topo .pill.muted rect { fill: var(--field); stroke: var(--border); }
+.topo .pill.muted text { fill: var(--muted); }
+
+/* ---- B Folded: models and systems ride on their agent as badges ---- */
+.topo .badge .cap { font-size: 12px; font-weight: 700; fill: var(--c); opacity: 0; }
+.topo .badge[data-s="trail"] .cap, .topo .badge[data-s="live"] .cap { opacity: 1; }
+.topo .badge[data-s="live"] .disc { stroke-width: 3.5; }
+.topo .badge .disc { stroke-width: 1.5; }
+
+/* ---- C Lenses: what is outside the lens steps far back ---- */
+.topo[data-mode="C"] [data-lens="out"] { opacity: 0.17; }
+.topo[data-mode="C"] .node[data-lens="out"] text { opacity: 0; }
+.topo[data-mode="C"] [data-lens="in"][data-s="idle"] .disc { stroke: var(--muted); stroke-width: 2; }
+.topo[data-mode="C"] [data-lens="in"][data-s="idle"] .name { fill: var(--text); }
+.topo[data-mode="C"] [data-lens="in"][data-s="idle"] .line { stroke: var(--muted); }
+
+/* ---- D Unfold in use: small until it has work ---- */
+.topo .sm .name { text-anchor: start; font-size: 14px; }
+.topo[data-mode="D"] .node[data-open="false"] .lg { opacity: 0; transform: scale(0.35); }
+.topo[data-mode="D"] .node[data-open="true"] .sm { opacity: 0; }
+.topo[data-mode="D"] .kid[data-open="false"] { opacity: 0; transform: scale(0.6); }
+.topo[data-mode="D"] .edge.kid[data-open="false"] { transform: none; }
+.topo[data-mode="D"] .fold[data-open="true"] { opacity: 0; }
+.topo .lg, .topo .sm, .topo .kid, .topo .fold { transition: opacity 0.35s, transform 0.35s; }
+
+/* ---- E Reveal as used: unused parts are empty seats ---- */
+.topo[data-mode="E"] .node[data-seen="false"] text, .topo[data-mode="E"] .node[data-seen="false"] .ico { opacity: 0; }
+.topo[data-mode="E"] .node[data-seen="false"] .disc { stroke-dasharray: 3 6; stroke-width: 1.2; opacity: 0.55; }
+.topo[data-mode="E"] .edge[data-seen="false"] { opacity: 0; }
+
+@media (prefers-reduced-motion: reduce) { .topo * { transition: none !important; } .topo .ripple { animation: none; opacity: 0; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="top">
+    <div>
+      <h1>A quieter Topology</h1>
+      <p class="lede">The same ten processes, drawn six ways. Pick a version on the left, then press a request and watch which parts wake up. Nothing is removed from the system in any of them — only how loudly each part is drawn.</p>
+    </div>
+    <div class="tally" aria-live="polite">
+      <div><b id="t-shapes">17</b>boxes and circles</div>
+      <div><b id="t-lines">32</b>lines</div>
+      <div><b id="t-labels">33</b>labels and pills</div>
+    </div>
+  </header>
+
+  <div class="work">
+    <ul class="ideas" id="ideas"></ul>
+
+    <section class="stage" id="stage">
+      <div class="bar">
+        <span class="lbl">Play a request</span>
+        <span id="scenarios"></span>
+        <span class="gap"></span>
+        <button class="pillbtn" id="next" type="button">Next step</button>
+        <button class="pillbtn" id="rest" type="button">Clear</button>
+      </div>
+      <div class="bar" style="margin-top:8px">
+        <label class="check"><input type="checkbox" id="offline"> Library agent is offline</label>
+        <label class="check"><input type="checkbox" id="narrow"> Preview at Side by side width</label>
+      </div>
+      <div class="bar lens" id="lensbar" hidden>
+        <span class="lbl">Lens</span>
+        <span id="lenses"></span>
+        <label class="check"><input type="checkbox" id="follow" checked> Follow the request</label>
+      </div>
+      <div class="now"><span class="n" id="now-n"></span><span class="t" id="now-t"></span></div>
+      <svg class="topo" id="topo" role="img" aria-label="Topology diagram mockup"></svg>
+      <div class="key" id="key">
+        <span><svg viewBox="0 0 34 8"><line x1="0" y1="4" x2="34" y2="4"/></svg>agent to agent (A2A)</span>
+        <span><svg viewBox="0 0 34 8"><line x1="0" y1="4" x2="34" y2="4" stroke-dasharray="5 5"/></svg>model call (HTTPS)</span>
+        <span><svg viewBox="0 0 34 8"><line x1="0" y1="4" x2="34" y2="4" stroke-dasharray="14 4 2 4"/></svg>records system (MCP)</span>
+        <span>thick and tinted = in use now, coloured = used in this request, grey = idle</span>
+      </div>
+    </section>
+
+    <aside class="notes" id="notes"></aside>
+  </div>
+
+  <details class="research">
+    <summary>What the research found, and how sure we are</summary>
+    <p class="warn">Three research agents looked at monitoring tools, games and visualization research. All three rated their own results “moderate”: the patterns below were confirmed from the linked pages, but no product publishes its exact dimming level or animation timing, so those numbers in this mockup are my own starting points to tune by eye.</p>
+    <ul>
+      <li><b>Light the path a request took, leave the rest on the map.</b> AWS Step Functions colours each step by what happened to it in one run (<a href="https://docs.aws.amazon.com/step-functions/latest/dg/concepts-view-execution-details.html">AWS docs</a>). Closest match to our fixed diagram.</li>
+      <li><b>Grey means “idle”, and it is a state of its own.</b> Kiali draws links that had traffic earlier but none now in grey, and can hide them (<a href="https://kiali.io/docs/features/topology/">Kiali docs</a>).</li>
+      <li><b>Motion only where something is happening.</b> Kiali moves dots only along links with traffic (<a href="https://v1-41.kiali.io/docs/features/topology">Kiali docs</a>); Heer and Robertson (2007) measured that animated changes help people follow objects (<a href="https://idl.uw.edu/papers/animated-transitions">paper</a>).</li>
+      <li><b>Hover or select to spotlight one part.</b> Datadog's Service Map highlights a service and isolates it with its neighbours (<a href="https://docs.datadoghq.com/tracing/services/services_map/">Datadog docs</a>).</li>
+      <li><b>Three states, not two.</b> Fog of war in strategy games: hidden, seen before but dim, visible now (<a href="https://support.ageofempires.com/hc/en-us/articles/5722455564052-Creating-Fog-of-War-Areas">Age of Empires</a>).</li>
+      <li><b>One system at a time.</b> Oxygen Not Included has about 16 overlays (<a href="https://oxygennotincluded.wiki.gg/wiki/Overlay">wiki</a>); Cities: Skylines has 19 info views, some opening by themselves with the matching tool (<a href="https://beyondsims.com/2015/02/skylines-dev-diary-9-info-views/">dev diary summary</a>).</li>
+      <li><b>Do not make highlighting a switch the audience must press.</b> The Witcher 3's makers said its highlight mode was overused (<a href="https://opencritic.com/news/2692/cd-projekt-red-admits-the-witcher-3-overused-geralts-witcher-senses-mechanic">OpenCritic</a>).</li>
+      <li><b>Keep every part in the same place.</b> Studies on moving layouts disagree, but a stable layout is the safe choice for people's memory of the picture (<a href="https://arxiv.org/pdf/1608.08936">survey</a>).</li>
+      <li><b>Dimmed outlines still need 3:1 contrast.</b> WCAG 1.4.11 (<a href="https://www.w3.org/WAI/WCAG21/Understanding/non-text-contrast">W3C</a>). That is why idle parts here are drawn in a solid grey, not faded with transparency.</li>
+    </ul>
+    <p class="warn">Not confirmed by any source found: Tufte's and Shneiderman's rules (recalled, not looked up), the “about four moving things” tracking limit, and anything about Factorio, Paradox map modes, EVE, LangGraph Studio, Temporal or transit maps.</p>
+  </details>
+</div>
+
+<script>
+const SVGNS = 'http://www.w3.org/2000/svg';
+const s = (tag, attrs = {}, ...kids) => { const e = document.createElementNS(SVGNS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); e.append(...kids); return e; };
+const h = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids); return e; };
+const txt = (cls, y, str, extra = {}) => { const t = s('text', { class: cls, y, ...extra }); t.textContent = str; return t; };
+
+const AGENTS = ['student', 'hub', 'tutor', 'library', 'professor', 'hr', 'chrs'];
+const SPECIALISTS = ['tutor', 'library', 'professor', 'hr', 'chrs'];
+const N = {
+  student: { k: 'agent', name: 'Student agent', sub: 'You', c: '--student' },
+  hub: { k: 'agent', name: 'University Hub', sub: 'Front door and router', c: '--hub' },
+  tutor: { k: 'agent', name: 'Tutor Agent', sub: 'Tutoring specialist', c: '--tutor' },
+  library: { k: 'agent', name: 'Library Agent', sub: 'Library specialist', c: '--library' },
+  professor: { k: 'agent', name: 'Faculty', sub: 'Marketing 351', c: '--professor' },
+  hr: { k: 'agent', name: 'HR Agent', sub: 'Staff only', c: '--hr' },
+  chrs: { k: 'agent', name: 'Campus Agent', sub: 'Staff only', c: '--chrs' },
+  'llm-student': { k: 'model', owner: 'student', name: 'Student’s model' },
+  'llm-hub': { k: 'model', owner: 'hub', name: 'Hub router’s model' },
+  'llm-tutor': { k: 'model', owner: 'tutor', name: 'Tutor’s model' },
+  'llm-library': { k: 'model', owner: 'library', name: 'Library’s model' },
+  'llm-professor': { k: 'model', owner: 'professor', name: 'Faculty’s model' },
+  'llm-hr': { k: 'model', owner: 'hr', name: 'HR’s model' },
+  'llm-chrs': { k: 'model', owner: 'chrs', name: 'Campus Agent’s model' },
+  canvas: { k: 'system', owner: 'professor', name: 'Canvas LMS', lines: ['Canvas LMS'], c: '--lms' },
+  peoplesoft: { k: 'system', owner: 'hr', name: 'PeopleSoft CHRS (HR)', lines: ['PeopleSoft CHRS', 'HR'], c: '--ps' },
+  studentdb: { k: 'system', owner: 'chrs', name: 'PeopleSoft Campus Solutions', lines: ['PeopleSoft', 'Campus Solutions'], c: '--ps' },
+};
+for (const n of Object.values(N)) if (!n.c) n.c = N[n.owner].c;
+const E = [
+  ['student', 'hub', 'a2a'], ['hub', 'tutor', 'a2a'], ['hub', 'library', 'a2a'], ['hub', 'professor', 'a2a'], ['hub', 'hr', 'a2a'], ['hub', 'chrs', 'a2a'],
+  ['student', 'llm-student', 'model'], ['hub', 'llm-hub', 'model'], ['tutor', 'llm-tutor', 'model'], ['library', 'llm-library', 'model'], ['professor', 'llm-professor', 'model'], ['hr', 'llm-hr', 'model'], ['chrs', 'llm-chrs', 'model'],
+  ['professor', 'canvas', 'mcp'], ['hr', 'peoplesoft', 'mcp'], ['chrs', 'studentdb', 'mcp'],
+].map(([a, b, kind]) => ({ id: a + '>' + b, a, b, kind, c: kind === 'a2a' ? N[a === 'student' ? 'student' : b].c : N[a].c }));
+const LABEL = { a2a: 'A2A', model: 'HTTPS', mcp: 'MCP' };
+
+// Today's real coordinates (public/topology.js)
+const FULL = {
+  student: { x: 130, y: 605, r: 60 }, hub: { x: 450, y: 605, r: 76 },
+  tutor: { x: 710, y: 95, r: 56 }, library: { x: 710, y: 350, r: 56 }, professor: { x: 710, y: 605, r: 56 }, hr: { x: 710, y: 860, r: 56 }, chrs: { x: 710, y: 1115, r: 56 },
+  canvas: { x: 985, y: 680, w: 176, h: 80 }, peoplesoft: { x: 985, y: 935, w: 176, h: 80 }, studentdb: { x: 985, y: 1190, w: 176, h: 80 },
+  'llm-student': { x: 130, y: 355, w: 184, h: 74 }, 'llm-hub': { x: 450, y: 355, w: 184, h: 74 }, 'llm-tutor': { x: 985, y: 95, w: 184, h: 70 }, 'llm-library': { x: 985, y: 350, w: 184, h: 70 },
+  'llm-professor': { x: 985, y: 550, w: 184, h: 70 }, 'llm-hr': { x: 985, y: 805, w: 184, h: 70 }, 'llm-chrs': { x: 985, y: 1060, w: 184, h: 70 },
+};
+// A compact layout that folding makes possible (B and D)
+const COMPACT = { student: { x: 130, y: 470, r: 56 }, hub: { x: 430, y: 470, r: 68 }, tutor: { x: 720, y: 110, r: 54 }, library: { x: 720, y: 290, r: 54 }, professor: { x: 720, y: 470, r: 54 }, hr: { x: 720, y: 650, r: 54 }, chrs: { x: 720, y: 830, r: 54 } };
+const SM = 18;
+
+const SCENARIOS = {
+  tutor: { label: 'Student asks the tutor', lens: 'student', steps: [
+    ['student', 'hub', 'Alex asks for help with a calculus problem'],
+    ['hub', 'llm-hub', 'The Hub asks its model where this belongs'],
+    ['llm-hub', 'hub', 'The model says: tutoring'],
+    ['hub', 'tutor', 'The Hub forwards the question to the Tutor'],
+    ['tutor', 'llm-tutor', 'The Tutor asks its model for the answer'],
+    ['llm-tutor', 'tutor', 'The model answers'],
+    ['tutor', 'hub', 'The Tutor replies to the Hub'],
+    ['hub', 'student', 'The answer reaches Alex'] ] },
+  timeoff: { label: 'Faculty files time off', lens: 'staff', steps: [
+    ['professor', 'llm-professor', 'The Faculty agent checks: time off, or a class message?'],
+    ['llm-professor', 'professor', 'The model says: time off'],
+    ['professor', 'hub', 'Sent to the Hub on the staff path'],
+    ['hub', 'hr', 'The Hub routes it to HR'],
+    ['hr', 'llm-hr', 'HR asks its model to read the kind of absence'],
+    ['llm-hr', 'hr', 'The model proposes Sick Leave; code checks it'],
+    ['hr', 'peoplesoft', 'HR reads the leave balances'],
+    ['peoplesoft', 'hr', 'PeopleSoft answers'],
+    ['hr', 'hub', 'HR sends back one card'],
+    ['hub', 'professor', 'The card reaches Dr. Dabirian'] ] },
+  roster: { label: 'Faculty asks for the roster', lens: 'staff', steps: [
+    ['professor', 'hub', 'Dr. Dabirian asks for the class roster'],
+    ['hub', 'chrs', 'The Hub routes it to the Campus Agent'],
+    ['chrs', 'llm-chrs', 'The Campus Agent’s model picks the records tool'],
+    ['llm-chrs', 'chrs', 'The model picks get_class_roster; code checks it'],
+    ['chrs', 'studentdb', 'The Campus Agent reads the roster'],
+    ['studentdb', 'chrs', 'Campus Solutions answers: 25 students'],
+    ['chrs', 'hub', 'The roster goes back to the Hub'],
+    ['hub', 'professor', 'The roster card reaches Dr. Dabirian'] ] },
+  quiz: { label: 'Faculty saves a quiz', lens: 'staff', steps: [
+    ['professor', 'llm-professor', 'The Faculty agent’s model drafts five questions'],
+    ['llm-professor', 'professor', 'The draft comes back; code vets each question'],
+    ['professor', 'canvas', 'After Approve, the quiz is saved in Canvas'],
+    ['canvas', 'professor', 'Canvas confirms: saved, unpublished'] ] },
+};
+const LENSES = {
+  all: { label: 'Everything', has: () => true },
+  student: { label: 'Student services', has: (id) => ['student', 'hub', 'tutor', 'library', 'professor'].includes(N[id].owner ?? id) && N[id].k !== 'system' },
+  staff: { label: 'Staff services', has: (id) => ['professor', 'hub', 'hr', 'chrs'].includes(N[id].owner ?? id) },
+  models: { label: 'AI models', has: (id) => N[id].k !== 'system' },
+  systems: { label: 'Record systems', has: (id) => N[id].k === 'system' || ['professor', 'hr', 'chrs', 'hub'].includes(id) },
+};
+const IDEAS = {
+  today: { tag: '0', name: 'Today', ds: 'Everything at full strength',
+    idea: 'This is what the audience sees now. Every part is drawn in full colour whether or not it is doing anything, every connection is two lines with its own label, and every part carries a status pill.',
+    from: 'Rebuilt from public/topology.js for comparison.',
+    good: 'Complete. Nothing to learn.', cost: 'The eye has no place to start. A request that touches four parts looks the same size as the whole campus.' },
+  A: { tag: 'A', name: 'Spotlight', ds: 'Same map, grey until used',
+    idea: 'Nothing moves and nothing is removed. Idle parts turn a quiet grey and lose their second line of text. A part gets its colour only when a request reaches it, and keeps a lighter colour afterwards so latecomers can still see the route.',
+    from: 'AWS Step Functions (each run colours the steps it took), Kiali (grey idle links, dots only on live links), fog of war in strategy games (three states).',
+    good: 'Smallest change to the code: the layout, sizes and details panel stay as they are. Each connection becomes one line; the 16 line labels move to one legend; status pills appear only for a problem.',
+    cost: 'Still 17 shapes. In the narrow Side by side column the picture is as tall as today.' },
+  B: { tag: 'B', name: 'Folded', ds: 'Models and systems become badges',
+    idea: 'An agent’s model and its records system are not separate stops for the audience — they belong to that agent. Here each one rides on its agent’s rim as a small badge (a sparkle for the model, a database for the system) and lights up with a name when called.',
+    from: 'Grafana and Datadog put a part’s health into a ring or border on the part itself; Munzner calls this aggregation.',
+    good: 'The biggest cut: 17 shapes become 7, and 16 connections become 6. The picture is about a third shorter, which suits the Side by side column.',
+    cost: 'Loses the look approved in Parts 15–17 (system tiles, dash-dot MCP lines, a model box per agent). A model call shows as a ripple on a badge, not a dot travelling along a line.' },
+  C: { tag: 'C', name: 'Lenses', ds: 'One side of campus at a time',
+    idea: 'The map has layers: student services, staff services, AI models, record systems. One lens is on at a time and everything outside it becomes a faint ghost. With “Follow the request” on, a running request picks the lens by itself, so nobody has to press anything during the demo.',
+    from: 'Overlays in Oxygen Not Included and info views in Cities: Skylines, which also open by themselves with the matching tool.',
+    good: 'Lets the presenter tell one story at a time (“now the staff side”) and still show everything with one click.',
+    cost: 'A new control to explain. Parts outside the lens are much fainter than in A, so a problem there relies on its red pill to be seen. The Faculty agent sits in two lenses.' },
+  D: { tag: 'D', name: 'Unfold in use', ds: 'Small until it has work',
+    idea: 'Specialists rest as small named dots. When a request reaches one it grows in place to full size and its model and records system unfold beside it as full boxes, the way they look today. They stay open until the next request starts.',
+    from: 'Supreme Commander’s zoom (detail appears when you are close), contextual game displays that appear only when relevant, Datadog’s click-to-isolate view.',
+    good: 'At rest the map is 7 quiet shapes. In use it shows the full, familiar detail for just the parts involved. Compact enough for the Side by side column.',
+    cost: 'The most animation and the most new code. Growing shapes draw the eye, which is the point but can feel busy when two agents open in one request.' },
+  E: { tag: 'E', name: 'Reveal as used', ds: 'The map fills in as the demo goes',
+    idea: 'The demo starts with only the Student agent and the Hub. Every other part is an empty dotted seat until a request first reaches it; then it appears and stays. By the end of the demo the audience has watched the whole campus get built.',
+    from: 'Games that unlock parts of the screen as the player learns them (Oxygen Not Included unlocks overlays with research); stepwise “build” slides.',
+    good: 'The gentlest introduction for a first-time audience, and it matches how the demo is told part by part.',
+    cost: 'Hiding suggests a part does not exist: someone joining late sees an incomplete campus. Needs a “show everything” escape, and only helps the first minutes of a session.' },
+};
+
+const svg = document.getElementById('topo');
+let mode = 'A', scenario = null, step = -1, lens = 'all', timer = null;
+let pos = {}, nodeEl = {}, edgeEl = {}, kidEls = [];
+const seen = new Set(['student', 'hub']);
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const offline = () => document.getElementById('offline').checked;
+
+const sparkle = (z) => `M0,${-z} Q${z * 0.18},${-z * 0.18} ${z},0 Q${z * 0.18},${z * 0.18} 0,${z} Q${-z * 0.18},${z * 0.18} ${-z},0 Q${-z * 0.18},${-z * 0.18} 0,${-z} Z`;
+const dbIcon = (x, y, w) => { const hh = w * 0.62, ry = w * 0.22; return s('g', { transform: `translate(${x},${y})` },
+  s('path', { class: 'ico', d: `M${-w / 2},${-hh / 2} v${hh} a${w / 2},${ry} 0 0 0 ${w},0 v${-hh}` }),
+  s('ellipse', { class: 'ico', cx: 0, cy: -hh / 2, rx: w / 2, ry }),
+  s('path', { class: 'ico', d: `M${-w / 2},0 a${w / 2},${ry} 0 0 0 ${w},0` })); };
+const pill = (y, str, cls, w = 150) => s('g', { class: cls, transform: `translate(0,${y})` }, s('rect', { x: -w / 2, y: -13, width: w, height: 26, rx: 13 }), txt('', 4, str));
+
+function ends(a, b, ga, gb) {
+  const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), ux = dx / d, uy = dy / d;
+  const reach = (g) => (g.w ? Math.min(g.w / 2 / (Math.abs(ux) || 1e-9), g.h / 2 / (Math.abs(uy) || 1e-9)) : g.r) + 6;
+  return { a: { x: a.x + ux * reach(ga), y: a.y + uy * reach(ga) }, b: { x: b.x - ux * reach(gb), y: b.y - uy * reach(gb) }, ux, uy };
+}
+
+function geometry() {
+  if (mode === 'B' || mode === 'D') {
+    const g = structuredClone(COMPACT);
+    for (const [id, n] of Object.entries(N)) {
+      if (n.k === 'agent') continue;
+      const o = COMPACT[n.owner], top = !SPECIALISTS.includes(n.owner);
+      const ang = top ? -90 : n.k === 'model' ? -38 : 38, rad = (ang * Math.PI) / 180;
+      const badge = { x: o.x + Math.cos(rad) * (o.r + 4), y: o.y + Math.sin(rad) * (o.r + 4), r: 14, top };
+      if (mode === 'B') { g[id] = badge; continue; }
+      const hasSystem = Object.values(N).some((m) => m.k === 'system' && m.owner === n.owner);
+      g[id] = top ? { x: o.x, y: o.y - 180, w: 176, h: 50, badge } : { x: 965, y: o.y + (n.k === 'model' ? (hasSystem ? -34 : 0) : 34), w: 180, h: n.k === 'model' ? 50 : 54 };
+    }
+    return g;
+  }
+  return FULL;
+}
+
+function drawBox(id, g, today) {
+  const n = N[id], kids = [s('rect', { class: 'disc', x: -g.w / 2, y: -g.h / 2, width: g.w, height: g.h, rx: n.k === 'system' ? 14 : 10 })];
+  if (n.k === 'model') {
+    if (today) kids.push(txt('name', -12, n.name), txt('extra', 6, 'claude-haiku-5-5'), txt('extra', 24, '○ No calls yet'));
+    else kids.push(s('path', { class: 'ico fill', d: sparkle(7), transform: `translate(${-g.w / 2 + 18},0)` }), txt('name', 5, n.name, { x: 10 }));
+  } else {
+    kids.push(dbIcon(-g.w / 2 + 28, 0, 24));
+    const lines = g.h < 60 ? [n.lines.join(' ')] : n.lines, y0 = today ? -6 - (lines.length - 1) * 8 : 5 - (lines.length - 1) * 8;
+    lines.forEach((l, i) => kids.push(txt('name', y0 + i * 17, l.length > 20 ? l.replace('PeopleSoft ', '') : l, { x: 18 })));
+    if (today) kids.push(txt('extra', y0 + lines.length * 17, 'MCP SERVER', { x: 18 }), pill(g.h / 2 + 26, '○ Not connected yet', 'pill muted', 170));
+  }
+  return kids;
+}
+
+function draw() {
+  svg.replaceChildren();
+  svg.dataset.mode = mode;
+  const G = geometry(), compact = mode === 'B' || mode === 'D', today = mode === 'today';
+  svg.setAttribute('viewBox', compact ? (mode === 'B' ? '0 0 1010 940' : '0 0 1100 940') : '0 0 1100 1285');
+  pos = G; nodeEl = {}; edgeEl = {}; kidEls = [];
+  if (today) svg.append(s('defs', {}, s('marker', { id: 'arr', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }, s('path', { d: 'M0,0 L10,5 L0,10 Z', fill: 'context-stroke' }))));
+  const gE = s('g'), gN = s('g'), gF = s('g', { id: 'fx' });
+  svg.append(gE, gN, gF);
+
+  for (const e of E) {
+    if (mode === 'B' && e.kind !== 'a2a') continue;
+    const small = (id) => (mode === 'D' && e.kind === 'a2a' && SPECIALISTS.includes(id) ? { r: SM } : G[id]);
+    const p = ends(G[e.a], G[e.b], small(e.a), small(e.b));
+    const g = s('g', { class: 'edge' + (mode === 'D' && e.kind !== 'a2a' ? ' kid' : ''), 'data-kind': e.kind, style: `--c:var(${e.c})` });
+    if (today) {
+      const ox = -p.uy * 6, oy = p.ux * 6;
+      g.append(s('line', { class: 'line', x1: p.a.x + ox, y1: p.a.y + oy, x2: p.b.x + ox, y2: p.b.y + oy, 'marker-end': 'url(#arr)' }),
+        s('line', { class: 'line', x1: p.b.x - ox, y1: p.b.y - oy, x2: p.a.x - ox, y2: p.a.y - oy, 'marker-end': 'url(#arr)' }));
+      const lt = txt('elabel', 0, LABEL[e.kind]); lt.setAttribute('x', (p.a.x + p.b.x) / 2 + (Math.abs(p.uy) > 0.9 ? 34 : -p.uy * 22)); lt.setAttribute('y', (p.a.y + p.b.y) / 2 + (Math.abs(p.uy) > 0.9 ? 4 : -Math.abs(p.ux) * 16));
+      g.append(lt);
+    } else g.append(s('line', { class: 'line', x1: p.a.x, y1: p.a.y, x2: p.b.x, y2: p.b.y }));
+    if (g.classList.contains('kid')) { g.dataset.owner = e.a; g.dataset.kid = e.b; kidEls.push(g); }
+    edgeEl[e.id] = { g, p, e }; gE.append(g);
+  }
+
+  for (const [id, n] of Object.entries(N)) {
+    const g = G[id], bad = id === 'library' && offline();
+    const el = s('g', { class: `node ${n.k}${bad ? ' bad' : ''}`, 'data-node': id, transform: `translate(${g.x},${g.y})`, style: `--c:var(${n.c})` });
+    if (n.k === 'agent') {
+      const big = [s('circle', { class: 'disc', r: g.r }), txt('name', today ? -8 : 0, n.name), txt('sub', today ? 12 : 19, n.sub)];
+      if (id === 'hub') big[1].style.fontSize = '16px';
+      if (today) {
+        if (SPECIALISTS.includes(id)) big.push(txt('extra', 32, '♥ 0s ago')); else big.push(txt('extra', 32, id === 'hub' ? 'router: live' : 'student-alex'));
+        if (!bad) big.push(pill(g.r + 28, id === 'student' ? '✓ Online' : '✓ Ready', 'pill'));
+      }
+      if (mode === 'D' && SPECIALISTS.includes(id)) {
+        const hints = s('g', { class: 'hints' }, s('path', { class: 'ico fill', d: sparkle(5), transform: 'translate(34,17)' }));
+        if (Object.values(N).some((m) => m.k === 'system' && m.owner === id)) hints.append(dbIcon(51, 17, 10));
+        el.append(s('g', { class: 'sm' }, s('circle', { class: 'disc', r: SM }), txt('name', bad ? -1 : 1, n.name, { x: 28 }), bad ? s('g') : hints), s('g', { class: 'lg' }, ...big));
+        if (bad) el.append(s('g', { class: 'alert', transform: 'translate(80,20)' }, s('rect', { x: -52, y: -11, width: 104, height: 22, rx: 11 }), txt('', 4, '✕ Unreachable')));
+      } else {
+        el.append(...big);
+        if (bad) el.append(pill(g.r + 28, '✕ Unreachable', 'alert', 130));
+      }
+    } else if (mode === 'B' || (mode === 'D' && g.badge)) {
+      const b = mode === 'B' ? g : g.badge, bx = mode === 'B' ? 0 : b.x - g.x, by = mode === 'B' ? 0 : b.y - g.y;
+      const cap = txt('cap', b.top ? -22 : 4, n.name, b.top ? { 'text-anchor': 'middle' } : { x: 22 });
+      const badge = s('g', { class: mode === 'D' ? 'fold' : '', transform: `translate(${bx},${by})` },
+        n.k === 'model' ? s('circle', { class: 'disc', r: 14 }) : s('rect', { class: 'disc', x: -14, y: -14, width: 28, height: 28, rx: 7 }),
+        n.k === 'model' ? s('path', { class: 'ico fill', d: sparkle(8) }) : dbIcon(0, 0, 13));
+      if (mode === 'B') { el.classList.add('badge'); el.append(badge, cap); }
+      else { const box = s('g', { class: 'kid' }, ...drawBox(id, g, false)); box.dataset.owner = n.owner; badge.dataset.owner = n.owner; box.dataset.kid = id; badge.dataset.kid = id; kidEls.push(box, badge); el.append(badge, box); }
+    } else {
+      const box = s('g', { class: mode === 'D' ? 'kid' : '' }, ...drawBox(id, g, today));
+      if (mode === 'D') { box.dataset.owner = n.owner; box.dataset.kid = id; kidEls.push(box); }
+      el.append(box);
+    }
+    nodeEl[id] = el; gN.append(el);
+  }
+  paint();
+}
+
+function states() {
+  const st = Object.fromEntries(Object.keys(N).map((id) => [id, 'idle'])), es = {};
+  if (!scenario) return { st, es };
+  const steps = SCENARIOS[scenario].steps;
+  steps.forEach(([a, b], i) => {
+    if (i > step) return;
+    const live = i === step, key = edgeKey(a, b);
+    for (const id of [a, b]) if (live || st[id] !== 'live') st[id] = live ? 'live' : st[id] === 'live' ? 'live' : 'trail';
+    es[key] = live ? 'live' : es[key] === 'live' ? 'live' : 'trail';
+  });
+  return { st, es };
+}
+const edgeKey = (a, b) => (E.find((e) => e.a === a && e.b === b) ?? E.find((e) => e.a === b && e.b === a)).id;
+
+function paint() {
+  const { st, es } = states();
+  const inLens = (id) => LENSES[lens].has(id);
+  for (const [id, el] of Object.entries(nodeEl)) {
+    el.dataset.s = st[id];
+    el.dataset.lens = inLens(id) || st[id] !== 'idle' ? 'in' : 'out';
+    el.dataset.seen = seen.has(id);
+    if (N[id].k === 'agent') el.dataset.open = !SPECIALISTS.includes(id) || st[id] !== 'idle';
+  }
+  for (const [id, { g, e }] of Object.entries(edgeEl)) {
+    g.dataset.s = es[id] ?? 'idle';
+    g.dataset.lens = (inLens(e.a) && inLens(e.b)) || es[id] ? 'in' : 'out';
+    g.dataset.seen = seen.has(e.a) && seen.has(e.b);
+  }
+  for (const k of kidEls) k.dataset.open = st[k.dataset.kid] !== 'idle' || (SPECIALISTS.includes(k.dataset.owner) && st[k.dataset.owner] !== 'idle');
+  const n = document.getElementById('now-n'), t = document.getElementById('now-t');
+  if (!scenario || step < 0) { n.textContent = 'At rest'; t.textContent = 'Press a request above to watch it travel.'; }
+  else { const steps = SCENARIOS[scenario].steps; const done = step >= steps.length;
+    n.textContent = done ? 'Done' : `Step ${step + 1} of ${steps.length}`;
+    t.textContent = done ? 'The route stays drawn until the next request starts.' : steps[step][2]; }
+  tally();
+}
+
+function tally() {
+  const vis = (el) => getComputedStyle(el).opacity !== '0' && el.dataset.seen !== 'false';
+  let shapes = 0, lines = 0, labels = 0;
+  if (mode === 'today') { shapes = 17; lines = 32; labels = 33; }
+  else if (mode === 'B') { shapes = 7; lines = 6; labels = svg.querySelectorAll('.alert').length; }
+  else if (mode === 'D') { shapes = 7 + [...kidEls].filter((k) => k.matches('g.kid:not(.edge)') && k.dataset.open === 'true').length; lines = 6 + kidEls.filter((k) => k.matches('.edge') && k.dataset.open === 'true').length; labels = svg.querySelectorAll('.alert').length; }
+  else { shapes = Object.values(nodeEl).filter((el) => (mode === 'E' ? el.dataset.seen === 'true' : mode === 'C' ? el.dataset.lens === 'in' : true)).length;
+    lines = Object.values(edgeEl).filter(({ g }) => (mode === 'E' ? g.dataset.seen === 'true' : mode === 'C' ? g.dataset.lens === 'in' : true)).length; labels = svg.querySelectorAll('.alert').length; }
+  document.getElementById('t-shapes').textContent = shapes;
+  document.getElementById('t-lines').textContent = lines;
+  document.getElementById('t-labels').textContent = labels;
+}
+
+function pulse(a, b) {
+  if (reduced) return;
+  const fx = document.getElementById('fx'), rec = edgeEl[edgeKey(a, b)], color = `var(${N[N[a].k === 'agent' ? (a === 'hub' ? b : a) : a].c})`;
+  const shown = rec && getComputedStyle(rec.g).opacity !== '0';
+  if (!shown) { const g = pos[b].badge && mode === 'D' ? pos[b].badge : pos[N[b].k === 'agent' ? a : b];
+    const ring = s('circle', { class: 'ripple', r: 16, style: `stroke:${color};transform-origin:${g.x}px ${g.y}px`, cx: g.x, cy: g.y }); ring.addEventListener('animationend', () => ring.remove()); fx.append(ring); return; }
+  const from = rec.e.a === a ? rec.p.a : rec.p.b, to = rec.e.a === a ? rec.p.b : rec.p.a;
+  const dot = s('circle', { class: 'dot', r: 7, cx: from.x, cy: from.y, style: `fill:${color}` }); fx.append(dot);
+  const t0 = performance.now(), dur = 620;
+  const tick = (t) => { const k = Math.min(1, (t - t0) / dur), e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
+    dot.setAttribute('cx', from.x + (to.x - from.x) * e); dot.setAttribute('cy', from.y + (to.y - from.y) * e);
+    if (k < 1) requestAnimationFrame(tick); else dot.remove(); };
+  requestAnimationFrame(tick);
+}
+
+function advance() {
+  if (!scenario) return;
+  const steps = SCENARIOS[scenario].steps;
+  if (step >= steps.length) return;
+  step += 1;
+  if (step < steps.length) { const [a, b] = steps[step]; seen.add(a); seen.add(b); paint(); pulse(a, b); } else paint();
+}
+function play(id) {
+  clearInterval(timer);
+  scenario = id; step = -1;
+  if (mode === 'C' && document.getElementById('follow').checked) { lens = SCENARIOS[id].lens; for (const b of document.querySelectorAll('#lenses button')) b.setAttribute('aria-pressed', b.dataset.id === lens); }
+  for (const b of document.querySelectorAll('#scenarios button')) b.setAttribute('aria-pressed', b.dataset.id === id);
+  advance();
+  timer = setInterval(() => { advance(); if (step >= SCENARIOS[id].steps.length) clearInterval(timer); }, 1150);
+}
+function setLens(id) { lens = id; for (const b of document.querySelectorAll('#lenses button')) b.setAttribute('aria-pressed', b.dataset.id === id); paint(); }
+function setMode(id) {
+  mode = id;
+  for (const b of document.querySelectorAll('#ideas button')) b.setAttribute('aria-pressed', b.dataset.id === id);
+  document.getElementById('lensbar').hidden = id !== 'C';
+  document.getElementById('key').hidden = id === 'today';
+  if (id !== 'C') lens = 'all'; else if (scenario) lens = SCENARIOS[scenario].lens; else lens = 'student';
+  for (const b of document.querySelectorAll('#lenses button')) b.setAttribute('aria-pressed', b.dataset.id === lens);
+  if (id === 'E' && !scenario) { seen.clear(); seen.add('student'); seen.add('hub'); }
+  const i = IDEAS[id], notes = document.getElementById('notes');
+  notes.replaceChildren(h('h2', { textContent: i.tag === '0' ? i.name : `${i.tag}. ${i.name}` }), h('p', { textContent: i.idea }),
+    h('dl', {}, h('div', {}, h('dt', { textContent: 'Borrowed from' }), h('dd', { textContent: i.from })),
+      h('div', {}, h('dt', { textContent: 'What it buys' }), h('dd', { textContent: i.good })),
+      h('div', {}, h('dt', { textContent: 'What it costs' }), h('dd', { textContent: i.cost }))));
+  draw();
+}
+
+for (const [id, i] of Object.entries(IDEAS)) {
+  const b = h('button', { type: 'button' }, h('span', { className: 'tag', textContent: i.tag }), h('span', { className: 'nm', textContent: i.name }), h('span', { className: 'ds', textContent: i.ds }));
+  b.dataset.id = id; b.addEventListener('click', () => setMode(id));
+  document.getElementById('ideas').append(h('li', {}, b));
+}
+for (const [id, sc] of Object.entries(SCENARIOS)) { const b = h('button', { type: 'button', className: 'pillbtn', textContent: sc.label }); b.dataset.id = id; b.addEventListener('click', () => play(id)); document.getElementById('scenarios').append(b, ' '); }
+for (const [id, l] of Object.entries(LENSES)) { const b = h('button', { type: 'button', className: 'pillbtn', textContent: l.label }); b.dataset.id = id; b.addEventListener('click', () => setLens(id)); document.getElementById('lenses').append(b, ' '); }
+document.getElementById('next').addEventListener('click', () => { clearInterval(timer); if (!scenario) { scenario = 'tutor'; step = -1; document.querySelector('#scenarios button').setAttribute('aria-pressed', 'true'); } advance(); });
+document.getElementById('rest').addEventListener('click', () => { clearInterval(timer); scenario = null; step = -1; seen.clear(); seen.add('student'); seen.add('hub'); for (const b of document.querySelectorAll('#scenarios button')) b.setAttribute('aria-pressed', 'false'); paint(); });
+document.getElementById('offline').addEventListener('change', draw);
+document.getElementById('narrow').addEventListener('change', (ev) => document.getElementById('stage').classList.toggle('narrow', ev.target.checked));
+const q = new URLSearchParams(location.search);
+setMode(IDEAS[q.get('idea')] ? q.get('idea') : 'A');
+if (q.get('play') && SCENARIOS[q.get('play')]) { scenario = q.get('play'); step = -1; if (mode === 'C') lens = SCENARIOS[scenario].lens; for (let i = 0; i <= Number(q.get('step') ?? 0); i++) advance(); setMode(mode); }
+</script>
+</body>
+</html>
