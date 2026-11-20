@@ -26,6 +26,7 @@ Each step also has an **Avoid these known problems** section: every bug, wrong a
 | 18 | [18-sign-in.md](18-sign-in.md) | One sign-in in front of the whole demo (AgentHub sign-in page, accounts as scrypt hashes in a git-ignored file, 12-hour sessions, a 5-tries lock, a header pill with Sign out), and `UI_HOST` so the front end can be opened by the machine's IP — only with the sign-in on; the nine back-end processes stay on 127.0.0.1 (tested) | branch `signin` |
 | 19 | [19-student-notify-instructor.md](19-student-notify-instructor.md) | A student who says they can't come (“i am sick today”) is asked who should know (Dr. Dabirian · Marketing 351, or Cancel); the instructor gets a message card prefilled with their words to edit and Send; the Faculty agent stores it as a hand-over for Dr. Dabirian and only then tells the student they were notified | branch `signin` |
 | 20 | [20-side-by-side-view.md](20-side-by-side-view.md) | A default “Side by side” view: the Student on the left, the live Topology in the middle and the Faculty chat on the right, all usable at once; “Conversation” renamed “Student”; every single view keeps its own address | branch `signin` |
+| 21 | [21-topology-focus-zoom.md](21-topology-focus-zoom.md) | The Topology keeps every part but draws idle ones quiet; a chosen side (Student services / Staff services) or live traffic puts the parts in use in colour and zooms the frame to them, then returns to the full picture. |
 
 Rules that apply to every step (from your instructions):
 

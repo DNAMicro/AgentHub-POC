@@ -170,6 +170,11 @@
     <div class="trio-head" data-agent="hub"><b>Topology</b><span>every hop, live</span><a href="/topology" target="_blank" rel="noopener">Open full Topology ↗</a></div>
     <div class="topo-stage">
       <div class="topo-toolbar" role="group" aria-label="Topology controls">
+        <span class="topo-lenses" role="group" aria-label="Show one side of campus">
+          <button type="button" data-lens="student" aria-pressed="false">Student services</button>
+          <button type="button" data-lens="staff" aria-pressed="false">Staff services</button>
+        </span>
+        <label class="check"><input type="checkbox" id="topo-zoom" checked> Zoom to activity</label>
         <label class="check"><input type="checkbox" id="topo-heartbeats"> Show heartbeats</label>
         <label class="check"><input type="checkbox" id="topo-reduce"> Reduce motion</label>
         <label class="check"><input type="checkbox" id="topo-pause"> Pause animation</label>

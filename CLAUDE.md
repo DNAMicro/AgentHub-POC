@@ -394,3 +394,12 @@ Do not add token streaming, push notifications, multi-agent fan-out (the Hub for
 - **Layout:** views live in `<main class="desk">`; trio = 3-column grid (Student, Topology, Faculty), hiding the Hop by hop strip, the Topology side list and full legend (`.legend-short` instead); ≤ 1100 px stacks with explicit heights. Single views look as before.
 - Browser scripts that `goto('/conversation')` still land on the Student view; a script that needs the full Topology side list must open `/topology`.
 
+## Part 21 (Topology focus and zoom) notes
+
+- **Owner, 2026-11-20:** “implement option F but keep the same dynamic nature as today’s make sure the zoom is as much as possible to enable clear reading”. Mockup `docs/superpowers/specs/2026-11-14-topology-simplification-mockup.html` (version F); Steps/21-topology-focus-zoom.md.
+- **Nothing moves, nothing is scripted.** Only the SVG `viewBox` is animated (`zoomTo` in `public/topology.js`, 550 ms, snapped with Reduce motion); the frame comes from `frameOf` in `public/topology-focus.js` (pure, tested by `test/topology-focus.test.js`). At rest the `viewBox` is the attribute in `index.html` (`0 0 1100 1285`).
+- **Modes** (`svg[data-focus]`): `rest` (all quiet), `lens` (a side chosen: `.topo-lenses button[data-lens="student" | "staff"]`), `trace` (a selected trace frames its parts), `run` (live traffic: parts touched by drawn pulses, `touch()` in `pulse()`, never heartbeats). Frame priority: lens, trace, run, full. Traffic or a trace that does not fit the chosen side switches the side off (`leaveLensUnless`).
+- **Quiet** = `data-quiet="true"` on a node or edge (CSS: grey, 0.5 at rest, 0.2 in `lens` / `run`). A node with status `unreachable`, `invalid_card` or `stale` is never quiet.
+- A run frame ends 6 s after the last hop unless something is still working (`busyNow`), 45 s at most. `#topo-zoom` off = dim only.
+- Browser scripts that read the `viewBox` or screenshot `#topo` right after traffic will see the zoomed frame; untick `#topo-zoom` or wait for rest.
+

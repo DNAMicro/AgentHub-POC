@@ -561,6 +561,15 @@ h2 { margin: 0; font-size: 1.07rem; font-weight: 700; color: var(--agent, var(--
 .topo.tracing .edge.in-trace .lane { stroke: var(--hub); }
 .topo.offline .node .disc { stroke: var(--border-strong); }
 .topo.offline { filter: grayscale(0.8); }
+/* Part 21, focus: parts not in use are quiet (grey, still named); with a side chosen or a request running, they step
+   further back. A part with a problem is never marked quiet (public/topology.js). A selected trace keeps its own dimming. */
+.topo .node, .topo .edge { transition: opacity 0.3s ease, filter 0.3s ease; }
+.topo:not(.tracing) [data-quiet="true"] { opacity: 0.5; filter: grayscale(1); }
+.topo:not(.tracing):is([data-focus="lens"], [data-focus="run"]) [data-quiet="true"] { opacity: 0.2; }
+.topo-lenses { display: inline-flex; gap: 6px; }
+.topo-lenses button { font-size: 0.84rem; font-weight: 600; color: var(--muted); background: none; border: 1px solid var(--border-strong); border-radius: 999px; padding: 3px 11px; cursor: pointer; }
+.topo-lenses button:hover { color: var(--hub); border-color: var(--hub); }
+.topo-lenses button[aria-pressed="true"] { color: var(--surface); background: var(--hub); border-color: var(--hub); }
 
 .legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.8rem; color: var(--muted); }
 .legend li { display: inline-flex; align-items: center; gap: 6px; }

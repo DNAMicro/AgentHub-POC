@@ -13,6 +13,8 @@
 // event list and node states without animating. Live events wait briefly in a buffer and play in the
 // order the agents timestamped them (their feeds reach us on separate connections). Only IDs and
 // short fixed labels are shown here — never message text, emails, notes or form values.
+import { LENSES, inLens, frameOf } from './topology-focus.js';
+
 const SVG = 'http://www.w3.org/2000/svg';
 
 // Four specialists in a column at x 710, evenly spaced (viewBox 0 0 1100 1285; owner-approved layout; Part 17 adds CHRS as the fifth): each agent's
@@ -78,6 +80,12 @@ const CATEGORY_TEXT = { request: 'question/answer', form: 'form', registration: 
 const BUFFER_MS = 350;
 const STAGGER_MS = 170;
 const MAX_LIST = 300;
+// Part 21 (focus): the frame follows live traffic. It stays on a request this long after its last hop, while
+// nothing is still working; with something still working it waits, but never longer than RUN_MAX_MS.
+const RUN_LINGER_MS = 6000;
+const RUN_MAX_MS = 45000;
+const ZOOM_MS = 550;
+const PROBLEM = new Set(['unreachable', 'invalid_card', 'stale']); // a part with a problem is never dimmed
 
 const el = (tag, attrs = {}, ...children) => {
   const node = document.createElementNS(SVG, tag);
@@ -145,7 +153,7 @@ function shape(category, phase, color) {
   }
 }
 
-export function createTopology({ svg, detail, list, count, traceSelect, truncatedNote, clockEl, controls, onActivity = () => {}, agentColor }) {
+export function createTopology({ svg, detail, list, count, traceSelect, truncatedNote, clockEl, controls, lensButtons = [], onActivity = () => {}, agentColor }) {
   const edgesLayer = svg.querySelector('#topo-edges');
   const pulseLayer = svg.querySelector('#topo-pulses');
   const nodesLayer = svg.querySelector('#topo-nodes');
@@ -285,6 +293,76 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     g.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select({ kind: 'node', id }); } });
   }
 
+  // ---- focus: dim what is not in use, zoom to what is (Part 21) -------------------------------
+  // At rest the whole campus is drawn, quiet. A chosen side (lens) fills the frame with its parts in colour.
+  // With no side chosen, live traffic does it: every part a request really touched (from the pulses drawn)
+  // is in colour and the frame closes in on those parts, growing hop by hop. Only the SVG's viewBox moves,
+  // so pulses, lanes, pills and click targets are untouched. Nothing here is inferred ahead of an event.
+  const FULL = svg.getAttribute('viewBox').trim().split(/[\s,]+/).map(Number);
+  const focus = { lens: null, hot: new Set(), hotEdges: new Set(), lastTouch: 0, view: FULL.slice(), goal: FULL.join(' '), raf: 0 };
+  const selectedTrace = () => (state.selected?.kind === 'trace' ? state.traces.get(state.selected.id) ?? null : null);
+  const known = (ids) => [...ids].filter((id) => NODES[id]);
+  const busyNow = () => state.student.busy || relaying(state.active) > 0 || Object.values(state.provider).some((p) => p.inFlight > 0) || Object.values(state.sys).some((p) => p.inFlight > 0);
+  function zoomTo(box) {
+    const key = box.join(' ');
+    if (key === focus.goal) return;
+    focus.goal = key;
+    cancelAnimationFrame(focus.raf);
+    const from = focus.view.slice();
+    const set = (v) => { focus.view = v; svg.setAttribute('viewBox', v.map((n) => Math.round(n * 10) / 10).join(' ')); };
+    if (reduced()) return set(box.slice());
+    const start = performance.now();
+    const step = (now) => {
+      const k = Math.min(1, (now - start) / ZOOM_MS);
+      const e = k < 0.5 ? 2 * k * k : 1 - ((-2 * k + 2) ** 2) / 2;
+      set(from.map((v, i) => v + (box[i] - v) * e));
+      if (k < 1) focus.raf = requestAnimationFrame(step);
+      else set(box.slice());
+    };
+    focus.raf = requestAnimationFrame(step);
+  }
+  function paintFocus() {
+    const tr = selectedTrace();
+    const mode = focus.lens ? 'lens' : tr ? 'trace' : focus.hot.size ? 'run' : 'rest';
+    svg.dataset.focus = mode;
+    const nodeLit = (id) => (mode === 'lens' ? inLens(focus.lens, id, NODES) : mode === 'run' ? focus.hot.has(id) : mode === 'trace');
+    const edgeLit = (id) => (mode === 'lens' ? EDGES[id].every((n) => inLens(focus.lens, n, NODES)) : mode === 'run' ? focus.hotEdges.has(id) : mode === 'trace');
+    for (const [id, n] of Object.entries(nodeEls)) n.g.dataset.quiet = String(!nodeLit(id) && !PROBLEM.has(n.g.dataset.status));
+    for (const [id, e] of Object.entries(edgeEls)) e.g.dataset.quiet = String(!edgeLit(id));
+    const ids = mode === 'lens' ? Object.keys(NODES).filter((id) => inLens(focus.lens, id, NODES)) : mode === 'trace' ? known(tr.nodes) : mode === 'run' ? [...focus.hot] : [];
+    zoomTo(controls.zoom?.checked === false || !ids.length ? FULL : frameOf(ids, NODES, FULL));
+  }
+  function setLens(id) {
+    focus.lens = id && LENSES[id] && id !== focus.lens ? id : null; // pressing the chosen side again shows everything
+    for (const b of lensButtons) b.setAttribute('aria-pressed', String(b.dataset.lens === focus.lens));
+    paintFocus();
+  }
+  // A side stays chosen only while what is happening fits inside it; otherwise the frame follows the traffic.
+  const leaveLensUnless = (ids) => { if (focus.lens && !ids.every((id) => inLens(focus.lens, id, NODES))) setLens(null); };
+  function touch(ids, edge) {
+    const parts = known(ids);
+    if (!parts.length) return;
+    leaveLensUnless(parts);
+    for (const id of parts) focus.hot.add(id);
+    if (edge) focus.hotEdges.add(edge);
+    focus.lastTouch = performance.now();
+    paintFocus();
+  }
+  function restFocus() {
+    if (!focus.hot.size) return;
+    focus.hot.clear();
+    focus.hotEdges.clear();
+    paintFocus();
+  }
+  setInterval(() => {
+    if (!focus.hot.size) return;
+    const idle = performance.now() - focus.lastTouch;
+    if (idle > RUN_MAX_MS || (idle > RUN_LINGER_MS && !busyNow())) restFocus();
+  }, 400);
+  for (const b of lensButtons) b.addEventListener('click', () => setLens(b.dataset.lens));
+  controls.zoom?.addEventListener('change', paintFocus);
+  paintFocus();
+
   // ---- node states ------------------------------------------------------------------------
   // An agent's own model box, from the mode the agent itself reported and the calls it really made.
   function modelState(owner) {
@@ -365,6 +443,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
       n.g.setAttribute('aria-label', `${NODES[id].name}: ${label.slice(2)}. Open details.`);
     }
     svg.classList.toggle('offline', !state.live);
+    paintFocus(); // a status change can make a part a problem (never dimmed) or clear it
     if (state.selected?.kind === 'node') renderDetail();
   }
   setInterval(() => {
@@ -421,6 +500,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     const t = ev.topo;
     onActivity();
     if (SYSTEM_OF_EDGE[t.edge] && t.category === 'tool') sysCall(SYSTEM_OF_EDGE[t.edge], t);
+    if (t.category !== 'heartbeat') touch(t.edge ? [t.from, t.to] : [t.node], t.edge); // heartbeats are background, not a request
     if (!t.edge) return caption(t.node, t.label);
     const g = edgeEls[t.edge];
     const dirLane = t.from === EDGES[t.edge][0] ? g.out : g.back;
@@ -587,6 +667,8 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
       n.g.classList.toggle('in-trace', Boolean(tr?.nodes.has(id)));
       n.g.classList.toggle('selected', sel?.kind === 'node' && sel.id === id);
     }
+    if (tr) leaveLensUnless(known(tr.nodes));
+    paintFocus();
     refilter();
     renderDetail();
   }
@@ -705,6 +787,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
         clearTimeout(p.maxTimer);
         clearTimeout(p.savedTimer);
       }
+      restFocus();
       renderNodes();
       list.replaceChildren();
       count.textContent = '';
@@ -786,6 +869,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
         if (state.selected?.kind === 'trace' && state.selected.id === ev.runId) {
           for (const [id, e] of Object.entries(edgeEls)) e.g.classList.toggle('in-trace', tr.edges.has(id));
           for (const [id, n] of Object.entries(nodeEls)) n.g.classList.toggle('in-trace', tr.nodes.has(id));
+          paintFocus(); // the selected trace reached a new part: widen the frame
           renderDetail();
         }
       }
