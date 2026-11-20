@@ -42,7 +42,7 @@ h1 { margin: 0; font-size: 2.1rem; line-height: 1.1; font-weight: 750; letter-sp
 .work { display: grid; grid-template-columns: 250px minmax(0, 1fr) 320px; gap: 18px; align-items: start; }
 @media (max-width: 1150px) { .work { grid-template-columns: 1fr; } .top { grid-template-columns: 1fr; } }
 
-/* the six versions: a list you walk down, the chosen one carries the Hub's ochre bar */
+/* the seven versions: a list you walk down, the chosen one carries the Hub's ochre bar */
 .ideas { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .ideas button { width: 100%; text-align: left; display: grid; grid-template-columns: 30px 1fr; gap: 0 10px; padding: 10px 12px; border: 0; border-left: 4px solid transparent; border-radius: 0 8px 8px 0; background: transparent; cursor: pointer; }
 .ideas button:hover { background: color-mix(in srgb, var(--surface) 70%, transparent); }
@@ -142,11 +142,11 @@ h1 { margin: 0; font-size: 2.1rem; line-height: 1.1; font-weight: 750; letter-sp
 .topo .badge .disc { stroke-width: 1.5; }
 
 /* ---- C Lenses: what is outside the lens steps far back ---- */
-.topo[data-mode="C"] [data-lens="out"] { opacity: 0.17; }
-.topo[data-mode="C"] .node[data-lens="out"] text { opacity: 0; }
-.topo[data-mode="C"] [data-lens="in"][data-s="idle"] .disc { stroke: var(--muted); stroke-width: 2; }
-.topo[data-mode="C"] [data-lens="in"][data-s="idle"] .name { fill: var(--text); }
-.topo[data-mode="C"] [data-lens="in"][data-s="idle"] .line { stroke: var(--muted); }
+.topo:is([data-mode="C"], [data-mode="F"]) [data-lens="out"] { opacity: 0.17; }
+.topo:is([data-mode="C"], [data-mode="F"]) .node[data-lens="out"] text { opacity: 0; }
+.topo:is([data-mode="C"], [data-mode="F"]) [data-lens="in"][data-s="idle"] .disc { stroke: var(--muted); stroke-width: 2; }
+.topo:is([data-mode="C"], [data-mode="F"]) [data-lens="in"][data-s="idle"] .name { fill: var(--text); }
+.topo:is([data-mode="C"], [data-mode="F"]) [data-lens="in"][data-s="idle"] .line { stroke: var(--muted); }
 
 /* ---- D Unfold in use: small until it has work ---- */
 .topo .sm .name { text-anchor: start; font-size: 14px; }
@@ -158,9 +158,11 @@ h1 { margin: 0; font-size: 2.1rem; line-height: 1.1; font-weight: 750; letter-sp
 .topo .lg, .topo .sm, .topo .kid, .topo .fold { transition: opacity 0.35s, transform 0.35s; }
 
 /* ---- E Reveal as used: unused parts are empty seats ---- */
-.topo[data-mode="E"] .node[data-seen="false"] text, .topo[data-mode="E"] .node[data-seen="false"] .ico { opacity: 0; }
-.topo[data-mode="E"] .node[data-seen="false"] .disc { stroke-dasharray: 3 6; stroke-width: 1.2; opacity: 0.55; }
-.topo[data-mode="E"] .edge[data-seen="false"] { opacity: 0; }
+.topo:is([data-mode="E"], [data-mode="F"]) .node[data-seen="false"] :is(text, .ico) { opacity: 0; }
+.topo:is([data-mode="E"], [data-mode="F"]) .node[data-seen="false"] .disc { stroke-dasharray: 3 6; stroke-width: 1.2; opacity: 0.55; }
+.topo:is([data-mode="E"], [data-mode="F"]) .edge[data-seen="false"] { opacity: 0; }
+/* ---- F Lenses that fill in: C and E together. Outside the lens, a part nobody has used yet is not drawn at all ---- */
+.topo[data-mode="F"] [data-lens="out"][data-seen="false"] { opacity: 0; }
 
 @media (prefers-reduced-motion: reduce) { .topo * { transition: none !important; } .topo .ripple { animation: none; opacity: 0; } }
 </style>
@@ -170,7 +172,7 @@ h1 { margin: 0; font-size: 2.1rem; line-height: 1.1; font-weight: 750; letter-sp
   <header class="top">
     <div>
       <h1>A quieter Topology</h1>
-      <p class="lede">The same ten processes, drawn six ways. Pick a version on the left, then press a request and watch which parts wake up. Nothing is removed from the system in any of them — only how loudly each part is drawn.</p>
+      <p class="lede">The same ten processes, drawn seven ways. Pick a version on the left, then press a request and watch which parts wake up. Nothing is removed from the system in any of them — only how loudly each part is drawn.</p>
     </div>
     <div class="tally" aria-live="polite">
       <div><b id="t-shapes">17</b>boxes and circles</div>
@@ -350,6 +352,11 @@ const IDEAS = {
     from: 'Games that unlock parts of the screen as the player learns them (Oxygen Not Included unlocks overlays with research); stepwise “build” slides.',
     good: 'The gentlest introduction for a first-time audience, and it matches how the demo is told part by part.',
     cost: 'Hiding suggests a part does not exist: someone joining late sees an incomplete campus. Needs a “show everything” escape, and only helps the first minutes of a session.' },
+  F: { tag: 'F', name: 'Lenses that fill in', ds: 'C and E together',
+    idea: 'One side of campus at a time, and that side fills in as it is used. A request picks its own side (student or staff). Inside it, a part is an empty dotted seat until the request first reaches it; then it appears and stays. Parts on the other side that were used earlier wait as faint ghosts; parts never used are not drawn. The “Everything” lens shows the whole campus by name at any moment.',
+    from: 'C (overlays in Oxygen Not Included and Cities: Skylines) and E (parts that unlock as you reach them), plus the three states of fog of war: never seen, seen before, in view now.',
+    good: 'The quietest start of all the versions, and the picture never grows past one side of campus. “Everything” is the escape that E was missing, and the fill-in gives C’s lenses a story to tell.',
+    cost: 'Two ideas for the audience to learn at once. A latecomer sees a half-filled side until someone presses “Everything”. What has been seen must be remembered for the session, and reset by New conversation. A problem on the other side relies on its red pill, as in C.' },
 };
 
 const svg = document.getElementById('topo');
@@ -358,6 +365,8 @@ let pos = {}, nodeEl = {}, edgeEl = {}, kidEls = [];
 const seen = new Set(['student', 'hub']);
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const offline = () => document.getElementById('offline').checked;
+const lensed = () => mode === 'C' || mode === 'F';
+const revealAll = () => mode === 'F' && lens === 'all';
 
 const sparkle = (z) => `M0,${-z} Q${z * 0.18},${-z * 0.18} ${z},0 Q${z * 0.18},${z * 0.18} 0,${z} Q${-z * 0.18},${z * 0.18} ${-z},0 Q${-z * 0.18},${-z * 0.18} 0,${-z} Z`;
 const dbIcon = (x, y, w) => { const hh = w * 0.62, ry = w * 0.22; return s('g', { transform: `translate(${x},${y})` },
@@ -486,13 +495,13 @@ function paint() {
   for (const [id, el] of Object.entries(nodeEl)) {
     el.dataset.s = st[id];
     el.dataset.lens = inLens(id) || st[id] !== 'idle' ? 'in' : 'out';
-    el.dataset.seen = seen.has(id);
+    el.dataset.seen = revealAll() || seen.has(id);
     if (N[id].k === 'agent') el.dataset.open = !SPECIALISTS.includes(id) || st[id] !== 'idle';
   }
   for (const [id, { g, e }] of Object.entries(edgeEl)) {
     g.dataset.s = es[id] ?? 'idle';
     g.dataset.lens = (inLens(e.a) && inLens(e.b)) || es[id] ? 'in' : 'out';
-    g.dataset.seen = seen.has(e.a) && seen.has(e.b);
+    g.dataset.seen = revealAll() || (seen.has(e.a) && seen.has(e.b));
   }
   for (const k of kidEls) k.dataset.open = st[k.dataset.kid] !== 'idle' || (SPECIALISTS.includes(k.dataset.owner) && st[k.dataset.owner] !== 'idle');
   const n = document.getElementById('now-n'), t = document.getElementById('now-t');
@@ -509,8 +518,8 @@ function tally() {
   if (mode === 'today') { shapes = 17; lines = 32; labels = 33; }
   else if (mode === 'B') { shapes = 7; lines = 6; labels = svg.querySelectorAll('.alert').length; }
   else if (mode === 'D') { shapes = 7 + [...kidEls].filter((k) => k.matches('g.kid:not(.edge)') && k.dataset.open === 'true').length; lines = 6 + kidEls.filter((k) => k.matches('.edge') && k.dataset.open === 'true').length; labels = svg.querySelectorAll('.alert').length; }
-  else { shapes = Object.values(nodeEl).filter((el) => (mode === 'E' ? el.dataset.seen === 'true' : mode === 'C' ? el.dataset.lens === 'in' : true)).length;
-    lines = Object.values(edgeEl).filter(({ g }) => (mode === 'E' ? g.dataset.seen === 'true' : mode === 'C' ? g.dataset.lens === 'in' : true)).length; labels = svg.querySelectorAll('.alert').length; }
+  else { shapes = Object.values(nodeEl).filter((el) => (mode === 'E' ? el.dataset.seen === 'true' : mode === 'F' ? el.dataset.seen === 'true' && el.dataset.lens === 'in' : mode === 'C' ? el.dataset.lens === 'in' : true)).length;
+    lines = Object.values(edgeEl).filter(({ g }) => (mode === 'E' ? g.dataset.seen === 'true' : mode === 'F' ? g.dataset.seen === 'true' && g.dataset.lens === 'in' : mode === 'C' ? g.dataset.lens === 'in' : true)).length; labels = svg.querySelectorAll('.alert').length; }
   document.getElementById('t-shapes').textContent = shapes;
   document.getElementById('t-lines').textContent = lines;
   document.getElementById('t-labels').textContent = labels;
@@ -541,7 +550,7 @@ function advance() {
 function play(id) {
   clearInterval(timer);
   scenario = id; step = -1;
-  if (mode === 'C' && document.getElementById('follow').checked) { lens = SCENARIOS[id].lens; for (const b of document.querySelectorAll('#lenses button')) b.setAttribute('aria-pressed', b.dataset.id === lens); }
+  if (lensed() && document.getElementById('follow').checked) { lens = SCENARIOS[id].lens; for (const b of document.querySelectorAll('#lenses button')) b.setAttribute('aria-pressed', b.dataset.id === lens); }
   for (const b of document.querySelectorAll('#scenarios button')) b.setAttribute('aria-pressed', b.dataset.id === id);
   advance();
   timer = setInterval(() => { advance(); if (step >= SCENARIOS[id].steps.length) clearInterval(timer); }, 1150);
@@ -550,11 +559,12 @@ function setLens(id) { lens = id; for (const b of document.querySelectorAll('#le
 function setMode(id) {
   mode = id;
   for (const b of document.querySelectorAll('#ideas button')) b.setAttribute('aria-pressed', b.dataset.id === id);
-  document.getElementById('lensbar').hidden = id !== 'C';
+  document.getElementById('lensbar').hidden = !lensed();
+  for (const b of document.querySelectorAll('#lenses button')) b.hidden = id === 'F' && (b.dataset.id === 'models' || b.dataset.id === 'systems');
   document.getElementById('key').hidden = id === 'today';
-  if (id !== 'C') lens = 'all'; else if (scenario) lens = SCENARIOS[scenario].lens; else lens = 'student';
+  if (!lensed()) lens = 'all'; else if (scenario) lens = SCENARIOS[scenario].lens; else lens = 'student';
   for (const b of document.querySelectorAll('#lenses button')) b.setAttribute('aria-pressed', b.dataset.id === lens);
-  if (id === 'E' && !scenario) { seen.clear(); seen.add('student'); seen.add('hub'); }
+  if ((id === 'E' || id === 'F') && !scenario) { seen.clear(); seen.add('student'); seen.add('hub'); }
   const i = IDEAS[id], notes = document.getElementById('notes');
   notes.replaceChildren(h('h2', { textContent: i.tag === '0' ? i.name : `${i.tag}. ${i.name}` }), h('p', { textContent: i.idea }),
     h('dl', {}, h('div', {}, h('dt', { textContent: 'Borrowed from' }), h('dd', { textContent: i.from })),
@@ -576,7 +586,7 @@ document.getElementById('offline').addEventListener('change', draw);
 document.getElementById('narrow').addEventListener('change', (ev) => document.getElementById('stage').classList.toggle('narrow', ev.target.checked));
 const q = new URLSearchParams(location.search);
 setMode(IDEAS[q.get('idea')] ? q.get('idea') : 'A');
-if (q.get('play') && SCENARIOS[q.get('play')]) { scenario = q.get('play'); step = -1; if (mode === 'C') lens = SCENARIOS[scenario].lens; for (let i = 0; i <= Number(q.get('step') ?? 0); i++) advance(); setMode(mode); }
+if (q.get('play') && SCENARIOS[q.get('play')]) { scenario = q.get('play'); step = -1; if (lensed()) lens = SCENARIOS[scenario].lens; for (let i = 0; i <= Number(q.get('step') ?? 0); i++) advance(); setMode(mode); }
 </script>
 </body>
 </html>
