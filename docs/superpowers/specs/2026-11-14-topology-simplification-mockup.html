@@ -60,6 +60,7 @@ h1 { margin: 0; font-size: 2.1rem; line-height: 1.1; font-weight: 750; letter-sp
 .pillbtn:hover { border-color: var(--text); }
 .pillbtn[aria-pressed="true"] { background: var(--text); color: var(--surface); border-color: var(--text); }
 .bar .gap { flex: 1; }
+.check[hidden] { display: none; }
 .check { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; color: var(--muted); }
 .lens { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
 .lens[hidden] { display: none; }
@@ -161,8 +162,6 @@ h1 { margin: 0; font-size: 2.1rem; line-height: 1.1; font-weight: 750; letter-sp
 .topo:is([data-mode="E"], [data-mode="F"]) .node[data-seen="false"] :is(text, .ico) { opacity: 0; }
 .topo:is([data-mode="E"], [data-mode="F"]) .node[data-seen="false"] .disc { stroke-dasharray: 3 6; stroke-width: 1.2; opacity: 0.55; }
 .topo:is([data-mode="E"], [data-mode="F"]) .edge[data-seen="false"] { opacity: 0; }
-/* ---- F Lenses that fill in: C and E together. Outside the lens, a part nobody has used yet is not drawn at all ---- */
-.topo[data-mode="F"] [data-lens="out"][data-seen="false"] { opacity: 0; }
 
 @media (prefers-reduced-motion: reduce) { .topo * { transition: none !important; } .topo .ripple { animation: none; opacity: 0; } }
 </style>
@@ -352,11 +351,11 @@ const IDEAS = {
     from: 'Games that unlock parts of the screen as the player learns them (Oxygen Not Included unlocks overlays with research); stepwise “build” slides.',
     good: 'The gentlest introduction for a first-time audience, and it matches how the demo is told part by part.',
     cost: 'Hiding suggests a part does not exist: someone joining late sees an incomplete campus. Needs a “show everything” escape, and only helps the first minutes of a session.' },
-  F: { tag: 'F', name: 'Lenses that fill in', ds: 'C and E together',
-    idea: 'One side of campus at a time, and that side fills in as it is used. A request picks its own side (student or staff). Inside it, a part is an empty dotted seat until the request first reaches it; then it appears and stays. Parts on the other side that were used earlier wait as faint ghosts; parts never used are not drawn. The “Everything” lens shows the whole campus by name at any moment.',
-    from: 'C (overlays in Oxygen Not Included and Cities: Skylines) and E (parts that unlock as you reach them), plus the three states of fog of war: never seen, seen before, in view now.',
-    good: 'The quietest start of all the versions, and the picture never grows past one side of campus. “Everything” is the escape that E was missing, and the fill-in gives C’s lenses a story to tell.',
-    cost: 'Two ideas for the audience to learn at once. A latecomer sees a half-filled side until someone presses “Everything”. What has been seen must be remembered for the session, and reset by New conversation. A problem on the other side relies on its red pill, as in C.' },
+  F: { tag: 'F', name: 'Lenses that zoom in', ds: 'A side, or a request, fills the frame',
+    idea: 'With no lens, the whole campus is there in quiet grey, as in A. Pick a lens and the diagram zooms until that side fills the frame, with every part of it named. Play a request and the parts light up as before. With no lens picked, playing a request zooms to just the parts that request will touch, so the audience can read them.',
+    from: 'C (overlays in Oxygen Not Included and Cities: Skylines), Supreme Commander’s zoom (detail when you are close), Datadog’s click-to-isolate view, and Heer and Robertson’s finding that an animated move helps people keep their place.',
+    good: 'The only version that makes the text bigger. That is the real problem in the narrow Side by side column. Nothing is hidden: with no lens and no request, all 17 parts are on screen.',
+    cost: 'The picture moves, so parts are not always in the same place on screen. A problem outside the frame cannot be seen until the view zooms back out. The student side is as wide as the whole map, so it gains little from zooming. This drops E’s empty seats: your screenshot showed they left a side of campus looking blank.' },
 };
 
 const svg = document.getElementById('topo');
@@ -366,7 +365,7 @@ const seen = new Set(['student', 'hub']);
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const offline = () => document.getElementById('offline').checked;
 const lensed = () => mode === 'C' || mode === 'F';
-const revealAll = () => mode === 'F' && lens === 'all';
+const revealAll = () => mode === 'F';
 
 const sparkle = (z) => `M0,${-z} Q${z * 0.18},${-z * 0.18} ${z},0 Q${z * 0.18},${z * 0.18} 0,${z} Q${-z * 0.18},${z * 0.18} ${-z},0 Q${-z * 0.18},${-z * 0.18} 0,${-z} Z`;
 const dbIcon = (x, y, w) => { const hh = w * 0.62, ry = w * 0.22; return s('g', { transform: `translate(${x},${y})` },
@@ -417,7 +416,7 @@ function draw() {
   svg.dataset.mode = mode;
   const G = geometry(), compact = mode === 'B' || mode === 'D', today = mode === 'today';
   svg.setAttribute('viewBox', compact ? (mode === 'B' ? '0 0 1010 940' : '0 0 1100 940') : '0 0 1100 1285');
-  pos = G; nodeEl = {}; edgeEl = {}; kidEls = [];
+  pos = G; nodeEl = {}; edgeEl = {}; kidEls = []; view = null; goal = ''; cancelAnimationFrame(zoomRaf);
   if (today) svg.append(s('defs', {}, s('marker', { id: 'arr', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }, s('path', { d: 'M0,0 L10,5 L0,10 Z', fill: 'context-stroke' }))));
   const gE = s('g'), gN = s('g'), gF = s('g', { id: 'fx' });
   svg.append(gE, gN, gF);
@@ -509,7 +508,37 @@ function paint() {
   else { const steps = SCENARIOS[scenario].steps; const done = step >= steps.length;
     n.textContent = done ? 'Done' : `Step ${step + 1} of ${steps.length}`;
     t.textContent = done ? 'The route stays drawn until the next request starts.' : steps[step][2]; }
+  zoom();
   tally();
+}
+
+// ---- F: the frame follows the lens, or the request when no lens is picked ----
+const FRAME = [0, 0, 1100, 1285];
+let view = null, goal = '', zoomRaf = 0;
+function boxOf(ids) {
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (const id of ids) { const g = pos[id], hw = g.w ? g.w / 2 : g.r, hh = g.h ? g.h / 2 : g.r;
+    x0 = Math.min(x0, g.x - hw); x1 = Math.max(x1, g.x + hw); y0 = Math.min(y0, g.y - hh); y1 = Math.max(y1, g.y + hh + (g.r ? 34 : 0)); }
+  const pad = 36, w = Math.max(620, x1 - x0 + pad * 2), hgt = Math.max(400, y1 - y0 + pad * 2);
+  const x = Math.max(0, Math.min(FRAME[2] - w, (x0 + x1 - w) / 2)), y = Math.max(0, Math.min(FRAME[3] - hgt, (y0 + y1 - hgt) / 2));
+  return [x, y, Math.min(w, FRAME[2]), Math.min(hgt, FRAME[3])];
+}
+function frameFor() {
+  if (lens !== 'all') return boxOf(Object.keys(N).filter((id) => LENSES[lens].has(id)));
+  if (scenario) return boxOf(new Set(SCENARIOS[scenario].steps.flatMap(([a, b]) => [a, b])));
+  return FRAME;
+}
+function zoom() {
+  if (mode !== 'F') { view = null; goal = ''; return; }
+  const to = frameFor();
+  if (to.join() === goal) return;
+  goal = to.join(); cancelAnimationFrame(zoomRaf);
+  const from = view, put = (v) => { view = v; svg.setAttribute('viewBox', v.join(' ')); };
+  if (!from || reduced) { put(to); return; }
+  const t0 = performance.now(), dur = 550;
+  const tick = (t) => { const k = Math.min(1, (t - t0) / dur), e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
+    put(from.map((v, i) => v + (to[i] - v) * e)); if (k < 1) zoomRaf = requestAnimationFrame(tick); };
+  zoomRaf = requestAnimationFrame(tick);
 }
 
 function tally() {
@@ -550,21 +579,23 @@ function advance() {
 function play(id) {
   clearInterval(timer);
   scenario = id; step = -1;
-  if (lensed() && document.getElementById('follow').checked) { lens = SCENARIOS[id].lens; for (const b of document.querySelectorAll('#lenses button')) b.setAttribute('aria-pressed', b.dataset.id === lens); }
+  if (mode === 'F' && lens !== 'all' && !SCENARIOS[id].steps.every(([a, b]) => LENSES[lens].has(a) && LENSES[lens].has(b))) { lens = 'all'; for (const b of document.querySelectorAll('#lenses button')) b.setAttribute('aria-pressed', 'false'); }
+  if (mode === 'C' && document.getElementById('follow').checked) { lens = SCENARIOS[id].lens; for (const b of document.querySelectorAll('#lenses button')) b.setAttribute('aria-pressed', b.dataset.id === lens); }
   for (const b of document.querySelectorAll('#scenarios button')) b.setAttribute('aria-pressed', b.dataset.id === id);
   advance();
   timer = setInterval(() => { advance(); if (step >= SCENARIOS[id].steps.length) clearInterval(timer); }, 1150);
 }
-function setLens(id) { lens = id; for (const b of document.querySelectorAll('#lenses button')) b.setAttribute('aria-pressed', b.dataset.id === id); paint(); }
+function setLens(id) { if (mode === 'F' && id === lens) id = 'all'; lens = id; for (const b of document.querySelectorAll('#lenses button')) b.setAttribute('aria-pressed', b.dataset.id === id); paint(); }
 function setMode(id) {
   mode = id;
   for (const b of document.querySelectorAll('#ideas button')) b.setAttribute('aria-pressed', b.dataset.id === id);
   document.getElementById('lensbar').hidden = !lensed();
-  for (const b of document.querySelectorAll('#lenses button')) b.hidden = id === 'F' && (b.dataset.id === 'models' || b.dataset.id === 'systems');
+  for (const b of document.querySelectorAll('#lenses button')) b.hidden = id === 'F' && !['student', 'staff'].includes(b.dataset.id);
   document.getElementById('key').hidden = id === 'today';
-  if (!lensed()) lens = 'all'; else if (scenario) lens = SCENARIOS[scenario].lens; else lens = 'student';
+  document.getElementById('follow').parentElement.hidden = id === 'F';
+  if (id !== 'C') lens = 'all'; else if (scenario) lens = SCENARIOS[scenario].lens; else lens = 'student';
   for (const b of document.querySelectorAll('#lenses button')) b.setAttribute('aria-pressed', b.dataset.id === lens);
-  if ((id === 'E' || id === 'F') && !scenario) { seen.clear(); seen.add('student'); seen.add('hub'); }
+  if (id === 'E' && !scenario) { seen.clear(); seen.add('student'); seen.add('hub'); }
   const i = IDEAS[id], notes = document.getElementById('notes');
   notes.replaceChildren(h('h2', { textContent: i.tag === '0' ? i.name : `${i.tag}. ${i.name}` }), h('p', { textContent: i.idea }),
     h('dl', {}, h('div', {}, h('dt', { textContent: 'Borrowed from' }), h('dd', { textContent: i.from })),
@@ -586,7 +617,8 @@ document.getElementById('offline').addEventListener('change', draw);
 document.getElementById('narrow').addEventListener('change', (ev) => document.getElementById('stage').classList.toggle('narrow', ev.target.checked));
 const q = new URLSearchParams(location.search);
 setMode(IDEAS[q.get('idea')] ? q.get('idea') : 'A');
-if (q.get('play') && SCENARIOS[q.get('play')]) { scenario = q.get('play'); step = -1; if (lensed()) lens = SCENARIOS[scenario].lens; for (let i = 0; i <= Number(q.get('step') ?? 0); i++) advance(); setMode(mode); }
+if (mode === 'F' && ['student', 'staff'].includes(q.get('lens'))) setLens(q.get('lens'));
+if (q.get('play') && SCENARIOS[q.get('play')]) { scenario = q.get('play'); step = -1; if (mode === 'C') lens = SCENARIOS[scenario].lens; for (let i = 0; i <= Number(q.get('step') ?? 0); i++) advance(); setMode(mode); }
 </script>
 </body>
 </html>
