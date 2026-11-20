@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Topology — three ways to make it readable (mockup)</title>
+<style>
+  :root {
+    --bg: #eef1f5; --surface: #ffffff; --field: #f7f9fb; --text: #18202b; --muted: #5a6676; --border: #d6dce4; --border-strong: #b8c1cd;
+    --student: #2b59c3; --tutor: #8a3fa8; --library: #16765e; --professor: #a3315a; --hub: #9a6300; --model: #5b6472;
+    --hr: #1f6f8b; --ps: #c2410c; --ps-tint: #fff1e8; --lms: #4d7c0f; --lms-tint: #eef6dc; --chrs: #4338ca;
+    --ok: #1d7a46; --ok-bg: #e2f3e8;
+    --font: "Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #11151b; --surface: #181d25; --field: #1f2530; --text: #e4e8ee; --muted: #98a3b1; --border: #2a313c; --border-strong: #3b4452;
+      --student: #86a2ff; --tutor: #c99ae6; --library: #4cc4a0; --professor: #f08aae; --hub: #e3b04b; --model: #aab4c2;
+      --hr: #6cc0dd; --ps: #fb8a4c; --ps-tint: #3a2216; --lms: #a3d65c; --lms-tint: #24301a; --chrs: #a5b4fc;
+      --ok: #63cf93; --ok-bg: #15301f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 var(--font); }
+  header { padding: 18px 24px 6px; max-width: 1340px; margin: 0 auto; }
+  h1 { margin: 0 0 4px; font-size: 1.3rem; }
+  header p { margin: 0; color: var(--muted); max-width: 76ch; }
+  .bar { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; padding: 12px 24px; max-width: 1340px; margin: 0 auto; }
+  .bar .group { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .bar .label { font-weight: 700; margin-right: 4px; }
+  button { font: 600 0.9rem var(--font); color: var(--text); background: var(--surface); border: 1px solid var(--border-strong); border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+  button:hover { border-color: var(--text); }
+  button:focus-visible { outline: 2px solid var(--hub); outline-offset: 2px; }
+  button[aria-pressed="true"] { background: var(--hub); border-color: var(--hub); color: var(--surface); }
+  .pair { display: flex; flex-wrap: wrap; gap: 22px; padding: 6px 24px 30px; max-width: 1340px; margin: 0 auto; }
+  .stage { width: 632px; }
+  .stage h2 { margin: 0; font-size: 1.05rem; }
+  .stage .what { margin: 2px 0 8px; color: var(--muted); font-size: 0.88rem; min-height: 3.9em; }
+  .stage .frame { width: 632px; height: 717px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+  .stage svg { display: block; width: 630px; height: 715px; }
+  .stage .facts { margin: 8px 0 0; font: 0.8rem var(--mono); color: var(--muted); }
+  .stage .facts b { color: var(--text); }
+
+  .lane { stroke: var(--border-strong); stroke-width: 2; transition: stroke 0.25s, stroke-width 0.25s; }
+  .lane.lit { stroke: var(--lit); stroke-width: 3.6; }
+  .edge[data-kind="model"] .lane { stroke-dasharray: 5 5; }
+  .edge[data-kind="mcp"] .lane { stroke-dasharray: 14 4 2 4; }
+  .edge-label { font: 600 11px var(--mono); fill: var(--muted); }
+  .edge[data-kind="mcp"] .edge-label { fill: var(--ps); }
+  .node { cursor: pointer; }
+  .node:focus-visible { outline: none; }
+  .disc { fill: var(--surface); stroke: var(--node); stroke-width: 4; transition: fill 0.3s; }
+  .node.flash .disc { fill: color-mix(in srgb, var(--node) 16%, var(--surface)); }
+  .node.model .disc { stroke-width: 2.5; }
+  .node.system .disc { stroke-width: 3; }
+  .orbit { fill: none; stroke: var(--node); stroke-width: 2; stroke-dasharray: 10 14; opacity: 0; }
+  .node.busy .orbit { opacity: 0.85; animation: orbit 2.4s linear infinite; }
+  .node.model.busy .orbit, .node.system.busy .orbit { animation: march 0.9s linear infinite; stroke-dasharray: 8 8; }
+  @keyframes orbit { to { transform: rotate(360deg); } }
+  @keyframes march { to { stroke-dashoffset: -16; } }
+  .name { font: 700 15px var(--font); fill: var(--node); }
+  .sub { font: 12px var(--font); fill: var(--muted); }
+  .sub.caps { font: 600 10.5px var(--mono); }
+  .extra { font: 11px var(--mono); fill: var(--muted); }
+  .pill { fill: var(--ok-bg); }
+  .pill-text { font: 600 12px var(--font); fill: var(--ok); }
+  .node.busy .pill { fill: color-mix(in srgb, var(--node) 16%, var(--surface)); }
+  .node.busy .pill-text { fill: var(--node); }
+  .caption { font: 600 12px var(--font); fill: var(--text); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; }
+  .ok-dot { fill: var(--ok); stroke: var(--surface); stroke-width: 2.5; }
+  .icon-fill { fill: color-mix(in srgb, var(--node) 12%, var(--surface)); stroke: var(--node); stroke-width: 2; }
+  .icon-line { fill: none; stroke: var(--node); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .badge-box { fill: var(--surface); stroke: var(--model); stroke-width: 2; }
+  .badge-spark { fill: var(--model); transform-box: fill-box; transform-origin: center; }
+  .badge-text { font: 600 11px var(--mono); fill: var(--model); }
+  .node.thinking .badge-box { stroke-dasharray: 5 4; animation: march 0.6s linear infinite; fill: color-mix(in srgb, var(--model) 18%, var(--surface)); }
+  .node.thinking .badge-spark { animation: twinkle 0.8s ease-in-out infinite; }
+  @keyframes twinkle { 50% { transform: scale(1.45) rotate(45deg); } }
+  .pulse { stroke: var(--surface); stroke-width: 2; }
+
+  /* "Names only at rest": the small lines wait until the part is in use or pointed at. */
+  .quiet .q { opacity: 0; transition: opacity 0.25s; }
+  .quiet .node.on .q, .quiet .node:hover .q, .quiet .node:focus-visible .q, .quiet .edge.on .q { opacity: 1; }
+  .quiet .node.on:not(:hover):not(:focus-visible) .hov { opacity: 0; } /* the role line waits for the pointer, so it never sits on a neighbour */
+  .quiet .node.on .ok-dot, .quiet .node:hover .ok-dot { opacity: 0; }
+  .quiet .name { font-size: 21px; }
+  .quiet .node[data-node="hub"] .name { font-size: 23px; }
+  .quiet .node.model .name { font-size: 17px; transition: transform 0.25s; }
+  .quiet .node.model .name.long { font-size: 15px; }
+  .quiet .node.model.on .name, .quiet .node.model:hover .name { transform: translateY(-11px); }
+  .quiet .node.system .name { font-size: 19px; }
+  .quiet .node.system .name.two { font-size: 14px; }
+  .quiet .caption { font-size: 14px; }
+  .quiet .pill-text { font-size: 13px; }
+  .quiet .edge-label { font-size: 13px; }
+  @media (prefers-reduced-motion: reduce) { .orbit, .badge-box, .badge-spark { animation: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Topology: three ways to make it readable</h1>
+  <p>Every map below keeps the whole campus on screen, connected and in colour. Each frame is the size the Topology gets in the Side by side view on a 1680 × 980 window. Pick a way, then send a request and watch both maps.</p>
+</header>
+<div class="bar">
+  <span class="group" id="ways"><span class="label">Compare today with</span></span>
+  <span class="group" id="plays"><span class="label">Send a request</span></span>
+</div>
+<main class="pair">
+  <section class="stage" id="left"></section>
+  <section class="stage" id="right"></section>
+</main>
+<script>
+const NS = 'http://www.w3.org/2000/svg';
+const el = (tag, attrs = {}, ...kids) => { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); for (const k of kids) e.append(k); return e; };
+const h = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids); return e; };
+
+// Today's positions (public/topology.js), and a tighter map shaped like the panel: each model is a badge on its own
+// agent, each record system sits beside the agent that uses it.
+const TODAY = { box: [1100, 1285], at: {
+  student: [130, 605], hub: [450, 605], tutor: [710, 95], library: [710, 350], professor: [710, 605], hr: [710, 860], chrs: [710, 1115],
+  canvas: [985, 680], peoplesoft: [985, 935], studentdb: [985, 1190],
+  'llm-student': [130, 355], 'llm-hub': [450, 355], 'llm-tutor': [985, 95], 'llm-library': [985, 350], 'llm-professor': [985, 550], 'llm-hr': [985, 805], 'llm-chrs': [985, 1060] } };
+const TIGHT = { box: [845, 900], badges: true, at: {
+  student: [95, 445], hub: [312, 445], tutor: [545, 95], library: [545, 270], professor: [545, 445], hr: [545, 620], chrs: [545, 795],
+  canvas: [748, 445], peoplesoft: [748, 620], studentdb: [748, 795] } };
+
+const PARTS = {
+  student: { r: 60, name: 'Student agent', big: ['Student', 'agent'], role: 'You', extra: 'student-alex', status: '✓ Online', color: '--student' },
+  hub: { r: 76, name: 'University Hub', big: ['University', 'Hub'], role: 'Front door and router', extra: 'router: live', status: '✓ Ready', color: '--hub' },
+  tutor: { r: 56, name: 'Tutor Agent', big: ['Tutor', 'Agent'], role: 'Tutoring specialist', extra: '♥ 3s ago', status: '✓ Ready', color: '--tutor' },
+  library: { r: 56, name: 'Library Agent', big: ['Library', 'Agent'], role: 'Library specialist', extra: '♥ 3s ago', status: '✓ Ready', color: '--library' },
+  professor: { r: 56, name: 'Faculty', big: ['Faculty'], role: 'Marketing 351', extra: '♥ 3s ago', status: '✓ Ready', color: '--professor' },
+  hr: { r: 56, name: 'HR Agent', big: ['HR', 'Agent'], role: 'Staff only', extra: '♥ 3s ago', status: '✓ Ready', color: '--hr' },
+  chrs: { r: 56, name: 'Campus Agent', big: ['Campus', 'Agent'], role: 'Staff only', extra: '♥ 3s ago', status: '✓ Ready', color: '--chrs' },
+  canvas: { w: 184, h: 80, sys: 'quiz', name: 'Canvas LMS', role: 'MCP SERVER', status: '✓ Connected', color: '--lms' },
+  peoplesoft: { w: 184, h: 80, sys: 'db', lines: ['PeopleSoft CHRS', 'HR'], role: 'MCP SERVER', status: '✓ Connected', color: '--ps' },
+  studentdb: { w: 184, h: 80, sys: 'db', lines: ['PeopleSoft', 'Campus Solutions'], role: 'MCP SERVER', status: '✓ Connected', color: '--ps' },
+  'llm-student': { w: 184, h: 74, owner: 'student', name: 'Student’s model' },
+  'llm-hub': { w: 184, h: 74, owner: 'hub', name: 'Hub router’s model' },
+  'llm-tutor': { w: 184, h: 70, owner: 'tutor', name: 'Tutor’s model' },
+  'llm-library': { w: 184, h: 70, owner: 'library', name: 'Library’s model' },
+  'llm-professor': { w: 184, h: 70, owner: 'professor', name: 'Faculty’s model' },
+  'llm-hr': { w: 184, h: 70, owner: 'hr', name: 'HR’s model' },
+  'llm-chrs': { w: 184, h: 70, owner: 'chrs', name: 'Campus Agent’s model', long: true },
+};
+const EDGES = [
+  ['student', 'hub', 'a2a'], ['hub', 'tutor', 'a2a'], ['hub', 'library', 'a2a'], ['hub', 'professor', 'a2a'], ['hub', 'hr', 'a2a'], ['hub', 'chrs', 'a2a'],
+  ['student', 'llm-student', 'model'], ['hub', 'llm-hub', 'model'], ['tutor', 'llm-tutor', 'model'], ['library', 'llm-library', 'model'], ['professor', 'llm-professor', 'model'], ['hr', 'llm-hr', 'model'], ['chrs', 'llm-chrs', 'model'],
+  ['professor', 'canvas', 'mcp'], ['hr', 'peoplesoft', 'mcp'], ['chrs', 'studentdb', 'mcp'],
+];
+const KIND_TEXT = { a2a: 'A2A', model: 'HTTPS', mcp: 'MCP' };
+const SPARK = 'M0,-10 C1.5,-2 2,-1.5 10,0 C2,1.5 1.5,2 0,10 C-1.5,2 -2,1.5 -10,0 C-2,-1.5 -1.5,-2 0,-10 Z';
+const colorOf = (id) => `var(${PARTS[id].owner ? '--model' : PARTS[id].color})`;
+const still = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+let serial = 0;
+
+function buildStage(host, { title, what, layout, quiet }) {
+  const [W, H] = layout.box;
+  const mark = `arrow-${++serial}`;
+  const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, class: quiet ? 'quiet' : '', role: 'img', 'aria-label': `${title}: the campus map` });
+  svg.append(el('defs', {}, el('marker', { id: mark, viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 6, markerHeight: 6, orient: 'auto' }, el('path', { d: 'M0,1 L9,5 L0,9 Z', fill: 'context-stroke' }))));
+  const edgesG = el('g'); const nodesG = el('g'); const pulsesG = el('g');
+  svg.append(edgesG, nodesG, pulsesG);
+  const P = (id) => ({ ...PARTS[id], x: layout.at[id][0], y: layout.at[id][1] });
+  const reach = (n, ux, uy) => (n.w ? Math.min(n.w / 2 / (Math.abs(ux) || 1e-9), n.h / 2 / (Math.abs(uy) || 1e-9)) + 5 : n.r + 7);
+  const lane = (a, b) => {
+    const dx = b.x - a.x; const dy = b.y - a.y; const L = Math.hypot(dx, dy); const ux = dx / L; const uy = dy / L;
+    const ra = reach(a, ux, uy); const rb = reach(b, ux, uy) + 6;
+    return { x1: a.x + ux * ra - uy * 6, y1: a.y + uy * ra + ux * 6, x2: b.x - ux * rb - uy * 6, y2: b.y - uy * rb + ux * 6 };
+  };
+
+  const edges = {};
+  for (const [a, b, kind] of EDGES) {
+    if (!layout.at[a] || !layout.at[b]) continue;
+    const A = P(a); const B = P(b);
+    const out = el('line', { class: 'lane', ...lane(A, B), 'marker-end': `url(#${mark})` });
+    const back = el('line', { class: 'lane', ...lane(B, A), 'marker-end': `url(#${mark})` });
+    const vertical = Math.abs(A.x - B.x) < Math.abs(A.y - B.y);
+    const label = el('text', { class: 'edge-label q', x: (A.x + B.x) / 2 + (vertical ? 20 : 0), y: (A.y + B.y) / 2 + (vertical ? 4 : kind === 'mcp' ? 30 : -20), 'text-anchor': vertical ? 'start' : 'middle' }, KIND_TEXT[kind]);
+    const g = el('g', { class: 'edge', 'data-kind': kind }, out, back, label);
+    edgesG.append(g);
+    edges[`${a}>${b}`] = { g, lane: out }; edges[`${b}>${a}`] = { g, lane: back };
+  }
+
+  const nodes = {};
+  for (const id of Object.keys(layout.at)) {
+    const n = P(id);
+    const g = el('g', { class: 'node', 'data-node': id, transform: `translate(${n.x} ${n.y})`, tabindex: 0, style: `--node: ${colorOf(id)}` });
+    const caption = el('text', { class: 'caption', 'text-anchor': 'middle' }, '');
+    const status = el('text', { class: 'pill-text', 'text-anchor': 'middle' }, n.status ?? '');
+    if (n.owner) {
+      g.classList.add('model');
+      const box = (pad, cls) => el('rect', { class: cls, x: -n.w / 2 - pad, y: -n.h / 2 - pad, width: n.w + 2 * pad, height: n.h + 2 * pad, rx: 12 + pad });
+      g.append(box(3, 'orbit'), box(0, 'disc'));
+      if (quiet) g.append(el('text', { class: `name${n.long ? ' long' : ''}`, y: 6, 'text-anchor': 'middle' }, n.name), el('text', { class: 'extra q', y: 16, 'text-anchor': 'middle' }, 'claude-haiku-5-5'));
+      else g.append(el('text', { class: 'name', style: 'font-size: 13px', y: -12, 'text-anchor': 'middle' }, n.name), el('text', { class: 'extra', y: 6, 'text-anchor': 'middle' }, 'claude-haiku-5-5'), Object.assign(status, { textContent: '○ Idle' }));
+      status.setAttribute('y', 25); status.setAttribute('class', 'extra');
+      caption.setAttribute('y', -(n.h / 2 + 10));
+    } else if (n.sys) {
+      g.classList.add('system');
+      const tile = { x: -n.w / 2, y: -n.h / 2, width: n.w, height: n.h, rx: 16 };
+      g.append(el('rect', { class: 'orbit', x: tile.x - 4, y: tile.y - 4, width: n.w + 8, height: n.h + 8, rx: 20 }), el('rect', { class: 'disc', ...tile }));
+      g.append(n.sys === 'quiz'
+        ? el('g', { transform: 'translate(-62 0)' }, el('rect', { class: 'icon-fill', x: -13, y: -16, width: 26, height: 32, rx: 4 }), el('path', { class: 'icon-line', d: 'M-8,-5 l3,3 l5,-6 M-8,7 l3,3 l5,-6 M3,-4 h5 M3,8 h5' }))
+        : el('g', { transform: 'translate(-64 2)' }, el('path', { class: 'icon-fill', d: 'M-14,-13 A14,4.5 0 0 0 14,-13 L14,13 A14,4.5 0 0 1 -14,13 Z' }), el('ellipse', { class: 'icon-fill', cx: 0, cy: -13, rx: 14, ry: 4.5 }), el('path', { class: 'icon-line', d: 'M-14,-4 A14,4.5 0 0 0 14,-4 M-14,5 A14,4.5 0 0 0 14,5' })));
+      const words = el('g', { transform: `translate(${n.lines ? 26 : 16} 0)` });
+      if (n.lines) words.append(el('text', { class: 'name two', style: quiet ? '' : 'font-size: 13px', y: quiet ? -3 : -7, 'text-anchor': 'middle' }, n.lines[0]), el('text', { class: 'name two', style: quiet ? '' : 'font-size: 13px', y: quiet ? 15 : 10, 'text-anchor': 'middle' }, n.lines[1]));
+      else words.append(el('text', { class: 'name', y: quiet ? 7 : 4, 'text-anchor': 'middle' }, n.name));
+      if (!quiet) words.append(el('text', { class: 'sub caps', y: n.lines ? 27 : 21, 'text-anchor': 'middle' }, n.role));
+      status.setAttribute('y', 4);
+      g.append(words, el('g', { class: 'q', transform: 'translate(0 64)' }, el('rect', { class: 'pill', x: -62, y: -13, width: 124, height: 24, rx: 12 }), status));
+      if (quiet) g.append(el('circle', { class: 'ok-dot', cx: n.w / 2 - 6, cy: -n.h / 2 + 6, r: 6 }));
+      caption.setAttribute('y', -(n.h / 2 + 10));
+    } else {
+      g.append(el('circle', { class: 'orbit', r: n.r + 5 }), el('circle', { class: 'disc', r: n.r }));
+      const hub = id === 'hub';
+      if (quiet) {
+        const two = n.big.length === 2;
+        g.append(el('text', { class: 'name', y: two ? -3 : 7, 'text-anchor': 'middle' }, n.big[0]));
+        if (two) g.append(el('text', { class: 'name', y: hub ? 22 : 20, 'text-anchor': 'middle' }, n.big[1]));
+        g.append(el('circle', { class: 'ok-dot', cx: -n.r * 0.71, cy: -n.r * 0.71, r: 6.5 }));
+      } else {
+        g.append(el('text', { class: 'name', style: hub ? 'font-size: 16px' : id === 'chrs' ? 'font-size: 12px' : '', y: hub ? -14 : -6, 'text-anchor': 'middle' }, n.name),
+          el('text', { class: 'sub', y: hub ? 6 : 13, 'text-anchor': 'middle' }, n.role), el('text', { class: 'extra', y: hub ? 26 : 31, 'text-anchor': 'middle' }, n.extra));
+      }
+      status.setAttribute('y', 4);
+      const under = el('g', { class: 'q', transform: `translate(0 ${n.r + 26})` }, el('rect', { class: 'pill', x: -62, y: -13, width: 124, height: 24, rx: 12 }), status);
+      if (quiet) under.append(el('text', { class: 'sub hov', y: 29, 'text-anchor': 'middle' }, n.role));
+      g.append(under);
+      if (layout.badges) {
+        const b = el('g', { class: 'badge', transform: `translate(${Math.round(n.r * 0.74)} ${-Math.round(n.r * 0.74)})` });
+        if (quiet) b.append(el('circle', { class: 'badge-box', r: 14 }), el('path', { class: 'badge-spark', d: SPARK, transform: 'scale(0.9)' }));
+        else b.append(el('rect', { class: 'badge-box', x: -14, y: -12, width: 70, height: 24, rx: 12 }), el('path', { class: 'badge-spark', d: SPARK, transform: 'scale(0.7)' }), el('text', { class: 'badge-text', x: 12, y: 4 }, 'model'));
+        g.append(b);
+      }
+      caption.setAttribute('y', -(n.r + 18));
+    }
+    g.append(caption);
+    nodesG.append(g);
+    nodes[id] = { g, caption, status, rest: status.textContent, timers: {} };
+  }
+
+  const facts = h('p', { className: 'facts' });
+  host.replaceChildren(h('h2', { textContent: title }), h('p', { className: 'what', textContent: what }), h('div', { className: 'frame' }, svg), facts);
+  // Measured on the page, not assumed: how large an agent's name really is, and how much text shows at rest.
+  requestAnimationFrame(() => {
+    const scale = svg.getScreenCTM().a;
+    const namePx = parseFloat(getComputedStyle(nodes.tutor.g.querySelector('.name')).fontSize) * scale;
+    const shown = [...svg.querySelectorAll('text')].filter((t) => t.textContent && !(quiet && t.closest('.q'))).length;
+    facts.replaceChildren('Agent names on screen: ', h('b', { textContent: `${namePx.toFixed(1)} px` }), ' · text at rest: ', h('b', { textContent: `${shown} pieces` }), ' · drawn at ', h('b', { textContent: `${Math.round(scale * 100)}%` }));
+  });
+
+  const hold = (n, cls, ms) => { n.g.classList.add(cls); clearTimeout(n.timers[cls]); n.timers[cls] = setTimeout(() => n.g.classList.remove(cls), ms); };
+  const say = (n, text, working) => {
+    n.caption.textContent = text; n.status.textContent = working;
+    clearTimeout(n.timers.say); n.timers.say = setTimeout(() => { n.caption.textContent = ''; n.status.textContent = n.rest; }, 1500);
+  };
+  return {
+    hop(from, to, text) {
+      const badge = layout.badges && [from, to].find((id) => PARTS[id].owner);
+      if (badge) { // the model is a badge on its agent: no line to travel
+        const n = nodes[PARTS[badge].owner];
+        n.g.classList.add('on'); hold(n, 'thinking', 850); hold(n, 'busy', 850);
+        if (text) say(n, text, '… Asking its model');
+        return;
+      }
+      const e = edges[`${from}>${to}`]; const a = nodes[from]; const b = nodes[to];
+      a.g.classList.add('on'); b.g.classList.add('on'); e.g.classList.add('on');
+      e.lane.style.setProperty('--lit', colorOf(from)); e.lane.classList.add('lit');
+      const dot = el('circle', { class: 'pulse', r: 9, fill: colorOf(from) });
+      pulsesG.append(dot);
+      const { x1, y1, x2, y2 } = Object.fromEntries(['x1', 'y1', 'x2', 'y2'].map((k) => [k, +e.lane.getAttribute(k)]));
+      const t0 = performance.now(); const T = still() ? 1 : 620;
+      const step = (now) => {
+        const p = Math.min(1, (now - t0) / T);
+        dot.setAttribute('cx', x1 + (x2 - x1) * p); dot.setAttribute('cy', y1 + (y2 - y1) * p);
+        if (p < 1) return requestAnimationFrame(step);
+        dot.remove(); hold(b, 'flash', 500); hold(b, 'busy', 900);
+        if (text) say(b, text, PARTS[to].owner ? '● Calling…' : '… Working');
+      };
+      requestAnimationFrame(step);
+    },
+    rest() {
+      for (const n of Object.values(nodes)) n.g.classList.remove('on', 'busy', 'thinking', 'flash');
+      for (const e of Object.values(edges)) { e.g.classList.remove('on'); e.lane.classList.remove('lit'); }
+    },
+  };
+}
+
+const WAYS = {
+  1: { title: 'Way 1 — names only at rest', layout: TODAY, quiet: true, what: 'Nothing moves. Each part shows one large name and a green “ready” dot. Role, status, model details and line labels appear when the part is in use, or when you point at it.' },
+  2: { title: 'Way 2 — tighter map', layout: TIGHT, quiet: false, what: 'The map is reshaped to fit the panel. Each model becomes a badge on its own agent; each record system sits beside the agent that uses it. All of today’s small lines stay.' },
+  3: { title: 'Way 3 — both', layout: TIGHT, quiet: true, what: 'The tighter map, with names only at rest. The small lines appear when a part is in use, or when you point at it.' },
+};
+const PLAYS = {
+  'Student asks a tutoring question': [['student', 'llm-student', 'Choosing a service'], ['llm-student', 'student', ''], ['student', 'hub', 'Question received'], ['hub', 'llm-hub', 'Deciding where it goes'], ['llm-hub', 'hub', 'Route: tutoring'], ['hub', 'tutor', 'Question forwarded'], ['tutor', 'llm-tutor', 'Writing the answer'], ['llm-tutor', 'tutor', 'Answer ready'], ['tutor', 'hub', 'Answer returned'], ['hub', 'student', 'Answer delivered']],
+  'Faculty asks for the class roster': [['professor', 'hub', 'Roster request'], ['hub', 'chrs', 'Staff request, signed'], ['chrs', 'llm-chrs', 'Choosing the records tool'], ['llm-chrs', 'chrs', 'Tool: get_class_roster'], ['chrs', 'studentdb', 'MCP tool call'], ['studentdb', 'chrs', 'Roster: 25 students'], ['chrs', 'hub', 'Roster returned'], ['hub', 'professor', 'Roster delivered']],
+  'Faculty files time off': [['professor', 'llm-professor', 'Staff request or class?'], ['llm-professor', 'professor', 'Staff request'], ['professor', 'hub', 'Time-off request'], ['hub', 'hr', 'Staff request, signed'], ['hr', 'llm-hr', 'Reading the absence'], ['llm-hr', 'hr', 'Card ready'], ['hr', 'peoplesoft', 'MCP: leave balances'], ['peoplesoft', 'hr', 'Balances returned'], ['hr', 'hub', 'Card returned'], ['hub', 'professor', 'Card delivered']],
+};
+
+let stages = []; let run = 0;
+const left = buildStage(document.getElementById('left'), { title: 'Today', what: 'The map as it was before the dimming and zoom: every line of text on every part, all the time.', layout: TODAY, quiet: false });
+function choose(n) {
+  run++; left.rest();
+  stages = [left, buildStage(document.getElementById('right'), WAYS[n])];
+  for (const b of document.querySelectorAll('#ways button')) b.setAttribute('aria-pressed', String(b.dataset.way === String(n)));
+}
+function play(steps) {
+  const mine = ++run;
+  for (const s of stages) s.rest();
+  steps.forEach(([from, to, text], i) => setTimeout(() => { if (mine === run) for (const s of stages) s.hop(from, to, text); }, 300 + i * 950));
+  setTimeout(() => { if (mine === run) for (const s of stages) s.rest(); }, 300 + steps.length * 950 + 4000);
+}
+for (const n of [1, 2, 3]) document.getElementById('ways').append(h('button', { type: 'button', textContent: WAYS[n].title.split(' — ')[0], onclick: () => choose(n) }, ));
+[...document.querySelectorAll('#ways button')].forEach((b, i) => { b.dataset.way = String(i + 1); });
+for (const [name, steps] of Object.entries(PLAYS)) document.getElementById('plays').append(h('button', { type: 'button', textContent: name, onclick: () => play(steps) }));
+choose(Number(new URLSearchParams(location.search).get('way')) || 3);
+</script>
+</body>
+</html>
