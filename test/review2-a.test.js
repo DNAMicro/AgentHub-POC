@@ -64,7 +64,7 @@ test('rename: a relayed roster reply says Campus Agent; a relayed HR reply says 
 // ---- #2 names everywhere an audience looks ------------------------------------------------------------------------
 test('names: the page tiles, model box, details panel and Agent activity names', () => {
   const js = read('public/topology.js');
-  assert.match(js, /chrs: \{ x: 710, y: 1115, r: 56, name: 'Campus Agent', role: 'Staff only' \}/);
+  assert.match(js, /chrs: \{ x: 530, y: 836, r: 56, name: 'Campus Agent', big: \['Campus', 'Agent'\], role: 'Staff only' \}/);
   assert.match(js, /name: 'Campus Agent’s model'/);
   assert.match(js, /peoplesoft: \{[^}]*name: 'PeopleSoft CHRS \(HR\)', lines: \['PeopleSoft CHRS', 'HR'\]/);
   assert.match(js, /studentdb: \{[^}]*name: 'PeopleSoft Campus Solutions', lines: \['PeopleSoft', 'Campus Solutions'\]/);

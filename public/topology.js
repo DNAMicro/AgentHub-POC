@@ -13,32 +13,34 @@
 // event list and node states without animating. Live events wait briefly in a buffer and play in the
 // order the agents timestamped them (their feeds reach us on separate connections). Only IDs and
 // short fixed labels are shown here — never message text, emails, notes or form values.
-import { LENSES, inLens, frameOf } from './topology-focus.js';
+import { FUNCTIONS, inFunction, frameOf } from './topology-focus.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
 
-// Four specialists in a column at x 710, evenly spaced (viewBox 0 0 1100 1285; owner-approved layout; Part 17 adds CHRS as the fifth): each agent's
-// HTTPS line goes up-right to its model, its MCP line goes down-right to its system (Faculty → Canvas, HR → PeopleSoft).
+// Part 21 layout (viewBox 0 0 845 959; owner-approved mockup docs/superpowers/specs/2026-11-20-topology-readable-mockup.html,
+// Way 4): Student and Hub on the left, five specialists in a column at x 530, 184 apart. Each record system sits beside the
+// agent that uses it (short MCP line); each agent's model is a small box up and to the right of it (above, for Student and Hub).
+// `big` is the name as drawn in the circle, on one or two lines.
 const NODES = {
-  student: { x: 130, y: 605, r: 60, name: 'Student agent', role: 'You' },
-  hub: { x: 450, y: 605, r: 76, name: 'University Hub', role: 'Front door and router' },
-  tutor: { x: 710, y: 95, r: 56, name: 'Tutor Agent', role: 'Tutoring specialist' },
-  library: { x: 710, y: 350, r: 56, name: 'Library Agent', role: 'Library specialist' },
-  professor: { x: 710, y: 605, r: 56, name: 'Faculty', role: 'Marketing 351' },
-  hr: { x: 710, y: 860, r: 56, name: 'HR Agent', role: 'Staff only' },
-  chrs: { x: 710, y: 1115, r: 56, name: 'Campus Agent', role: 'Staff only' },
+  student: { x: 105, y: 468, r: 60, name: 'Student agent', big: ['Student', 'agent'], role: 'You' },
+  hub: { x: 312, y: 468, r: 76, name: 'University Hub', big: ['University', 'Hub'], role: 'Front door and router' },
+  tutor: { x: 530, y: 100, r: 56, name: 'Tutor Agent', big: ['Tutor', 'Agent'], role: 'Tutoring specialist' },
+  library: { x: 530, y: 284, r: 56, name: 'Library Agent', big: ['Library', 'Agent'], role: 'Library specialist' },
+  professor: { x: 530, y: 468, r: 56, name: 'Faculty', big: ['Faculty'], role: 'Marketing 351' },
+  hr: { x: 530, y: 652, r: 56, name: 'HR Agent', big: ['HR', 'Agent'], role: 'Staff only' },
+  chrs: { x: 530, y: 836, r: 56, name: 'Campus Agent', big: ['Campus', 'Agent'], role: 'Staff only' },
   // Systems, not agents (design F: tile + icon + sparkle + sweep). Part 15 PeopleSoft, Part 16 Canvas LMS.
-  canvas: { x: 985, y: 680, w: 176, h: 80, kind: 'system', name: 'Canvas LMS', role: 'MCP server' },
-  peoplesoft: { x: 985, y: 935, w: 176, h: 80, kind: 'system', name: 'PeopleSoft CHRS (HR)', lines: ['PeopleSoft CHRS', 'HR'], role: 'MCP server' },
-  studentdb: { x: 985, y: 1190, w: 176, h: 80, kind: 'system', name: 'PeopleSoft Campus Solutions', lines: ['PeopleSoft', 'Campus Solutions'], role: 'MCP server' },
-  // One model box per agent (owner). Server labels say 'model'; the browser draws it at the caller's box.
-  'llm-student': { x: 130, y: 355, w: 184, h: 74, owner: 'student', name: 'Student’s model' },
-  'llm-hub': { x: 450, y: 355, w: 184, h: 74, owner: 'hub', name: 'Hub router’s model' },
-  'llm-tutor': { x: 985, y: 95, w: 184, h: 70, owner: 'tutor', name: 'Tutor’s model' },
-  'llm-library': { x: 985, y: 350, w: 184, h: 70, owner: 'library', name: 'Library’s model' },
-  'llm-professor': { x: 985, y: 550, w: 184, h: 70, owner: 'professor', name: 'Faculty’s model' },
-  'llm-hr': { x: 985, y: 805, w: 184, h: 70, owner: 'hr', name: 'HR’s model' },
-  'llm-chrs': { x: 985, y: 1060, w: 184, h: 70, owner: 'chrs', name: 'Campus Agent’s model' },
+  canvas: { x: 744, y: 468, w: 184, h: 80, kind: 'system', name: 'Canvas LMS', role: 'MCP server' },
+  peoplesoft: { x: 744, y: 652, w: 184, h: 80, kind: 'system', name: 'PeopleSoft CHRS (HR)', lines: ['PeopleSoft CHRS', 'HR'], role: 'MCP server' },
+  studentdb: { x: 744, y: 836, w: 184, h: 80, kind: 'system', name: 'PeopleSoft Campus Solutions', lines: ['PeopleSoft', 'Campus Solutions'], role: 'MCP server' },
+  // One small model box per agent (owner): it says only “Model”. Server labels say 'model'; the browser draws it at the caller's box.
+  'llm-student': { x: 105, y: 319, w: 86, h: 34, owner: 'student', name: 'Student’s model' },
+  'llm-hub': { x: 312, y: 301, w: 86, h: 34, owner: 'hub', name: 'Hub router’s model' },
+  'llm-tutor': { x: 675, y: 26, w: 86, h: 34, owner: 'tutor', name: 'Tutor’s model' },
+  'llm-library': { x: 675, y: 210, w: 86, h: 34, owner: 'library', name: 'Library’s model' },
+  'llm-professor': { x: 675, y: 394, w: 86, h: 34, owner: 'professor', name: 'Faculty’s model' },
+  'llm-hr': { x: 675, y: 578, w: 86, h: 34, owner: 'hr', name: 'HR’s model' },
+  'llm-chrs': { x: 675, y: 762, w: 86, h: 34, owner: 'chrs', name: 'Campus Agent’s model' },
 };
 const EDGES = {
   'student-hub': ['student', 'hub'], 'hub-tutor': ['hub', 'tutor'], 'hub-professor': ['hub', 'professor'], 'hub-library': ['hub', 'library'], 'hub-hr': ['hub', 'hr'], 'hub-chrs': ['hub', 'chrs'],
@@ -80,12 +82,12 @@ const CATEGORY_TEXT = { request: 'question/answer', form: 'form', registration: 
 const BUFFER_MS = 350;
 const STAGGER_MS = 170;
 const MAX_LIST = 300;
-// Part 21 (focus): the frame follows live traffic. It stays on a request this long after its last hop, while
+// Part 21 (focus): a part a request touched keeps its small lines written out this long after the last hop, while
 // nothing is still working; with something still working it waits, but never longer than RUN_MAX_MS.
 const RUN_LINGER_MS = 6000;
 const RUN_MAX_MS = 45000;
 const ZOOM_MS = 550;
-const PROBLEM = new Set(['unreachable', 'invalid_card', 'stale']); // a part with a problem is never dimmed
+const SPARK = 'M0,-10 C1.5,-2 2,-1.5 10,0 C2,1.5 1.5,2 0,10 C-1.5,2 -2,1.5 -10,0 C-2,-1.5 -1.5,-2 0,-10 Z';
 
 const el = (tag, attrs = {}, ...children) => {
   const node = document.createElementNS(SVG, tag);
@@ -153,7 +155,7 @@ function shape(category, phase, color) {
   }
 }
 
-export function createTopology({ svg, detail, list, count, traceSelect, truncatedNote, clockEl, controls, lensButtons = [], onActivity = () => {}, agentColor }) {
+export function createTopology({ svg, detail, list, count, traceSelect, truncatedNote, clockEl, controls, functionButtons = [], onActivity = () => {}, agentColor }) {
   const edgesLayer = svg.querySelector('#topo-edges');
   const pulseLayer = svg.querySelector('#topo-pulses');
   const nodesLayer = svg.querySelector('#topo-nodes');
@@ -201,7 +203,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
       const my = (NODES[a].y + NODES[b].y) / 2;
       lx = vertical ? mx + 18 : mx; ly = vertical ? my : my - 18; anchor = vertical ? 'start' : 'middle';
     }
-    const label = el('text', { class: 'edge-label', x: lx, y: ly, 'text-anchor': anchor }, EDGE_TEXT[kind]);
+    const label = el('text', { class: 'edge-label q', x: lx, y: ly, 'text-anchor': anchor }, EDGE_TEXT[kind]);
     g.append(hit, laneF, laneR, label);
     edgesLayer.append(g);
     edgeEls[id] = { g, out: laneF, back: laneR };
@@ -209,6 +211,16 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     g.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select({ kind: 'edge', id }); } });
   }
 
+  // Captions sit in their own top layer, so a long one is never covered by a neighbouring shape.
+  const captionsLayer = el('g', { id: 'topo-captions' });
+  svg.append(captionsLayer);
+  const captionAt = (x, y, anchor) => { const t = el('text', { class: 'node-caption', x, y, 'text-anchor': anchor }, ''); captionsLayer.append(t); return t; };
+  const open = (g, id) => {
+    g.addEventListener('click', () => select({ kind: 'node', id }));
+    g.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select({ kind: 'node', id }); } });
+  };
+  // What is written on a part (Part 21): at rest only its name and a green “ready” dot. The small lines (class `q`:
+  // status pill, “MCP SERVER”; `node-more`: role and heartbeat) wait until the part is revealed — see paintFocus.
   const nodeEls = {};
   for (const [id, n] of Object.entries(NODES)) {
     if (n.kind === 'system') {
@@ -226,81 +238,82 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
       const halo = el('rect', { class: 'halo', x: -n.w / 2 - 7, y: -n.h / 2 - 7, width: n.w + 14, height: n.h + 14, rx: 23 });
       const sweep = el('g', { 'clip-path': `url(#${id}-tile-clip)` }, el('rect', { class: 'sweep', x: -30, y: -n.h / 2, width: 60, height: n.h, fill: `url(#${id}-sweep-grad)` }));
       const icon = sys.icon === 'quiz'
-        ? el('g', { class: 'quiz-icon', transform: 'translate(-58 0)' },
+        ? el('g', { class: 'quiz-icon', transform: 'translate(-62 0)' },
           el('rect', { class: 'qi-board', x: -13, y: -16, width: 26, height: 32, rx: 4 }),
           el('rect', { class: 'qi-clip', x: -6, y: -19, width: 12, height: 6, rx: 2 }),
           el('path', { class: 'qi-tick', d: 'M-8,-5 l3,3 l5,-6 M-8,7 l3,3 l5,-6' }),
           el('path', { class: 'qi-line', d: 'M3,-4 h5 M3,8 h5' }))
-        : el('g', { class: 'db-icon', transform: 'translate(-58 2)' },
+        : el('g', { class: 'db-icon', transform: 'translate(-64 2)' },
           el('path', { class: 'db', d: 'M-14,-13 A14,4.5 0 0 0 14,-13 L14,13 A14,4.5 0 0 1 -14,13 Z' }),
           el('ellipse', { class: 'db', cx: 0, cy: -13, rx: 14, ry: 4.5 }),
           el('path', { class: 'db-line', d: 'M-14,-4 A14,4.5 0 0 0 14,-4 M-14,5 A14,4.5 0 0 0 14,5' }));
-      const spark = el('g', { transform: 'translate(68 -22)' }, el('path', { class: 'spark', d: 'M0,-10 C1.5,-2 2,-1.5 10,0 C2,1.5 1.5,2 0,10 C-1.5,2 -2,1.5 -10,0 C-2,-1.5 -1.5,-2 0,-10 Z' }));
+      const spark = el('g', { transform: `translate(${n.w / 2 - 18} -24)` }, el('path', { class: 'spark', d: SPARK, transform: 'scale(0.8)' }));
       // A long name (PeopleSoft Campus Solutions) is drawn on two lines so it stays inside the tile.
       const words = n.lines
-        ? el('g', { transform: 'translate(22 0)' },
-          el('text', { class: 'node-name two-line', y: -7, 'text-anchor': 'middle' }, n.lines[0]),
-          el('text', { class: 'node-name two-line', y: 10, 'text-anchor': 'middle' }, n.lines[1]),
-          el('text', { class: 'node-sub', y: 27, 'text-anchor': 'middle' }, n.role.toUpperCase()))
-        : el('g', { transform: 'translate(14 0)' },
-          el('text', { class: 'node-name', y: 4, 'text-anchor': 'middle' }, n.name),
-          el('text', { class: 'node-sub', y: 21, 'text-anchor': 'middle' }, n.role.toUpperCase()));
-      const statusG = el('g', { class: 'node-status', transform: 'translate(0 64)' });
+        ? el('g', { transform: 'translate(26 0)' },
+          el('text', { class: 'node-name two-line', y: -6, 'text-anchor': 'middle' }, n.lines[0]),
+          el('text', { class: 'node-name two-line', y: 11, 'text-anchor': 'middle' }, n.lines[1]),
+          el('text', { class: 'node-sub q', y: 28, 'text-anchor': 'middle' }, n.role.toUpperCase()))
+        : el('g', { transform: 'translate(16 0)' },
+          el('text', { class: 'node-name', y: 5, 'text-anchor': 'middle' }, n.name),
+          el('text', { class: 'node-sub q', y: 24, 'text-anchor': 'middle' }, n.role.toUpperCase()));
+      const statusG = el('g', { class: 'node-status q', transform: 'translate(0 64)' });
       const statusText = el('text', { class: 'status-text', y: 4, 'text-anchor': 'middle' }, '');
       statusG.append(el('rect', { class: 'status-pill', x: -62, y: -13, width: 124, height: 24, rx: 12 }), statusText);
-      // Captions (e.g. “MCP session open”) to the left of the tile: above it, they would sit on the MCP lanes.
-      const caption = el('text', { class: 'node-caption', x: -n.w / 2 - 12, y: 4, 'text-anchor': 'end' }, '');
-      g.append(clip, grad, halo, el('rect', { class: 'tile', ...tile }), sweep, icon, spark, words, statusG, caption);
+      const okDot = el('circle', { class: 'ok-dot', cx: -n.w / 2 + 5, cy: -n.h / 2 + 5, r: 6.5 });
+      // Captions (e.g. “MCP session open”) above the tile, ending at its right edge.
+      const caption = captionAt(n.x + n.w / 2, n.y - (n.h / 2 + 10), 'end');
+      g.append(clip, grad, halo, el('rect', { class: 'tile', ...tile }), sweep, icon, spark, words, statusG, okDot);
       nodesLayer.append(g);
       nodeEls[id] = { g, extra: null, statusText, statusG, caption, captionTimer: null };
-      g.addEventListener('click', () => select({ kind: 'node', id }));
-      g.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select({ kind: 'node', id }); } });
+      open(g, id);
       continue;
     }
     if (n.owner) {
-      // A model box: name, model ID, and a status line (no pill, so lanes stay clear).
+      // A model box: small, and it says only “Model”. Its model name and call state are in its label and the details
+      // panel; a problem shows as the box's colour. The elements renderNodes writes to are kept off the map.
       const g = el('g', { class: 'node service', 'data-node': id, 'data-owner': n.owner, transform: `translate(${n.x} ${n.y})`, tabindex: '0', role: 'button', style: `--node: ${color(id)}` });
       const box = (pad, cls) => el('rect', { class: cls, x: -n.w / 2 - pad, y: -n.h / 2 - pad, width: n.w + 2 * pad, height: n.h + 2 * pad, rx: 12 + pad });
-      const name = el('text', { class: 'node-name', y: -12, 'text-anchor': 'middle' }, n.name);
-      const extra = el('text', { class: 'node-extra', y: 6, 'text-anchor': 'middle' }, '');
-      const statusG = el('g', { class: 'node-status' });
-      const statusText = el('text', { class: 'status-text', y: 25, 'text-anchor': 'middle' }, '');
-      statusG.append(statusText);
-      const caption = el('text', { class: 'node-caption', y: -(n.h / 2 + 10), 'text-anchor': 'middle' }, '');
-      g.append(box(7, 'halo'), box(3, 'orbit'), box(0, 'disc'), name, extra, statusG, caption);
+      const mark = el('g', { transform: 'translate(-26 0)' }, el('path', { class: 'model-spark', d: SPARK, transform: 'scale(0.8)' }));
+      const name = el('text', { class: 'node-name', x: 10, y: 5, 'text-anchor': 'middle' }, 'Model');
+      g.append(box(7, 'halo'), box(3, 'orbit'), box(0, 'disc'), mark, name);
       nodesLayer.append(g);
-      nodeEls[id] = { g, extra, statusText, statusG, caption, captionTimer: null };
-      g.addEventListener('click', () => select({ kind: 'node', id }));
-      g.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select({ kind: 'node', id }); } });
+      nodeEls[id] = { g, extra: el('text'), statusText: el('text'), statusG: el('g'), caption: null, captionTimer: null };
+      open(g, id);
       continue;
     }
     const g = el('g', { class: 'node', 'data-node': id, transform: `translate(${n.x} ${n.y})`, tabindex: '0', role: 'button', style: `--node: ${color(id)}` });
     const halo = el('circle', { class: 'halo', r: n.r + 10 });
     const orbit = el('circle', { class: 'orbit', r: n.r + 5 });
     const disc = el('circle', { class: 'disc', r: n.r });
-    const name = el('text', { class: 'node-name', y: id === 'hub' ? -14 : -6, 'text-anchor': 'middle' }, n.name);
-    const sub = el('text', { class: 'node-sub', y: id === 'hub' ? 6 : 13, 'text-anchor': 'middle' }, n.role);
-    const extra = el('text', { class: 'node-extra', y: id === 'hub' ? 26 : 31, 'text-anchor': 'middle' }, '');
-    const statusG = el('g', { class: 'node-status', transform: `translate(0 ${n.r + 26})` });
+    const two = n.big.length === 2;
+    const names = n.big.map((line, i) => el('text', { class: 'node-name', y: two ? (i ? (id === 'hub' ? 22 : 20) : -3) : 7, 'text-anchor': 'middle' }, line));
+    // Role and heartbeat on one line under the pill (shown on pointing, selection, a chosen function or “Show all details”).
+    const sub = el('tspan', { class: 'node-sub' }, n.role);
+    const sep = el('tspan', {}, '');
+    const extra = el('tspan', { class: 'node-extra' }, '');
+    const more = el('text', { class: 'node-more', y: n.r + 56, 'text-anchor': 'middle' }, sub, sep, extra);
+    const statusG = el('g', { class: 'node-status q', transform: `translate(0 ${n.r + 26})` });
     const statusBg = el('rect', { class: 'status-pill', x: -62, y: -13, width: 124, height: 24, rx: 12 });
     const statusText = el('text', { class: 'status-text', y: 4, 'text-anchor': 'middle' }, '');
     statusG.append(statusBg, statusText);
-    const caption = el('text', { class: 'node-caption', y: -(n.r + 18), 'text-anchor': 'middle' }, '');
-    g.append(halo, orbit, disc, name, sub, extra, statusG, caption);
+    const okDot = el('circle', { class: 'ok-dot', cx: -Math.round(n.r * 0.71), cy: -Math.round(n.r * 0.71), r: 6.5 });
+    // The Student sits at the left edge: its caption starts at the edge instead of being centred (a long one would be cut).
+    const caption = id === 'student' ? captionAt(10, n.y - (n.r + 18), 'start') : captionAt(n.x, n.y - (n.r + 18), 'middle');
+    g.append(halo, orbit, disc, ...names, statusG, more, okDot);
     nodesLayer.append(g);
-    nodeEls[id] = { g, extra, statusText, statusG, caption, captionTimer: null };
-    g.addEventListener('click', () => select({ kind: 'node', id }));
-    g.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select({ kind: 'node', id }); } });
+    nodeEls[id] = { g, extra, sep, statusText, statusG, caption, captionTimer: null };
+    open(g, id);
   }
 
-  // ---- focus: dim what is not in use, zoom to what is (Part 21) -------------------------------
-  // At rest the whole campus is drawn, quiet. A chosen side (lens) fills the frame with its parts in colour.
-  // With no side chosen, live traffic does it: every part a request really touched (from the pulses drawn)
-  // is in colour and the frame closes in on those parts, growing hop by hop. Only the SVG's viewBox moves,
-  // so pulses, lanes, pills and click targets are untouched. Nothing here is inferred ahead of an event.
+  // ---- focus: what is written out, what steps back, and the frame (Part 21) -------------------------
+  // The whole campus is always drawn, connected and in colour. A part is REVEALED (its small lines written out) when a
+  // request really touched it (from the pulses drawn, never a heartbeat), when it is not healthy, when it is selected,
+  // when it belongs to the chosen function, or when “Show all details” is ticked; pointing at it does the same in CSS.
+  // Choosing a function also fades the other parts and closes the frame in on the function's parts. Only the SVG's
+  // viewBox moves, so pulses, lanes, pills and click targets are untouched. Nothing here is inferred ahead of an event.
   const FULL = svg.getAttribute('viewBox').trim().split(/[\s,]+/).map(Number);
-  const focus = { lens: null, hot: new Set(), hotEdges: new Set(), lastTouch: 0, view: FULL.slice(), goal: FULL.join(' '), raf: 0 };
-  const selectedTrace = () => (state.selected?.kind === 'trace' ? state.traces.get(state.selected.id) ?? null : null);
+  const focus = { fn: null, hot: new Set(), hotEdges: new Set(), lastTouch: 0, view: FULL.slice(), goal: FULL.join(' '), raf: 0 };
   const known = (ids) => [...ids].filter((id) => NODES[id]);
   const busyNow = () => state.student.busy || relaying(state.active) > 0 || Object.values(state.provider).some((p) => p.inFlight > 0) || Object.values(state.sys).some((p) => p.inFlight > 0);
   function zoomTo(box) {
@@ -322,27 +335,40 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     focus.raf = requestAnimationFrame(step);
   }
   function paintFocus() {
-    const tr = selectedTrace();
-    const mode = focus.lens ? 'lens' : tr ? 'trace' : focus.hot.size ? 'run' : 'rest';
-    svg.dataset.focus = mode;
-    const nodeLit = (id) => (mode === 'lens' ? inLens(focus.lens, id, NODES) : mode === 'run' ? focus.hot.has(id) : mode === 'trace');
-    const edgeLit = (id) => (mode === 'lens' ? EDGES[id].every((n) => inLens(focus.lens, n, NODES)) : mode === 'run' ? focus.hotEdges.has(id) : mode === 'trace');
-    for (const [id, n] of Object.entries(nodeEls)) n.g.dataset.quiet = String(!nodeLit(id) && !PROBLEM.has(n.g.dataset.status));
-    for (const [id, e] of Object.entries(edgeEls)) e.g.dataset.quiet = String(!edgeLit(id));
-    const ids = mode === 'lens' ? Object.keys(NODES).filter((id) => inLens(focus.lens, id, NODES)) : mode === 'trace' ? known(tr.nodes) : mode === 'run' ? [...focus.hot] : [];
-    zoomTo(controls.zoom?.checked === false || !ids.length ? FULL : frameOf(ids, NODES, FULL));
+    const { fn } = focus;
+    const all = controls.details?.checked === true;
+    const sel = state.selected?.kind === 'node' ? state.selected.id : null;
+    svg.dataset.focus = fn ? 'function' : focus.hot.size ? 'run' : 'rest';
+    for (const [id, n] of Object.entries(nodeEls)) {
+      const st = n.g.dataset.status;
+      // A model box shows a problem by its colour; any other part that is not ready always writes its status out.
+      const problem = NODES[id].owner ? st === 'stale' || st === 'unreachable' : st !== 'ready';
+      const picked = Boolean(fn) && inFunction(fn, id, NODES);
+      const hot = focus.hot.has(id);
+      n.g.dataset.reveal = String(all || hot || problem || picked || sel === id);
+      n.g.dataset.more = String(all || picked || sel === id);
+      n.g.dataset.quiet = String(Boolean(fn) && !picked && !hot && !problem);
+    }
+    for (const [id, e] of Object.entries(edgeEls)) {
+      const picked = Boolean(fn) && EDGES[id].every((part) => inFunction(fn, part, NODES));
+      const hot = focus.hotEdges.has(id);
+      e.g.dataset.reveal = String(all || hot || picked);
+      e.g.dataset.quiet = String(Boolean(fn) && !picked && !hot);
+    }
+    zoomTo(fn ? frameOf(Object.keys(NODES).filter((id) => inFunction(fn, id, NODES)), NODES, FULL) : FULL);
   }
-  function setLens(id) {
-    focus.lens = id && LENSES[id] && id !== focus.lens ? id : null; // pressing the chosen side again shows everything
-    for (const b of lensButtons) b.setAttribute('aria-pressed', String(b.dataset.lens === focus.lens));
+  function setFunction(id) {
+    focus.fn = id && FUNCTIONS[id] && id !== focus.fn ? id : null; // pressing the chosen function again shows everything
+    for (const b of functionButtons) b.setAttribute('aria-pressed', String((b.dataset.function || null) === focus.fn));
     paintFocus();
   }
-  // A side stays chosen only while what is happening fits inside it; otherwise the frame follows the traffic.
-  const leaveLensUnless = (ids) => { if (focus.lens && !ids.every((id) => inLens(focus.lens, id, NODES))) setLens(null); };
+  // A function stays chosen only while what is happening fits inside it; otherwise the whole campus comes back, so a
+  // part in use is never outside the frame.
+  const leaveFunctionUnless = (ids) => { if (focus.fn && !ids.every((id) => inFunction(focus.fn, id, NODES))) setFunction(null); };
   function touch(ids, edge) {
     const parts = known(ids);
     if (!parts.length) return;
-    leaveLensUnless(parts);
+    leaveFunctionUnless(parts);
     for (const id of parts) focus.hot.add(id);
     if (edge) focus.hotEdges.add(edge);
     focus.lastTouch = performance.now();
@@ -359,8 +385,8 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     const idle = performance.now() - focus.lastTouch;
     if (idle > RUN_MAX_MS || (idle > RUN_LINGER_MS && !busyNow())) restFocus();
   }, 400);
-  for (const b of lensButtons) b.addEventListener('click', () => setLens(b.dataset.lens));
-  controls.zoom?.addEventListener('change', paintFocus);
+  for (const b of functionButtons) b.addEventListener('click', () => setFunction(b.dataset.function || null));
+  controls.details?.addEventListener('change', paintFocus);
   paintFocus();
 
   // ---- node states ------------------------------------------------------------------------
@@ -440,10 +466,11 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
       if (id === 'hub') n.extra.textContent = state.snapshot?.hub?.router ? `router: ${state.snapshot.hub.router.mode}` : '';
       else if (spec) n.extra.textContent = spec.lastHeartbeatAt ? `♥ ${ago(spec.lastHeartbeatAt)}` : 'no heartbeat yet';
       else if (id === 'student') n.extra.textContent = 'student-alex';
+      n.sep.textContent = n.extra.textContent ? ' · ' : '';
       n.g.setAttribute('aria-label', `${NODES[id].name}: ${label.slice(2)}. Open details.`);
     }
     svg.classList.toggle('offline', !state.live);
-    paintFocus(); // a status change can make a part a problem (never dimmed) or clear it
+    paintFocus(); // a status change can make a part a problem (always written out, never faint) or clear it
     if (state.selected?.kind === 'node') renderDetail();
   }
   setInterval(() => {
@@ -457,14 +484,15 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
   const warned = new Set();
   function warnOnce(id) { if (!warned.has(id)) { warned.add(id); console.warn(`Topology: no node drawn for "${id}"`); } }
   function caption(node, text) {
-    const n = nodeEls[node];
-    if (!n) return warnOnce(node); // a node this page doesn't draw yet (CHRS before its Topology tile): nothing to caption
-    n.caption.textContent = text;
-    n.g.classList.add('flash');
-    clearTimeout(n.captionTimer);
-    n.captionTimer = setTimeout(() => {
-      n.caption.textContent = '';
-      n.g.classList.remove('flash');
+    const box = nodeEls[node];
+    if (!box) return warnOnce(node); // a node this page doesn't draw yet (CHRS before its Topology tile): nothing to caption
+    const says = NODES[node].owner ? nodeEls[NODES[node].owner] : box; // a model box carries no words: its agent says it
+    says.caption.textContent = text;
+    box.g.classList.add('flash');
+    clearTimeout(box.captionTimer);
+    box.captionTimer = setTimeout(() => {
+      if (says.caption.textContent === text) says.caption.textContent = '';
+      box.g.classList.remove('flash');
     }, 1400);
   }
 
@@ -667,7 +695,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
       n.g.classList.toggle('in-trace', Boolean(tr?.nodes.has(id)));
       n.g.classList.toggle('selected', sel?.kind === 'node' && sel.id === id);
     }
-    if (tr) leaveLensUnless(known(tr.nodes));
+    if (tr) leaveFunctionUnless(known(tr.nodes));
     paintFocus();
     refilter();
     renderDetail();
@@ -869,7 +897,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
         if (state.selected?.kind === 'trace' && state.selected.id === ev.runId) {
           for (const [id, e] of Object.entries(edgeEls)) e.g.classList.toggle('in-trace', tr.edges.has(id));
           for (const [id, n] of Object.entries(nodeEls)) n.g.classList.toggle('in-trace', tr.nodes.has(id));
-          paintFocus(); // the selected trace reached a new part: widen the frame
+          leaveFunctionUnless(known(tr.nodes)); // the selected trace reached a part outside the chosen function
           renderDetail();
         }
       }

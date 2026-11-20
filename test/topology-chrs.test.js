@@ -76,16 +76,16 @@ test('no label carries a student name, ID or email', () => {
 
 test('the page: approved layout, indigo CHRS, model box, student records tile and edges, no studentdb model box, session event passes the filters', () => {
   const html = read('public/index.html');
-  assert.match(html, /viewBox="0 0 1100 1285"/);
+  assert.match(html, /viewBox="0 0 845 959"/);
   assert.match(html, /PeopleSoft Campus Solutions \(a demo stand-in system\), reached only by the Campus Agent over MCP/);
   const js = read('public/topology.js');
-  assert.match(js, /student: \{ x: 130, y: 605,/);
-  assert.match(js, /hub: \{ x: 450, y: 605,/);
-  assert.match(js, /'llm-student': \{ x: 130, y: 355,/);
-  assert.match(js, /'llm-hub': \{ x: 450, y: 355,/);
-  assert.match(js, /chrs: \{ x: 710, y: 1115, r: 56, name: 'Campus Agent', role: 'Staff only' \}/);
-  assert.match(js, /'llm-chrs': \{ x: 985, y: 1060,/);
-  assert.match(js, /studentdb: \{ x: 985, y: 1190, w: 176, h: 80, kind: 'system', name: 'PeopleSoft Campus Solutions', lines: \['PeopleSoft', 'Campus Solutions'\], role: 'MCP server' \}/);
+  assert.match(js, /student: \{ x: 105, y: 468,/); // Part 21 layout
+  assert.match(js, /hub: \{ x: 312, y: 468,/);
+  assert.match(js, /'llm-student': \{ x: 105, y: 319,/);
+  assert.match(js, /'llm-hub': \{ x: 312, y: 301,/);
+  assert.match(js, /chrs: \{ x: 530, y: 836, r: 56, name: 'Campus Agent', big: \['Campus', 'Agent'\], role: 'Staff only' \}/);
+  assert.match(js, /'llm-chrs': \{ x: 675, y: 762,/);
+  assert.match(js, /studentdb: \{ x: 744, y: 836, w: 184, h: 80, kind: 'system', name: 'PeopleSoft Campus Solutions', lines: \['PeopleSoft', 'Campus Solutions'\], role: 'MCP server' \}/);
   assert.match(js, /'hub-chrs': \['hub', 'chrs'\]/);
   assert.match(js, /'chrs-model': \['chrs', 'llm-chrs'\]/);
   assert.match(js, /'chrs-studentdb': \['chrs', 'studentdb'\]/);

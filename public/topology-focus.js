@@ -1,34 +1,35 @@
-// Part 21: what the Topology shows large. Pure helpers (no DOM, no imports) so node:test can check them:
-// which parts belong to a side of campus (a "lens"), and the tightest frame around a set of parts.
+// Part 21: what the Topology brings forward. Pure helpers (no DOM, no imports) so node:test can check them:
+// which parts one kind of request uses (a "function"), and the tightest frame around a set of parts.
 // The frame is a viewBox [x, y, width, height]; the page animates the SVG's viewBox to it.
 
-// A side of campus = some agents, each with its own model box. The record systems (not agents) are
-// reached only by staff-side agents, so they belong to the staff side.
-export const LENSES = {
-  student: { label: 'Student services', agents: ['student', 'hub', 'tutor', 'library', 'professor'], systems: false },
-  staff: { label: 'Staff services', agents: ['hub', 'professor', 'hr', 'chrs'], systems: true },
+// A function = the parts one kind of request uses. Each agent's own model box comes with its agent.
+export const FUNCTIONS = {
+  tutoring: { label: 'Tutoring', parts: ['student', 'hub', 'tutor'] },
+  library: { label: 'Library', parts: ['student', 'hub', 'library'] },
+  course: { label: 'Course and quizzes', parts: ['student', 'hub', 'professor', 'canvas'] },
+  timeoff: { label: 'Time off', parts: ['professor', 'hub', 'hr', 'peoplesoft'] },
+  roster: { label: 'Class roster', parts: ['professor', 'hub', 'chrs', 'studentdb'] },
 };
 
-export function inLens(lens, id, nodes) {
-  const L = LENSES[lens];
+export function inFunction(fn, id, nodes) {
+  const F = FUNCTIONS[fn];
   const n = nodes[id];
-  if (!L || !n) return false;
-  if (n.kind === 'system') return L.systems;
-  return L.agents.includes(n.owner ?? id);
+  if (!F || !n) return false;
+  return F.parts.includes(n.owner ?? id);
 }
 
-// How far a part's drawing reaches from its centre, including its status pill and the caption that
-// flashes next to it (public/topology.js draws them at these offsets).
+// How far a part's drawing reaches from its centre, including what appears when it is in use: the status pill,
+// the line under it, and the caption that flashes above it (public/topology.js draws them at these offsets).
 export function extent(n) {
-  if (n.kind === 'system') return { l: n.w / 2 + 8, r: n.w / 2 + 8, t: n.h / 2 + 8, b: 78 }; // pill below the tile
-  if (n.w) return { l: n.w / 2 + 8, r: n.w / 2 + 8, t: n.h / 2 + 24, b: n.h / 2 + 8 }; // model box, caption above
-  const side = Math.max(n.r + 10, 64); // the status pill is 124 wide
-  return { l: side, r: side, t: n.r + 32, b: n.r + 40 }; // caption above, pill below
+  if (n.kind === 'system') return { l: n.w / 2 + 8, r: n.w / 2 + 8, t: n.h / 2 + 26, b: 80 }; // caption above, pill below
+  if (n.w) return { l: n.w / 2 + 8, r: n.w / 2 + 8, t: n.h / 2 + 8, b: n.h / 2 + 8 }; // a model box carries no words
+  const side = Math.max(n.r + 10, 100); // the line under the pill (role and heartbeat) is about 200 wide
+  return { l: side, r: side, t: n.r + 34, b: n.r + 62 }; // caption above; pill and one line below
 }
 
 // The tightest frame that shows every listed part, kept inside the full drawing. A lone part gets a
 // little room around it (minW × minH) so one shape never fills the whole picture.
-export function frameOf(ids, nodes, full, { pad = 12, minW = 420, minH = 320 } = {}) {
+export function frameOf(ids, nodes, full, { pad = 10, minW = 420, minH = 320 } = {}) {
   const parts = [...ids].map((id) => nodes[id]).filter(Boolean);
   if (!parts.length) return full.slice();
   let x1 = Infinity; let y1 = Infinity; let x2 = -Infinity; let y2 = -Infinity;

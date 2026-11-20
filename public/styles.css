@@ -487,7 +487,7 @@ h2 { margin: 0; font-size: 1.07rem; font-weight: 700; color: var(--agent, var(--
 .topo .hit { stroke: transparent; stroke-width: 34; cursor: pointer; }
 .topo .edge:focus-visible { outline: none; }
 .topo .edge:focus-visible .hit, .topo .edge.selected .hit { stroke: color-mix(in srgb, var(--hub) 16%, transparent); }
-.topo .edge-label { font: 600 11px var(--mono); fill: var(--muted); pointer-events: none; }
+.topo .edge-label { font: 600 13px var(--mono); fill: var(--muted); pointer-events: none; }
 
 .topo .node { cursor: pointer; }
 .topo .node:focus-visible { outline: none; }
@@ -503,8 +503,7 @@ h2 { margin: 0; font-size: 1.07rem; font-weight: 700; color: var(--agent, var(--
 .topo .node[data-status="stale"] .disc { stroke: var(--warn); }
 /* each agent's own model box: smaller, square-cornered, slate — a service the agent calls, not an agent */
 .topo .node.service .disc { stroke-width: 2.5; }
-.topo .node.service .node-name { font-size: 13px; }
-.topo .node[data-node="chrs"] .node-name { font-size: 12px; } /* "Campus Agent" is the widest agent name: keep it inside its circle */
+.topo .node.service .node-name { font-size: 15px; }
 .topo .node.service .orbit { transform: none; stroke-dasharray: 8 8; }
 .topo .node.service[data-busy="true"] .orbit { animation: march 0.9s linear infinite; }
 @keyframes march { to { stroke-dashoffset: -16; } }
@@ -538,14 +537,15 @@ h2 { margin: 0; font-size: 1.07rem; font-weight: 700; color: var(--agent, var(--
 .topo .node.system[data-status="unreachable"] .tile { stroke-dasharray: 6 5; }
 @keyframes twinkle { 50% { transform: scale(1.35) rotate(45deg); } }
 @keyframes sweep { from { transform: translateX(-120px); } to { transform: translateX(120px); } }
-.topo .node-name { font: 700 15px var(--font); fill: var(--node); }
-.topo .node[data-node="hub"] .node-name { font-size: 16px; }
-.topo .node-name.two-line { font-size: 13px; } /* PeopleSoft Campus Solutions: two lines inside the tile, clear of the database icon */
+.topo .node-name { font: 700 21px var(--font); fill: var(--node); } /* Part 21: one large name per part (two lines in a circle) */
+.topo .node.system .node-name { font-size: 19px; }
+.topo .node[data-node="hub"] .node-name { font-size: 23px; }
+.topo .node.system .node-name.two-line { font-size: 15px; } /* PeopleSoft Campus Solutions: two lines inside the tile, clear of the database icon */
 .topo .node-sub { font: 12px var(--font); fill: var(--muted); }
 .topo .node-extra { font: 11px var(--mono); fill: var(--muted); }
-.topo .node-caption { font: 600 12px var(--font); fill: var(--text); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; }
+.topo .node-caption { font: 600 14px var(--font); fill: var(--text); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; }
 .topo .status-pill { fill: var(--field); stroke: var(--border); }
-.topo .status-text { font: 600 12px var(--font); fill: var(--muted); }
+.topo .status-text { font: 600 13px var(--font); fill: var(--muted); }
 .topo .node-status[data-tone="ok"] .status-pill { fill: var(--ok-bg); stroke: transparent; }
 .topo .node-status[data-tone="ok"] .status-text { fill: var(--ok); }
 .topo .node-status[data-tone="warn"] .status-pill { fill: var(--warn-bg); stroke: transparent; }
@@ -561,15 +561,25 @@ h2 { margin: 0; font-size: 1.07rem; font-weight: 700; color: var(--agent, var(--
 .topo.tracing .edge.in-trace .lane { stroke: var(--hub); }
 .topo.offline .node .disc { stroke: var(--border-strong); }
 .topo.offline { filter: grayscale(0.8); }
-/* Part 21, focus: parts not in use are quiet (grey, still named); with a side chosen or a request running, they step
-   further back. A part with a problem is never marked quiet (public/topology.js). A selected trace keeps its own dimming. */
+/* Part 21, a readable map: at rest a part shows its name and a green “ready” dot. Its small lines (.q: status pill,
+   “MCP SERVER”, line labels; .node-more: role and heartbeat) are written out when it is revealed — in use, not healthy,
+   selected, in the chosen function, or “Show all details” (public/topology.js sets data-reveal / data-more) — and
+   when it is pointed at. With a function chosen, the other parts step back (data-quiet); a selected trace keeps its own dimming. */
 .topo .node, .topo .edge { transition: opacity 0.3s ease, filter 0.3s ease; }
-.topo:not(.tracing) [data-quiet="true"] { opacity: 0.5; filter: grayscale(1); }
-.topo:not(.tracing):is([data-focus="lens"], [data-focus="run"]) [data-quiet="true"] { opacity: 0.2; }
-.topo-lenses { display: inline-flex; gap: 6px; }
-.topo-lenses button { font-size: 0.84rem; font-weight: 600; color: var(--muted); background: none; border: 1px solid var(--border-strong); border-radius: 999px; padding: 3px 11px; cursor: pointer; }
-.topo-lenses button:hover { color: var(--hub); border-color: var(--hub); }
-.topo-lenses button[aria-pressed="true"] { color: var(--surface); background: var(--hub); border-color: var(--hub); }
+.topo .q, .topo .node-more, .topo .ok-dot { opacity: 0; transition: opacity 0.25s ease; }
+.topo [data-reveal="true"] .q, .topo .node:hover .q, .topo .node:focus-visible .q { opacity: 1; }
+.topo [data-more="true"] .node-more, .topo .node:hover .node-more, .topo .node:focus-visible .node-more { opacity: 1; }
+.topo .node[data-status="ready"]:not([data-reveal="true"]):not(:hover):not(:focus-visible) .ok-dot { opacity: 1; }
+.topo .ok-dot { fill: var(--ok); stroke: var(--surface); stroke-width: 2.5; }
+.topo .node-more { font: 12px var(--font); fill: var(--muted); }
+.topo .edge[data-kind="model"] .edge-label { display: none; } /* a short dashed line to a box that says “Model” */
+.topo .model-spark { fill: var(--node); transform-box: fill-box; transform-origin: center; }
+.topo .node.service[data-busy="true"] .model-spark, .topo .node.service.flash .model-spark { animation: twinkle 0.9s ease-in-out infinite; }
+.topo:not(.tracing) [data-quiet="true"] { opacity: 0.22; filter: grayscale(1); }
+.topo-functions { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.topo-functions button { font-size: 0.84rem; font-weight: 600; color: var(--muted); background: none; border: 1px solid var(--border-strong); border-radius: 999px; padding: 3px 11px; cursor: pointer; }
+.topo-functions button:hover { color: var(--hub); border-color: var(--hub); }
+.topo-functions button[aria-pressed="true"] { color: var(--surface); background: var(--hub); border-color: var(--hub); }
 
 .legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.8rem; color: var(--muted); }
 .legend li { display: inline-flex; align-items: center; gap: 6px; }

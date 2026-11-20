@@ -47,7 +47,7 @@ test('C11: node names in the label module', () => {
 });
 test('C11: tiles in the page are named apart, two lines for Campus Solutions, MCP SERVER sub-label, no model boxes', () => {
   const js = read('public/topology.js');
-  assert.match(js, /peoplesoft: \{ x: 985, y: 935, w: 176, h: 80, kind: 'system', name: 'PeopleSoft CHRS \(HR\)', lines: \['PeopleSoft CHRS', 'HR'\], role: 'MCP server' \}/);
+  assert.match(js, /peoplesoft: \{ x: 744, y: 652, w: 184, h: 80, kind: 'system', name: 'PeopleSoft CHRS \(HR\)', lines: \['PeopleSoft CHRS', 'HR'\], role: 'MCP server' \}/);
   assert.match(js, /studentdb: \{[^}]*name: 'PeopleSoft Campus Solutions', lines: \['PeopleSoft', 'Campus Solutions'\], role: 'MCP server' \}/);
   assert.doesNotMatch(js, /llm-peoplesoft|llm-studentdb/);
   assert.match(js, /title: 'PeopleSoft CHRS \(HR\) — demo stand-in'/);

@@ -39,13 +39,14 @@ async (page) => {
   // 1. At rest: the tile, not an agent.
   check('node exists', await ps.count() === 1);
   check('node has class system', await ps.evaluate((g) => g.classList.contains('system')).catch(() => false));
-  check('no orbit ring, no disc circle', await ps.locator('.orbit, circle.disc, circle').count() === 0, await ps.locator('.orbit, circle.disc, circle').count());
+  // Part 21: the small green “ready” dot (.ok-dot) is a status mark, not an agent's circle.
+  check('no orbit ring, no disc circle', await ps.locator('.orbit, circle.disc, circle:not(.ok-dot)').count() === 0, await ps.locator('.orbit, circle.disc, circle:not(.ok-dot)').count());
   check('no PeopleSoft model box', await topo.locator('[data-node="llm-peoplesoft"], [data-owner="peoplesoft"], [data-edge="peoplesoft-model"]').count() === 0);
-  check('tile 176×80 rx 16', await ps.locator('rect.tile').evaluate((r) => [r.getAttribute('width'), r.getAttribute('height'), r.getAttribute('rx')].join(',')).catch(() => null) === '176,80,16');
+  check('tile 184×80 rx 16', await ps.locator('rect.tile').evaluate((r) => [r.getAttribute('width'), r.getAttribute('height'), r.getAttribute('rx')].join(',')).catch(() => null) === '184,80,16');
   check('database icon, sparkle and sweep present', await ps.locator('.db').count() >= 2 && await ps.locator('.spark').count() === 1 && await ps.locator('.sweep').count() === 1);
   check('name and role (two lines: PeopleSoft CHRS / HR)', (await ps.locator('.node-name').allTextContents().catch(() => [])).join(' ') === 'PeopleSoft CHRS HR' && /MCP server/i.test(await ps.locator('.node-sub').textContent().catch(() => '')));
   check('MCP edge HR ↔ PeopleSoft', await topo.locator('[data-edge="hr-peoplesoft"][data-kind="mcp"]').count() === 1 && (await topo.locator('[data-edge="hr-peoplesoft"] .edge-label').textContent().catch(() => '')) === 'MCP');
-  check('viewBox 0 0 1100 1285', (await topo.locator('#topo').getAttribute('viewBox')) === '0 0 1100 1285');
+  check('viewBox 0 0 845 959', (await topo.locator('#topo').getAttribute('viewBox')) === '0 0 845 959');
   check('aria-label mentions PeopleSoft', /PeopleSoft/.test(await topo.locator('#topo').getAttribute('aria-label')));
   check('legend row for MCP tool calls', await topo.locator('.legend li', { hasText: 'MCP tool call (dash-dot line = MCP to Canvas LMS, PeopleSoft CHRS (HR) or PeopleSoft Campus Solutions)' }).count() === 1);
   // Layout (SVG user units): the tile, its pill and the MCP lanes stay clear of the HR node and inside the drawing.
@@ -58,12 +59,12 @@ async (page) => {
     };
     const L = [...document.querySelectorAll('[data-edge="hr-peoplesoft"] .lane')].map((l) => ['x1', 'y1', 'x2', 'y2'].map((a) => Number(l.getAttribute(a))));
     const label = document.querySelector('[data-edge="hr-peoplesoft"] .edge-label');
-    return { ps: box('peoplesoft'), hr: box('hr'), llmHr: box('llm-hr'), hrPill: (() => { const q = document.querySelector('[data-node="hr"] .node-status').getBBox(); return { x: 710 + q.x, y: 860 + 82 + q.y, w: q.width, h: q.height }; })(), lanes: L, label: { x: Number(label.getAttribute('x')), y: Number(label.getAttribute('y')) } };
+    return { ps: box('peoplesoft'), hr: box('hr'), llmHr: box('llm-hr'), hrPill: (() => { const q = document.querySelector('[data-node="hr"] .node-status').getBBox(); return { x: 530 + q.x, y: 652 + 82 + q.y, w: q.width, h: q.height }; })(), lanes: L, label: { x: Number(label.getAttribute('x')), y: Number(label.getAttribute('y')) } };
   });
   const xs = geo.lanes.flatMap((l) => [l[0], l[2]]);
   const ys = geo.lanes.flatMap((l) => [l[1], l[3]]);
-  check('PeopleSoft sits under HR’s model, no overlap', geo.ps.y >= geo.llmHr.y + geo.llmHr.h && Math.abs((geo.ps.x + geo.ps.w / 2) - (geo.llmHr.x + geo.llmHr.w / 2)) < 2, { ps: geo.ps, llmHr: geo.llmHr });
-  check('PeopleSoft (tile and pill) inside the viewBox', geo.ps.y + geo.ps.h <= 1285 && geo.ps.x >= 0 && geo.ps.x + geo.ps.w <= 1100, geo.ps);
+  check('PeopleSoft sits beside the HR Agent, right of it and under HR’s model, no overlap', geo.ps.y >= geo.llmHr.y + geo.llmHr.h && geo.ps.x >= geo.hr.x + geo.hr.w - 80, { ps: geo.ps, llmHr: geo.llmHr });
+  check('PeopleSoft (tile and pill) inside the viewBox', geo.ps.y + geo.ps.h <= 959 && geo.ps.x >= 0 && geo.ps.x + geo.ps.w <= 845, geo.ps);
   const inPill = (x, y) => x >= geo.hrPill.x && x <= geo.hrPill.x + geo.hrPill.w && y >= geo.hrPill.y && y <= geo.hrPill.y + geo.hrPill.h;
   check('MCP lanes leave HR clear of its pill and end left of the tile (halo 7 outside it)', geo.lanes.every((l) => !inPill(l[0], l[1]) && !inPill(l[2], l[3])) && Math.max(...xs) < geo.ps.x + 7, { lanes: geo.lanes, hrPill: geo.hrPill, ps: geo.ps });
   check('MCP label just below the middle of the lanes, between HR and the tile', geo.label.x > Math.min(...xs) && geo.label.x < Math.max(...xs) && geo.label.y > Math.min(...ys) && geo.label.y < Math.max(...ys) + 40, { label: geo.label, xs, ys });

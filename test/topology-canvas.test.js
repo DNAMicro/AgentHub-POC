@@ -58,11 +58,11 @@ test('HR events still label on hr-peoplesoft; no label names a step or content',
 
 test('the page: approved viewBox, no Canvas model box, Canvas tile and edge, --lms tokens, canvas_session passes the UI filter', () => {
   const html = read('public/index.html');
-  assert.match(html, /viewBox="0 0 1100 1285"/);
+  assert.match(html, /viewBox="0 0 845 959"/);
   assert.match(html, /Canvas LMS \(a demo stand-in system\), reached only by the Faculty agent over MCP/);
   const js = read('public/topology.js');
-  assert.match(js, /canvas: \{ x: 985, y: 680, w: 176, h: 80, kind: 'system'/);
-  assert.match(js, /peoplesoft: \{ x: 985, y: 935/);
+  assert.match(js, /canvas: \{ x: 744, y: 468, w: 184, h: 80, kind: 'system'/); // Part 21: beside the Faculty agent
+  assert.match(js, /peoplesoft: \{ x: 744, y: 652/);
   assert.match(js, /'professor-canvas': \['professor', 'canvas'\]/);
   assert.doesNotMatch(js, /llm-canvas|llm-peoplesoft/);
   const css = read('public/styles.css');
