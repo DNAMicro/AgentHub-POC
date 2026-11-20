@@ -82,8 +82,12 @@
   /* "Names only at rest": the small lines wait until the part is in use or pointed at. */
   .quiet .q { opacity: 0; transition: opacity 0.25s; }
   .quiet .node.on .q, .quiet .node:hover .q, .quiet .node:focus-visible .q, .quiet .edge.on .q { opacity: 1; }
-  .quiet .node.on:not(:hover):not(:focus-visible) .hov { opacity: 0; } /* the role line waits for the pointer, so it never sits on a neighbour */
-  .quiet .node.on .ok-dot, .quiet .node:hover .ok-dot { opacity: 0; }
+  .quiet .node.on:not(.pick):not(:hover):not(:focus-visible) .hov { opacity: 0; } /* the role line waits for the pointer, so it never sits on a neighbour */
+  .quiet .node.on .ok-dot, .quiet .node:hover .ok-dot, .quiet .node.pick .ok-dot { opacity: 0; }
+  /* A chosen function: its parts show their small lines; the rest of the campus stays in place, faint. A part really in use is never faint. */
+  .quiet .node.pick .q, .quiet .edge.pick .q { opacity: 1; }
+  .node, .edge { transition: opacity 0.3s, filter 0.3s; }
+  .faded:not(.on) { opacity: 0.22; filter: grayscale(1); }
   .quiet .name { font-size: 21px; }
   .quiet .node[data-node="hub"] .name { font-size: 23px; }
   .quiet .node.model .name { font-size: 17px; transition: transform 0.25s; }
@@ -102,10 +106,11 @@
 <body>
 <header>
   <h1>Topology: ways to make it readable</h1>
-  <p>Every map below keeps the whole campus on screen, connected and in colour. Each frame is the size the Topology gets in the Side by side view on a 1680 × 980 window. Pick a way, then send a request and watch both maps.</p>
+  <p>Every map below keeps the whole campus on screen, connected and in colour. Each frame is the size the Topology gets in the Side by side view on a 1680 × 980 window. Pick a way, then send a request and watch both maps. “Show one function” brings forward the parts one kind of request uses.</p>
 </header>
 <div class="bar">
   <span class="group" id="ways"><span class="label">Compare today with</span></span>
+  <span class="group" id="filters"><span class="label">Show one function</span></span>
   <span class="group" id="plays"><span class="label">Send a request</span></span>
 </div>
 <main class="pair">
@@ -292,6 +297,11 @@ function buildStage(host, { title, what, layout, quiet }) {
       };
       requestAnimationFrame(step);
     },
+    filter(ids) {
+      const inn = (id) => !ids || ids.has(PARTS[id].owner ?? id);
+      for (const [id, n] of Object.entries(nodes)) { n.g.classList.toggle('faded', !inn(id)); n.g.classList.toggle('pick', !!ids && inn(id)); }
+      for (const [key, e] of Object.entries(edges)) { const ok = key.split('>').every(inn); e.g.classList.toggle('faded', !ok); e.g.classList.toggle('pick', !!ids && ok); }
+    },
     rest() {
       for (const n of Object.values(nodes)) n.g.classList.remove('on', 'busy', 'thinking', 'flash');
       for (const e of Object.values(edges)) { e.g.classList.remove('on'); e.lane.classList.remove('lit'); }
@@ -311,12 +321,28 @@ const PLAYS = {
   'Faculty files time off': [['professor', 'llm-professor', 'Staff request or class?'], ['llm-professor', 'professor', 'Staff request'], ['professor', 'hub', 'Time-off request'], ['hub', 'hr', 'Staff request, signed'], ['hr', 'llm-hr', 'Reading the absence'], ['llm-hr', 'hr', 'Card ready'], ['hr', 'peoplesoft', 'MCP: leave balances'], ['peoplesoft', 'hr', 'Balances returned'], ['hr', 'hub', 'Card returned'], ['hub', 'professor', 'Card delivered']],
 };
 
+// A function = the parts one kind of request uses (each agent's model comes with its agent).
+const FUNCTIONS = {
+  'Everything': null,
+  'Tutoring': ['student', 'hub', 'tutor'],
+  'Library': ['student', 'hub', 'library'],
+  'Course and quizzes': ['student', 'hub', 'professor', 'canvas'],
+  'Time off': ['professor', 'hub', 'hr', 'peoplesoft'],
+  'Class roster': ['professor', 'hub', 'chrs', 'studentdb'],
+};
+let chosen = 'Everything';
+function pick(name) {
+  chosen = name;
+  for (const s of stages) s.filter(FUNCTIONS[name] && new Set(FUNCTIONS[name]));
+  for (const b of document.querySelectorAll('#filters button')) b.setAttribute('aria-pressed', String(b.textContent === name));
+}
 let stages = []; let run = 0;
 const left = buildStage(document.getElementById('left'), { title: 'Today', what: 'The map as it was before the dimming and zoom: every line of text on every part, all the time.', layout: TODAY, quiet: false });
 function choose(n) {
   run++; left.rest();
   stages = [left, buildStage(document.getElementById('right'), WAYS[n])];
   for (const b of document.querySelectorAll('#ways button')) b.setAttribute('aria-pressed', String(b.dataset.way === String(n)));
+  pick(chosen);
 }
 function play(steps) {
   const mine = ++run;
@@ -327,6 +353,7 @@ function play(steps) {
 for (const n of [1, 2, 3, 4]) document.getElementById('ways').append(h('button', { type: 'button', textContent: WAYS[n].title.split(' — ')[0], onclick: () => choose(n) }, ));
 [...document.querySelectorAll('#ways button')].forEach((b, i) => { b.dataset.way = String(i + 1); });
 for (const [name, steps] of Object.entries(PLAYS)) document.getElementById('plays').append(h('button', { type: 'button', textContent: name, onclick: () => play(steps) }));
+for (const name of Object.keys(FUNCTIONS)) document.getElementById('filters').append(h('button', { type: 'button', textContent: name, onclick: () => pick(name) }));
 choose(Number(new URLSearchParams(location.search).get('way')) || 4);
 </script>
 </body>
