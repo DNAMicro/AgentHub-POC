@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Topology — three ways to make it readable (mockup)</title>
+<title>Topology — ways to make it readable (mockup)</title>
 <style>
   :root {
     --bg: #eef1f5; --surface: #ffffff; --field: #f7f9fb; --text: #18202b; --muted: #5a6676; --border: #d6dce4; --border-strong: #b8c1cd;
@@ -89,6 +89,8 @@
   .quiet .node.model .name { font-size: 17px; transition: transform 0.25s; }
   .quiet .node.model .name.long { font-size: 15px; }
   .quiet .node.model.on .name, .quiet .node.model:hover .name { transform: translateY(-11px); }
+  .quiet .node.model .name.mini, .quiet .node.model.on .name.mini, .quiet .node.model:hover .name.mini { font-size: 15px; transform: none; }
+  .node.model.busy .badge-spark { animation: twinkle 0.8s ease-in-out infinite; }
   .quiet .node.system .name { font-size: 19px; }
   .quiet .node.system .name.two { font-size: 14px; }
   .quiet .caption { font-size: 14px; }
@@ -99,7 +101,7 @@
 </head>
 <body>
 <header>
-  <h1>Topology: three ways to make it readable</h1>
+  <h1>Topology: ways to make it readable</h1>
   <p>Every map below keeps the whole campus on screen, connected and in colour. Each frame is the size the Topology gets in the Side by side view on a 1680 × 980 window. Pick a way, then send a request and watch both maps.</p>
 </header>
 <div class="bar">
@@ -124,6 +126,13 @@ const TODAY = { box: [1100, 1285], at: {
 const TIGHT = { box: [845, 900], badges: true, at: {
   student: [95, 445], hub: [312, 445], tutor: [545, 95], library: [545, 270], professor: [545, 445], hr: [545, 620], chrs: [545, 795],
   canvas: [748, 445], peoplesoft: [748, 620], studentdb: [748, 795] } };
+
+// Way 4 (owner's mix, 2026-11-20): the tighter map with names only at rest, and each model back as its own small box
+// with a line to it, so the call to the model is a hop you can watch. The box carries no details.
+const MIX = { box: [845, 959], mini: true, at: {
+  student: [95, 479], hub: [312, 479], tutor: [545, 105], library: [545, 292], professor: [545, 479], hr: [545, 666], chrs: [545, 853],
+  canvas: [748, 479], peoplesoft: [748, 666], studentdb: [748, 853],
+  'llm-student': [95, 330], 'llm-hub': [312, 312], 'llm-tutor': [675, 25], 'llm-library': [675, 212], 'llm-professor': [675, 399], 'llm-hr': [675, 586], 'llm-chrs': [675, 773] } };
 
 const PARTS = {
   student: { r: 60, name: 'Student agent', big: ['Student', 'agent'], role: 'You', extra: 'student-alex', status: '✓ Online', color: '--student' },
@@ -162,7 +171,7 @@ function buildStage(host, { title, what, layout, quiet }) {
   svg.append(el('defs', {}, el('marker', { id: mark, viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 6, markerHeight: 6, orient: 'auto' }, el('path', { d: 'M0,1 L9,5 L0,9 Z', fill: 'context-stroke' }))));
   const edgesG = el('g'); const nodesG = el('g'); const pulsesG = el('g');
   svg.append(edgesG, nodesG, pulsesG);
-  const P = (id) => ({ ...PARTS[id], x: layout.at[id][0], y: layout.at[id][1] });
+  const P = (id) => ({ ...PARTS[id], ...(layout.mini && PARTS[id].owner ? { w: 86, h: 34 } : {}), x: layout.at[id][0], y: layout.at[id][1] });
   const reach = (n, ux, uy) => (n.w ? Math.min(n.w / 2 / (Math.abs(ux) || 1e-9), n.h / 2 / (Math.abs(uy) || 1e-9)) + 5 : n.r + 7);
   const lane = (a, b) => {
     const dx = b.x - a.x; const dy = b.y - a.y; const L = Math.hypot(dx, dy); const ux = dx / L; const uy = dy / L;
@@ -177,7 +186,8 @@ function buildStage(host, { title, what, layout, quiet }) {
     const out = el('line', { class: 'lane', ...lane(A, B), 'marker-end': `url(#${mark})` });
     const back = el('line', { class: 'lane', ...lane(B, A), 'marker-end': `url(#${mark})` });
     const vertical = Math.abs(A.x - B.x) < Math.abs(A.y - B.y);
-    const label = el('text', { class: 'edge-label q', x: (A.x + B.x) / 2 + (vertical ? 20 : 0), y: (A.y + B.y) / 2 + (vertical ? 4 : kind === 'mcp' ? 30 : -20), 'text-anchor': vertical ? 'start' : 'middle' }, KIND_TEXT[kind]);
+    const label = el('text', { class: 'edge-label q', x: (A.x + B.x) / 2 + (vertical ? 20 : layout.mini && kind === 'model' ? -14 : 0), y: (A.y + B.y) / 2 + (vertical ? 4 : kind === 'mcp' ? 30 : -20), 'text-anchor': vertical ? 'start' : 'middle' }, KIND_TEXT[kind]);
+    if (layout.mini && kind === 'model') label.textContent = ''; // a short dashed line: the box already says Model
     const g = el('g', { class: 'edge', 'data-kind': kind }, out, back, label);
     edgesG.append(g);
     edges[`${a}>${b}`] = { g, lane: out }; edges[`${b}>${a}`] = { g, lane: back };
@@ -193,7 +203,8 @@ function buildStage(host, { title, what, layout, quiet }) {
       g.classList.add('model');
       const box = (pad, cls) => el('rect', { class: cls, x: -n.w / 2 - pad, y: -n.h / 2 - pad, width: n.w + 2 * pad, height: n.h + 2 * pad, rx: 12 + pad });
       g.append(box(3, 'orbit'), box(0, 'disc'));
-      if (quiet) g.append(el('text', { class: `name${n.long ? ' long' : ''}`, y: 6, 'text-anchor': 'middle' }, n.name), el('text', { class: 'extra q', y: 16, 'text-anchor': 'middle' }, 'claude-haiku-5-5'));
+      if (layout.mini) g.append(el('g', { transform: 'translate(-26 0)' }, el('path', { class: 'badge-spark', d: SPARK, transform: 'scale(0.8)' })), el('text', { class: 'name mini', x: 10, y: 5, 'text-anchor': 'middle' }, 'Model'));
+      else if (quiet) g.append(el('text', { class: `name${n.long ? ' long' : ''}`, y: 6, 'text-anchor': 'middle' }, n.name), el('text', { class: 'extra q', y: 16, 'text-anchor': 'middle' }, 'claude-haiku-5-5'));
       else g.append(el('text', { class: 'name', style: 'font-size: 13px', y: -12, 'text-anchor': 'middle' }, n.name), el('text', { class: 'extra', y: 6, 'text-anchor': 'middle' }, 'claude-haiku-5-5'), Object.assign(status, { textContent: '○ Idle' }));
       status.setAttribute('y', 25); status.setAttribute('class', 'extra');
       caption.setAttribute('y', -(n.h / 2 + 10));
@@ -277,7 +288,7 @@ function buildStage(host, { title, what, layout, quiet }) {
         dot.setAttribute('cx', x1 + (x2 - x1) * p); dot.setAttribute('cy', y1 + (y2 - y1) * p);
         if (p < 1) return requestAnimationFrame(step);
         dot.remove(); hold(b, 'flash', 500); hold(b, 'busy', 900);
-        if (text) say(b, text, PARTS[to].owner ? '● Calling…' : '… Working');
+        if (text) say(layout.mini && PARTS[to].owner ? a : b, text, PARTS[to].owner && !layout.mini ? '● Calling…' : '… Working'); // a small model box carries no words: its agent says what is happening
       };
       requestAnimationFrame(step);
     },
@@ -292,6 +303,7 @@ const WAYS = {
   1: { title: 'Way 1 — names only at rest', layout: TODAY, quiet: true, what: 'Nothing moves. Each part shows one large name and a green “ready” dot. Role, status, model details and line labels appear when the part is in use, or when you point at it.' },
   2: { title: 'Way 2 — tighter map', layout: TIGHT, quiet: false, what: 'The map is reshaped to fit the panel. Each model becomes a badge on its own agent; each record system sits beside the agent that uses it. All of today’s small lines stay.' },
   3: { title: 'Way 3 — both', layout: TIGHT, quiet: true, what: 'The tighter map, with names only at rest. The small lines appear when a part is in use, or when you point at it.' },
+  4: { title: 'Way 4 — your mix', layout: MIX, quiet: true, what: 'The tighter map with names only at rest. Each model is its own small box again, with no details in it, and the message to it travels along a line as it does today.' },
 };
 const PLAYS = {
   'Student asks a tutoring question': [['student', 'llm-student', 'Choosing a service'], ['llm-student', 'student', ''], ['student', 'hub', 'Question received'], ['hub', 'llm-hub', 'Deciding where it goes'], ['llm-hub', 'hub', 'Route: tutoring'], ['hub', 'tutor', 'Question forwarded'], ['tutor', 'llm-tutor', 'Writing the answer'], ['llm-tutor', 'tutor', 'Answer ready'], ['tutor', 'hub', 'Answer returned'], ['hub', 'student', 'Answer delivered']],
@@ -312,10 +324,10 @@ function play(steps) {
   steps.forEach(([from, to, text], i) => setTimeout(() => { if (mine === run) for (const s of stages) s.hop(from, to, text); }, 300 + i * 950));
   setTimeout(() => { if (mine === run) for (const s of stages) s.rest(); }, 300 + steps.length * 950 + 4000);
 }
-for (const n of [1, 2, 3]) document.getElementById('ways').append(h('button', { type: 'button', textContent: WAYS[n].title.split(' — ')[0], onclick: () => choose(n) }, ));
+for (const n of [1, 2, 3, 4]) document.getElementById('ways').append(h('button', { type: 'button', textContent: WAYS[n].title.split(' — ')[0], onclick: () => choose(n) }, ));
 [...document.querySelectorAll('#ways button')].forEach((b, i) => { b.dataset.way = String(i + 1); });
 for (const [name, steps] of Object.entries(PLAYS)) document.getElementById('plays').append(h('button', { type: 'button', textContent: name, onclick: () => play(steps) }));
-choose(Number(new URLSearchParams(location.search).get('way')) || 3);
+choose(Number(new URLSearchParams(location.search).get('way')) || 4);
 </script>
 </body>
 </html>
