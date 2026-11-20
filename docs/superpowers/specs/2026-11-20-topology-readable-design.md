@@ -27,7 +27,7 @@ enlarge the text.
 
 ## Not goals
 
-- No cropping or zooming of the map. No grey rest state.
+- No zoom that follows live traffic, and no grey rest state. The frame moves only when the presenter chooses a function.
 - No scripted or inferred animation: pulses still come only from real, server-labelled events.
 - No change to the events, the labels, the side list, traces, or the details panel's content.
 - No new server code. This is browser-only (`public/`).
@@ -124,10 +124,25 @@ A row of buttons in the Topology toolbar (replaces “Student services / Staff s
 | Class roster | Faculty, Hub, Campus Agent, PeopleSoft Campus Solutions |
 
 - The chosen function's parts are revealed (status and role written out) and their lines labelled.
-- Every other part stays in its place, faint and grey (opacity 0.22). The campus is still visible and connected.
-- **Truth wins over the filter:** a part that is really in use, or has a problem, is never faint. A request that
-  goes outside the chosen function simply lights up there. The filter stays on; it is not switched off.
+- **The frame zooms in on those parts** (owner, 2026-11-20: “zoom should still happen when I select a function”).
+  Only the `viewBox` is animated (550 ms, snapped with Reduce motion); nothing is redrawn or moved. The frame is the
+  tightest box around the function's parts, their pills and captions, kept inside the drawing.
+- Every other part stays in its place, faint and grey (opacity 0.22). Those inside the frame are still visible.
+- **Truth wins over the filter:** a part that is really in use, or has a problem, is never faint. When a drawn
+  pulse touches a part outside the chosen function, the filter switches off and the frame returns to the whole
+  campus, so nothing in use is ever off screen.
 - Pressing the chosen button again, or “Everything”, clears it. The choice is not saved between page loads.
+
+Agent name size measured in the mockup (Side by side frame, 630 × 715; today's map shows 8.3 px):
+
+| Function | Name size | Against the whole new map (15.7 px) |
+|---|---|---|
+| Everything | 15.7 px | — |
+| Tutoring | 18.3 px | 1.17 × |
+| Library | 18.3 px | 1.17 × |
+| Course and quizzes | 15.9 px | 1.01 × (its parts span the full width, so there is nothing to crop) |
+| Time off | 21.0 px | 1.34 × |
+| Class roster | 21.0 px | 1.34 × |
 - A selected trace keeps its own highlight as today and takes over from the filter while it is selected.
 
 These six are my proposal for what “function” means. The lists are one table in code and easy to change.
@@ -146,8 +161,10 @@ stage is larger, so the same map is simply drawn larger. The stacked layout at 1
 ## What changes in code
 
 - `public/topology.js`: new positions and `viewBox`; small model box; two-line names; ready dot; reveal rule in
-  `renderNodes` / `pulse`; remove the viewBox animation, the rest-state dimming and the lens hand-off.
-- `public/topology-focus.js`: keep only the function table and `inFunction(id)`; remove `frameOf` and `extent`.
+  `renderNodes` / `pulse`; the viewBox animation now runs only for a chosen function; remove the run-mode zoom, the
+  rest-state dimming and the two side buttons.
+- `public/topology-focus.js`: the function table and `inFunction(id)`; `frameOf` and `extent` stay, updated for the
+  new shapes (small model box, role line under the pill).
 - `public/index.html`: `viewBox`, the six filter buttons, “Show all details”.
 - `public/styles.css`: larger name sizes, reveal and fade rules; remove the Part 21 quiet rules.
 - `public/app.js`: wire the new controls.

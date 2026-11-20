@@ -106,7 +106,7 @@
 <body>
 <header>
   <h1>Topology: ways to make it readable</h1>
-  <p>Every map below keeps the whole campus on screen, connected and in colour. Each frame is the size the Topology gets in the Side by side view on a 1680 × 980 window. Pick a way, then send a request and watch both maps. “Show one function” brings forward the parts one kind of request uses.</p>
+  <p>Every map below keeps the whole campus on screen, connected and in colour. Each frame is the size the Topology gets in the Side by side view on a 1680 × 980 window. Pick a way, then send a request and watch both maps. “Show one function” zooms in on the parts one kind of request uses.</p>
 </header>
 <div class="bar">
   <span class="group" id="ways"><span class="label">Compare today with</span></span>
@@ -260,12 +260,36 @@ function buildStage(host, { title, what, layout, quiet }) {
   const facts = h('p', { className: 'facts' });
   host.replaceChildren(h('h2', { textContent: title }), h('p', { className: 'what', textContent: what }), h('div', { className: 'frame' }, svg), facts);
   // Measured on the page, not assumed: how large an agent's name really is, and how much text shows at rest.
-  requestAnimationFrame(() => {
+  const measure = () => {
     const scale = svg.getScreenCTM().a;
     const namePx = parseFloat(getComputedStyle(nodes.tutor.g.querySelector('.name')).fontSize) * scale;
     const shown = [...svg.querySelectorAll('text')].filter((t) => t.textContent && !(quiet && t.closest('.q'))).length;
     facts.replaceChildren('Agent names on screen: ', h('b', { textContent: `${namePx.toFixed(1)} px` }), ' · text at rest: ', h('b', { textContent: `${shown} pieces` }), ' · drawn at ', h('b', { textContent: `${Math.round(scale * 100)}%` }));
-  });
+  };
+  requestAnimationFrame(measure);
+  // Choosing a function also closes the frame in on its parts (only the viewBox moves; nothing is redrawn).
+  let view = [0, 0, W, H]; let anim = 0;
+  const zoomTo = (goal) => {
+    cancelAnimationFrame(anim);
+    const from = view.slice(); const t0 = performance.now(); const T = still() ? 1 : 550;
+    const tick = (now) => {
+      const p = Math.min(1, (now - t0) / T); const e = 1 - (1 - p) ** 3;
+      view = from.map((v, i) => v + (goal[i] - v) * e);
+      svg.setAttribute('viewBox', view.map((v) => v.toFixed(1)).join(' '));
+      if (p < 1) anim = requestAnimationFrame(tick); else measure();
+    };
+    anim = requestAnimationFrame(tick);
+  };
+  const frameOf = (ids) => {
+    let x1 = Infinity; let y1 = Infinity; let x2 = -Infinity; let y2 = -Infinity;
+    for (const id of ids) {
+      const n = P(id);
+      const e = n.owner ? { l: n.w / 2 + 8, r: n.w / 2 + 8, t: n.h / 2 + 8, b: n.h / 2 + 8 } : n.sys ? { l: n.w / 2 + 8, r: n.w / 2 + 8, t: n.h / 2 + 26, b: 80 } : { l: Math.max(n.r + 10, 66), r: Math.max(n.r + 10, 66), t: n.r + 34, b: n.r + 62 };
+      x1 = Math.min(x1, n.x - e.l); x2 = Math.max(x2, n.x + e.r); y1 = Math.min(y1, n.y - e.t); y2 = Math.max(y2, n.y + e.b);
+    }
+    x1 = Math.max(0, x1 - 10); y1 = Math.max(0, y1 - 10); x2 = Math.min(W, x2 + 10); y2 = Math.min(H, y2 + 10);
+    return [x1, y1, x2 - x1, y2 - y1];
+  };
 
   const hold = (n, cls, ms) => { n.g.classList.add(cls); clearTimeout(n.timers[cls]); n.timers[cls] = setTimeout(() => n.g.classList.remove(cls), ms); };
   const say = (n, text, working) => {
@@ -301,6 +325,7 @@ function buildStage(host, { title, what, layout, quiet }) {
       const inn = (id) => !ids || ids.has(PARTS[id].owner ?? id);
       for (const [id, n] of Object.entries(nodes)) { n.g.classList.toggle('faded', !inn(id)); n.g.classList.toggle('pick', !!ids && inn(id)); }
       for (const [key, e] of Object.entries(edges)) { const ok = key.split('>').every(inn); e.g.classList.toggle('faded', !ok); e.g.classList.toggle('pick', !!ids && ok); }
+      zoomTo(ids ? frameOf(Object.keys(nodes).filter(inn)) : [0, 0, W, H]);
     },
     rest() {
       for (const n of Object.values(nodes)) n.g.classList.remove('on', 'busy', 'thinking', 'flash');
@@ -345,6 +370,9 @@ function choose(n) {
   pick(chosen);
 }
 function play(steps) {
+  // A request that uses a part outside the chosen function brings the whole campus back, so nothing in use is off screen.
+  const f = FUNCTIONS[chosen];
+  if (f && !steps.flat().every((id) => !PARTS[id] || f.includes(PARTS[id].owner ?? id))) pick('Everything');
   const mine = ++run;
   for (const s of stages) s.rest();
   steps.forEach(([from, to, text], i) => setTimeout(() => { if (mine === run) for (const s of stages) s.hop(from, to, text); }, 300 + i * 950));
