@@ -347,7 +347,8 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
       const hot = focus.hot.has(id);
       n.g.dataset.reveal = String(all || hot || problem || picked || sel === id);
       n.g.dataset.more = String(all || picked || sel === id);
-      n.g.dataset.quiet = String(Boolean(fn) && !picked && !hot && !problem);
+      // Outside the chosen function a part is a silhouette whatever its status (owner, 2026-11-20); only real use brings it back.
+      n.g.dataset.quiet = String(Boolean(fn) && !picked && !hot);
     }
     for (const [id, e] of Object.entries(edgeEls)) {
       const picked = Boolean(fn) && EDGES[id].every((part) => inFunction(fn, part, NODES));

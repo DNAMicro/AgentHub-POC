@@ -31,7 +31,7 @@
    | Class roster | Faculty, Hub, Campus Agent, PeopleSoft Campus Solutions |
 
    Choosing one reveals its parts, fades the others in place (`data-quiet="true"`, opacity 0.22, grey) and **zooms the frame to its parts**: only the `viewBox` is animated (550 ms, snapped with Reduce motion), to the tightest box around the parts with their pills and captions (`frameOf`, `extent`). Pressing it again, or Everything, shows the whole campus.
-6. **Truth wins over the filter.** A part that is in use or not healthy is never faint. When a drawn pulse, or a selected trace, touches a part outside the chosen function, the filter switches off and the whole campus comes back (`leaveFunctionUnless`), so nothing in use is off screen.
+6. **Outside the chosen function every part is a silhouette** (grey, faint), whatever its status: a stopped agent outside the function is a faint shape with a faint “Not registered”, not a coloured one. Only real use brings a part back. When a drawn pulse, or a selected trace, touches a part outside the chosen function, the filter switches off and the whole campus comes back (`leaveFunctionUnless`), so nothing in use is off screen.
 7. **Toolbar:** the six buttons, “Show all details”, Show heartbeats, Reduce motion, Pause animation, Trace. There is no “Zoom to activity” and there are no side buttons.
 8. **Tests:** `test/topology-focus.test.js` (every part with its pill and caption is inside the drawing; each function's members; a button per function; frames hold their parts). Look at it in a browser on a separate rehearsal stack: rest, a student request, a roster request, each function, a request outside the chosen function, Show all details, the full Topology tab, dark mode.
 
@@ -44,11 +44,14 @@
 - A model shown as a badge on its agent cannot show a message travelling to it; the owner asked for the box and line back.
 - The Student sits at the left edge: its caption starts at the edge, not centred, or a long one is cut.
 - Count a part as touched when its pulse is **drawn**, not when the event arrives. Heartbeats never reveal a part.
+- Do not exempt unhealthy parts from the function fade: when many parts are unhealthy (or a stale snapshot says so) the filter then fades nothing. A sign-out or registration is itself a drawn pulse, so it already brings the whole campus back when it happens.
 - “Course and quizzes” runs from the Student to Canvas, the full width of the map, so its zoom gains almost nothing. Say so; do not hide it.
 - Scripts that read a status pill still find its text (it is in the page, only transparent at rest). Scripts that screenshot the map at rest show names only; tick “Show all details” for the full text.
 - `scripts/browser-checks/peoplesoft.js` checks the `viewBox` and the tile size: keep them in step (`0 0 845 959`, `184×80`).
 - `npm test` passes a folder to `node --test`, which Node 22 refuses (“Cannot find module …/test”). Run `HUB_URL=http://127.0.0.1:9 node --test test/*.test.js` there.
 
 ## Enhancements merged into this step
+
+- **2026-11-20, silhouettes whatever the status.** The first build kept any part that was not “ready” in full colour with a function chosen. On a server whose page showed every agent “Not registered” (the stale snapshot bug, Step 7), nothing faded at all, and the owner said: “the ones that are not part of that function should not be colored and highlighted they should be a siloute”. Now only a part really in use is exempt.
 
 - **2026-11-20, the readable map replaces dim-and-zoom.** The first version (grey rest state, two side buttons, a frame that followed live traffic, “Zoom to activity”) was replaced the same day by this design, because it made the map quieter but not readable and took the connected campus away while it came alive.

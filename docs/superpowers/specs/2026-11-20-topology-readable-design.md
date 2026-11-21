@@ -128,7 +128,7 @@ A row of buttons in the Topology toolbar (replaces “Student services / Staff s
   Only the `viewBox` is animated (550 ms, snapped with Reduce motion); nothing is redrawn or moved. The frame is the
   tightest box around the function's parts, their pills and captions, kept inside the drawing.
 - Every other part stays in its place, faint and grey (opacity 0.22). Those inside the frame are still visible.
-- **Truth wins over the filter:** a part that is really in use, or has a problem, is never faint. When a drawn
+- **Truth wins over the filter:** a part that is really in use is never faint. A part with a problem outside the function is a silhouette like the rest, with its status still written, faint (owner, 2026-11-20, after the first build left every unhealthy part in colour). When a drawn
   pulse touches a part outside the chosen function, the filter switches off and the frame returns to the whole
   campus, so nothing in use is ever off screen.
 - Pressing the chosen button again, or “Everything”, clears it. The choice is not saved between page loads.
