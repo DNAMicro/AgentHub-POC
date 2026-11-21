@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { FUNCTIONS, inFunction, extent, frameOf } from '../public/topology-focus.js';
+import { FUNCTIONS, inFunction, extent, frameOf, turnParts } from '../public/topology-focus.js';
 
 // The real layout, read from the page's own code so the test follows it.
 const src = readFileSync(new URL('../public/topology.js', import.meta.url), 'utf8');
@@ -68,4 +68,17 @@ test('focus: nothing to show, or parts the page does not draw, give the whole dr
   const one = frameOf(['tutor'], NODES, FULL);
   assert.deepEqual(one.slice(2), [420, 320]);
   assert.ok(inside(one, 'tutor') && one[1] >= 0);
+});
+
+test('focus: follow-the-conversation frame — one specialist brings its Hub, model and record system; none or several show the whole campus', () => {
+  const EDGES = new Function(`return ${src.slice(src.indexOf('const EDGES = {') + 'const EDGES = '.length, src.indexOf('};', src.indexOf('const EDGES = {')) + 1)}`)();
+  const SPECIALISTS = ['tutor', 'library', 'professor', 'hr', 'chrs'];
+  const parts = (...trail) => turnParts(new Set(trail), NODES, EDGES, SPECIALISTS);
+  assert.equal(parts('student', 'hub', 'llm-hub'), null); // still being routed
+  assert.deepEqual(parts('professor', 'llm-professor').sort(), ['canvas', 'hub', 'llm-professor', 'professor']);
+  assert.deepEqual(parts('canvas').sort(), ['canvas', 'hub', 'llm-professor', 'professor']); // a record system belongs to its agent
+  assert.deepEqual(parts('hub', 'hr').sort(), ['hr', 'hub', 'llm-hr', 'peoplesoft']);
+  assert.equal(parts('professor', 'canvas', 'hub', 'chrs'), null); // two specialists: stop chasing
+  const frame = frameOf(parts('professor', 'llm-professor'), NODES, FULL);
+  for (const id of ['hub', 'professor', 'llm-professor', 'canvas']) assert.ok(NODES[id].x > frame[0] && NODES[id].x < frame[0] + frame[2] && NODES[id].y > frame[1] && NODES[id].y < frame[1] + frame[3], id);
 });

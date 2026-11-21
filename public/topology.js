@@ -13,7 +13,7 @@
 // event list and node states without animating. Live events wait briefly in a buffer and play in the
 // order the agents timestamped them (their feeds reach us on separate connections). Only IDs and
 // short fixed labels are shown here — never message text, emails, notes or form values.
-import { FUNCTIONS, inFunction, frameOf } from './topology-focus.js';
+import { FUNCTIONS, inFunction, frameOf, turnParts } from './topology-focus.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
 
@@ -313,7 +313,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
   // Choosing a function also fades the other parts and closes the frame in on the function's parts. Only the SVG's
   // viewBox moves, so pulses, lanes, pills and click targets are untouched. Nothing here is inferred ahead of an event.
   const FULL = svg.getAttribute('viewBox').trim().split(/[\s,]+/).map(Number);
-  const focus = { fn: null, follow: false, auto: false, manual: false, trail: new Set(), hot: new Set(), hotEdges: new Set(), lastTouch: 0, view: FULL.slice(), goal: FULL.join(' '), raf: 0 };
+  const focus = { fn: null, follow: false, auto: false, manual: false, trail: new Set(), hot: new Set(), hotEdges: new Set(), lastTouch: 0, lastBusy: 0, view: FULL.slice(), goal: FULL.join(' '), raf: 0 };
   const known = (ids) => [...ids].filter((id) => NODES[id]);
   const busyNow = () => state.student.busy || relaying(state.active) > 0 || Object.values(state.provider).some((p) => p.inFlight > 0) || Object.values(state.sys).some((p) => p.inFlight > 0);
   function zoomTo(box) {
@@ -357,10 +357,14 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
       e.g.dataset.reveal = String(all || hot || picked);
       e.g.dataset.quiet = String(auto ? !hot : Boolean(fn) && !picked && !hot);
     }
-    // The frame: the function's parts; in “Follow the conversation”, before one function fits, the parts touched so far.
     if (focus.manual) return; // the presenter's own zoom holds until Fit or a filter button
-    zoomTo(fn ? frameOf(Object.keys(NODES).filter((id) => inFunction(fn, id, NODES)), NODES, FULL)
-      : auto && focus.trail.size ? frameOf(focus.trail, NODES, FULL) : FULL);
+    // The frame: the function's parts. In “Follow the conversation”, before one function fits: the one specialist in
+    // play with everything it connects to (turnParts), else the whole campus — the frame must not chase every hop
+    // (2026-11-21: a quiz publish moved it four times in six seconds, and a topic pick filled the panel with Faculty).
+    // One specialist wins over a function there: Faculty + Canvas alone "fit" Course and quizzes, whose frame would
+    // widen to the Student for nothing. Two specialists (Faculty + HR) need the function's frame.
+    const turn = auto && focus.trail.size ? turnParts(focus.trail, NODES, EDGES, SPECIALIST_IDS) : null;
+    zoomTo(turn ? frameOf(turn, NODES, FULL) : fn ? frameOf(Object.keys(NODES).filter((id) => inFunction(fn, id, NODES)), NODES, FULL) : FULL);
   }
   function showFunction(id) {
     focus.fn = id && FUNCTIONS[id] ? id : null;
@@ -405,8 +409,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
       if (housekeeping) return; // a sign-in colours its parts but never moves the frame
       for (const id of ids) focus.trail.add(id);
       // A part touched in a turn stays in colour, and in the frame, until the whole turn ends (owner, 2026-11-21):
-      // nothing is forgotten here; only restFocus puts the map back. When no single function fits, the frame holds
-      // every part touched so far.
+      // nothing is forgotten here; only restFocus puts the map back.
       const fits = fitting(focus.trail);
       focus.fn = fits.length === 1 ? fits[0] : null;
       return;
@@ -440,8 +443,12 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
   }
   setInterval(() => {
     if (!focus.hot.size) return;
-    const idle = performance.now() - focus.lastTouch;
-    if (idle > RUN_MAX_MS || (idle > RUN_LINGER_MS && !busyNow())) restFocus();
+    const now = performance.now();
+    // The linger counts from the last hop AND from the moment the work stopped. The "finished" event arrives about
+    // 350 ms before its pulses are drawn (the buffer), so after a long silent wait the turn would otherwise rest in
+    // that gap and its last hops would relight a map that had just gone grey (seen live, 2026-11-21: a loans request).
+    if (busyNow()) focus.lastBusy = now;
+    if (now - focus.lastTouch > RUN_MAX_MS || (now - Math.max(focus.lastTouch, focus.lastBusy) > RUN_LINGER_MS && !busyNow())) restFocus();
   }, 400);
   for (const b of functionButtons) b.addEventListener('click', () => (b.dataset.mode === 'auto' ? setAuto(!focus.auto) : setFunction(b.dataset.function || null)));
   controls.details?.addEventListener('change', paintFocus);

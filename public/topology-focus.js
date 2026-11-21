@@ -47,3 +47,23 @@ export function frameOf(ids, nodes, full, { pad = 10, minW = 420, minH = 320 } =
   const y = Math.min(Math.max((y1 + y2) / 2 - h / 2, fy), fy + fh - h);
   return [x, y, w, h].map(Math.round);
 }
+
+// “Follow the conversation”, before one function fits: which parts the frame should hold for the parts a turn has
+// touched so far. One specialist in play → that specialist with everything it connects to (the Hub, its own model,
+// its record system), so the frame is already where the turn can go next and does not chase each hop. No specialist
+// yet (the request is still being routed) or more than one → null: show the whole campus.
+export function turnParts(trail, nodes, edges, specialists) {
+  const ends = Object.values(edges);
+  const agentOf = (id) => {
+    const n = nodes[id];
+    if (!n) return null;
+    if (n.owner) return n.owner;
+    if (n.kind === 'system') { const e = ends.find((pair) => pair.includes(id)); return e ? e.find((x) => x !== id) : id; }
+    return id;
+  };
+  const agents = new Set([...trail].map(agentOf).filter((id) => specialists.includes(id)));
+  if (agents.size !== 1) return null;
+  const [agent] = agents;
+  const around = ends.filter((pair) => pair.includes(agent)).map((pair) => pair.find((x) => x !== agent));
+  return [...new Set([agent, ...around, ...trail])];
+}
