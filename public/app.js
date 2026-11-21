@@ -79,7 +79,7 @@ const els = {
 const topology = createTopology({
   svg: $('topo'), detail: $('topo-detail'), list: $('topo-events'), count: $('topo-count'), traceSelect: $('topo-trace'),
   truncatedNote: $('topo-truncated'), clockEl: $('topo-clock'),
-  controls: { heartbeats: $('topo-heartbeats'), reduce: $('topo-reduce'), pause: $('topo-pause'), details: $('topo-details') },
+  controls: { heartbeats: $('topo-heartbeats'), reduce: $('topo-reduce'), pause: $('topo-pause'), details: $('topo-details'), zoomIn: $('topo-zoom-in'), zoomOut: $('topo-zoom-out'), zoomFit: $('topo-zoom-fit') },
   functionButtons: [...document.querySelectorAll('.topo-functions button')],
   agentColor: (id) => ({ student: 'var(--student)', hub: 'var(--hub)', tutor: 'var(--tutor)', library: 'var(--library)', professor: 'var(--professor)', hr: 'var(--hr)', chrs: 'var(--chrs)', model: 'var(--model)' })[id] ?? 'var(--muted)',
   // A small dot on the Topology tab when traffic happens while another tab is showing.

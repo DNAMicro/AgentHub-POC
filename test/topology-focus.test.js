@@ -42,6 +42,8 @@ test('focus: every function has a button on the page, and the first button shows
   const buttons = [...html.matchAll(/data-function="([a-z]*)"/g)].map((m) => m[1]);
   assert.deepEqual(buttons, ['', ...Object.keys(FUNCTIONS)]);
   for (const f of Object.values(FUNCTIONS)) assert.ok(html.includes(`>${f.label}</button>`), f.label);
+  assert.match(html, /data-mode="auto"[^>]*>Follow the conversation<\/button>/);
+  for (const id of ['topo-zoom-in', 'topo-zoom-out', 'topo-zoom-fit']) assert.ok(html.includes(`id="${id}"`), id);
 });
 
 test('focus: a frame holds every listed part whole and stays inside the drawing', () => {

@@ -578,6 +578,10 @@ h2 { margin: 0; font-size: 1.07rem; font-weight: 700; color: var(--agent, var(--
 .topo:not(.tracing) [data-quiet="true"] { opacity: 0.22; filter: grayscale(1); }
 .topo-functions { display: inline-flex; flex-wrap: wrap; gap: 6px; }
 .topo-functions button { font-size: 0.84rem; font-weight: 600; color: var(--muted); background: none; border: 1px solid var(--border-strong); border-radius: 999px; padding: 3px 11px; cursor: pointer; }
+.topo-zoom { display: inline-flex; gap: 4px; }
+.topo-zoom button { min-width: 30px; font-size: 0.95rem; font-weight: 700; line-height: 1; color: var(--muted); background: none; border: 1px solid var(--border-strong); border-radius: 8px; padding: 4px 8px; cursor: pointer; }
+.topo-zoom button:hover { color: var(--hub); border-color: var(--hub); }
+.topo[data-dragging="true"] { cursor: grabbing; }
 .topo-functions button:hover { color: var(--hub); border-color: var(--hub); }
 .topo-functions button[aria-pressed="true"] { color: var(--surface); background: var(--hub); border-color: var(--hub); }
 

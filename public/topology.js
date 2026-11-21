@@ -313,7 +313,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
   // Choosing a function also fades the other parts and closes the frame in on the function's parts. Only the SVG's
   // viewBox moves, so pulses, lanes, pills and click targets are untouched. Nothing here is inferred ahead of an event.
   const FULL = svg.getAttribute('viewBox').trim().split(/[\s,]+/).map(Number);
-  const focus = { fn: null, follow: false, trail: new Set(), hot: new Set(), hotEdges: new Set(), lastTouch: 0, view: FULL.slice(), goal: FULL.join(' '), raf: 0 };
+  const focus = { fn: null, follow: false, auto: false, manual: false, trail: new Set(), hot: new Set(), hotEdges: new Set(), lastTouch: 0, view: FULL.slice(), goal: FULL.join(' '), raf: 0 };
   const known = (ids) => [...ids].filter((id) => NODES[id]);
   const busyNow = () => state.student.busy || relaying(state.active) > 0 || Object.values(state.provider).some((p) => p.inFlight > 0) || Object.values(state.sys).some((p) => p.inFlight > 0);
   function zoomTo(box) {
@@ -335,7 +335,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     focus.raf = requestAnimationFrame(step);
   }
   function paintFocus() {
-    const { fn } = focus;
+    const { fn, auto } = focus;
     const all = controls.details?.checked === true;
     const sel = state.selected?.kind === 'node' ? state.selected.id : null;
     svg.dataset.focus = fn ? 'function' : focus.hot.size ? 'run' : 'rest';
@@ -343,30 +343,41 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
       const st = n.g.dataset.status;
       // A model box shows a problem by its colour; any other part that is not ready always writes its status out.
       const problem = NODES[id].owner ? st === 'stale' || st === 'unreachable' : st !== 'ready';
-      const picked = Boolean(fn) && inFunction(fn, id, NODES);
+      const picked = !auto && Boolean(fn) && inFunction(fn, id, NODES);
       const hot = focus.hot.has(id);
       n.g.dataset.reveal = String(all || hot || problem || picked || sel === id);
       n.g.dataset.more = String(all || picked || sel === id);
       // Outside the chosen function a part is a silhouette whatever its status (owner, 2026-11-20); only real use brings it back.
-      n.g.dataset.quiet = String(Boolean(fn) && !picked && !hot);
+      // “Follow the conversation” (owner, 2026-11-21): everything is a silhouette until a request really touches it.
+      n.g.dataset.quiet = String(auto ? !hot && sel !== id : Boolean(fn) && !picked && !hot);
     }
     for (const [id, e] of Object.entries(edgeEls)) {
-      const picked = Boolean(fn) && EDGES[id].every((part) => inFunction(fn, part, NODES));
+      const picked = !auto && Boolean(fn) && EDGES[id].every((part) => inFunction(fn, part, NODES));
       const hot = focus.hotEdges.has(id);
       e.g.dataset.reveal = String(all || hot || picked);
-      e.g.dataset.quiet = String(Boolean(fn) && !picked && !hot);
+      e.g.dataset.quiet = String(auto ? !hot : Boolean(fn) && !picked && !hot);
     }
-    zoomTo(fn ? frameOf(Object.keys(NODES).filter((id) => inFunction(fn, id, NODES)), NODES, FULL) : FULL);
+    // The frame: the function's parts; in “Follow the conversation”, before one function fits, the parts touched so far.
+    if (focus.manual) return; // the presenter's own zoom holds until Fit or a filter button
+    zoomTo(fn ? frameOf(Object.keys(NODES).filter((id) => inFunction(fn, id, NODES)), NODES, FULL)
+      : auto && focus.trail.size ? frameOf(focus.trail, NODES, FULL) : FULL);
   }
   function showFunction(id) {
     focus.fn = id && FUNCTIONS[id] ? id : null;
-    for (const b of functionButtons) b.setAttribute('aria-pressed', String((b.dataset.function || null) === focus.fn));
+    pressButtons();
     paintFocus();
+  }
+  const keyOf = (b) => b.dataset.mode ?? (b.dataset.function || null);
+  function pressButtons() {
+    const on = focus.auto ? 'auto' : focus.fn;
+    for (const b of functionButtons) b.setAttribute('aria-pressed', String(keyOf(b) === on));
   }
   // The presenter's own choice. Pressing the chosen function again, or Everything, shows the whole campus and stops
   // following; choosing a function starts following (below).
   function setFunction(id) {
-    const next = id && FUNCTIONS[id] && id !== focus.fn ? id : null;
+    const next = id && FUNCTIONS[id] && (focus.auto || id !== focus.fn) ? id : null;
+    focus.auto = false;
+    focus.manual = false;
     focus.follow = Boolean(next);
     focus.trail.clear();
     showFunction(next);
@@ -375,8 +386,32 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
   // drawn pulse, or a selected trace, touches a part outside the chosen function, the filter moves to the one function
   // those parts fit. While several fit, or none does, the whole campus shows, so a part in use is never outside the
   // frame; the filter keeps following and closes in again as soon as one function fits.
+  // “Follow the conversation” (owner, 2026-11-21): at rest the whole campus is zoomed out and grey. A request colours
+  // only the parts it really touches and the frame closes in on them: on the parts touched so far, then on the one
+  // function they fit. When the request is over (restFocus) it is zoomed out and grey again. Pressing it again, or
+  // any other button, leaves the mode.
+  function setAuto(on) {
+    focus.auto = on;
+    focus.manual = false;
+    focus.follow = false;
+    focus.fn = null;
+    focus.trail.clear();
+    pressButtons();
+    paintFocus();
+  }
   const fitting = (ids) => Object.keys(FUNCTIONS).filter((fn) => [...ids].every((id) => inFunction(fn, id, NODES)));
   function followTo(ids, housekeeping = false) {
+    if (focus.auto) {
+      if (housekeeping) return; // a sign-in colours its parts but never moves the frame
+      for (const id of ids) focus.trail.add(id);
+      let fits = fitting(focus.trail);
+      if (!fits.length) { // a new request: the last one's parts go grey again
+        focus.trail = new Set(ids); focus.hot.clear(); focus.hotEdges.clear();
+        fits = fitting(ids);
+      }
+      focus.fn = fits.includes(focus.fn) ? focus.fn : fits.length === 1 ? fits[0] : null;
+      return;
+    }
     if (!focus.follow) return;
     // A sign-in, sign-out or card change is not a request: it never picks a function, it only opens the frame.
     if (housekeeping) { if (focus.fn && !ids.every((id) => inFunction(focus.fn, id, NODES))) showFunction(null); return; }
@@ -386,7 +421,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     const next = fits.includes(focus.fn) ? focus.fn : fits.length === 1 ? fits[0] : null;
     if (next !== focus.fn) showFunction(next);
   }
-  const leaveFunctionUnless = (ids) => { if (ids.length) { focus.trail.clear(); followTo(ids); } };
+  const leaveFunctionUnless = (ids) => { if (ids.length && !focus.auto) { focus.trail.clear(); followTo(ids); } };
   function touch(ids, edge, housekeeping) {
     const parts = known(ids);
     if (!parts.length) return;
@@ -401,6 +436,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     focus.hot.clear();
     focus.hotEdges.clear();
     focus.trail.clear();
+    if (focus.auto) focus.fn = null;
     paintFocus();
   }
   setInterval(() => {
@@ -408,8 +444,59 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     const idle = performance.now() - focus.lastTouch;
     if (idle > RUN_MAX_MS || (idle > RUN_LINGER_MS && !busyNow())) restFocus();
   }, 400);
-  for (const b of functionButtons) b.addEventListener('click', () => setFunction(b.dataset.function || null));
+  for (const b of functionButtons) b.addEventListener('click', () => (b.dataset.mode === 'auto' ? setAuto(!focus.auto) : setFunction(b.dataset.function || null)));
   controls.details?.addEventListener('change', paintFocus);
+
+  // ---- the presenter's own zoom, like a map (owner, 2026-11-21): + and −, the mouse wheel, drag to move ----------
+  // It only moves the viewBox, inside the full drawing, and holds until Fit or a filter button is pressed.
+  const MIN_W = 240;
+  function manualView([x, y, w, h]) {
+    const k = Math.min(1, FULL[2] / w, FULL[3] / h); // never wider or taller than the drawing
+    w *= k; h *= k;
+    x = Math.min(Math.max(x, FULL[0]), FULL[0] + FULL[2] - w);
+    y = Math.min(Math.max(y, FULL[1]), FULL[1] + FULL[3] - h);
+    cancelAnimationFrame(focus.raf);
+    focus.manual = true;
+    focus.goal = 'manual';
+    focus.view = [x, y, w, h];
+    svg.setAttribute('viewBox', focus.view.map((n) => Math.round(n * 10) / 10).join(' '));
+  }
+  const pointIn = (ev) => new DOMPoint(ev.clientX, ev.clientY).matrixTransform(svg.getScreenCTM().inverse());
+  function zoomBy(f, at) {
+    const [x, y, w, h] = focus.view;
+    const k = Math.max(MIN_W / w, f); // f < 1 zooms in
+    const c = at ?? { x: x + w / 2, y: y + h / 2 };
+    manualView([c.x - (c.x - x) * k, c.y - (c.y - y) * k, w * k, h * k]);
+  }
+  function fit() {
+    focus.manual = false;
+    focus.goal = '';
+    paintFocus();
+  }
+  controls.zoomIn?.addEventListener('click', () => zoomBy(1 / 1.3));
+  controls.zoomOut?.addEventListener('click', () => zoomBy(1.3));
+  controls.zoomFit?.addEventListener('click', fit);
+  svg.addEventListener('wheel', (ev) => { ev.preventDefault(); zoomBy(Math.exp(Math.max(-60, Math.min(60, ev.deltaY)) * 0.004), pointIn(ev)); }, { passive: false });
+  let drag = null;
+  svg.addEventListener('pointerdown', (ev) => { if (ev.button === 0) drag = { x: ev.clientX, y: ev.clientY, view: focus.view.slice(), moved: false }; });
+  svg.addEventListener('pointermove', (ev) => {
+    if (!drag) return;
+    const dx = ev.clientX - drag.x; const dy = ev.clientY - drag.y;
+    if (!drag.moved && Math.hypot(dx, dy) < 5) return;
+    if (drag.view[2] >= FULL[2] && drag.view[3] >= FULL[3]) return; // nothing to move at full size
+    if (!drag.moved) { drag.moved = true; svg.setPointerCapture(ev.pointerId); svg.dataset.dragging = 'true'; document.activeElement?.blur?.(); }
+    const m = svg.getScreenCTM();
+    manualView([drag.view[0] - dx / m.a, drag.view[1] - dy / m.d, drag.view[2], drag.view[3]]);
+  });
+  const endDrag = () => {
+    if (drag?.moved) {
+      delete svg.dataset.dragging;
+      svg.addEventListener('click', (ev) => { ev.stopPropagation(); ev.preventDefault(); }, { capture: true, once: true }); // a drag is not a click on a part
+    }
+    drag = null;
+  };
+  svg.addEventListener('pointerup', endDrag);
+  svg.addEventListener('pointercancel', endDrag);
   paintFocus();
 
   // ---- node states ------------------------------------------------------------------------
