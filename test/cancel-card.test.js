@@ -97,11 +97,15 @@ test('Send with a note: his note as its own paragraph, tidied the same way the p
 test('a double click sends once: two presses at the same time, and the same operation again, give one post', async () => {
   const card = (await fileThu()).cancelCard;
   const id = op();
-  const [a, b] = await Promise.all([act({ cardId: card.id, operationId: id, action: 'send' }), act({ cardId: card.id, operationId: op(), action: 'send' })]);
+  const other = op();
+  const [a, b] = await Promise.all([act({ cardId: card.id, operationId: id, action: 'send' }), act({ cardId: card.id, operationId: other, action: 'send' })]);
   assert.ok([a, b].every((x) => x.status === 'sent' || x.closed), JSON.stringify([a, b]));
-  const again = await act({ cardId: card.id, operationId: id, action: 'send' });
-  assert.equal(again.duplicate, true);
-  assert.equal(again.status, 'sent');
+  // Whichever press reached the Faculty agent first, repeating either one replays the sent outcome.
+  for (const repeat of [id, other]) {
+    const again = await act({ cardId: card.id, operationId: repeat, action: 'send' });
+    assert.equal(again.duplicate, true, JSON.stringify({ a, b, again }));
+    assert.equal(again.status, 'sent');
+  }
   const later = await act({ cardId: card.id, operationId: op(), action: 'send' });
   assert.equal(later.http, 409);
   assert.equal(later.status, 'sent', 'a new press on a sent card says it was sent');

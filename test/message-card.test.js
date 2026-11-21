@@ -288,10 +288,14 @@ test('the edited text is sent exactly; a double click sends once; the same opera
   assert.equal(c.text, 'Please read chapter 5.');
   const opId = op();
   const edited = 'Please read chapter 5 and the case on page 112.';
-  const [a, b] = await Promise.all([act({ cardId: c.id, operationId: opId, action: 'send', text: edited }), act({ cardId: c.id, operationId: op(), action: 'send', text: edited })]);
+  const other = op();
+  const [a, b] = await Promise.all([act({ cardId: c.id, operationId: opId, action: 'send', text: edited }), act({ cardId: c.id, operationId: other, action: 'send', text: edited })]);
   assert.ok(a.http === 200 && (b.http === 200 || b.http === 409), `${JSON.stringify(a)} ${JSON.stringify(b)}`);
-  const again = await act({ cardId: c.id, operationId: opId, action: 'send', text: edited });
-  assert.equal(again.duplicate, true);
+  // Whichever press reached the Faculty agent first, repeating either one replays the sent outcome.
+  for (const repeat of [opId, other]) {
+    const again = await act({ cardId: c.id, operationId: repeat, action: 'send', text: edited });
+    assert.equal(again.duplicate, true, JSON.stringify({ a, b, again }));
+  }
   const all = await posts();
   assert.equal(all.length, 1, 'sent once');
   assert.equal(all[0].text, edited);

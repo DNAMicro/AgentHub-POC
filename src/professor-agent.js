@@ -707,7 +707,7 @@ async function postNote({ operationId, text, days = null, studentNote = null, ca
 // Definite outcomes are kept by operationId in memory (like the quiz desk); a refused note is not (he edits it and retries).
 const CANCEL_CARD_ID = /^cc-[\w-]{6,80}$/;
 const cancelOps = new Map();
-let cancelInFlight = null; // { cardId, promise }
+let cancelInFlight = null; // { cardId, operationId, promise }
 const CARD_GONE = 'This preview is closed, so nothing was sent from it.';
 async function cancelAction(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((k) => !['cardId', 'operationId', 'action', 'note'].includes(k))) return { http: 400, body: { error: 'Unexpected request fields.' } };
@@ -718,14 +718,22 @@ async function cancelAction(body) {
   if (note !== undefined && (action !== 'send' || typeof note !== 'string' || note.length > 2000)) return { http: 400, body: { error: 'Only Send carries a note (2000 characters at most).' } };
   const done = cancelOps.get(operationId);
   if (done) return { http: done.http, body: { ...done.body, duplicate: true } };
-  if (cancelInFlight?.cardId === cardId) { const r = await cancelInFlight.promise; return { http: r.http, body: { ...r.body, duplicate: true } }; }
+  if (cancelInFlight?.cardId === cardId) {
+    // A second press while the first is being sent gets the first one's answer. A definite answer is kept under this
+    // press's own operation id as well, so repeating either press replays it (whichever of the two arrived first).
+    const first = cancelInFlight;
+    const r = await first.promise;
+    const kept = cancelOps.get(first.operationId);
+    if (kept) cancelOps.set(operationId, kept);
+    return { http: r.http, body: { ...r.body, duplicate: true } };
+  }
   const card = cancelCardOf(cardId);
   if (!card) return { http: 409, body: { ok: false, closed: true, text: CARD_GONE } };
   if (card.status === 'sent') return { http: 409, body: { ok: false, closed: true, status: 'sent', text: card.result } };
   if (card.status === 'not_sent') return { http: 409, body: { ok: false, closed: true, status: 'not_sent', text: 'Not sent.' } };
   if (chatBusy) return { http: 409, body: { ok: false, busy: true, text: 'Still working on your previous message. Press the button again in a moment.' } };
   const promise = runCancelAction({ cardId, operationId, action, note });
-  cancelInFlight = { cardId, promise };
+  cancelInFlight = { cardId, operationId, promise };
   try { return await promise; } finally { cancelInFlight = null; }
 }
 async function runCancelAction({ cardId, operationId, action, note }) {
@@ -835,7 +843,7 @@ async function classPeople({ said, roster, operationId, hub }) {
 const MESSAGE_CARD_ID = /^mc-[\w-]{6,80}$/;
 const messageDesk = createMessageDesk();
 const messageOps = new Map(); // operationId → a definite Send / Don't send outcome
-let messageInFlight = null; // { cardId, promise }
+let messageInFlight = null; // { cardId, operationId, promise }
 const sortIds = (xs) => [...new Set(xs)].sort();
 // The audience on these rows → { ids, count, to, short, none? }. aud: { kind: 'all' } | { kind: 'q', q } | { kind: 'ids', ids, how }.
 function audienceOn(rows, aud) {
@@ -990,7 +998,15 @@ async function messageAction(body) {
   if (text !== undefined && (action !== 'send' || typeof text !== 'string' || text.length > 4000)) return { http: 400, body: { error: 'Only Send carries the text (4000 characters at most).' } };
   const done = messageOps.get(operationId);
   if (done) return { http: done.http, body: { ...done.body, duplicate: true } };
-  if (messageInFlight?.cardId === cardId) { const r = await messageInFlight.promise; return { http: r.http, body: { ...r.body, duplicate: true } }; }
+  if (messageInFlight?.cardId === cardId) {
+    // A second press while the first is being sent gets the first one's answer. A definite answer is kept under this
+    // press's own operation id as well, so repeating either press replays it (whichever of the two arrived first).
+    const first = messageInFlight;
+    const r = await first.promise;
+    const kept = messageOps.get(first.operationId);
+    if (kept) messageOps.set(operationId, kept);
+    return { http: r.http, body: { ...r.body, duplicate: true } };
+  }
   if (chatBusy) return { http: 409, body: { ok: false, busy: true, text: 'Still working on your previous message. Press the button again in a moment.' } };
   const promise = (async () => {
     chatBusy = true;
@@ -1020,7 +1036,7 @@ async function messageAction(body) {
       chatBusy = false;
     }
   })();
-  messageInFlight = { cardId, promise };
+  messageInFlight = { cardId, operationId, promise };
   try { return await promise; } finally { messageInFlight = null; }
 }
 
