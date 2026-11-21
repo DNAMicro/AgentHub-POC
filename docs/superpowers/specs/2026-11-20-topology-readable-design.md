@@ -129,8 +129,9 @@ A row of buttons in the Topology toolbar (replaces “Student services / Staff s
   tightest box around the function's parts, their pills and captions, kept inside the drawing.
 - Every other part stays in its place, faint and grey (opacity 0.22). Those inside the frame are still visible.
 - **Truth wins over the filter:** a part that is really in use is never faint. A part with a problem outside the function is a silhouette like the rest, with its status still written, faint (owner, 2026-11-20, after the first build left every unhealthy part in colour). When a drawn
-  pulse touches a part outside the chosen function, the filter switches off and the frame returns to the whole
-  campus, so nothing in use is ever off screen.
+  pulse touches a part outside the chosen function, the filter moves to the one function that request fits
+  (owner, 2026-11-20); while several or none fit, the frame returns to the whole campus, so nothing in use is ever
+  off screen.
 - Pressing the chosen button again, or “Everything”, clears it. The choice is not saved between page loads.
 
 Agent name size measured in the mockup (Side by side frame, 630 × 715; today's map shows 8.3 px):

@@ -313,7 +313,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
   // Choosing a function also fades the other parts and closes the frame in on the function's parts. Only the SVG's
   // viewBox moves, so pulses, lanes, pills and click targets are untouched. Nothing here is inferred ahead of an event.
   const FULL = svg.getAttribute('viewBox').trim().split(/[\s,]+/).map(Number);
-  const focus = { fn: null, hot: new Set(), hotEdges: new Set(), lastTouch: 0, view: FULL.slice(), goal: FULL.join(' '), raf: 0 };
+  const focus = { fn: null, follow: false, trail: new Set(), hot: new Set(), hotEdges: new Set(), lastTouch: 0, view: FULL.slice(), goal: FULL.join(' '), raf: 0 };
   const known = (ids) => [...ids].filter((id) => NODES[id]);
   const busyNow = () => state.student.busy || relaying(state.active) > 0 || Object.values(state.provider).some((p) => p.inFlight > 0) || Object.values(state.sys).some((p) => p.inFlight > 0);
   function zoomTo(box) {
@@ -358,18 +358,39 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     }
     zoomTo(fn ? frameOf(Object.keys(NODES).filter((id) => inFunction(fn, id, NODES)), NODES, FULL) : FULL);
   }
-  function setFunction(id) {
-    focus.fn = id && FUNCTIONS[id] && id !== focus.fn ? id : null; // pressing the chosen function again shows everything
+  function showFunction(id) {
+    focus.fn = id && FUNCTIONS[id] ? id : null;
     for (const b of functionButtons) b.setAttribute('aria-pressed', String((b.dataset.function || null) === focus.fn));
     paintFocus();
   }
-  // A function stays chosen only while what is happening fits inside it; otherwise the whole campus comes back, so a
-  // part in use is never outside the frame.
-  const leaveFunctionUnless = (ids) => { if (focus.fn && !ids.every((id) => inFunction(focus.fn, id, NODES))) setFunction(null); };
-  function touch(ids, edge) {
+  // The presenter's own choice. Pressing the chosen function again, or Everything, shows the whole campus and stops
+  // following; choosing a function starts following (below).
+  function setFunction(id) {
+    const next = id && FUNCTIONS[id] && id !== focus.fn ? id : null;
+    focus.follow = Boolean(next);
+    focus.trail.clear();
+    showFunction(next);
+  }
+  // Once the presenter has chosen a function, the filter FOLLOWS what really happens (owner, 2026-11-20): when a
+  // drawn pulse, or a selected trace, touches a part outside the chosen function, the filter moves to the one function
+  // those parts fit. While several fit, or none does, the whole campus shows, so a part in use is never outside the
+  // frame; the filter keeps following and closes in again as soon as one function fits.
+  const fitting = (ids) => Object.keys(FUNCTIONS).filter((fn) => [...ids].every((id) => inFunction(fn, id, NODES)));
+  function followTo(ids, housekeeping = false) {
+    if (!focus.follow) return;
+    // A sign-in, sign-out or card change is not a request: it never picks a function, it only opens the frame.
+    if (housekeeping) { if (focus.fn && !ids.every((id) => inFunction(focus.fn, id, NODES))) showFunction(null); return; }
+    for (const id of ids) focus.trail.add(id);
+    let fits = fitting(focus.trail);
+    if (!fits.length) { focus.trail = new Set(ids); fits = fitting(ids); } // a new request: forget the last one's parts
+    const next = fits.includes(focus.fn) ? focus.fn : fits.length === 1 ? fits[0] : null;
+    if (next !== focus.fn) showFunction(next);
+  }
+  const leaveFunctionUnless = (ids) => { if (ids.length) { focus.trail.clear(); followTo(ids); } };
+  function touch(ids, edge, housekeeping) {
     const parts = known(ids);
     if (!parts.length) return;
-    leaveFunctionUnless(parts);
+    followTo(parts, housekeeping);
     for (const id of parts) focus.hot.add(id);
     if (edge) focus.hotEdges.add(edge);
     focus.lastTouch = performance.now();
@@ -379,6 +400,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     if (!focus.hot.size) return;
     focus.hot.clear();
     focus.hotEdges.clear();
+    focus.trail.clear();
     paintFocus();
   }
   setInterval(() => {
@@ -529,7 +551,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     const t = ev.topo;
     onActivity();
     if (SYSTEM_OF_EDGE[t.edge] && t.category === 'tool') sysCall(SYSTEM_OF_EDGE[t.edge], t);
-    if (t.category !== 'heartbeat') touch(t.edge ? [t.from, t.to] : [t.node], t.edge); // heartbeats are background, not a request
+    if (t.category !== 'heartbeat') touch(t.edge ? [t.from, t.to] : [t.node], t.edge, t.category === 'registration' || t.category === 'card'); // heartbeats are background, not a request
     if (!t.edge) return caption(t.node, t.label);
     const g = edgeEls[t.edge];
     const dirLane = t.from === EDGES[t.edge][0] ? g.out : g.back;
