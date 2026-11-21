@@ -313,7 +313,8 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
   // Choosing a function also fades the other parts and closes the frame in on the function's parts. Only the SVG's
   // viewBox moves, so pulses, lanes, pills and click targets are untouched. Nothing here is inferred ahead of an event.
   const FULL = svg.getAttribute('viewBox').trim().split(/[\s,]+/).map(Number);
-  const focus = { fn: null, follow: false, auto: false, manual: false, trail: new Set(), hot: new Set(), hotEdges: new Set(), lastTouch: 0, lastBusy: 0, view: FULL.slice(), goal: FULL.join(' '), raf: 0 };
+  const focus = { fn: null, follow: false, auto: true, // “Follow the conversation” is the mode the page opens in (owner, 2026-11-21)
+    manual: false, trail: new Set(), hot: new Set(), hotEdges: new Set(), lastTouch: 0, lastBusy: 0, view: FULL.slice(), goal: FULL.join(' '), raf: 0 };
   const known = (ids) => [...ids].filter((id) => NODES[id]);
   const busyNow = () => state.student.busy || relaying(state.active) > 0 || Object.values(state.provider).some((p) => p.inFlight > 0) || Object.values(state.sys).some((p) => p.inFlight > 0);
   function zoomTo(box) {
@@ -452,6 +453,7 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
   }, 400);
   for (const b of functionButtons) b.addEventListener('click', () => (b.dataset.mode === 'auto' ? setAuto(!focus.auto) : setFunction(b.dataset.function || null)));
   controls.details?.addEventListener('change', paintFocus);
+  pressButtons();
 
   // ---- the presenter's own zoom, like a map (owner, 2026-11-21): + and −, the mouse wheel, drag to move ----------
   // It only moves the viewBox, inside the full drawing, and holds until Fit or a filter button is pressed.
