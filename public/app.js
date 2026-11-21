@@ -1506,6 +1506,7 @@ function onMonitorHello(hello) {
   topology.studentCard(hello.university?.cardValid ?? null);
   for (const [id, a] of Object.entries(hello.agents ?? {})) if (a?.mode) topology.agentMode(id, { mode: a.mode, model: a.model, keyConfigured: a.keyConfigured });
   applyTopology(hello.topology, { dom: false });
+  topology.sessions(hello.sessions);
 }
 function onMonitorEvent(event) {
   monitorLast = event.id;

@@ -239,6 +239,17 @@ export async function startUiServer({ port = 4444, auth: authCfg = authConfig(pr
       publish({ source: 'system', type: 'agent_status', runId: null, data: { agentId: source, ...event.data } });
       return;
     }
+    // The Hub sends its full snapshot once, when this feed connects; later changes arrive only as events. Keep our copy
+    // current with them, or a page that opens after those events left the bounded history is told the old state
+    // (2026-11-20: every agent "Not registered" on a long-running demo while the Hub had them all ready).
+    if (source === 'hub' && topology?.specialists && event.data?.agentId) {
+      const entry = topology.specialists.find((x) => x.agentId === event.data.agentId);
+      if (entry && type === 'registry_status') {
+        const { from: _from, ...now } = event.data;
+        Object.assign(entry, now);
+      }
+      if (entry && type === 'heartbeat') entry.lastHeartbeatAt = event.at;
+    }
     if (event.runId == null) {
       // Hub configuration/registry events, and specialists' configuration events.
       if (SESSION_EVENTS.has(type) && lastSessionStatus.get(`${source}:${type}`) === event.data?.status) return; // only on a change
@@ -297,6 +308,9 @@ export async function startUiServer({ port = 4444, auth: authCfg = authConfig(pr
     student: { agentId: cfg.agentId, displayName: cfg.displayName, relationship: cfg.university.relationship, session: inbox.session().status, inboxUnread: inbox.view().unread },
     university: { name: hub.name, cardUrl: hub.cardUrl, cardValid: Boolean(hubCard), cardError: hubCardError, capabilities: capabilities.map((c) => ({ id: c.id, name: c.name })) },
     hubFeedConnected: feeds.hub.connected, activeRunId, topology, agents: agentStatus,
+    // The latest MCP session state per system (event type → status): a session event is published only on a change, so
+    // it can fall out of the bounded history; a page that opens later reads it here.
+    sessions: Object.fromEntries([...lastSessionStatus].map(([key, value]) => [key.slice(key.indexOf(':') + 1), value])),
     tutorStatus: agentStatus.tutor ?? null,
   });
   app.get('/api/status', (req, res) => res.json(statusBody()));

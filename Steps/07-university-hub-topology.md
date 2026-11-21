@@ -443,6 +443,7 @@ Make sure the UI design is animated and shows as live reflecting the connection 
 - **Form-action failures need distinct Hub statuses:** `not_delivered` vs `outcome_unknown`; a plain “rejected” hid the difference.
 
 ---
+- **The UI server's copy of the Hub snapshot must follow later changes.** The Hub sends its full snapshot once, when the UI server connects (often before the specialists have registered); after that only `registry_status`, `heartbeat` and MCP session events arrive. Merge them into the UI server's copy and send the latest session states in the hello (`sessions`). Otherwise, once those events leave the bounded history (1000 events, a few hours of use), every newly opened page shows the agents as “Not registered” and the systems as “Not connected yet” while the Hub has them ready (seen 2026-11-20; `test/ui-snapshot.test.js`).
 
 ## Enhancements merged into this step
 
@@ -472,3 +473,4 @@ Make sure the UI design is animated and shows as live reflecting the connection 
 - **Final state:** 115 tests passing; live stack on Haiku 5.5 for all four agents. Committed as “Add Part 7”, right after the separate Part 6 fix `99f4f38` (concurrent form submissions), followed by the redaction fixes `ecb79af` and `520b83a`.
 - Renamed what the audience sees (2026-11-04): the agent is “Marketing 351 Faculty”, the tab is “Faculty view” (/faculty; /professor still opens it), and the person is “Dr. Dabirian” (was “Professor Amir”), because “Professor” confused the audience. Code names, files, settings and commands keep “professor”. Students may still type “professor”: keep accepting it (the Student agent treats a title word — professor, faculty, instructor, Dr. — as naming whoever the last reply named with a title).
 - Renamed the course (2026-11-04): it is “Marketing 351” (course id `mkt-351`), not “Marketing 101” — CSU Fullerton has no Marketing 101; its marketing course is Marketing 351. Students may also type its catalog code “MKTG 351” (a capability tag). The step file names keep “101”.
+- **2026-11-20, the snapshot stays current.** The UI server now merges registry changes and heartbeats into its copy of the Hub snapshot and tells a new page the latest MCP session states, so a long-running server no longer shows healthy agents as “Not registered”.

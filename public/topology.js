@@ -777,6 +777,15 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
       renderNodes();
     },
     // An agent's reported mode ({ mode, model, keyConfigured }); the Hub's comes from its router status.
+    // The latest MCP session state per system, from the hello (event type → status). Session events are published only
+    // on a change, so on a long-running server they may no longer be in the replayed history.
+    sessions(map) {
+      for (const [id, sys] of Object.entries(SYSTEMS)) {
+        const st = map?.[sys.sessionEvent];
+        if (st) state.sys[id].session = st === 'connected' || st === 'not_configured' ? st : 'unreachable';
+      }
+      renderNodes();
+    },
     agentMode(agentId, info) {
       if (!(agentId in state.modes)) return;
       state.modes[agentId] = info;
