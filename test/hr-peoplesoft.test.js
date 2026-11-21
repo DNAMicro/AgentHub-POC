@@ -409,24 +409,29 @@ test('I2: HR\'s AI failing at the balances moment — the card and the chat say 
 test('M3: the session status follows the calls — unreachable when a call ends unavailable, connected again on the next success, only on a change', async (t) => {
   const own = await hrStack();
   t.after(() => own.close());
-  await own.ask("I need Friday off, it's a vacation day");
-  const sessions = (from) => ofType(own.feed.events.slice(from), 'peoplesoft_session').map((e) => e.data.status);
-  assert.deepEqual(sessions(0), ['connected']);
+  // HR's feed is its own connection: an event may land before or after the reply to the request that caused it, and
+  // HR also notices a stopped PeopleSoft by itself. So the test never counts events "since the last step"; it waits
+  // for the whole history of statuses, which has one right value at every step (a repeat or a flip would show in it).
+  const history = () => ofType(own.feed.events, 'peoplesoft_session').map((e) => e.data.status);
+  const becomes = (expected, what) => waitFor(() => history().join() === expected.join(), { timeout: 10000, what: `${what} (session statuses: ${history().join(', ') || 'none'})` });
+  const answered = () => ofType(own.feed.events, 'mcp_call_result').length;
+  const FRIDAY = "I need Friday off, it's a vacation day";
+  await own.ask(FRIDAY);
+  await becomes(['connected'], 'connected after the first call');
   const port = new URL(own.stack.peoplesoft.url).port;
   await stopProcess(own.stack.peoplesoft);
-  let from = own.feed.events.length;
-  assert.equal((await own.ask("I need Friday off, it's a vacation day")).reply.hrCard.balances, null);
-  assert.deepEqual(sessions(from), ['unreachable'], 'the open session failed: the pill must not keep saying connected');
-  from = own.feed.events.length;
-  await own.ask("I need Friday off, it's a vacation day");
-  assert.deepEqual(sessions(from), [], 'still down: no repeat');
+  assert.equal((await own.ask(FRIDAY)).reply.hrCard.balances, null);
+  await becomes(['connected', 'unreachable'], 'the open session failed: the pill must not keep saying connected');
+  assert.equal((await own.ask(FRIDAY)).reply.hrCard.balances, null, 'still down');
   own.stack.peoplesoft = await startPeopleSoft({ PORT: port, PEOPLESOFT_TOKEN: own.stack.peoplesoftToken, PEOPLESOFT_TEST_HOOKS: '1' });
-  from = own.feed.events.length;
-  assert.deepEqual((await own.ask("I need Friday off, it's a vacation day")).reply.hrCard.balances, { vacation: 96, sick: 120, personalHoliday: 8 });
-  assert.deepEqual(sessions(from), ['connected']);
-  from = own.feed.events.length;
-  await own.ask("I need Friday off, it's a vacation day");
-  assert.deepEqual(sessions(from), [], 'no change, no event');
+  assert.deepEqual((await own.ask(FRIDAY)).reply.hrCard.balances, { vacation: 96, sick: 120, personalHoliday: 8 });
+  // Exactly one "unreachable" and one "connected" since the stop: the request while it was still down added nothing.
+  await becomes(['connected', 'unreachable', 'connected'], 'connected again, with no repeat while it was down');
+  const before = answered();
+  await own.ask(FRIDAY);
+  // The feed keeps HR's order: once this request's own call result is here, anything HR reported before it is too.
+  await waitFor(() => answered() > before, { timeout: 10000, what: 'the last call result in the feed' });
+  assert.deepEqual(history(), ['connected', 'unreachable', 'connected'], 'no change, no event');
 });
 
 test('M1: an unconfirmed Submit is "unknown" on the HR and Hub hops too (unknownOutcome passes the Hub allowlist)', async (t) => {

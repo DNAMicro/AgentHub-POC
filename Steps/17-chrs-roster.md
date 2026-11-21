@@ -134,7 +134,7 @@ Steps 1–11 and 14–16 are done and `npm test` passes. `npm run demo` starts e
 16. **A tagged single student also needs CHRS.** A tagged student must be on the roster; CHRS down refuses the post. Don't add a fallback list.
 17. **Sign the `service` field only when present** so old three-field HR signatures stay valid, and include it in the dedupe hash.
 18. **Don't let a staff answer start a new request.** “Tell the class” after the held-message question must not be read as a notify opening (`staffHolding()`).
-19. **Full `npm test` under load can fail `hr-peoplesoft` “M3 session status” or “forged publishes”.** Re-run the file alone before blaming the change.
+19. **Full `npm test` under load can fail “forged publishes”.** Re-run the file alone before blaming the change. (`hr-peoplesoft` “M3 session status” failed the same way until 2026-11-21; see Step 15.)
 20. **Check by eye.** Open every screenshot against the mockup; a passing check is not a substitute.
 21. **“Notify everyone” must not skip the privacy check.** “Notify everyone that Dr. Dabirian is sick today, no class” went to 25 students while the same words without the opening were asked about. Run the plain path's check (illness/leave/relative words, the open-card rule, the staff classifier) on the rest of the sentence and on the reply to “What should I tell your class about X?”.
 22. **A waiting cancellation offer must not turn “notify everyone that …” into a raw post.** It sent “Notify everyone that the review session is in room 204” verbatim with no “Sent to all 25 …”. Handle notify with content under a cancellation offer and keep the offer open.

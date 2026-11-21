@@ -154,6 +154,7 @@ README “Part 15”, the CLAUDE.md “Part 15 (PeopleSoft over MCP) notes”, t
 - **A slow connect could leave the call less time than PeopleSoft's planner** (the floor was 1 s). Keep a floor of planner + 2 s for the call inside the same 12 s.
 - Request ids must look real (owner, review D18): 7-digit numbers counted from 4310288 and record ids of 8 digits from 00482131, from a counter in the store that restarts on start and on New conversation. Do not derive them from the operationId, do not use `TO-`/`ABS-`/“#”, give a repeated operationId its stored receipt without using a number, and give refused requests none.
 - The two stand-ins must be told apart by name (owner, review C11): “PeopleSoft HR” and “PeopleSoft Campus Solutions”, in startup lines, log prefixes, tool descriptions, Topology tiles (Campus Solutions on two lines) and labels. When you rename a startup line, update the harness readiness regexes and the rehearsal stack's parser in the same change, or every test waits forever.
+- **A test that reads HR's event feed must not count events “since the last step”.** The feed is a separate connection: an event can arrive before or after the reply to the request that caused it, and HR also notices a stopped PeopleSoft by itself. The “M3 session status” test sliced the feed by position and failed 9 of 12 times when 12 copies ran at once (it passed alone). Wait for the whole expected history of statuses (`connected`, `unreachable`, `connected`), and for “nothing more happened” wait for a later marker event in the same feed (that request's `mcp_call_result`) before checking.
 
 ## Done when
 
@@ -162,6 +163,8 @@ README “Part 15”, the CLAUDE.md “Part 15 (PeopleSoft over MCP) notes”, t
 - A Submit from the Faculty view shows a request number from PeopleSoft, and Topology shows the MCP line lighting up and the tile working.
 
 ## Enhancements merged into this step
+
+- **2026-11-21, the session-status test no longer fails at random.** The owner: “yes fix it”. Only the test changed (`test/hr-peoplesoft.test.js`, M3); the product already reported the right statuses.
 
 - **Design (your words above).** From a first idea (“show me a design”) through six rounds to design F: a rounded tile with a database icon, sparkle and sweep, and a dash-dot MCP line. Rejected on the way: squares for agents, a circle around PeopleSoft, a lone cylinder, a cylinder with a turning ring, a hexagon with tool chips, anything agent-like or with a model box.
 - **Smart system.** HR's AI picks the tool at both moments (“ask the AI at both moments”), and PeopleSoft's wrapper has its own AI that plans steps from a fixed menu; code decides every fact.
