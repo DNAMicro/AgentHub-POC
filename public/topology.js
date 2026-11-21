@@ -404,12 +404,11 @@ export function createTopology({ svg, detail, list, count, traceSelect, truncate
     if (focus.auto) {
       if (housekeeping) return; // a sign-in colours its parts but never moves the frame
       for (const id of ids) focus.trail.add(id);
-      let fits = fitting(focus.trail);
-      if (!fits.length) { // a new request: the last one's parts go grey again
-        focus.trail = new Set(ids); focus.hot.clear(); focus.hotEdges.clear();
-        fits = fitting(ids);
-      }
-      focus.fn = fits.includes(focus.fn) ? focus.fn : fits.length === 1 ? fits[0] : null;
+      // A part touched in a turn stays in colour, and in the frame, until the whole turn ends (owner, 2026-11-21):
+      // nothing is forgotten here; only restFocus puts the map back. When no single function fits, the frame holds
+      // every part touched so far.
+      const fits = fitting(focus.trail);
+      focus.fn = fits.length === 1 ? fits[0] : null;
       return;
     }
     if (!focus.follow) return;
