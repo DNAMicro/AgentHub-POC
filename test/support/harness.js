@@ -125,8 +125,11 @@ export async function startLibrary(env = {}) {
 // HR (staff only): time-off requests; its records live in memory, so every test HR starts fresh.
 export const HR_READY = /\[HR Agent\] listening on (http:\/\/127\.0\.0\.1:\d+)/;
 // PEOPLESOFT_URL defaults to a closed port, so a test HR never reaches a real PeopleSoft on 41246.
+// The test HR's "today" is pinned (HR_NOW, a Wednesday with no holiday in the days after it): tests say "Friday" or
+// "Thursday", and on 2026-11-21 those landed on the Thanksgiving holidays and ten tests failed for the date alone.
+export const HR_TEST_NOW = '2026-11-04T20:00:00Z';
 export async function startHr(env = {}) {
-  const hr = startProcess('src/hr-agent.js', { PORT: '0', PEOPLESOFT_URL: 'http://127.0.0.1:9', ...env }, HR_READY);
+  const hr = startProcess('src/hr-agent.js', { PORT: '0', PEOPLESOFT_URL: 'http://127.0.0.1:9', HR_TEST_HOOKS: '1', HR_NOW: HR_TEST_NOW, ...env }, HR_READY);
   hr.url = await hr.ready;
   return hr;
 }

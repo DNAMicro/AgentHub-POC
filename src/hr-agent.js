@@ -32,6 +32,7 @@ import { A2UI_EXTENSION_URI, A2UI_MIME_TYPE, BASIC_CATALOG_ID, WORKFLOWS, buildT
 import { createFormHost } from './form-host.js';
 import { createPeopleSoftLink } from './hr-peoplesoft.js';
 import { planAbsence } from './leave-rules.js';
+import { nowFn } from './test-clock.js';
 import { TIMEOUTS } from './timeouts.js';
 import { CREDIT_LABEL, PROOF, STANDARD_DAY, daysText, defaultReason, isPair, nameOf, shortDate, spreadOf, titleOf, whenText, workdays } from './absence-types.js';
 import { isAppointment, mentionsIllness, asksBalance, asksRequests, dayReferences, mentionedDays, mentionsDay, mentionsHours, readPartial, readEditHours, readRequest } from './hr-intent.js';
@@ -47,6 +48,7 @@ const MAX_LEDGER = 500;
 
 const log = (...args) => console.log('[HR Agent]', ...args);
 const vizEvents = new EventEmitter();
+const clock = nowFn(process.env, 'HR'); // today, for “Friday” / “tomorrow”; HR_NOW pins it only with HR_TEST_HOOKS=1
 const emitViz = (type, runId, data) => vizEvents.emit('event', { source: 'hr', type, runId, at: new Date().toISOString(), data });
 const textOf = (message) => message.parts.filter((p) => p.content?.$case === 'text').map((p) => p.content.value).join('');
 
@@ -315,7 +317,7 @@ function readOnce(ctx, text, runId) {
     emitViz('model_call_reused', runId, { contextId: ctx.contextId, messageId: ctx.userMessage.messageId });
     return ledger.get(key);
   }
-  const promise = readRequest({ text, now: new Date(), emit: (type, data) => emitViz(type, runId, data) });
+  const promise = readRequest({ text, now: clock(), emit: (type, data) => emitViz(type, runId, data) });
   ledger.set(key, promise);
   promise.catch(() => {});
   if (ledger.size > MAX_LEDGER) ledger.delete(ledger.keys().next().value);
@@ -369,7 +371,7 @@ function merge(open, read, text, cardValues) {
   const clearDates = () => { values.beginDate = ''; values.endDate = ''; };
   // A follow-up that names one of the card's CURRENT days together with other days (“Move Friday to Monday and
   // Tuesday”, “Not Friday, Monday and Tuesday”, “Switch it from Friday to Monday”) is a change we can't read safely.
-  const said = mentionedDays(text);
+  const said = mentionedDays(text, clock());
   // …also by weekday NAME: said on a Friday about a card for today, “Make it Thursday and Friday” reads as next Thu+Fri
   // (a later weekday follows the earlier one), yet “Friday” is still the card's day — unclear, so ask.
   const cardDows = new Set();
@@ -400,7 +402,7 @@ function merge(open, read, text, cardValues) {
     let partial = null;
     let startAt = null;
     if (read.partial && read.prefill.beginDate === values.beginDate && read.prefill.endDate === values.endDate) ({ partial, startAt } = read);
-    else if ((!values.beginDate || values.beginDate === values.endDate) && dayReferences(text) <= 1) partial = readPartial(text) ?? readEditHours(text);
+    else if ((!values.beginDate || values.beginDate === values.endDate) && dayReferences(text, clock()) <= 1) partial = readPartial(text) ?? readEditHours(text);
     return { values, cardHours: null, partial, mode: partial?.mode ?? null, startAt: clockOf(partial, startAt), side: partial?.side ?? null, quote: quoteOf(read, values, before) };
   }
   return { values, ...kept, quote: quoteOf(read, values, before) };
